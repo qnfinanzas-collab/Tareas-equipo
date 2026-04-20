@@ -5,25 +5,33 @@ export function needsMargin(title){
   return TRANSPORT_KW.some(k=>(title||"").toLowerCase().includes(k));
 }
 
-export function calcFreeSlots(dayEvents, member, dateStr){
+export function calcFreeInRange(dayEvents, member, dateStr, rangeStart, rangeEnd){
   const avail=member.avail;
   const margin=(avail.transportMarginMins||30)/60;
-  const afS=toH(avail.afternoonStart||"14:30");
-  const afE=toH(avail.afternoonEnd||"20:00");
   const dow=new Date(dateStr).getDay();
-  const fixed=(avail.blockedSlots||[]).filter(b=>b.days.includes(dow)).map(b=>({s:toH(b.start),e:toH(b.end)}));
-  const cal=dayEvents.filter(e=>e.endH>afS&&e.startH<afE).map(e=>({
-    s:e.hasMargin?Math.max(afS,e.startH-margin):e.startH,
-    e:e.hasMargin?Math.min(afE,e.endH+margin):e.endH,
+  const fixed=(avail.blockedSlots||[]).filter(b=>b.days.includes(dow)).map(b=>({s:toH(b.start),e:toH(b.end)})).filter(b=>b.e>rangeStart&&b.s<rangeEnd).map(b=>({s:Math.max(rangeStart,b.s),e:Math.min(rangeEnd,b.e)}));
+  const cal=dayEvents.filter(e=>e.endH>rangeStart&&e.startH<rangeEnd).map(e=>({
+    s:Math.max(rangeStart,e.hasMargin?e.startH-margin:e.startH),
+    e:Math.min(rangeEnd,e.hasMargin?e.endH+margin:e.endH),
   }));
   const blocks=[...fixed,...cal].sort((a,b)=>a.s-b.s);
-  const free=[]; let cur=afS;
+  const free=[]; let cur=rangeStart;
   for(const b of blocks){
     if(b.s>cur+0.25) free.push({start:cur,end:b.s,hours:b.s-cur});
     cur=Math.max(cur,b.e);
   }
-  if(afE>cur+0.25) free.push({start:cur,end:afE,hours:afE-cur});
+  if(rangeEnd>cur+0.25) free.push({start:cur,end:rangeEnd,hours:rangeEnd-cur});
   return free;
+}
+
+export function calcFreeSlots(dayEvents, member, dateStr){
+  const avail=member.avail;
+  return calcFreeInRange(dayEvents,member,dateStr,toH(avail.afternoonStart||"14:30"),toH(avail.afternoonEnd||"20:00"));
+}
+
+export function calcFreeMorning(dayEvents, member, dateStr){
+  const avail=member.avail;
+  return calcFreeInRange(dayEvents,member,dateStr,toH(avail.morningStart||"08:00"),toH(avail.morningEnd||"13:00"));
 }
 
 export function getAvailHours(member,dateStr){

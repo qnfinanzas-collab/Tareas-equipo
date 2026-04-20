@@ -6,7 +6,7 @@ import { TODAY, fmt, D, dayName, daysUntil, toH, fromH } from "./lib/date.js";
 import { fmtSecs, fmtH } from "./lib/time.js";
 import { getQ } from "./lib/eisenhower.js";
 import {
-  needsMargin, calcFreeSlots, getAvailHours, getBlockLabels, getWorkDays,
+  needsMargin, calcFreeSlots, calcFreeMorning, getAvailHours, getBlockLabels, getWorkDays,
 } from "./lib/availability.js";
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
@@ -42,16 +42,20 @@ async function runPlanner(boards,members,existing){
         const avH=getAvailHours(m,day); if(avH<=0)continue;
         const used=load[mid][day]||0;
         const dayIcs=(ics[mid]||[]).filter(e=>e.date===day);
-        const freeAft=m.avail.icsUrl?calcFreeSlots(dayIcs,m,day):[];
-        const freeAftH=m.avail.icsUrl?freeAft.reduce((s,x)=>s+x.hours,0):Math.max(0,avH-mornH);
-        const totalFree=mornH+freeAftH-used;
+        const hasIcs=!!m.avail.icsUrl;
+        const freeMorn=hasIcs?calcFreeMorning(dayIcs,m,day):[];
+        const freeAft=hasIcs?calcFreeSlots(dayIcs,m,day):[];
+        const freeMornH=hasIcs?freeMorn.reduce((s,x)=>s+x.hours,0):mornH;
+        const freeAftH=hasIcs?freeAft.reduce((s,x)=>s+x.hours,0):Math.max(0,avH-mornH);
+        const totalFree=freeMornH+freeAftH-used;
         if(totalFree<=0)continue;
         const toSched=Math.min(left,totalFree,4);
         if(toSched<0.5)continue;
         const key=`${mid}_${day}`;
         if(!freeSlotMap[key])freeSlotMap[key]=freeAft;
         let startTime=m.avail.morningStart||"08:00";
-        if(used>=mornH){ startTime=freeAft.length>0?fromH(freeAft[0].start):m.avail.afternoonStart||"14:30"; }
+        if(hasIcs&&freeMorn.length>0) startTime=fromH(freeMorn[0].start);
+        if(used>=freeMornH){ startTime=freeAft.length>0?fromH(freeAft[0].start):m.avail.afternoonStart||"14:30"; }
         schedule.push({ id:`s-${task.id}-${mid}-${day}`,taskId:task.id,taskTitle:task.title,memberId:mid,date:day,startTime,hours:toSched,quadrant:getQ(task),priority:task.priority,fromICS:dayIcs.length>0 });
         load[mid][day]=(load[mid][day]||0)+toSched;
         left-=toSched;
@@ -303,7 +307,22 @@ function ProfileModal({member,onClose,onSave}){
 
           <FL c="Google Calendar — URL secreta ICS"/>
           <FI value={avail.icsUrl||""} onChange={v=>setAvail(p=>({...p,icsUrl:v}))} placeholder="https://calendar.google.com/calendar/ical/...basic.ics"/>
-          {avail.icsUrl&&<div style={{fontSize:10,background:"#E1F5EE",color:"#085041",border:"1px solid #1D9E75",borderRadius:6,padding:"3px 8px",marginTop:4}}>Calendario conectado — el planificador leera tus eventos de tarde automaticamente</div>}
+          {avail.icsUrl&&(()=>{
+            const cached=ICS_CACHE[member.id];
+            const today=fmt(TODAY);
+            const todayEvs=cached?cached.filter(e=>e.date===today):null;
+            return(
+              <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:4}}>
+                <div style={{fontSize:10,background:"#E1F5EE",color:"#085041",border:"1px solid #1D9E75",borderRadius:6,padding:"3px 8px"}}>Calendario conectado — el planificador respeta mañana y tarde</div>
+                {cached===undefined?(
+                  <div style={{fontSize:10,background:"#FEF3C7",color:"#92400E",border:"1px solid #F59E0B",borderRadius:6,padding:"3px 8px"}}>📅 Sin sincronizar aún — ejecuta el Planificador IA para cargar eventos</div>
+                ):(
+                  <div style={{fontSize:10,background:cached.length>0?"#EEF2FF":"#FEE2E2",color:cached.length>0?"#3730A3":"#991B1B",border:`1px solid ${cached.length>0?"#6366F1":"#EF4444"}`,borderRadius:6,padding:"3px 8px"}}>📅 {cached.length} eventos cargados · hoy: {todayEvs?.length||0} {cached.length===0?"— revisa la URL o el proxy CORS":""}</div>
+                )}
+                <button onClick={()=>{delete ICS_CACHE[member.id];alert("Caché ICS limpiada. Ejecuta el planificador para recargar.");}} style={{alignSelf:"flex-start",fontSize:10,padding:"2px 8px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",color:"#6b7280"}}>🔄 Limpiar caché ICS</button>
+              </div>
+            );
+          })()}
 
           <FL c="Margen de transporte (minutos)"/>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
@@ -444,8 +463,11 @@ function PlannerView({data,onApplySchedule}){
                     </td>
                     {workDays.map(d=>{
                       const avH=getAvailHours(m,d);
+                      const icsEvs=(ICS_CACHE[m.id]||[]).filter(e=>e.date===d);
+                      const icsBusyH=m.avail?.icsUrl&&ICS_CACHE[m.id]?icsEvs.reduce((s,e)=>s+(e.endH-e.startH),0):0;
+                      const effectiveH=Math.max(0,avH-icsBusyH);
                       const used=result?(result.load[m.id]?.[d]||0):0;
-                      const pct=avH>0?Math.min(Math.round(used/avH*100),100):0;
+                      const pct=effectiveH>0?Math.min(Math.round(used/effectiveH*100),100):0;
                       const exc=m.avail.exceptions?.find(e=>e.date===d);
                       const labels=getBlockLabels(m,d);
                       return(
@@ -457,7 +479,7 @@ function PlannerView({data,onApplySchedule}){
                               <div style={{height:26,background:"#f3f4f6",borderRadius:6,overflow:"hidden",position:"relative",marginBottom:2}}>
                                 <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
                                   <div style={{height:"100%",width:`${pct}%`,background:pct>=90?"#E24B4A":pct>=70?"#EF9F27":"#1D9E75",position:"absolute",left:0,top:0,opacity:0.7,borderRadius:6}}/>
-                                  <span style={{fontSize:10,fontWeight:600,position:"relative",color:pct>50?"#fff":"#374151"}}>{avH}h</span>
+                                  <span style={{fontSize:10,fontWeight:600,position:"relative",color:pct>50?"#fff":"#374151"}}>{effectiveH.toFixed(icsBusyH>0?1:0)}h{icsBusyH>0?<span style={{fontSize:8,opacity:0.8}}> /{avH}</span>:null}</span>
                                 </div>
                               </div>
                               {labels.slice(0,2).map((bl,bi)=>(
