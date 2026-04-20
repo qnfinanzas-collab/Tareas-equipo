@@ -1064,19 +1064,8 @@ export function executeScopedCommand(cmd, { scope, data, activeProjectId, active
 // LLM (Anthropic) — conversación real con el agente usando su promptBase
 // ═══════════════════════════════════════════════════════════════════════════
 
-const LLM_KEY_STORAGE = "tf_anthropic_key";
-const LLM_MODEL = "claude-sonnet-4-5-20250929";
-
-export function getLLMKey(){
-  try { return localStorage.getItem(LLM_KEY_STORAGE) || ""; } catch { return ""; }
-}
-export function setLLMKey(key){
-  try {
-    if(key) localStorage.setItem(LLM_KEY_STORAGE, key);
-    else localStorage.removeItem(LLM_KEY_STORAGE);
-  } catch {}
-}
-export function hasLLMKey(){ return !!getLLMKey(); }
+// LLM corre a través del proxy /api/agent (Vercel function con ANTHROPIC_API_KEY).
+// El usuario no ve ni configura ninguna key.
 
 function buildTaskContext(task, members){
   const q = getQ(task);
@@ -1097,9 +1086,6 @@ function buildTaskContext(task, members){
 }
 
 export async function llmAgentReply(userText, task, agent, members, history){
-  const key = getLLMKey();
-  if(!key) throw new Error("NO_API_KEY");
-
   const systemPrompt = [
     agent.promptBase || `Eres ${agent.name}, ${agent.role||"asesor profesional"}.`,
     "",
@@ -1119,26 +1105,14 @@ export async function llmAgentReply(userText, task, agent, members, history){
   });
   messages.push({ role:"user", content: userText });
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("/api/agent", {
     method:"POST",
-    headers:{
-      "content-type":"application/json",
-      "x-api-key": key,
-      "anthropic-version":"2023-06-01",
-      "anthropic-dangerous-direct-browser-access":"true",
-    },
-    body: JSON.stringify({
-      model: LLM_MODEL,
-      max_tokens: 600,
-      system: systemPrompt,
-      messages,
-    }),
+    headers:{ "content-type":"application/json" },
+    body: JSON.stringify({ system: systemPrompt, messages, max_tokens: 600 }),
   });
+  const data = await res.json().catch(()=>({}));
   if(!res.ok){
-    const errText = await res.text().catch(()=>"");
-    throw new Error(`HTTP ${res.status}: ${errText.slice(0,200)}`);
+    throw new Error(data.error || `HTTP ${res.status}`);
   }
-  const data = await res.json();
-  const text = (data.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\n").trim();
-  return text || "(respuesta vacía del modelo)";
+  return data.text || "(respuesta vacía del modelo)";
 }
