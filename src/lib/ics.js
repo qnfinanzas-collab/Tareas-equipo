@@ -90,8 +90,10 @@ function splitByDay(occ, title){
     const isFirst = fmt(cursor)===fmt(start);
     const isLast  = fmt(cursor)===fmt(end);
     const startH = isFirst ? start.getHours()+start.getMinutes()/60 : 0;
-    const endH   = isLast  ? Math.max(startH+0.01, end.getHours()+end.getMinutes()/60) : 24;
-    out.push({ date: fmt(cursor), startH, endH });
+    const rawEndH = isLast ? end.getHours()+end.getMinutes()/60 : 24;
+    // Skip zero-length segments (e.g. all-day event ending at next-day midnight)
+    if(rawEndH<=startH){ cursor.setDate(cursor.getDate()+1); continue; }
+    out.push({ date: fmt(cursor), startH, endH: rawEndH });
     cursor.setDate(cursor.getDate()+1);
   }
   return out;

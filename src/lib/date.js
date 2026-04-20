@@ -2,7 +2,11 @@ import { DOW } from "./constants.js";
 
 export const TODAY = new Date(); TODAY.setHours(0,0,0,0);
 
-export const fmt = d => d.toISOString().slice(0,10);
+// Local-date YYYY-MM-DD — using toISOString() would shift by TZ offset near midnight.
+export const fmt = d => {
+  const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+};
 
 export const D = n => { const d=new Date(TODAY); d.setDate(d.getDate()+n); return fmt(d); };
 
