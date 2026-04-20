@@ -1,0 +1,13 @@
+{
+  "name": "TaskFlow",
+  "short_name": "TaskFlow",
+  "description": "Gestión de tareas y equipos con asesor IA",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f9fafb",
+  "theme_color": "#7F77DD",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
