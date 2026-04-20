@@ -251,7 +251,15 @@ const INITIAL_DATA = {
 const LS_KEY = 'taskflow_v1';
 function _migrate(d){
   if(!d.workspaces) d.workspaces = [];
-  if(!d.agents) d.agents = [];
+  if(!d.agents || d.agents.length===0){
+    d._seededAgents = d._seededAgents || false;
+    if(!d._seededAgents){
+      d.agents = JSON.parse(JSON.stringify(INITIAL_DATA.agents||[]));
+      d._seededAgents = true;
+    } else {
+      d.agents = [];
+    }
+  }
   d.projects = (d.projects||[]).map(p=>({...p, workspaceId: p.workspaceId ?? null}));
   d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[]}))}))]));
   return d;
