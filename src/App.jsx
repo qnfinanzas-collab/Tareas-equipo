@@ -11,7 +11,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand } from "./lib/agent.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen } from "./lib/voice.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
@@ -806,7 +806,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
             <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280",lineHeight:1}}>x</button>
           </div>
         </div>
-        {avatarOpen&&<AvatarModal task={task} members={members} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})} onMutateTask={newTask=>onUpdate(task.id,colId,newTask)}/>}
+        {avatarOpen&&<AvatarModal task={task} members={members} connectedAgents={(agents||[]).filter(a=>(task.agentIds||[]).includes(a.id))} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})} onMutateTask={newTask=>onUpdate(task.id,colId,newTask)}/>}
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
           {[["detail","Detalle"],["subtasks","Subtareas"],["links","Enlaces"],["time","Tiempo"],["comments","Comentarios"]].map(([k,l])=>(
@@ -1032,16 +1032,19 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
 }
 
 // ── Asesor IA (voz del navegador) ─────────────────────────────────────────────
-function AvatarModal({task,members,onClose,onSetCategory,onMutateTask}){
+function AvatarModal({task,members,connectedAgents,onClose,onSetCategory,onMutateTask}){
   const support = voiceSupported();
-  const initialKey = task.category || "gestion";
+  const customAgents = connectedAgents||[];
+  const hasCustom = customAgents.length>0;
+  const initialKey = hasCustom ? `agent_${customAgents[0].id}` : (task.category || "gestion");
   const [avatarKey,setAvatarKey] = useState(initialKey);
   const [messages,setMessages] = useState([]);
   const [listening,setListening] = useState(false);
   const [speaking,setSpeaking] = useState(false);
   const [interim,setInterim] = useState("");
   const stopFnRef = useRef(null);
-  const av = AVATARS[avatarKey];
+  const activeAgent = avatarKey.startsWith("agent_") ? customAgents.find(a=>`agent_${a.id}`===avatarKey) : null;
+  const av = activeAgent ? agentToAvatar(activeAgent) : AVATARS[avatarKey];
 
   const say = useCallback((text, role="avatar")=>{
     setMessages(m=>[...m,{role,text,ts:Date.now()}]);
@@ -1053,7 +1056,7 @@ function AvatarModal({task,members,onClose,onSetCategory,onMutateTask}){
 
   useEffect(()=>{
     setMessages([]);
-    const text = buildBriefing(task,avatarKey);
+    const text = activeAgent ? buildAgentBriefing(task,activeAgent) : buildBriefing(task,avatarKey);
     say(text,"avatar");
     return ()=>{ stopSpeaking(); if(stopFnRef.current) stopFnRef.current(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1072,9 +1075,9 @@ function AvatarModal({task,members,onClose,onSetCategory,onMutateTask}){
       }
     }
     // 2) Si no, respuesta informativa
-    const reply = respondToQuery(text,task,avatarKey,members);
+    const reply = activeAgent ? respondAgentQuery(text,task,activeAgent,members) : respondToQuery(text,task,avatarKey,members);
     setTimeout(()=>say(reply,"avatar"),200);
-  },[task,avatarKey,members,say,onMutateTask]);
+  },[task,avatarKey,activeAgent,members,say,onMutateTask]);
 
   const startListen = ()=>{
     stopSpeaking(); setSpeaking(false);
@@ -1117,6 +1120,9 @@ function AvatarModal({task,members,onClose,onSetCategory,onMutateTask}){
         </div>
 
         <div style={{padding:"10px 18px",borderBottom:"0.5px solid #e5e7eb",display:"flex",gap:6,flexWrap:"wrap",background:"#fafafa"}}>
+          {customAgents.map(ag=>{ const k=`agent_${ag.id}`; const a=agentToAvatar(ag); const sel=avatarKey===k; return(
+            <button key={k} onClick={()=>{ stopSpeaking(); stopListen(); setAvatarKey(k); }} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 9px",borderRadius:16,border:`1px solid ${sel?a.color:"#e5e7eb"}`,background:sel?a.color+"15":"#fff",cursor:"pointer",fontSize:11,fontWeight:600,color:sel?a.color:"#6b7280"}}>{a.icon} {a.label}</button>
+          );})}
           {AVATAR_KEYS.map(k=>{ const a=AVATARS[k]; const sel=avatarKey===k; return(
             <button key={k} onClick={()=>{ stopSpeaking(); stopListen(); setAvatarKey(k); onSetCategory?.(k); }} style={{display:"flex",alignItems:"center",gap:4,padding:"4px 9px",borderRadius:16,border:`1px solid ${sel?a.color:"#e5e7eb"}`,background:sel?a.color+"15":"#fff",cursor:"pointer",fontSize:11,fontWeight:600,color:sel?a.color:"#6b7280"}}>{a.icon} {a.label}</button>
           );})}
