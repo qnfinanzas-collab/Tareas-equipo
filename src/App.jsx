@@ -366,13 +366,23 @@ function ProfileModal({member,onClose,onSave}){
 }
 
 // ── Planner View ──────────────────────────────────────────────────────────────
-function PlannerView({data,onApplySchedule,saveMemberProfile}){
+function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
   const [result,setResult]=useState(null);
   const [running,setRunning]=useState(false);
   const [icsStatus,setIcsStatus]=useState({});
   const [waSent,setWaSent]=useState({});
   const [profileMember,setProfileMember]=useState(null);
+  const [editingTask,setEditingTask]=useState(null);
   const [localMembers,setLocalMembers]=useState(data.members);
+  const findTaskContext=useCallback(taskId=>{
+    for(const pid in data.boards){
+      for(const col of data.boards[pid]){
+        const t=col.tasks.find(x=>x.id===taskId);
+        if(t)return{task:t,colId:col.id,cols:data.boards[pid]};
+      }
+    }
+    return null;
+  },[data.boards]);
   const workDays=getWorkDays(fmt(TODAY),10);
 
   const run=async()=>{
@@ -549,7 +559,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile}){
                   </div>
                   {myLog.length===0&&<div style={{fontSize:11,color:"#9ca3af",textAlign:"center",padding:8}}>Sin tareas</div>}
                   {myLog.slice(0,4).map((log,i)=>(
-                    <div key={i} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"5px 0",borderTop:i>0?"0.5px solid #f3f4f6":"none"}}>
+                    <div key={i} onClick={()=>{const ctx=findTaskContext(log.taskId); if(ctx)setEditingTask(ctx);}} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"5px 0",borderTop:i>0?"0.5px solid #f3f4f6":"none",cursor:"pointer",borderRadius:4}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                       <QBadge q={log.quadrant}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:11,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{log.taskTitle}</div>
@@ -622,6 +632,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile}){
       )}
 
       {profileMember&&<ProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onSave={avail=>{setLocalMembers(prev=>prev.map(m=>m.id===profileMember.id?{...m,avail}:m));saveMemberProfile?.(profileMember.id,avail);delete ICS_CACHE[profileMember.id];setResult(null);}}/>}
+      {editingTask&&<TaskModal task={editingTask.task} colId={editingTask.colId} cols={editingTask.cols} members={data.members} activeMemberId={0} workspaceLinks={[]} onClose={()=>setEditingTask(null)} onUpdate={(id,cid,upd)=>{onUpdateTask?.(id,upd);setEditingTask(prev=>prev?{...prev,task:upd}:null);}} onMove={()=>setEditingTask(null)}/>}
     </div>
   );
 }
@@ -1849,6 +1860,9 @@ export default function TaskFlow(){
   const updateTask = useCallback((taskId,colId,updated)=>{
     setData(prev=>{ const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:col.tasks.map(t=>t.id===taskId?updated:t)}:col); return{...prev,boards:{...prev.boards,[proj.id]:cols}}; });
   },[proj.id]);
+  const updateTaskAnywhere = useCallback((taskId,updated)=>{
+    setData(prev=>{ const newBoards={}; for(const pid in prev.boards){ newBoards[pid]=prev.boards[pid].map(col=>({...col,tasks:col.tasks.map(t=>t.id===taskId?updated:t)})); } return{...prev,boards:newBoards}; });
+  },[]);
   const moveTask = useCallback((taskId,fromColId,toColId)=>{
     setData(prev=>{ const cols=prev.boards[proj.id]; const fc=cols.find(c=>c.id===fromColId); const task=fc.tasks.find(t=>t.id===taskId); const nc=cols.map(col=>{ if(col.id===fromColId)return{...col,tasks:col.tasks.filter(t=>t.id!==taskId)}; if(col.id===toColId)return{...col,tasks:[...col.tasks,task]}; return col; }); return{...prev,boards:{...prev.boards,[proj.id]:nc}}; });
     addToast("Tarea movida","info");
@@ -1994,7 +2008,7 @@ export default function TaskFlow(){
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
-          {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile}/>}
+          {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile} onUpdateTask={updateTaskAnywhere}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
           {activeTab==="team"      &&<TeamView project={proj} members={data.members} projects={data.projects} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onEditProfile={m=>setPM(m)}/>}
         </div>
