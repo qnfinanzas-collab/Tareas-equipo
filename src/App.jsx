@@ -10,6 +10,7 @@ import {
 } from "./lib/availability.js";
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
+import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
 async function runPlanner(boards,members,existing){
@@ -1789,6 +1790,9 @@ function WorkspacesView({workspaces,projects,boards,onCreate,onEdit,onSelectProj
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function TaskFlow(){
   const [data,setData]             = useState(_saved);
+  const isRemoteUpdate             = useRef(false);
+  const [syncReady,setSyncReady]   = useState(!syncEnabled);
+  const [syncStatus,setSyncStatus] = useState(syncEnabled?"connecting":"off");
   const [activeProject,setAP]      = useState(0);
   const [activeTab,setActiveTab]   = useState("projects");
   const [activeMember,setAM]       = useState(5);
@@ -1800,10 +1804,34 @@ export default function TaskFlow(){
   const [workspaceModal,setWorkspaceModal]= useState(null); // null | "create" | workspace object
   const [toasts,setToasts]          = useState([]);
 
-  // Persistencia automática en cada cambio de datos
+  // Persistencia automática en cada cambio de datos (local + remoto)
   useEffect(()=>{
     try{ localStorage.setItem(LS_KEY,JSON.stringify(data)); }catch(e){}
-  },[data]);
+    if(!syncReady) return;
+    if(isRemoteUpdate.current){ isRemoteUpdate.current=false; return; }
+    pushState(data);
+  },[data,syncReady]);
+
+  // Sync inicial + subscripción realtime
+  useEffect(()=>{
+    if(!syncEnabled) return;
+    let cancelled=false;
+    fetchState().then(remote=>{
+      if(cancelled) return;
+      if(remote && Object.keys(remote).length>0 && remote.projects){
+        isRemoteUpdate.current=true;
+        setData(_migrate(remote));
+      }
+      setSyncReady(true);
+      setSyncStatus("connected");
+    }).catch(()=>{ if(!cancelled){ setSyncReady(true); setSyncStatus("error"); } });
+    const unsub=subscribeState(remote=>{
+      if(!remote || !remote.projects) return;
+      isRemoteUpdate.current=true;
+      setData(_migrate(remote));
+    });
+    return ()=>{ cancelled=true; unsub(); };
+  },[]);
 
   const toastIdRef=useRef(0);
   const addToast=useCallback((msg,type="success")=>{
@@ -1938,6 +1966,7 @@ export default function TaskFlow(){
         <div style={{padding:"16px 16px 12px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:30,height:30,background:"#7F77DD",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700}}>TF</div>
           <span style={{fontWeight:600,fontSize:15}}>TaskFlow</span>
+          <span title={syncStatus==="connected"?"Sincronizado con Supabase":syncStatus==="connecting"?"Conectando…":syncStatus==="error"?"Error de sincronización":"Solo local (sin sync)"} style={{marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:syncStatus==="connected"?"#10b981":syncStatus==="connecting"?"#f59e0b":syncStatus==="error"?"#ef4444":"#9ca3af"}}/>
         </div>
         <div style={{padding:"10px 12px",borderBottom:"0.5px solid #e5e7eb",background:"#fafafa"}}>
           <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Vista como</div>
