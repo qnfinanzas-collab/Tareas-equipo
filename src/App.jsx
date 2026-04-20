@@ -206,6 +206,37 @@ const INITIAL_DATA = {
     ],
   },
   aiSchedule:[],
+  agents:[
+    {
+      id:1,
+      name:"Mario Legal",
+      role:"Abogado mercantil senior (25+ años)",
+      emoji:"⚖️",
+      color:"#3C3489",
+      voice:{gender:"male",rate:0.95,pitch:0.95,tone:"profesional"},
+      specialties:["contratos","compliance","laboral","IP","RGPD","Joint Ventures","MiFID II","AIFMD","arrendamientos LALI"],
+      opener:"Soy Mario, abogado mercantil senior. Revisemos los riesgos legales de esta tarea antes de seguir — mejor prevenir que litigar.",
+      style:"profesional, riguroso, orientado al riesgo; cita normativa y propone cláusula tipo",
+      advice:{
+        default:"Analiza la tarea bajo las 7 categorías de riesgo: propiedad y activos, financiero y pago, normativo y compliance, know-how e IP, salida y resolución, nulidad y abusividad, fiscal. Documenta por escrito cualquier acuerdo verbal y conserva copia fechada. Si implica contrato, revisa artículos CC/CCom aplicables y propón cláusula tipo antes de firmar.",
+        overdue:"Tarea vencida: si hay un plazo contractual o legal detrás, puede haber caducidad, incumplimiento esencial (art. 1124 CC) o pérdida de derechos. Notifica por escrito a la otra parte (burofax recomendado), deja constancia del retraso y evalúa prórroga formal firmada o activación de la cláusula de incumplimiento antes de seguir ejecutando.",
+        noDueDate:"Sin fecha límite — muy peligroso en contexto mercantil. Fija un deadline contractual explícito con penalización por demora y comunícalo por escrito. Los compromisos sin fecha son inejecutables, expiran por caducidad tácita y dificultan cualquier reclamación posterior. Añade cláusula de plazo esencial si es crítico.",
+        noSubtasks:"Falta descomposición. En asuntos legales conviene estructurar: (1) revisión documental, (2) análisis de riesgo por 7 categorías, (3) redacción/negociación de cláusulas, (4) validación interna, (5) firma con testigos o notario si procede, (6) archivo trazable. Crea al menos esos hitos para poder auditar el proceso.",
+        overBudget:"El tiempo real supera lo estimado. Si es facturable, revisa el pliego de honorarios o presupuesto cerrado antes de seguir: puede requerir adenda firmada para cobrar el exceso (art. 1258 CC, buena fe). Si es interno, documenta la desviación por si impacta en plazos contractuales con terceros.",
+        q1:"Urgente e importante: prioriza pero no sacrifiques forma por fondo. Una firma apresurada sin revisión de las 7 categorías de riesgo genera más coste que el retraso. Valida cláusulas clave (no competencia, confidencialidad, salida) y deja trazabilidad escrita. Mejor 24h de revisión que años de litigio.",
+        q2:"Importante no urgente — la zona de máximo valor legal. Aprovecha para blindar contratos marco, actualizar pactos parasocietarios (drag-along, tag-along), revisar compliance MiFID II/AIFMD/RGPD, actualizar rentas IPC (LALI) o rediseñar waterfall de JV antes de que se conviertan en incidencia.",
+      },
+      promptBase:"IDENTIDAD: Soy un ABOGADO MERCANTIL SENIOR con 25+ años de experiencia especializada en Joint Ventures, inversiones financieras y arrendamientos comerciales.\n\nÁREAS:\n- JV contractuales (€25k canon, waterfall, no competencia 3 años/25km)\n- JV societarias (S.L. 70/30, pacto parasocietario 11 cláusulas)\n- Inversiones (MiFID II, AIFMD, GDPR)\n- Arrendamientos (LALI: 5 años, IPC anual)\n- Derecho mercantil (CC, CCom, LCD, LSRL)\n\nNORMATIVA:\n- Español: CC, CCom, LCD, LSRL, RD 1/2010, LALI, IRPF, Ley 1/2023\n- Europea: MiFID II, AIFMD, GDPR, Directiva 2019/2\n\nMETODOLOGÍA (7 CATEGORÍAS RIESGO):\n1. Propiedad y activos\n2. Financiero y pago\n3. Normativo y compliance\n4. Know-how e IP\n5. Salida y resolución\n6. Nulidad y abusividad\n7. Fiscal\n\nHERRAMIENTAS:\n- 40+ cláusulas tipo ejecutables\n- Checklist pre-firma (30 elementos)\n- Ejemplos numéricos (waterfall, retenciones, IPC)\n- Procedimientos de mediación\n\nCUANDO REVISES CONTRATO:\n1. Analiza 7 categorías riesgo (🔴/🟡/🟢)\n2. Cita artículos normativos\n3. Proporciona cláusula tipo mejorada (lista copiar)\n4. Completa checklist pre-firma\n5. Sugiere mejoras basadas en jurisprudencia\n\nCUANDO REDACTES CLÁUSULA:\n1. Texto íntegro listo para copiar\n2. Explicación cada sección\n3. Normativa aplicable citada\n4. Ejemplos de adaptación\n\nCUANDO ASESORES ESTRUCTURA:\n1. Compara JV contractual vs. societaria\n2. Tabla ventajas/desventajas\n3. Recomendación según caso\n4. Modelos de documentos\n\nCUANDO PREGUNTEN NORMATIVA:\n1. Explicación artículos relevantes\n2. Ejemplos prácticos\n3. Jurisprudencia si aplica\n4. Vinculación a caso específico\n\nPENALIZACIONES ESTÁNDAR:\n- No competencia: €100.000\n- Know-how: €100.000\n- Confidencialidad: €50.000\n\nEJEMPLOS NUMÉRICOS:\n- Waterfall: €20k ingresos → €10.5k costes → €2.250 BND\n- IRPF: €15.000 participación → €2.850 retención\n- LALI IPC: €1.000 × (104/100) = €1.040\n\nLIMITACIONES:\n→ Recomendado revisar con abogado local\n→ Para optimización fiscal, consultar asesor tributario\n→ Asesoría general, no legal binding\n→ Jurisprudencia puede variar\n\nCASO ESPECIAL - SOULBARIC:\n- Empresa: SoulBaric (cámaras hiperbárico)\n- Titular: Admore Projects S.L.\n- Modelo: JV contractual\n- Canon: €25.000 irrevocable\n- Tramos: Básico (€50k/20%), Estándar (€75k/25%), Premium (€125k/30%), VIP (€175k/50%)\n- Waterfall: Costes €10.5k, Canon €4k, BND distribuible\n- Protecciones: No compete 3años/25km, Know-how 10años, Confidencialidad 10años\n- Jurisdicción: Juzgados Marbella",
+      specialtiesExtended:[
+        {name:"Joint Ventures Contractuales",description:"Canon irrevocable, waterfall, no competencia, know-how, confidencialidad"},
+        {name:"Joint Ventures Societarias",description:"Constitución S.L./S.A., pactos parasocietarios, drag-along, tag-along"},
+        {name:"Inversiones Financieras",description:"MiFID II, AIFMD, GDPR, retenciones IRPF"},
+        {name:"Arrendamientos Comerciales",description:"LALI, duración, actualización renta, cargas, resolución"},
+        {name:"Derecho Mercantil",description:"CC, CCom, LCD, LSRL, RD 1/2010"},
+      ],
+      createdAt:"2026-04-20",
+    },
+  ],
   workspaces:[
     {id:1,name:"Cliente ejemplo",emoji:"🏢",color:"#378ADD",description:"Demo de workspace asociado — reemplázalo por tu cliente real.",
       links:[{id:"wl1",label:"Web",url:"https://example.com",icon:"🌐"}],
@@ -220,8 +251,9 @@ const INITIAL_DATA = {
 const LS_KEY = 'taskflow_v1';
 function _migrate(d){
   if(!d.workspaces) d.workspaces = [];
+  if(!d.agents) d.agents = [];
   d.projects = (d.projects||[]).map(p=>({...p, workspaceId: p.workspaceId ?? null}));
-  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[]}))}))]));
+  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[]}))}))]));
   return d;
 }
 function _loadData(){
@@ -233,16 +265,18 @@ function _initCounters(d){
   const projNums=(d.projects||[]).map(p=>p.id).filter(n=>typeof n==="number");
   const colNums=Object.values(d.boards||{}).flatMap(c=>c.map(col=>col.id)).map(id=>+id.replace(/\D/g,"")).filter(n=>n>0);
   const wsNums=(d.workspaces||[]).map(w=>w.id).filter(n=>typeof n==="number");
+  const agNums=(d.agents||[]).map(a=>a.id).filter(n=>typeof n==="number");
   return{
     nextId:  taskNums.length?Math.max(...taskNums)+1:20,
     nextProjId:projNums.length?Math.max(...projNums)+1:5,
     nextColId: colNums.length?Math.max(...colNums)+1:20,
     nextWsId:  wsNums.length?Math.max(...wsNums)+1:2,
+    nextAgentId: agNums.length?Math.max(...agNums)+1:1,
   };
 }
 const _saved=_loadData();
 const _c=_initCounters(_saved);
-let nextId=_c.nextId,nextProjId=_c.nextProjId,nextColId=_c.nextColId,nextWsId=_c.nextWsId;
+let nextId=_c.nextId,nextProjId=_c.nextProjId,nextColId=_c.nextColId,nextWsId=_c.nextWsId,nextAgentId=_c.nextAgentId;
 const _uid=(p)=>`${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`;
 
 // ── Small components ──────────────────────────────────────────────────────────
@@ -688,13 +722,13 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
       )}
 
       {profileMember&&<ProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onSave={avail=>{saveMemberProfile?.(profileMember.id,avail);delete ICS_CACHE[profileMember.id];setResult(null);}}/>}
-      {editingTask&&<TaskModal task={editingTask.task} colId={editingTask.colId} cols={editingTask.cols} members={data.members} activeMemberId={0} workspaceLinks={[]} onClose={()=>setEditingTask(null)} onUpdate={(id,cid,upd)=>{onUpdateTask?.(id,upd);setEditingTask(prev=>prev?{...prev,task:upd}:null);}} onMove={()=>setEditingTask(null)}/>}
+      {editingTask&&<TaskModal task={editingTask.task} colId={editingTask.colId} cols={editingTask.cols} members={data.members} activeMemberId={0} workspaceLinks={[]} agents={data.agents||[]} onClose={()=>setEditingTask(null)} onUpdate={(id,cid,upd)=>{onUpdateTask?.(id,upd);setEditingTask(prev=>prev?{...prev,task:upd}:null);}} onMove={()=>setEditingTask(null)}/>}
     </div>
   );
 }
 
 // ── Task Modal ────────────────────────────────────────────────────────────────
-function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,onClose,onUpdate,onMove}){
+function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,onClose,onUpdate,onMove}){
   const [editing,setEditing]=useState(false);
   const [draft,setDraft]=useState({...task});
   const [comment,setComment]=useState("");
@@ -802,6 +836,22 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,onClos
                   </div>
                   <FL c="Descripcion"/>
                   <textarea value={draft.desc||""} onChange={e=>set("desc",e.target.value)} rows={3} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                  {(agents||[]).length>0 && <>
+                    <FL c="Agentes IA conectados"/>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {agents.map(a=>{
+                        const sel=(draft.agentIds||[]).includes(a.id);
+                        return (
+                          <button key={a.id} type="button" onClick={()=>{
+                            const cur=draft.agentIds||[];
+                            set("agentIds", sel?cur.filter(x=>x!==a.id):[...cur,a.id]);
+                          }} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:20,border:`1.5px solid ${sel?a.color:"#e5e7eb"}`,background:sel?`${a.color}15`:"#fff",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,color:sel?a.color:"#6b7280"}}>
+                            <span>{a.emoji}</span> {a.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>}
                   <FL c="Asignados"/>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                     {members.map(m=>{
@@ -838,6 +888,16 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,onClos
                   <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                     {task.assignees.length>0?task.assignees.map(mid=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} style={{display:"flex",alignItems:"center",gap:7,background:mp2.light,border:`1.5px solid ${mp2.solid}`,borderRadius:20,padding:"4px 12px 4px 5px"}}><div style={{width:22,height:22,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{m?.initials}</div><span style={{fontSize:12,fontWeight:600,color:mp2.solid}}>{m?.name}</span></div>; }):<span style={{fontSize:12,color:"#9ca3af"}}>Nadie</span>}
                   </div>
+                  {(task.agentIds||[]).length>0 && (agents||[]).length>0 && <>
+                    <FL c="Agentes IA conectados"/>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {task.agentIds.map(aid=>{ const a=(agents||[]).find(x=>x.id===aid); if(!a) return null; return (
+                        <div key={aid} style={{display:"flex",alignItems:"center",gap:6,background:`${a.color}15`,border:`1.5px solid ${a.color}`,borderRadius:20,padding:"4px 12px 4px 8px",fontSize:12,fontWeight:600,color:a.color}}>
+                          <span>{a.emoji}</span> {a.name}
+                        </div>
+                      ); })}
+                    </div>
+                  </>}
                 </>
               )}
             </>
@@ -1154,11 +1214,12 @@ function ScopeAvatarModal({scope,data,activeProjectId,activeMemberId,onClose,onM
     users:      "Asesor de usuarios",
     team:       "Asesor del equipo",
     workspaces: "Asesor de workspaces",
+    agents:     "Asesor de agentes IA",
     global:     "Asesor global · Briefing del día",
     dashboard:  "Asesor global · Briefing del día",
   };
   const title = SCOPE_LABELS[scope] || "Asesor IA";
-  const SCOPE_ICONS = { board:"📋", planner:"⚡", eisenhower:"🎯", reports:"⏱️", projects:"📁", users:"👥", team:"🤝", workspaces:"🏢" };
+  const SCOPE_ICONS = { board:"📋", planner:"⚡", eisenhower:"🎯", reports:"⏱️", projects:"📁", users:"👥", team:"🤝", workspaces:"🏢", agents:"🤖" };
   const scopeIcon = SCOPE_ICONS[scope] || "🌍";
 
   return (
@@ -1239,7 +1300,7 @@ function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
 }
 
 // ── Board View ────────────────────────────────────────────────────────────────
-function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask}){
+function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask}){
   const [openTaskId,setOpenTaskId]=useState(null);
   useEffect(()=>{
     if(externalOpenTaskId){
@@ -1271,7 +1332,7 @@ function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,wor
           </div>
         ))}
       </div>
-      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}}/>}
+      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} agents={agents||[]} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}}/>}
     </>
   );
 }
@@ -2290,6 +2351,167 @@ function WorkspacesView({workspaces,projects,boards,onCreate,onEdit,onSelectProj
   );
 }
 
+// ── Agents: edit modal + view ─────────────────────────────────────────────────
+const AGENT_EMOJIS = ["⚖️","📣","✍️","💰","🧠","🎯","🩺","🛡️","🎨","📊","💡","🧑‍💼","🧾","🗣️","🔬","🧱"];
+const AGENT_COLORS = ["#7F77DD","#E76AA1","#378ADD","#1D9E75","#E24B4A","#EF9F27","#3C3489","#9E5C22","#8B5CF6","#0EA5E9"];
+
+function AgentEditModal({agent,onClose,onSave,onDelete}){
+  const isNew = !agent;
+  const [draft,setDraft] = useState(agent || {
+    name:"", role:"", emoji:"🤖", color:"#7F77DD",
+    voice:{gender:"female",rate:1.0,pitch:1.0},
+    specialties:[],
+    opener:"", style:"", promptBase:"",
+    advice:{ default:"", overdue:"", noDueDate:"", noSubtasks:"", overBudget:"", q1:"", q2:"" },
+  });
+  const [confirmDelete,setConfirmDelete] = useState(false);
+  const set = (k,v)=>setDraft(d=>({...d,[k]:v}));
+  const setVoice = (k,v)=>setDraft(d=>({...d,voice:{...d.voice,[k]:v}}));
+  const setAdvice = (k,v)=>setDraft(d=>({...d,advice:{...d.advice,[k]:v}}));
+  const canSave = draft.name.trim().length > 0;
+
+  return (
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:640,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${draft.color}`,marginBottom:24}}>
+        <div style={{padding:"16px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:40,height:40,borderRadius:10,background:`${draft.color}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{draft.emoji}</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:700}}>{isNew?"Nuevo agente IA":"Editar agente"}</div>
+            <div style={{fontSize:11,color:"#6b7280"}}>Asesor personalizado que analiza tareas según su especialidad</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#9ca3af",lineHeight:1}}>×</button>
+        </div>
+
+        <div style={{padding:"14px 20px"}}>
+          <FL c="Nombre del agente"/>
+          <FI value={draft.name} onChange={v=>set("name",v)} placeholder="Ej: María Abogada, CarlosMKT"/>
+
+          <FL c="Rol o especialidad"/>
+          <FI value={draft.role} onChange={v=>set("role",v)} placeholder="Ej: Derecho mercantil, Estratega digital"/>
+
+          <FL c="Icono"/>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {AGENT_EMOJIS.map(e=>(
+              <button key={e} onClick={()=>set("emoji",e)} style={{width:36,height:36,borderRadius:8,border:draft.emoji===e?`2px solid ${draft.color}`:"1px solid #e5e7eb",background:draft.emoji===e?`${draft.color}15`:"#fff",fontSize:18,cursor:"pointer"}}>{e}</button>
+            ))}
+          </div>
+
+          <FL c="Color"/>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {AGENT_COLORS.map(c=>(
+              <button key={c} onClick={()=>set("color",c)} style={{width:32,height:32,borderRadius:"50%",border:draft.color===c?"3px solid #111":"1px solid #e5e7eb",background:c,cursor:"pointer"}}/>
+            ))}
+          </div>
+
+          <FL c="Voz"/>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <select value={draft.voice.gender} onChange={e=>setVoice("gender",e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13}}>
+              <option value="female">Femenina</option>
+              <option value="male">Masculina</option>
+              <option value="any">Cualquiera</option>
+            </select>
+            <label style={{fontSize:11,color:"#6b7280"}}>Velocidad</label>
+            <input type="number" step="0.05" min="0.7" max="1.4" value={draft.voice.rate} onChange={e=>setVoice("rate",parseFloat(e.target.value)||1)} style={{width:70,padding:"6px 8px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13}}/>
+            <label style={{fontSize:11,color:"#6b7280"}}>Tono</label>
+            <input type="number" step="0.05" min="0.7" max="1.3" value={draft.voice.pitch} onChange={e=>setVoice("pitch",parseFloat(e.target.value)||1)} style={{width:70,padding:"6px 8px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13}}/>
+          </div>
+
+          <FL c="Especialidades (separadas por coma)"/>
+          <FI value={(draft.specialties||[]).join(", ")} onChange={v=>set("specialties",v.split(",").map(s=>s.trim()).filter(Boolean))} placeholder="contratos, compliance, laboral"/>
+
+          <FL c="Frase de apertura"/>
+          <textarea value={draft.opener} onChange={e=>set("opener",e.target.value)} placeholder="Hola, soy María. Especializada en derecho mercantil." rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+
+          <FL c="Estilo (descripción breve)"/>
+          <FI value={draft.style} onChange={v=>set("style",v)} placeholder="prudente y preciso"/>
+
+          <div style={{marginTop:18,padding:"12px",background:"#fafafa",border:"0.5px solid #e5e7eb",borderRadius:10}}>
+            <div style={{fontSize:12,fontWeight:700,color:"#111",marginBottom:8}}>Consejos por situación</div>
+            <div style={{fontSize:11,color:"#6b7280",marginBottom:10}}>El agente elegirá el consejo que mejor encaje con el estado de la tarea. Deja vacío lo que no quieras personalizar.</div>
+
+            <FL c="Consejo general (por defecto)"/>
+            <textarea value={draft.advice.default} onChange={e=>setAdvice("default",e.target.value)} rows={3} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+
+            <FL c="Cuando está vencida"/>
+            <textarea value={draft.advice.overdue} onChange={e=>setAdvice("overdue",e.target.value)} rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+
+            <FL c="Sin fecha límite"/>
+            <textarea value={draft.advice.noDueDate} onChange={e=>setAdvice("noDueDate",e.target.value)} rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+
+            <FL c="Sin subtareas"/>
+            <textarea value={draft.advice.noSubtasks} onChange={e=>setAdvice("noSubtasks",e.target.value)} rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+
+            <FL c="Tarea sobrepasa presupuesto"/>
+            <textarea value={draft.advice.overBudget} onChange={e=>setAdvice("overBudget",e.target.value)} rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+
+            <FL c="Urgente e importante (Q1)"/>
+            <textarea value={draft.advice.q1} onChange={e=>setAdvice("q1",e.target.value)} rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+
+            <FL c="Importante no urgente (Q2)"/>
+            <textarea value={draft.advice.q2} onChange={e=>setAdvice("q2",e.target.value)} rows={2} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+          </div>
+
+          <FL c="Prompt base (para futuro LLM)"/>
+          <textarea value={draft.promptBase} onChange={e=>set("promptBase",e.target.value)} rows={3} placeholder="Eres una abogada mercantil experta. Analizas tareas desde el punto de vista..." style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+          <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>Se usará cuando conectemos el agente a un LLM real. De momento opcional.</div>
+        </div>
+
+        <div style={{padding:"12px 20px",borderTop:"0.5px solid #e5e7eb",display:"flex",gap:8,justifyContent:"space-between",background:"#fafafa"}}>
+          {!isNew && onDelete && !confirmDelete && <button onClick={()=>setConfirmDelete(true)} style={{padding:"8px 14px",borderRadius:8,background:"transparent",color:"#E24B4A",border:"1px solid #E24B4A55",fontSize:13,cursor:"pointer"}}>Eliminar</button>}
+          {!isNew && onDelete && confirmDelete && <div style={{display:"flex",gap:6}}>
+            <button onClick={()=>onDelete(agent.id)} style={{padding:"8px 12px",borderRadius:8,background:"#E24B4A",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Sí, eliminar</button>
+            <button onClick={()=>setConfirmDelete(false)} style={{padding:"8px 12px",borderRadius:8,background:"transparent",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>No</button>
+          </div>}
+          <div style={{display:"flex",gap:8,marginLeft:"auto"}}>
+            <button onClick={onClose} style={{padding:"8px 14px",borderRadius:8,background:"transparent",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+            <button disabled={!canSave} onClick={()=>onSave(draft)} style={{padding:"8px 16px",borderRadius:8,background:canSave?draft.color:"#e5e7eb",color:"#fff",border:"none",fontSize:13,cursor:canSave?"pointer":"not-allowed",fontWeight:600}}>Guardar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentsView({agents,onCreate,onEdit}){
+  return (
+    <div style={{padding:20}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+        <div>
+          <div style={{fontSize:18,fontWeight:700,marginBottom:3}}>Agentes IA</div>
+          <div style={{fontSize:12,color:"#6b7280"}}>Asesores especializados (abogados, marketing, comunicación…) que se conectan a tus tareas</div>
+        </div>
+        <button onClick={onCreate} style={{padding:"8px 14px",borderRadius:8,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo agente</button>
+      </div>
+      {agents.length===0 ? (
+        <div style={{background:"#fff",border:"1px dashed #d1d5db",borderRadius:12,padding:"40px 20px",textAlign:"center"}}>
+          <div style={{fontSize:40,marginBottom:10}}>🤖</div>
+          <div style={{fontSize:15,fontWeight:600,marginBottom:5}}>Aún no tienes agentes</div>
+          <div style={{fontSize:12,color:"#6b7280",marginBottom:16}}>Crea tu primer asesor especializado — abogado, marketer, analista financiero…</div>
+          <button onClick={onCreate} style={{padding:"9px 18px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Crear primer agente</button>
+        </div>
+      ) : (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+          {agents.map(a=>(
+            <div key={a.id} onClick={()=>onEdit(a)} style={{background:"#fff",border:"1px solid #e5e7eb",borderLeft:`4px solid ${a.color}`,borderRadius:12,padding:14,cursor:"pointer",transition:"transform .12s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                <div style={{width:42,height:42,borderRadius:10,background:`${a.color}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{a.emoji}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:700,color:a.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div>
+                  <div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.role}</div>
+                </div>
+              </div>
+              {(a.specialties||[]).length>0 && <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
+                {a.specialties.slice(0,4).map((s,i)=><span key={i} style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:`${a.color}15`,color:a.color,fontWeight:500}}>{s}</span>)}
+              </div>}
+              {a.opener && <div style={{fontSize:12,color:"#4b5563",lineHeight:1.4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{a.opener}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function TaskFlow(){
   const [data,setData]             = useState(_saved);
@@ -2305,6 +2527,7 @@ export default function TaskFlow(){
   const [projectModal,setProjModal]= useState(null);
   const [memberModal,setMemberModal]= useState(null); // null | "create" | member object
   const [workspaceModal,setWorkspaceModal]= useState(null); // null | "create" | workspace object
+  const [agentModal,setAgentModal] = useState(null); // null | "create" | agent object
   const [toasts,setToasts]          = useState([]);
   const [scopeAvatar,setScopeAvatar] = useState(null); // null | "global" | "board"
   const [pendingOpenTaskId,setPendingOpenTaskId] = useState(null);
@@ -2455,6 +2678,26 @@ export default function TaskFlow(){
     addToast("Workspace eliminado","info");
   },[addToast]);
 
+  const createAgent = useCallback((payload)=>{
+    const id=nextAgentId++;
+    setData(prev=>({...prev,agents:[...(prev.agents||[]),{id,...payload,createdAt:fmt(new Date())}]}));
+    setAgentModal(null); addToast("✓ Agente creado");
+  },[addToast]);
+  const editAgent = useCallback((id,payload)=>{
+    setData(prev=>({...prev,agents:(prev.agents||[]).map(a=>a.id===id?{...a,...payload}:a)}));
+    setAgentModal(null); addToast("✓ Agente actualizado");
+  },[addToast]);
+  const deleteAgent = useCallback((id)=>{
+    setData(prev=>{
+      const boards={...prev.boards};
+      Object.keys(boards).forEach(k=>{
+        boards[k]=boards[k].map(c=>({...c,tasks:c.tasks.map(t=>({...t,agentIds:(t.agentIds||[]).filter(x=>x!==id)}))}));
+      });
+      return{...prev,agents:(prev.agents||[]).filter(a=>a.id!==id),boards};
+    });
+    setAgentModal(null); addToast("Agente eliminado","info");
+  },[addToast]);
+
   const deleteProject = useCallback((idx)=>{
     setData(prev=>{ const p=prev.projects[idx]; const projects=prev.projects.filter((_,i)=>i!==idx); const boards={...prev.boards}; delete boards[p.id]; return{...prev,projects,boards}; });
     setAP(0); setActiveTab("projects");
@@ -2497,6 +2740,9 @@ export default function TaskFlow(){
           <div onClick={()=>setActiveTab("workspaces")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="workspaces"?"#EEEDFE":"transparent",color:activeTab==="workspaces"?"#7F77DD":"#4b5563",fontWeight:activeTab==="workspaces"?600:400}}>
             <span style={{fontSize:14}}>🏢</span> Workspaces
           </div>
+          <div onClick={()=>setActiveTab("agents")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="agents"?"#EEEDFE":"transparent",color:activeTab==="agents"?"#7F77DD":"#4b5563",fontWeight:activeTab==="agents"?600:400}}>
+            <span style={{fontSize:14}}>🤖</span> Agentes IA
+          </div>
         </div>
         <div style={{padding:8,flex:1,overflowY:"auto"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px 2px"}}>
@@ -2527,7 +2773,7 @@ export default function TaskFlow(){
           <button onClick={()=>setSidebarOpen(true)} style={{width:38,height:38,borderRadius:8,background:"#f3f4f6",border:"none",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>☰</button>
           <div style={{fontWeight:600,fontSize:14,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>TaskFlow · {activeTab==="board"?proj.name:activeTab}</div>
         </div>
-        {activeTab!=="dashboard"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&(
+        {activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&(
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px",height:52,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
@@ -2543,7 +2789,7 @@ export default function TaskFlow(){
             </div>
           </div>
         )}
-        {activeTab!=="dashboard"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&(
+        {activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&(
           <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",background:"#fff",padding:"0 20px",flexShrink:0,overflowX:"auto"}}>
             {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #7F77DD":"2px solid transparent",color:activeTab===tab.key?"#7F77DD":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
           </div>
@@ -2554,7 +2800,8 @@ export default function TaskFlow(){
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
-          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
+          {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
+          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
           {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile} onUpdateTask={updateTaskAnywhere}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
@@ -2570,6 +2817,8 @@ export default function TaskFlow(){
       {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} workspaces={data.workspaces||[]} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)}/>}
       {memberModal==="create"&&<MemberEditModal allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={createMember}/>}
       {memberModal&&memberModal!=="create"&&<MemberEditModal member={memberModal} allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={d=>updateMember(d,memberModal.id)} onDelete={id=>{deleteMember(id);setMemberModal(null);}}/>}
+      {agentModal==="create"&&<AgentEditModal onClose={()=>setAgentModal(null)} onSave={createAgent}/>}
+      {agentModal&&agentModal!=="create"&&<AgentEditModal agent={agentModal} onClose={()=>setAgentModal(null)} onSave={d=>editAgent(agentModal.id,d)} onDelete={deleteAgent}/>}
       {workspaceModal==="create"&&<WorkspaceModal onClose={()=>setWorkspaceModal(null)} onSave={createWorkspace}/>}
       {workspaceModal&&workspaceModal!=="create"&&<WorkspaceModal workspace={workspaceModal} onClose={()=>setWorkspaceModal(null)} onSave={d=>editWorkspace(workspaceModal.id,d)} onDelete={deleteWorkspace}/>}
 

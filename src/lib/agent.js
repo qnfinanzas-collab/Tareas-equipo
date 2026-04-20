@@ -43,6 +43,91 @@ export const AVATARS = {
 
 export const AVATAR_KEYS = Object.keys(AVATARS);
 
+// Esquema del agente personalizado (guardado en data.agents)
+export const AGENT_DEFAULTS = {
+  emoji: "🤖",
+  color: "#7F77DD",
+  voice: { gender: "female", rate: 1.0, pitch: 1.0 },
+  specialties: [],
+  opener: "Hola, soy tu asesor.",
+  style: "profesional",
+  advice: {
+    default: "",
+    overdue: "",
+    noDueDate: "",
+    noSubtasks: "",
+    overBudget: "",
+    q1: "",
+    q2: "",
+  },
+  promptBase: "",
+};
+
+// Convierte un agent personalizado al formato que necesita AvatarModal (compatible con AVATARS)
+export function agentToAvatar(agent){
+  return {
+    key: `agent_${agent.id}`,
+    label: agent.name,
+    icon: agent.emoji || "🤖",
+    color: agent.color || "#7F77DD",
+    voice: agent.voice || { gender: "female", rate: 1.0, pitch: 1.0 },
+    opener: agent.opener || `Hola, soy ${agent.name}.`,
+    style: agent.style || "profesional",
+    _agent: agent,
+  };
+}
+
+// Briefing dinámico para un agente personalizado (lee las plantillas de advice)
+export function buildAgentBriefing(task, agent){
+  const av = agentToAvatar(agent);
+  const q = getQ(task);
+  const d = daysUntil(task.dueDate);
+  const subs = (task.subtasks||[]);
+  const subDone = subs.filter(s=>s.done).length;
+  const logged = ((task.timeLogs||[]).reduce((s,l)=>s+l.seconds,0)/3600);
+  const est = task.estimatedHours||0;
+  const pct = est>0 ? Math.round(logged/est*100) : null;
+
+  const parts = [av.opener];
+  if(agent.role) parts.push(`Soy especialista en ${agent.role}.`);
+  parts.push(`Analizo la tarea: ${task.title}.`);
+
+  // Estado
+  if(d < 0) parts.push(`Está vencida desde hace ${-d} ${-d===1?"día":"días"}.`);
+  else if(d === 0) parts.push("Vence hoy.");
+  else if(d <= 2) parts.push(`Vence en ${d} ${d===1?"día":"días"}.`);
+  else if(d < 999) parts.push(`Tienes ${d} días hasta la fecha límite.`);
+
+  if(pct !== null) parts.push(`Llevas un ${pct}% del tiempo estimado invertido.`);
+  if(subs.length > 0) parts.push(`${subDone} de ${subs.length} subtareas hechas.`);
+
+  // Consejo específico según situación (selecciona la advice apropiada)
+  const adv = agent.advice || {};
+  let advice = "";
+  if(d < 0 && adv.overdue) advice = adv.overdue;
+  else if(!task.dueDate && adv.noDueDate) advice = adv.noDueDate;
+  else if(subs.length === 0 && adv.noSubtasks) advice = adv.noSubtasks;
+  else if(pct !== null && pct > 120 && adv.overBudget) advice = adv.overBudget;
+  else if(q === "Q1" && adv.q1) advice = adv.q1;
+  else if(q === "Q2" && adv.q2) advice = adv.q2;
+  else advice = adv.default || "";
+
+  if(advice) parts.push("Mi recomendación: " + advice);
+  parts.push("¿En qué te ayudo? Pulsa el micro y pregúntame.");
+  return parts.join(" ");
+}
+
+// Respuesta simple usando el agente personalizado — reutiliza respondToQuery base
+// pero inyectando el opener/style del agente cuando aplica.
+export function respondAgentQuery(userText, task, agent, members){
+  // Usa el matching de intents existente pero con fallback al advice del agente
+  const reply = respondToQuery(userText, task, "gestion", members);
+  if(reply.startsWith("No te he entendido") && agent.advice?.default){
+    return agent.advice.default;
+  }
+  return reply;
+}
+
 // --- Helpers internos ---
 function hoursLogged(task){
   return ((task.timeLogs||[]).reduce((s,l)=>s+l.seconds,0)/3600);
@@ -679,6 +764,17 @@ export function buildWorkspacesBriefing(data){
   return parts.join(" ");
 }
 
+export function buildAgentsBriefing(data){
+  const ag = data.agents || [];
+  if(ag.length===0) return "Aún no has creado ningún agente IA. Aquí puedes definir asesores especializados — abogados, marketers, analistas — y luego conectarlos a tareas concretas para que te aconsejen según su perfil.";
+  const names = ag.slice(0,4).map(a=>a.name).join(", ");
+  const parts = [`Tienes ${ag.length} agente${ag.length===1?"":"s"} IA: ${names}.`];
+  const specs = [...new Set(ag.flatMap(a=>a.specialties||[]))].slice(0,4);
+  if(specs.length>0) parts.push(`Especialidades cubiertas: ${specs.join(", ")}.`);
+  parts.push("Abre una tarea y selecciona el agente que encaje con la situación para recibir consejo experto.");
+  return parts.join(" ");
+}
+
 // Dispatcher context-aware
 export function buildContextBriefing(scope, data, { activeMemberId, activeProjectId }){
   switch(scope){
@@ -690,6 +786,7 @@ export function buildContextBriefing(scope, data, { activeMemberId, activeProjec
     case "users":       return buildUsersBriefing(data);
     case "team":        return buildTeamBriefing(data, activeProjectId);
     case "workspaces":  return buildWorkspacesBriefing(data);
+    case "agents":      return buildAgentsBriefing(data);
     case "dashboard":
     case "global":
     default:            return buildDailyBriefing(data, activeMemberId);
