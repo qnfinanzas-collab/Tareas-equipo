@@ -297,7 +297,7 @@ function ProfileModal({member,onClose,onSave}){
   const addExc=()=>{ if(!newExc.date)return; setAvail(p=>({...p,exceptions:[...p.exceptions,{...newExc}]})); setNewExc({date:"",type:"off",note:""}); };
 
   return(
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:560,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${mp.solid}`,marginBottom:24}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:12}}>
           <div style={{width:40,height:40,borderRadius:"50%",background:mp.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700}}>{member.initials}</div>
@@ -746,7 +746,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,onClos
   const wu=waUrl(members.find(m=>m.id===activeMemberId),`Tarea: "${task.title}" — vence ${task.dueDate||"sin fecha"}. Prioridad ${task.priority}.`);
 
   return(
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,paddingBottom:20,overflowY:"auto"}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,paddingBottom:20,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${p2?p2.cardBorder:"#7F77DD"}`,marginBottom:20}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
           {editing
@@ -1024,7 +1024,7 @@ function AvatarModal({task,members,onClose,onSetCategory,onMutateTask}){
 
   if(!support.tts && !support.stt){
     return (
-      <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}>
         <div className="tf-modal" style={{background:"#fff",borderRadius:14,padding:24,maxWidth:420}}>
           <div style={{fontSize:15,fontWeight:600,marginBottom:8}}>Tu navegador no soporta voz</div>
           <div style={{fontSize:13,color:"#6b7280",marginBottom:14}}>Prueba en Chrome, Edge o Safari recientes.</div>
@@ -1037,7 +1037,7 @@ function AvatarModal({task,members,onClose,onSetCategory,onMutateTask}){
   const handleClose = ()=>{ stopSpeaking(); stopListen(); onClose(); };
 
   return (
-    <div onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:560,maxWidth:"96vw",maxHeight:"90vh",display:"flex",flexDirection:"column",borderTop:`4px solid ${av.color}`,overflow:"hidden"}}>
         <div style={{padding:"14px 18px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:12}}>
           <div style={{width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${av.color},${av.color}88)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,boxShadow:speaking?`0 0 0 4px ${av.color}33`:"none",transition:"box-shadow .2s"}}>{av.icon}</div>
@@ -1152,7 +1152,7 @@ function ScopeAvatarModal({scope,data,activeProjectId,activeMemberId,onClose,onM
     : "Asesor global · Briefing del día";
 
   return (
-    <div onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:600,maxWidth:"96vw",maxHeight:"90vh",display:"flex",flexDirection:"column",borderTop:`4px solid ${av.color}`,overflow:"hidden"}}>
         <div style={{padding:"14px 18px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:12}}>
           <div style={{width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${av.color},${av.color}88)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,boxShadow:speaking?`0 0 0 4px ${av.color}33`:"none",transition:"box-shadow .2s"}}>{scope==="board"?"📋":"🌍"}</div>
@@ -1498,7 +1498,7 @@ function ProjectModal({project,members,workspaces,onClose,onSave}){
   const addCol=()=>{ const t=newCol.trim(); if(!t)return; setCols(p=>[...p,t]); setNewCol(""); };
   const save=()=>{ if(!name.trim())return; onSave({name:name.trim(),desc,color,emoji,members:sel,columns:cols,workspaceId}); onClose(); };
   return(
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${color}`,marginBottom:24}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{fontWeight:600,fontSize:15}}>{isEdit?"Editar proyecto":"Crear nuevo proyecto"}</div>
@@ -1706,7 +1706,7 @@ function MemberEditModal({member, allMembers, onClose, onSave, onDelete}){
   };
 
   return(
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:520,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${color}`,marginBottom:24}}>
         {/* Header */}
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:12}}>
@@ -1893,7 +1893,7 @@ function AlertPanel({alerts,members,activeMemberId,onClose,onEmailSend}){
   const ls={critical:{bg:"#fff5f5",border:"#E24B4A",text:"#A32D2D",icon:"🚨"},warning:{bg:"#fffbf0",border:"#EF9F27",text:"#854F0B",icon:"⚠️"},info:{bg:"#f0f7ff",border:"#378ADD",text:"#0C447C",icon:"ℹ️"},success:{bg:"#f0fdf7",border:"#1D9E75",text:"#085041",icon:"✅"}};
   const shown=tab==="mine"?alerts.filter(a=>a.memberId===activeMemberId):tab==="advisor"?alerts.filter(a=>a.type==="advisor"&&a.memberId===activeMemberId):alerts.filter(a=>a.type!=="advisor");
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",zIndex:2000,display:"flex",alignItems:"flex-start",justifyContent:"flex-end",paddingTop:60,paddingRight:20}}>
+    <div className="tf-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",zIndex:2000,display:"flex",alignItems:"flex-start",justifyContent:"flex-end",paddingTop:60,paddingRight:20}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:420,maxHeight:"80vh",display:"flex",flexDirection:"column",border:"0.5px solid #e5e7eb",overflow:"hidden"}}>
         <div style={{padding:"14px 18px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}><div style={{fontWeight:600,fontSize:14}}>Centro de alertas</div><button onClick={onClose} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"#6b7280"}}>x</button></div>
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",flexShrink:0}}>{[["mine","Mis alertas"],["advisor","Asesor IA"],["team","Equipo"]].map(([k,l])=><div key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"9px 0",textAlign:"center",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400}}>{l}</div>)}</div>
@@ -2017,7 +2017,7 @@ function WorkspaceModal({workspace,onClose,onSave,onDelete}){
   };
 
   return(
-    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:30,overflowY:"auto"}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:30,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:680,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${color}`,marginBottom:30}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{fontWeight:600,fontSize:15}}>{isEdit?"Editar workspace":"Nuevo workspace"}</div>
