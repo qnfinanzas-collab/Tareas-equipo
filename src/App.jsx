@@ -1,133 +1,15 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-
-// ── Paletas ───────────────────────────────────────────────────────────────────
-const MP = [
-  { solid:"#7F77DD", light:"#EEEDFE", cardBorder:"#7F77DD", cardBg:"#f5f4ff" },
-  { solid:"#E24B4A", light:"#FCEBEB", cardBorder:"#E24B4A", cardBg:"#fff5f5" },
-  { solid:"#1D9E75", light:"#E1F5EE", cardBorder:"#1D9E75", cardBg:"#f0fdf7" },
-  { solid:"#EF9F27", light:"#FAEEDA", cardBorder:"#EF9F27", cardBg:"#fffbf0" },
-  { solid:"#378ADD", light:"#E6F1FB", cardBorder:"#378ADD", cardBg:"#f0f7ff" },
-  { solid:"#D85A30", light:"#FAECE7", cardBorder:"#D85A30", cardBg:"#fff8f5" },
-  { solid:"#993556", light:"#FBEAF0", cardBorder:"#993556", cardBg:"#fff5f8" },
-  { solid:"#3B6D11", light:"#EAF3DE", cardBorder:"#3B6D11", cardBg:"#f4fbec" },
-];
-const TAG_COLORS = {
-  purple:{ bg:"#EEEDFE",text:"#3C3489",border:"#AFA9EC" },
-  teal:  { bg:"#E1F5EE",text:"#085041",border:"#5DCAA5" },
-  coral: { bg:"#FAECE7",text:"#712B13",border:"#F0997B" },
-  pink:  { bg:"#FBEAF0",text:"#72243E",border:"#ED93B1" },
-  amber: { bg:"#FAEEDA",text:"#633806",border:"#EF9F27" },
-  blue:  { bg:"#E6F1FB",text:"#0C447C",border:"#85B7EB" },
-  green: { bg:"#EAF3DE",text:"#27500A",border:"#97C459" },
-};
-const QM = {
-  Q1:{ label:"Hazlo ahora", sub:"Urgente+Importante",    bg:"#fff5f5",border:"#E24B4A",icon:"🔴" },
-  Q2:{ label:"Planifícalo", sub:"Importante, no urgente", bg:"#f0f7ff",border:"#378ADD",icon:"🔵" },
-  Q3:{ label:"Delégalo",    sub:"Urgente, no importante", bg:"#fffbf0",border:"#EF9F27",icon:"🟡" },
-  Q4:{ label:"Elimínalo",   sub:"Ni urgente ni importante",bg:"#f9fafb",border:"#9ca3af",icon:"⚪" },
-};
-const PROJECT_COLORS = ["#7F77DD","#E24B4A","#1D9E75","#EF9F27","#378ADD","#D85A30","#993556","#3B6D11"];
-const PROJECT_EMOJIS = ["🚀","📱","🌐","⚙️","🎯","💡","📊","🔧","✨","🏗️"];
-const DOW = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
-const TRANSPORT_KW = ["clase","inglés","ingles","curs","curso","class","jocs","training","entreno","gimnàs","gimnasio","gym","academia","formació","formacion"];
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const TODAY = new Date(); TODAY.setHours(0,0,0,0);
-const fmt   = d => d.toISOString().slice(0,10);
-const D     = n => { const d=new Date(TODAY); d.setDate(d.getDate()+n); return fmt(d); };
-const dayName = d => DOW[new Date(d).getDay()];
-function daysUntil(s){ if(!s)return 999; const d=new Date(s); d.setHours(0,0,0,0); return Math.ceil((d-TODAY)/86400000); }
-function getQ(t){ const d=daysUntil(t.dueDate),u=d<=3,i=t.priority==="alta"||t.priority==="media"; return u&&i?"Q1":!u&&i?"Q2":u?"Q3":"Q4"; }
-function fmtSecs(s){ const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=s%60; return h>0?`${h}h ${m}m`:`${m}m ${sc}s`; }
-function fmtH(s){ return (s/3600).toFixed(1)+"h"; }
-function palOf(a){ return(!a||!a.length)?null:MP[a[0]]||null; }
-function toH(t){ const[h,m]=(t||"0:0").split(":").map(Number); return h+m/60; }
-function fromH(dec){ const h=Math.floor(dec),m=Math.round((dec-h)*60); return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`; }
-function needsMargin(title){ return TRANSPORT_KW.some(k=>(title||"").toLowerCase().includes(k)); }
-
-// ── ICS parser ────────────────────────────────────────────────────────────────
-function parseICSDate(s){
-  if(!s)return null;
-  const c=s.replace(/[^0-9T]/g,"");
-  if(c.length===8) return new Date(`${c.slice(0,4)}-${c.slice(4,6)}-${c.slice(6,8)}T00:00:00`);
-  if(c.length>=15) return new Date(`${c.slice(0,4)}-${c.slice(4,6)}-${c.slice(6,8)}T${c.slice(9,11)}:${c.slice(11,13)}:${c.slice(13,15)}Z`);
-  return null;
-}
-function parseICS(text){
-  const events=[];
-  const blocks=text.split("BEGIN:VEVENT");
-  for(let i=1;i<blocks.length;i++){
-    const b=blocks[i];
-    const get=k=>{ const m=b.match(new RegExp(`${k}[^:]*:([^\r\n]+)`)); return m?m[1].trim():""; };
-    const title=get("SUMMARY"),start=parseICSDate(get("DTSTART")),end=parseICSDate(get("DTEND"));
-    if(start&&end&&title){
-      events.push({
-        title,start,end,
-        date:fmt(start),
-        startH:start.getHours()+start.getMinutes()/60,
-        endH:end.getHours()+end.getMinutes()/60,
-        hasMargin:needsMargin(title),
-      });
-    }
-  }
-  return events;
-}
-const ICS_CACHE={};
-async function fetchICS(member){
-  const url=member.avail?.icsUrl;
-  if(!url)return[];
-  if(ICS_CACHE[member.id])return ICS_CACHE[member.id];
-  try{
-    const proxy=`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-    const res=await fetch(proxy);
-    const text=await res.text();
-    const events=parseICS(text);
-    ICS_CACHE[member.id]=events;
-    return events;
-  }catch(e){ return[]; }
-}
-
-// ── Free afternoon slots calculator ──────────────────────────────────────────
-function calcFreeSlots(dayEvents, member, dateStr){
-  const avail=member.avail;
-  const margin=(avail.transportMarginMins||30)/60;
-  const afS=toH(avail.afternoonStart||"14:30");
-  const afE=toH(avail.afternoonEnd||"20:00");
-  const dow=new Date(dateStr).getDay();
-  const fixed=(avail.blockedSlots||[]).filter(b=>b.days.includes(dow)).map(b=>({s:toH(b.start),e:toH(b.end)}));
-  const cal=dayEvents.filter(e=>e.endH>afS&&e.startH<afE).map(e=>({
-    s:e.hasMargin?Math.max(afS,e.startH-margin):e.startH,
-    e:e.hasMargin?Math.min(afE,e.endH+margin):e.endH,
-  }));
-  const blocks=[...fixed,...cal].sort((a,b)=>a.s-b.s);
-  const free=[]; let cur=afS;
-  for(const b of blocks){
-    if(b.s>cur+0.25) free.push({start:cur,end:b.s,hours:b.s-cur});
-    cur=Math.max(cur,b.e);
-  }
-  if(afE>cur+0.25) free.push({start:cur,end:afE,hours:afE-cur});
-  return free;
-}
-
-// ── Availability helpers ──────────────────────────────────────────────────────
-function getAvailHours(member,dateStr){
-  const a=member.avail;
-  const dow=new Date(dateStr).getDay();
-  if(!a.workDays.includes(dow))return 0;
-  const exc=a.exceptions?.find(e=>e.date===dateStr);
-  if(exc?.type==="off")return 0;
-  if(exc?.type==="half")return a.hoursPerDay/2;
-  return a.hoursPerDay;
-}
-function getBlockLabels(member,dateStr){
-  const dow=new Date(dateStr).getDay();
-  return(member.avail?.blockedSlots||[]).filter(b=>b.days.includes(dow)).map(b=>`${b.label}`);
-}
-function getWorkDays(from,n){
-  const res=[]; const d=new Date(from); let c=0;
-  while(res.length<n&&c<90){ if(d.getDay()!==0&&d.getDay()!==6)res.push(fmt(d)); d.setDate(d.getDate()+1); c++; }
-  return res;
-}
+import {
+  MP, TAG_COLORS, QM, PROJECT_COLORS, PROJECT_EMOJIS, DOW, palOf,
+} from "./lib/constants.js";
+import { TODAY, fmt, D, dayName, daysUntil, toH, fromH } from "./lib/date.js";
+import { fmtSecs, fmtH } from "./lib/time.js";
+import { getQ } from "./lib/eisenhower.js";
+import {
+  needsMargin, calcFreeSlots, getAvailHours, getBlockLabels, getWorkDays,
+} from "./lib/availability.js";
+import { parseICSDate, parseICS, ICS_CACHE, fetchICS } from "./lib/ics.js";
+import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
 async function runPlanner(boards,members,existing){
@@ -190,30 +72,6 @@ async function runPlanner(boards,members,existing){
   });
 
   return{schedule,planLog,insights,load,freeSlotMap};
-}
-
-// ── Google Calendar & WhatsApp helpers ────────────────────────────────────────
-function gCalUrl(task,slot){
-  const base="https://calendar.google.com/calendar/render?action=TEMPLATE";
-  const title=encodeURIComponent(`[TaskFlow] ${task.title}`);
-  const d=(slot?.date||task.dueDate||"").replace(/-/g,"");
-  const st=(slot?.startTime||"09:00").replace(":","");
-  const eh=Math.min(23,Math.floor(parseInt(st.slice(0,2))+(slot?.hours||1)));
-  const et=`${String(eh).padStart(2,"0")}${st.slice(2)}`;
-  const dates=d?`&dates=${d}T${st}00/${d}T${et}00`:"";
-  const desc=encodeURIComponent(`Prioridad: ${task.priority}\nEstimado: ${task.estimatedHours||"?"}h\nTaskFlow #${task.id}`);
-  return `${base}&text=${title}${dates}&details=${desc}`;
-}
-function waUrl(member,msg){
-  const phone=(member?.avail?.whatsapp||"").replace(/[^0-9]/g,"");
-  if(!phone)return null;
-  return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-}
-function waMsg(member,slots,log){
-  const my=log.filter(l=>l.memberId===member.id);
-  if(!my.length)return `Hola ${member.name.split(" ")[0]}! Sin tareas nuevas esta semana en TaskFlow.`;
-  const lines=my.slice(0,4).map(l=>`- ${l.taskTitle} (${l.totalScheduled.toFixed(1)}h) ${QM[l.quadrant]?.icon||""}`);
-  return `Hola ${member.name.split(" ")[0]}! TaskFlow ha planificado tus tareas:\n\n${lines.join("\n")}\n\nRevisa el planificador para los detalles.`;
 }
 
 // ── INITIAL DATA ──────────────────────────────────────────────────────────────
@@ -293,27 +151,44 @@ const INITIAL_DATA = {
     ],
   },
   aiSchedule:[],
+  workspaces:[
+    {id:1,name:"Cliente ejemplo",emoji:"🏢",color:"#378ADD",description:"Demo de workspace asociado — reemplázalo por tu cliente real.",
+      links:[{id:"wl1",label:"Web",url:"https://example.com",icon:"🌐"}],
+      contacts:[{id:"wc1",name:"Juan Pérez",role:"CEO",email:"juan@example.com",phone:"+34600000000",
+        credentials:[{id:"cr1",system:"CRM SoulBaric",url:"https://crm.example.com",login:"juan@example.com",notes:"Guardado en 1Password",hint:"1Password"}]}],
+      createdAt:fmt(new Date()),
+    },
+  ],
 };
 
 // ── localStorage persistence ──────────────────────────────────────────────────
 const LS_KEY = 'taskflow_v1';
+function _migrate(d){
+  if(!d.workspaces) d.workspaces = [];
+  d.projects = (d.projects||[]).map(p=>({...p, workspaceId: p.workspaceId ?? null}));
+  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[]}))}))]));
+  return d;
+}
 function _loadData(){
-  try{ const s=localStorage.getItem(LS_KEY); if(s)return JSON.parse(s); }catch(e){}
-  return INITIAL_DATA;
+  try{ const s=localStorage.getItem(LS_KEY); if(s)return _migrate(JSON.parse(s)); }catch(e){}
+  return _migrate(JSON.parse(JSON.stringify(INITIAL_DATA)));
 }
 function _initCounters(d){
   const taskNums=Object.values(d.boards||{}).flatMap(c=>c.flatMap(col=>col.tasks.map(t=>t.id))).filter(id=>/^t\d+$/.test(id)).map(id=>+id.slice(1));
   const projNums=(d.projects||[]).map(p=>p.id).filter(n=>typeof n==="number");
   const colNums=Object.values(d.boards||{}).flatMap(c=>c.map(col=>col.id)).map(id=>+id.replace(/\D/g,"")).filter(n=>n>0);
+  const wsNums=(d.workspaces||[]).map(w=>w.id).filter(n=>typeof n==="number");
   return{
     nextId:  taskNums.length?Math.max(...taskNums)+1:20,
     nextProjId:projNums.length?Math.max(...projNums)+1:5,
     nextColId: colNums.length?Math.max(...colNums)+1:20,
+    nextWsId:  wsNums.length?Math.max(...wsNums)+1:2,
   };
 }
 const _saved=_loadData();
 const _c=_initCounters(_saved);
-let nextId=_c.nextId,nextProjId=_c.nextProjId,nextColId=_c.nextColId;
+let nextId=_c.nextId,nextProjId=_c.nextProjId,nextColId=_c.nextColId,nextWsId=_c.nextWsId;
+const _uid=(p)=>`${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`;
 
 // ── Small components ──────────────────────────────────────────────────────────
 const Tag=({tag})=>{ const c=TAG_COLORS[tag.c]||TAG_COLORS.blue; return <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:500,background:c.bg,color:c.text,border:`0.5px solid ${c.border}`}}>{tag.l}</span>; };
@@ -730,7 +605,7 @@ function PlannerView({data,onApplySchedule}){
 }
 
 // ── Task Modal ────────────────────────────────────────────────────────────────
-function TaskModal({task,colId,cols,members,activeMemberId,onClose,onUpdate,onMove}){
+function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,onClose,onUpdate,onMove}){
   const [editing,setEditing]=useState(false);
   const [draft,setDraft]=useState({...task});
   const [comment,setComment]=useState("");
@@ -742,6 +617,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,onClose,onUpdate,onMo
   const [newSubTitle,setNewSubTitle]=useState("");
   const [editingSubId,setEditingSubId]=useState(null);
   const [editSubDraft,setEditSubDraft]=useState("");
+  const [newLink,setNewLink]=useState({label:"",url:"",icon:"🔗"});
   const intRef=useRef(null);
   const p2=palOf(task.assignees); const q=getQ(task);
 
@@ -767,6 +643,12 @@ function TaskModal({task,colId,cols,members,activeMemberId,onClose,onUpdate,onMo
   const deleteSub=(id)=>mutateSubs(s=>s.filter(x=>x.id!==id));
   const commitEditSub=()=>{ const t=editSubDraft.trim(); if(t && editingSubId){ patchSub(editingSubId,{title:t}); } setEditingSubId(null); };
 
+  // ── Links ──
+  const links = task.links||[];
+  const mutateLinks=(fn)=>onUpdate(task.id,colId,{...task,links:fn(links)});
+  const addLink=()=>{ const u=newLink.url.trim(); if(!u)return; mutateLinks(ls=>[...ls,{id:_uid("tl"),label:newLink.label.trim()||u,url:u,icon:newLink.icon||"🔗"}]); setNewLink({label:"",url:"",icon:"🔗"}); };
+  const delLink=id=>mutateLinks(ls=>ls.filter(l=>l.id!==id));
+
   const totalLogged=(task.timeLogs||[]).reduce((s,l)=>s+l.seconds,0);
   const est=(task.estimatedHours||0)*3600;
   const pct=est>0?Math.min(Math.round(totalLogged/est*100),100):null;
@@ -791,8 +673,8 @@ function TaskModal({task,colId,cols,members,activeMemberId,onClose,onUpdate,onMo
         </div>
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
-          {[["detail","Detalle"],["subtasks","Subtareas"],["time","Tiempo"],["comments","Comentarios"]].map(([k,l])=>(
-            <div key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400,marginBottom:-0.5}}>{l}{k==="subtasks"&&subs.length>0?` ${subsDone}/${subs.length}`:""}{k==="time"&&totalLogged>0?` · ${fmtH(totalLogged)}`:""}{k==="comments"&&task.comments.length>0?` (${task.comments.length})`:""}</div>
+          {[["detail","Detalle"],["subtasks","Subtareas"],["links","Enlaces"],["time","Tiempo"],["comments","Comentarios"]].map(([k,l])=>(
+            <div key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400,marginBottom:-0.5}}>{l}{k==="subtasks"&&subs.length>0?` ${subsDone}/${subs.length}`:""}{k==="links"&&links.length>0?` (${links.length})`:""}{k==="time"&&totalLogged>0?` · ${fmtH(totalLogged)}`:""}{k==="comments"&&task.comments.length>0?` (${task.comments.length})`:""}</div>
           ))}
         </div>
         <div style={{padding:20}}>
@@ -884,6 +766,40 @@ function TaskModal({task,colId,cols,members,activeMemberId,onClose,onUpdate,onMo
               </div>
             </>
           )}
+          {tab==="links"&&(
+            <>
+              <div style={{fontSize:11,color:"#6b7280",marginBottom:10}}>Enlaces específicos de esta tarea (documentos, tickets, briefings, etc.)</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+                {links.length===0&&<div style={{textAlign:"center",padding:"18px 12px",color:"#9ca3af",fontSize:12,fontStyle:"italic",background:"#f9fafb",border:"1px dashed #e5e7eb",borderRadius:10}}>Sin enlaces. Añade URLs del documento, ticket, etc.</div>}
+                {links.map(l=>(
+                  <div key={l.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#f9fafb",border:"0.5px solid #e5e7eb",borderRadius:8}}>
+                    <span style={{fontSize:14}}>{l.icon||"🔗"}</span>
+                    <a href={l.url} target="_blank" rel="noreferrer" style={{flex:1,fontSize:13,color:"#7F77DD",textDecoration:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label}</a>
+                    <span style={{fontSize:10,color:"#9ca3af",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}}>{l.url}</span>
+                    <button onClick={()=>delLink(l.id)} style={{background:"none",border:"none",fontSize:14,color:"#9ca3af",cursor:"pointer",padding:0,width:22,height:22}}>×</button>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <input value={newLink.icon} onChange={e=>setNewLink(l=>({...l,icon:e.target.value}))} style={{width:40,padding:"7px 6px",border:"0.5px solid #d1d5db",borderRadius:7,fontSize:13,textAlign:"center",fontFamily:"inherit"}}/>
+                <input value={newLink.label} onChange={e=>setNewLink(l=>({...l,label:e.target.value}))} placeholder="Etiqueta" style={{width:140,padding:"7px 10px",border:"0.5px solid #d1d5db",borderRadius:7,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                <input value={newLink.url} onChange={e=>setNewLink(l=>({...l,url:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter")addLink();}} placeholder="https://..." style={{flex:1,padding:"7px 10px",border:"0.5px solid #d1d5db",borderRadius:7,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                <button onClick={addLink} disabled={!newLink.url.trim()} style={{padding:"7px 14px",borderRadius:7,background:newLink.url.trim()?"#7F77DD":"#e5e7eb",color:newLink.url.trim()?"#fff":"#9ca3af",border:"none",fontSize:12,cursor:newLink.url.trim()?"pointer":"default",fontWeight:600}}>+ Añadir</button>
+              </div>
+              {(workspaceLinks&&workspaceLinks.length>0)&&(
+                <div style={{marginTop:18,paddingTop:14,borderTop:"0.5px dashed #e5e7eb"}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>🏢 Enlaces del workspace</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {workspaceLinks.map(l=>(
+                      <a key={l.id} href={l.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,background:"#EEEDFE",color:"#3C3489",fontSize:11,textDecoration:"none",fontWeight:500,border:"0.5px solid #AFA9EC"}}>
+                        <span>{l.icon||"🔗"}</span>{l.label}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
           {tab==="time"&&(
             <>
               <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:12,padding:14,marginBottom:12}}>
@@ -952,14 +868,14 @@ function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
       {est>0&&totalLogged>0&&<div style={{marginBottom:6}}><div style={{height:4,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(Math.round(totalLogged/est*100),100)}%`,background:totalLogged>est?"#E24B4A":totalLogged/est>0.8?"#EF9F27":"#1D9E75",borderRadius:20}}/></div></div>}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex"}}>{task.assignees.map((mid,i)=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} title={m?.name} style={{marginLeft:i>0?-7:0,zIndex:task.assignees.length-i,position:"relative",width:24,height:24,borderRadius:"50%",background:mp2.solid,color:"#fff",border:"2px solid #fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{m?.initials||"?"}</div>; })}</div>
-        <div style={{display:"flex",alignItems:"center",gap:5}}><PriBadge p={task.priority}/>{subs.length>0&&<span title={`${subDone}/${subs.length} subtareas`} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:subAllDone?"#E1F5EE":"#f3f4f6",color:subAllDone?"#085041":"#6b7280",fontWeight:600,border:`0.5px solid ${subAllDone?"#1D9E75":"#e5e7eb"}`}}>☑ {subDone}/{subs.length}</span>}{task.comments.length>0&&<span style={{fontSize:11,color:"#9ca3af"}}>{task.comments.length}</span>}</div>
+        <div style={{display:"flex",alignItems:"center",gap:5}}><PriBadge p={task.priority}/>{subs.length>0&&<span title={`${subDone}/${subs.length} subtareas`} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:subAllDone?"#E1F5EE":"#f3f4f6",color:subAllDone?"#085041":"#6b7280",fontWeight:600,border:`0.5px solid ${subAllDone?"#1D9E75":"#e5e7eb"}`}}>☑ {subDone}/{subs.length}</span>}{(task.links||[]).length>0&&<span title={`${task.links.length} enlace${task.links.length>1?"s":""}`} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:"#EEEDFE",color:"#3C3489",fontWeight:600,border:"0.5px solid #AFA9EC"}}>🔗 {task.links.length}</span>}{task.comments.length>0&&<span style={{fontSize:11,color:"#9ca3af"}}>{task.comments.length}</span>}</div>
       </div>
     </div>
   );
 }
 
 // ── Board View ────────────────────────────────────────────────────────────────
-function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,onUpdate,onMove,onAddTask}){
+function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,onUpdate,onMove,onAddTask}){
   const [openTaskId,setOpenTaskId]=useState(null);
   const [dragging,setDragging]=useState(null);
   const [newCard,setNewCard]=useState(null);
@@ -985,7 +901,7 @@ function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,onU
           </div>
         ))}
       </div>
-      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}}/>}
+      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}}/>}
     </>
   );
 }
@@ -1041,18 +957,19 @@ function TimeReportsView({boards,members,projects}){
 }
 
 // ── Project Modal ─────────────────────────────────────────────────────────────
-function ProjectModal({project,members,onClose,onSave}){
+function ProjectModal({project,members,workspaces,onClose,onSave}){
   const isEdit=!!project;
   const [name,setName]=useState(project?.name||"");
   const [desc,setDesc]=useState(project?.desc||"");
   const [color,setColor]=useState(project?.color||PROJECT_COLORS[0]);
   const [emoji,setEmoji]=useState(project?.emoji||"🚀");
   const [sel,setSel]=useState(project?.members||[]);
+  const [workspaceId,setWorkspaceId]=useState(project?.workspaceId??null);
   const [cols,setCols]=useState(["Por hacer","En progreso","Revision","Hecho"]);
   const [newCol,setNewCol]=useState("");
   const toggleM=id=>setSel(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
   const addCol=()=>{ const t=newCol.trim(); if(!t)return; setCols(p=>[...p,t]); setNewCol(""); };
-  const save=()=>{ if(!name.trim())return; onSave({name:name.trim(),desc,color,emoji,members:sel,columns:cols}); onClose(); };
+  const save=()=>{ if(!name.trim())return; onSave({name:name.trim(),desc,color,emoji,members:sel,columns:cols,workspaceId}); onClose(); };
   return(
     <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
       <div style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${color}`,marginBottom:24}}>
@@ -1098,6 +1015,11 @@ function ProjectModal({project,members,onClose,onSave}){
             <input value={newCol} onChange={e=>setNewCol(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCol()} placeholder="+ Nueva columna..." style={{flex:1,padding:"6px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12,outline:"none",fontFamily:"inherit"}}/>
             <button onClick={addCol} style={{padding:"6px 12px",borderRadius:8,background:color,color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>Añadir</button>
           </div>
+          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>Workspace asociado (opcional)</div>
+          <select value={workspaceId??""} onChange={e=>setWorkspaceId(e.target.value===""?null:Number(e.target.value))} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,background:"#fff",fontFamily:"inherit",marginBottom:16}}>
+            <option value="">— Sin workspace —</option>
+            {(workspaces||[]).map(w=><option key={w.id} value={w.id}>{w.emoji} {w.name}</option>)}
+          </select>
           <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Miembros</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:8,marginBottom:20}}>
             {members.map(m=>{ const mp2=MP[m.id]||MP[0]; const active=sel.includes(m.id); return <div key={m.id} onClick={()=>toggleM(m.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:10,border:`1.5px solid ${active?mp2.solid:"#e5e7eb"}`,background:active?mp2.light:"#f9fafb",cursor:"pointer"}}><div style={{width:30,height:30,borderRadius:"50%",background:active?mp2.solid:"#d1d5db",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{m.initials}</div><div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:active?600:400,color:active?mp2.solid:"#374151"}}>{m.name}</div><div style={{fontSize:10,color:"#9ca3af"}}>{m.role}</div></div></div>; })}
@@ -1534,6 +1456,303 @@ function DailyDigest({boards,members,activeMemberId}){
   );
 }
 
+// ── Workspace Modal ───────────────────────────────────────────────────────────
+const WS_EMOJIS = ["🏢","🏬","🏛️","🏦","🏭","🏪","🏤","🏥","🌍","💼","🧾","📊"];
+
+function WorkspaceModal({workspace,onClose,onSave,onDelete}){
+  const isEdit = !!workspace;
+  const [name,setName]         = useState(workspace?.name||"");
+  const [description,setDesc]  = useState(workspace?.description||"");
+  const [color,setColor]       = useState(workspace?.color||PROJECT_COLORS[4]);
+  const [emoji,setEmoji]       = useState(workspace?.emoji||"🏢");
+  const [links,setLinks]       = useState(workspace?.links||[]);
+  const [contacts,setContacts] = useState(workspace?.contacts||[]);
+  const [pendingDel,setPendingDel] = useState(false);
+
+  const addLink    = ()=>setLinks(p=>[...p,{id:_uid("wl"),label:"",url:"",icon:"🔗"}]);
+  const updLink    = (id,patch)=>setLinks(p=>p.map(l=>l.id===id?{...l,...patch}:l));
+  const delLink    = id=>setLinks(p=>p.filter(l=>l.id!==id));
+
+  const addContact = ()=>setContacts(p=>[...p,{id:_uid("wc"),name:"",role:"",email:"",phone:"",credentials:[]}]);
+  const updContact = (id,patch)=>setContacts(p=>p.map(c=>c.id===id?{...c,...patch}:c));
+  const delContact = id=>setContacts(p=>p.filter(c=>c.id!==id));
+
+  const addCred = (cid)=>updContact(cid,{credentials:[...(contacts.find(c=>c.id===cid)?.credentials||[]),{id:_uid("cr"),system:"",url:"",login:"",notes:"",hint:""}]});
+  const updCred = (cid,crid,patch)=>updContact(cid,{credentials:(contacts.find(c=>c.id===cid)?.credentials||[]).map(cr=>cr.id===crid?{...cr,...patch}:cr)});
+  const delCred = (cid,crid)=>updContact(cid,{credentials:(contacts.find(c=>c.id===cid)?.credentials||[]).filter(cr=>cr.id!==crid)});
+
+  const save = ()=>{
+    if(!name.trim()) return;
+    const cleanLinks    = links.filter(l=>l.url.trim()).map(l=>({...l,label:l.label.trim()||l.url,url:l.url.trim()}));
+    const cleanContacts = contacts.map(c=>({...c,credentials:(c.credentials||[]).filter(cr=>cr.system.trim()||cr.url.trim()||cr.login.trim())}));
+    onSave({name:name.trim(),description:description.trim(),color,emoji,links:cleanLinks,contacts:cleanContacts});
+    onClose();
+  };
+
+  return(
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:30,overflowY:"auto"}}>
+      <div style={{background:"#fff",borderRadius:16,width:680,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${color}`,marginBottom:30}}>
+        <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontWeight:600,fontSize:15}}>{isEdit?"Editar workspace":"Nuevo workspace"}</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>×</button>
+        </div>
+        <div style={{padding:20,maxHeight:"75vh",overflowY:"auto"}}>
+          {/* Preview */}
+          <div style={{background:`${color}18`,border:`2px solid ${color}`,borderRadius:12,padding:"12px 16px",marginBottom:20,display:"flex",alignItems:"center",gap:12}}>
+            <div style={{fontSize:28}}>{emoji}</div>
+            <div><div style={{fontSize:16,fontWeight:700,color}}>{name||"Nombre del workspace"}</div><div style={{fontSize:12,color:"#6b7280"}}>{description||"Descripción o nota"}</div></div>
+          </div>
+          {/* Básicos */}
+          <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:10,marginBottom:14}}>
+            <div>
+              <FL c="Emoji"/>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap",maxWidth:220}}>
+                {WS_EMOJIS.map(e=><button key={e} onClick={()=>setEmoji(e)} style={{width:30,height:30,borderRadius:7,border:`2px solid ${emoji===e?color:"#e5e7eb"}`,background:emoji===e?`${color}18`:"transparent",fontSize:16,cursor:"pointer"}}>{e}</button>)}
+              </div>
+            </div>
+            <div>
+              <FL c="Nombre"/>
+              <FI value={name} onChange={setName} placeholder="Ej: Cliente Pérez"/>
+              <FL c="Descripción"/>
+              <FI value={description} onChange={setDesc} placeholder="Ej: Consultora financiera — contrato anual"/>
+            </div>
+          </div>
+          <FL c="Color"/>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
+            {PROJECT_COLORS.map(c=><button key={c} onClick={()=>setColor(c)} style={{width:28,height:28,borderRadius:"50%",background:c,border:`3px solid ${color===c?"#374151":"transparent"}`,cursor:"pointer"}}/>)}
+          </div>
+
+          {/* Enlaces */}
+          <div style={{borderTop:"0.5px solid #e5e7eb",paddingTop:16,marginTop:6}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+              <div style={{fontSize:12,fontWeight:600,color:"#374151"}}>🔗 Enlaces rápidos</div>
+              <button onClick={addLink} style={{padding:"5px 12px",borderRadius:7,background:color,color:"#fff",border:"none",fontSize:11,cursor:"pointer",fontWeight:600}}>+ Añadir enlace</button>
+            </div>
+            {links.length===0&&<div style={{fontSize:11,color:"#9ca3af",fontStyle:"italic",padding:"8px 0"}}>Sin enlaces. Añade URLs al Drive, web, CRM...</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {links.map(l=>(
+                <div key={l.id} style={{display:"flex",gap:6,alignItems:"center"}}>
+                  <input value={l.icon} onChange={e=>updLink(l.id,{icon:e.target.value})} style={{width:40,padding:"6px 6px",borderRadius:7,border:"0.5px solid #d1d5db",fontSize:13,textAlign:"center",fontFamily:"inherit"}}/>
+                  <input value={l.label} onChange={e=>updLink(l.id,{label:e.target.value})} placeholder="Etiqueta (ej: Drive)" style={{width:150,padding:"6px 10px",borderRadius:7,border:"0.5px solid #d1d5db",fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                  <input value={l.url} onChange={e=>updLink(l.id,{url:e.target.value})} placeholder="https://..." style={{flex:1,padding:"6px 10px",borderRadius:7,border:"0.5px solid #d1d5db",fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                  <button onClick={()=>delLink(l.id)} style={{background:"none",border:"none",fontSize:16,color:"#9ca3af",cursor:"pointer",padding:"4px 8px"}}>×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Contactos */}
+          <div style={{borderTop:"0.5px solid #e5e7eb",paddingTop:16,marginTop:16}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+              <div style={{fontSize:12,fontWeight:600,color:"#374151"}}>👥 Contactos</div>
+              <button onClick={addContact} style={{padding:"5px 12px",borderRadius:7,background:color,color:"#fff",border:"none",fontSize:11,cursor:"pointer",fontWeight:600}}>+ Añadir contacto</button>
+            </div>
+            {contacts.length===0&&<div style={{fontSize:11,color:"#9ca3af",fontStyle:"italic",padding:"8px 0"}}>Sin contactos.</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {contacts.map(c=>(
+                <div key={c.id} style={{background:"#f9fafb",border:"0.5px solid #e5e7eb",borderRadius:10,padding:"10px 12px"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
+                    <input value={c.name} onChange={e=>updContact(c.id,{name:e.target.value})} placeholder="Nombre completo" style={{padding:"6px 10px",borderRadius:7,border:"0.5px solid #d1d5db",fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                    <input value={c.role} onChange={e=>updContact(c.id,{role:e.target.value})} placeholder="Rol (ej: CEO, CFO...)" style={{padding:"6px 10px",borderRadius:7,border:"0.5px solid #d1d5db",fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                    <input value={c.email} onChange={e=>updContact(c.id,{email:e.target.value})} placeholder="email@..." style={{padding:"6px 10px",borderRadius:7,border:"0.5px solid #d1d5db",fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                    <input value={c.phone} onChange={e=>updContact(c.id,{phone:e.target.value})} placeholder="+34..." style={{padding:"6px 10px",borderRadius:7,border:"0.5px solid #d1d5db",fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                  </div>
+                  {/* Credenciales */}
+                  <div style={{background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:8,padding:"8px 10px",marginTop:6}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                      <div style={{fontSize:10,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.06em"}}>🔐 Accesos (sin contraseña)</div>
+                      <button onClick={()=>addCred(c.id)} style={{padding:"3px 10px",borderRadius:6,border:"0.5px solid #d1d5db",background:"#f9fafb",fontSize:10,cursor:"pointer",fontWeight:500}}>+ Acceso</button>
+                    </div>
+                    {(c.credentials||[]).length===0&&<div style={{fontSize:10,color:"#9ca3af",fontStyle:"italic"}}>Sin accesos registrados.</div>}
+                    {(c.credentials||[]).map(cr=>(
+                      <div key={cr.id} style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:6,padding:"6px 0",borderTop:"0.5px dashed #e5e7eb"}}>
+                        <input value={cr.system} onChange={e=>updCred(c.id,cr.id,{system:e.target.value})} placeholder="Sistema (ej: CRM)" style={{padding:"5px 8px",borderRadius:6,border:"0.5px solid #d1d5db",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                        <input value={cr.url} onChange={e=>updCred(c.id,cr.id,{url:e.target.value})} placeholder="URL de acceso" style={{padding:"5px 8px",borderRadius:6,border:"0.5px solid #d1d5db",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                        <input value={cr.login} onChange={e=>updCred(c.id,cr.id,{login:e.target.value})} placeholder="Usuario / email de login" style={{padding:"5px 8px",borderRadius:6,border:"0.5px solid #d1d5db",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                        <input value={cr.hint} onChange={e=>updCred(c.id,cr.id,{hint:e.target.value})} placeholder="Contraseña guardada en... (1Password, etc.)" style={{padding:"5px 8px",borderRadius:6,border:"0.5px solid #d1d5db",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                        <input value={cr.notes} onChange={e=>updCred(c.id,cr.id,{notes:e.target.value})} placeholder="Notas (2FA, SSO, recuperación...)" style={{gridColumn:"1 / span 2",padding:"5px 8px",borderRadius:6,border:"0.5px solid #d1d5db",fontSize:11,fontFamily:"inherit",outline:"none"}}/>
+                        <button onClick={()=>delCred(c.id,cr.id)} style={{gridColumn:"1 / span 2",justifySelf:"end",background:"none",border:"none",fontSize:11,color:"#9ca3af",cursor:"pointer"}}>Eliminar acceso ×</button>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{textAlign:"right",marginTop:6}}>
+                    <button onClick={()=>delContact(c.id)} style={{background:"none",border:"none",fontSize:11,color:"#E24B4A",cursor:"pointer"}}>Eliminar contacto ×</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{background:"#FFF7E6",border:"1px solid #F0B85B",borderRadius:8,padding:"8px 12px",marginTop:14,fontSize:11,color:"#7C4A02"}}>
+            ⚠ Nunca guardes contraseñas aquí. Usa tu gestor (1Password, Bitwarden, llavero). TaskFlow vive en localStorage sin cifrado.
+          </div>
+
+          <div style={{display:"flex",gap:8,justifyContent:"space-between",marginTop:20,alignItems:"center"}}>
+            {isEdit ? (
+              pendingDel
+                ? <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>{onDelete(workspace.id);onClose();}} style={{padding:"8px 14px",borderRadius:8,background:"#E24B4A",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>Confirmar eliminación</button>
+                    <button onClick={()=>setPendingDel(false)} style={{padding:"8px 14px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:12,cursor:"pointer"}}>Cancelar</button>
+                  </div>
+                : <button onClick={()=>setPendingDel(true)} style={{padding:"8px 14px",borderRadius:8,background:"transparent",color:"#E24B4A",border:"0.5px solid #E24B4A",fontSize:12,cursor:"pointer",fontWeight:500}}>Eliminar workspace</button>
+            ) : <div/>}
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={save} disabled={!name.trim()} style={{padding:"8px 20px",borderRadius:8,background:name.trim()?color:"#e5e7eb",color:name.trim()?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:name.trim()?"pointer":"default",fontWeight:600}}>{isEdit?"Guardar":"Crear"}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Workspaces View ───────────────────────────────────────────────────────────
+function WorkspacesView({workspaces,projects,boards,onCreate,onEdit,onSelectProject}){
+  const [selected,setSelected] = useState(null);
+  const ws = selected!=null ? workspaces.find(w=>w.id===selected) : null;
+
+  if(ws){
+    const wsProjects = projects.map((p,i)=>({p,i})).filter(x=>x.p.workspaceId===ws.id);
+    const activeTasks = wsProjects.reduce((s,{p})=>{
+      const cols = boards[p.id]||[];
+      return s + cols.filter(c=>c.name!=="Hecho").reduce((ss,c)=>ss+c.tasks.length,0);
+    },0);
+    return(
+      <div style={{padding:20,maxWidth:880}}>
+        <button onClick={()=>setSelected(null)} style={{background:"none",border:"none",fontSize:12,color:"#6b7280",cursor:"pointer",marginBottom:10,padding:0}}>← Volver a workspaces</button>
+        <div style={{background:"#fff",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${ws.color}`,borderRadius:14,padding:20,marginBottom:16}}>
+          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:6}}>
+            <div style={{fontSize:36}}>{ws.emoji}</div>
+            <div style={{flex:1}}>
+              <div style={{fontSize:20,fontWeight:700,color:ws.color}}>{ws.name}</div>
+              {ws.description&&<div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{ws.description}</div>}
+            </div>
+            <button onClick={()=>onEdit(ws)} style={{padding:"7px 14px",borderRadius:8,background:ws.color,color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>✏ Editar</button>
+          </div>
+          <div style={{display:"flex",gap:16,marginTop:14,fontSize:12,color:"#6b7280"}}>
+            <span><b style={{color:ws.color}}>{wsProjects.length}</b> proyectos</span>
+            <span><b style={{color:ws.color}}>{ws.links?.length||0}</b> enlaces</span>
+            <span><b style={{color:ws.color}}>{ws.contacts?.length||0}</b> contactos</span>
+            <span><b style={{color:ws.color}}>{activeTasks}</b> tareas activas</span>
+          </div>
+        </div>
+
+        {(ws.links?.length>0)&&(
+          <div style={{background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:12,padding:16,marginBottom:16}}>
+            <div style={{fontSize:12,fontWeight:600,color:"#374151",marginBottom:10}}>🔗 Enlaces rápidos</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {ws.links.map(l=>(
+                <a key={l.id} href={l.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px",borderRadius:8,background:`${ws.color}14`,border:`1px solid ${ws.color}55`,color:ws.color,fontSize:12,fontWeight:600,textDecoration:"none"}}>
+                  <span>{l.icon||"🔗"}</span>{l.label}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {wsProjects.length>0&&(
+          <div style={{background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:12,padding:16,marginBottom:16}}>
+            <div style={{fontSize:12,fontWeight:600,color:"#374151",marginBottom:10}}>📋 Proyectos asociados</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:8}}>
+              {wsProjects.map(({p,i})=>{
+                const cols=boards[p.id]||[];
+                const total=cols.reduce((s,c)=>s+c.tasks.length,0);
+                const done=cols.filter(c=>c.name==="Hecho").reduce((s,c)=>s+c.tasks.length,0);
+                return(
+                  <div key={p.id} onClick={()=>onSelectProject(i)} style={{border:`1px solid ${p.color}44`,borderLeft:`4px solid ${p.color}`,borderRadius:10,padding:"10px 12px",cursor:"pointer",background:"#fafafa"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                      <span style={{fontSize:16}}>{p.emoji||"📋"}</span>
+                      <span style={{fontSize:13,fontWeight:600,color:p.color}}>{p.name}</span>
+                    </div>
+                    <div style={{fontSize:11,color:"#6b7280"}}>{done}/{total} tareas</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {(ws.contacts?.length>0)&&(
+          <div style={{background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:12,padding:16}}>
+            <div style={{fontSize:12,fontWeight:600,color:"#374151",marginBottom:10}}>👥 Contactos</div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {ws.contacts.map(c=>(
+                <div key={c.id} style={{border:"0.5px solid #e5e7eb",borderRadius:10,padding:"10px 12px",background:"#fafafa"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600}}>{c.name||"(sin nombre)"} {c.role&&<span style={{fontWeight:400,color:"#6b7280",fontSize:12}}>· {c.role}</span>}</div>
+                      <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{c.email} {c.phone&&`· ${c.phone}`}</div>
+                    </div>
+                  </div>
+                  {(c.credentials?.length>0)&&(
+                    <div style={{marginTop:6,borderTop:"0.5px dashed #e5e7eb",paddingTop:8}}>
+                      <div style={{fontSize:10,color:"#6b7280",marginBottom:6,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>🔐 Accesos</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                        {c.credentials.map(cr=>(
+                          <div key={cr.id} style={{fontSize:11,padding:"6px 10px",background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:7,display:"flex",flexWrap:"wrap",gap:8,alignItems:"center"}}>
+                            <b style={{color:"#374151"}}>{cr.system}</b>
+                            {cr.url&&<a href={cr.url} target="_blank" rel="noreferrer" style={{color:ws.color,textDecoration:"none"}}>🔗 Abrir</a>}
+                            {cr.login&&<span style={{color:"#6b7280"}}>👤 {cr.login}</span>}
+                            {cr.hint&&<span style={{color:"#854F0B",background:"#FAEEDA",padding:"1px 8px",borderRadius:6,fontSize:10}}>🔑 {cr.hint}</span>}
+                            {cr.notes&&<span style={{color:"#6b7280",fontStyle:"italic"}}>{cr.notes}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return(
+    <div style={{padding:20}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,marginBottom:2}}>Workspaces</div>
+          <div style={{fontSize:12,color:"#6b7280"}}>{workspaces.length} cliente{workspaces.length!==1?"s":""} · control operativo</div>
+        </div>
+        <button onClick={onCreate} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo workspace</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+        {workspaces.map(w=>{
+          const wsProjects = projects.filter(p=>p.workspaceId===w.id);
+          const activeTasks = wsProjects.reduce((s,p)=>{
+            const cols=boards[p.id]||[];
+            return s + cols.filter(c=>c.name!=="Hecho").reduce((ss,c)=>ss+c.tasks.length,0);
+          },0);
+          return(
+            <div key={w.id} onClick={()=>setSelected(w.id)} style={{background:"#fff",border:`0.5px solid ${w.color}44`,borderTop:`4px solid ${w.color}`,borderRadius:12,padding:16,cursor:"pointer"}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10}}>
+                <div style={{fontSize:26,lineHeight:1}}>{w.emoji}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:700,color:w.color,marginBottom:2}}>{w.name}</div>
+                  {w.description&&<div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.description}</div>}
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",fontSize:10,color:"#6b7280"}}>
+                <span style={{background:`${w.color}14`,color:w.color,padding:"2px 8px",borderRadius:10,fontWeight:600}}>📋 {wsProjects.length} proyectos</span>
+                <span style={{background:`${w.color}14`,color:w.color,padding:"2px 8px",borderRadius:10,fontWeight:600}}>🔗 {w.links?.length||0}</span>
+                <span style={{background:`${w.color}14`,color:w.color,padding:"2px 8px",borderRadius:10,fontWeight:600}}>👥 {w.contacts?.length||0}</span>
+                <span style={{background:`${w.color}14`,color:w.color,padding:"2px 8px",borderRadius:10,fontWeight:600}}>✓ {activeTasks} activas</span>
+              </div>
+            </div>
+          );
+        })}
+        <div onClick={onCreate} style={{border:"2px dashed #d1d5db",borderRadius:12,padding:16,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:140,gap:8}}>
+          <div style={{width:40,height:40,borderRadius:"50%",background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>+</div>
+          <div style={{fontSize:13,fontWeight:500,color:"#6b7280"}}>Nuevo workspace</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function TaskFlow(){
   const [data,setData]             = useState(_saved);
@@ -1545,6 +1764,7 @@ export default function TaskFlow(){
   const [profileMember,setPM]      = useState(null);
   const [projectModal,setProjModal]= useState(null);
   const [memberModal,setMemberModal]= useState(null); // null | "create" | member object
+  const [workspaceModal,setWorkspaceModal]= useState(null); // null | "create" | workspace object
   const [toasts,setToasts]          = useState([]);
 
   // Persistencia automática en cada cambio de datos
@@ -1629,16 +1849,16 @@ export default function TaskFlow(){
     addToast("✓ Perfil guardado");
   },[addToast]);
 
-  const createProject = useCallback(({name,desc,color,emoji,members:mems,columns})=>{
+  const createProject = useCallback(({name,desc,color,emoji,members:mems,columns,workspaceId})=>{
     const id=nextProjId++;
     const cols=columns.map(n=>({id:`nc${nextColId++}`,name:n,tasks:[]}));
-    setData(prev=>({...prev,projects:[...prev.projects,{id,name,desc,color,emoji,members:mems}],boards:{...prev.boards,[id]:cols}}));
+    setData(prev=>({...prev,projects:[...prev.projects,{id,name,desc,color,emoji,members:mems,workspaceId:workspaceId??null}],boards:{...prev.boards,[id]:cols}}));
     addToast("✓ Proyecto creado");
   },[addToast]);
-  const editProject = useCallback((idx,{name,desc,color,emoji,members:mems,columns})=>{
+  const editProject = useCallback((idx,{name,desc,color,emoji,members:mems,columns,workspaceId})=>{
     setData(prev=>{
       const p=prev.projects[idx];
-      const projects=prev.projects.map((x,i)=>i===idx?{...x,name,desc,color,emoji,members:mems}:x);
+      const projects=prev.projects.map((x,i)=>i===idx?{...x,name,desc,color,emoji,members:mems,workspaceId:workspaceId??null}:x);
       const existing=prev.boards[p.id]||[];
       const existNames=existing.map(c=>c.name);
       const newCols=columns.filter(n=>!existNames.includes(n)).map(n=>({id:`nc${nextColId++}`,name:n,tasks:[]}));
@@ -1647,6 +1867,24 @@ export default function TaskFlow(){
     });
     addToast("✓ Proyecto actualizado");
   },[addToast]);
+  const createWorkspace = useCallback((payload)=>{
+    const id=nextWsId++;
+    setData(prev=>({...prev,workspaces:[...(prev.workspaces||[]),{id,...payload,createdAt:fmt(new Date())}]}));
+    addToast("✓ Workspace creado");
+  },[addToast]);
+  const editWorkspace = useCallback((id,payload)=>{
+    setData(prev=>({...prev,workspaces:(prev.workspaces||[]).map(w=>w.id===id?{...w,...payload}:w)}));
+    addToast("✓ Workspace actualizado");
+  },[addToast]);
+  const deleteWorkspace = useCallback((id)=>{
+    setData(prev=>({
+      ...prev,
+      workspaces:(prev.workspaces||[]).filter(w=>w.id!==id),
+      projects:prev.projects.map(p=>p.workspaceId===id?{...p,workspaceId:null}:p),
+    }));
+    addToast("Workspace eliminado","info");
+  },[addToast]);
+
   const deleteProject = useCallback((idx)=>{
     setData(prev=>{ const p=prev.projects[idx]; const projects=prev.projects.filter((_,i)=>i!==idx); const boards={...prev.boards}; delete boards[p.id]; return{...prev,projects,boards}; });
     setAP(0); setActiveTab("projects");
@@ -1681,6 +1919,9 @@ export default function TaskFlow(){
           <div onClick={()=>setActiveTab("users")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="users"?"#EEEDFE":"transparent",color:activeTab==="users"?"#7F77DD":"#4b5563",fontWeight:activeTab==="users"?600:400}}>
             <span style={{fontSize:14}}>👥</span> Usuarios
           </div>
+          <div onClick={()=>setActiveTab("workspaces")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="workspaces"?"#EEEDFE":"transparent",color:activeTab==="workspaces"?"#7F77DD":"#4b5563",fontWeight:activeTab==="workspaces"?600:400}}>
+            <span style={{fontSize:14}}>🏢</span> Workspaces
+          </div>
         </div>
         <div style={{padding:8,flex:1,overflowY:"auto"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px 2px"}}>
@@ -1706,7 +1947,7 @@ export default function TaskFlow(){
 
       {/* MAIN */}
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        {activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&(
+        {activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&(
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px",height:52,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
@@ -1719,7 +1960,7 @@ export default function TaskFlow(){
             </button>
           </div>
         )}
-        {activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&(
+        {activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&(
           <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",background:"#fff",padding:"0 20px",flexShrink:0,overflowX:"auto"}}>
             {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #7F77DD":"2px solid transparent",color:activeTab===tab.key?"#7F77DD":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
           </div>
@@ -1728,7 +1969,8 @@ export default function TaskFlow(){
         <div style={{flex:1,overflow:"auto"}}>
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
-          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
+          {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
+          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
           {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
@@ -1740,10 +1982,12 @@ export default function TaskFlow(){
       <EmailToast emails={emailQueue} onDismiss={i=>setEQ(q=>q.filter((_,j)=>j!==i))}/>
       <Toast toasts={toasts}/>
       {profileMember&&<ProfileModal member={profileMember} onClose={()=>setPM(null)} onSave={avail=>{saveMemberProfile(profileMember.id,avail);setPM(null);}}/>}
-      {projectModal==="create"&&<ProjectModal members={data.members} onClose={()=>setProjModal(null)} onSave={createProject}/>}
-      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)}/>}
+      {projectModal==="create"&&<ProjectModal members={data.members} workspaces={data.workspaces||[]} onClose={()=>setProjModal(null)} onSave={createProject}/>}
+      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} workspaces={data.workspaces||[]} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)}/>}
       {memberModal==="create"&&<MemberEditModal allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={createMember}/>}
       {memberModal&&memberModal!=="create"&&<MemberEditModal member={memberModal} allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={d=>updateMember(d,memberModal.id)} onDelete={id=>{deleteMember(id);setMemberModal(null);}}/>}
+      {workspaceModal==="create"&&<WorkspaceModal onClose={()=>setWorkspaceModal(null)} onSave={createWorkspace}/>}
+      {workspaceModal&&workspaceModal!=="create"&&<WorkspaceModal workspace={workspaceModal} onClose={()=>setWorkspaceModal(null)} onSave={d=>editWorkspace(workspaceModal.id,d)} onDelete={deleteWorkspace}/>}
     </div>
   );
 }
