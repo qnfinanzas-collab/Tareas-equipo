@@ -11,7 +11,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand } from "./lib/agent.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen } from "./lib/voice.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
@@ -1104,9 +1104,7 @@ function ScopeAvatarModal({scope,data,activeProjectId,activeMemberId,onClose,onM
   },[av,support.tts]);
 
   useEffect(()=>{
-    const text = scope==="board"
-      ? buildBoardBriefing(data.projects.find(p=>p.id===activeProjectId), data.boards[activeProjectId], data.members)
-      : buildDailyBriefing(data, activeMemberId);
+    const text = buildContextBriefing(scope, data, { activeMemberId, activeProjectId });
     setMessages([]); say(text,"avatar");
     return ()=>{ stopSpeaking(); if(stopFnRef.current) stopFnRef.current(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1147,15 +1145,27 @@ function ScopeAvatarModal({scope,data,activeProjectId,activeMemberId,onClose,onM
   const sendText = (txt)=>{ if(txt.trim()) handleUser(txt.trim()); };
   const [typed,setTyped] = useState("");
 
-  const title = scope==="board"
-    ? `Asesor del tablero · ${data.projects.find(p=>p.id===activeProjectId)?.name||""}`
-    : "Asesor global · Briefing del día";
+  const SCOPE_LABELS = {
+    board:      `Asesor del tablero · ${data.projects.find(p=>p.id===activeProjectId)?.name||""}`,
+    planner:    "Asesor del planificador IA",
+    eisenhower: "Asesor de la matriz Eisenhower",
+    reports:    "Asesor de reportes de tiempo",
+    projects:   "Asesor de proyectos",
+    users:      "Asesor de usuarios",
+    team:       "Asesor del equipo",
+    workspaces: "Asesor de workspaces",
+    global:     "Asesor global · Briefing del día",
+    dashboard:  "Asesor global · Briefing del día",
+  };
+  const title = SCOPE_LABELS[scope] || "Asesor IA";
+  const SCOPE_ICONS = { board:"📋", planner:"⚡", eisenhower:"🎯", reports:"⏱️", projects:"📁", users:"👥", team:"🤝", workspaces:"🏢" };
+  const scopeIcon = SCOPE_ICONS[scope] || "🌍";
 
   return (
     <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:600,maxWidth:"96vw",maxHeight:"90vh",display:"flex",flexDirection:"column",borderTop:`4px solid ${av.color}`,overflow:"hidden"}}>
         <div style={{padding:"14px 18px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${av.color},${av.color}88)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,boxShadow:speaking?`0 0 0 4px ${av.color}33`:"none",transition:"box-shadow .2s"}}>{scope==="board"?"📋":"🌍"}</div>
+          <div style={{width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${av.color},${av.color}88)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,boxShadow:speaking?`0 0 0 4px ${av.color}33`:"none",transition:"box-shadow .2s"}}>{scopeIcon}</div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:14,fontWeight:700,color:av.color}}>{title}</div>
             <div style={{fontSize:11,color:"#6b7280"}}>Dame órdenes por voz o texto</div>
@@ -2564,7 +2574,7 @@ export default function TaskFlow(){
       {workspaceModal&&workspaceModal!=="create"&&<WorkspaceModal workspace={workspaceModal} onClose={()=>setWorkspaceModal(null)} onSave={d=>editWorkspace(workspaceModal.id,d)} onDelete={deleteWorkspace}/>}
 
       {/* Botón flotante global del asesor — siempre visible */}
-      <button className="tf-fab" onClick={()=>setScopeAvatar("global")} title="Asesor IA global — Briefing del día" style={{position:"fixed",bottom:24,right:24,zIndex:1500,width:60,height:60,borderRadius:"50%",background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 8px 24px rgba(127,119,221,0.4)",display:"flex",alignItems:"center",justifyContent:"center"}}>🎙️</button>
+      <button className="tf-fab" onClick={()=>setScopeAvatar(activeTab||"global")} title="Asesor IA — habla sobre lo que estás viendo" style={{position:"fixed",bottom:24,right:24,zIndex:1500,width:60,height:60,borderRadius:"50%",background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 8px 24px rgba(127,119,221,0.4)",display:"flex",alignItems:"center",justifyContent:"center"}}>🎙️</button>
 
       {scopeAvatar && <ScopeAvatarModal
         scope={scopeAvatar}

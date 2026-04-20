@@ -571,6 +571,131 @@ export function buildDailyBriefing(data, memberId){
   return parts.join(" ");
 }
 
+// Briefings por sección
+export function buildPlannerBriefing(data, memberId){
+  const { boards, members, projects, aiSchedule=[] } = data;
+  const all = flatTasks(boards, projects);
+  const active = all.filter(t => t.colName !== "Hecho");
+  const unscheduled = active.filter(t => !aiSchedule.some(s => s.taskId === t.id));
+  const mine = memberId!=null ? active.filter(t => (t.assignees||[]).includes(memberId)) : active;
+  const withICS = members.filter(m => m.avail?.icsUrl);
+  const parts = ["Estás en el planificador IA."];
+  parts.push(`${active.length} tareas activas, ${unscheduled.length} sin planificar.`);
+  if(memberId!=null) parts.push(`Tú tienes ${mine.length} asignadas.`);
+  if(withICS.length>0) parts.push(`${withICS.length} ${withICS.length===1?"miembro sincroniza":"miembros sincronizan"} Google Calendar.`);
+  if(unscheduled.length>0) parts.push("Te recomiendo pulsar 'Replanificar' para que el motor asigne los huecos respetando calendarios y mañanas bloqueadas.");
+  else parts.push("Todo planificado. Si añades nuevas tareas urgentes, repite la planificación.");
+  parts.push("Puedes pedirme: 'cuántas vencidas hay', 'resumen', 'qué lleva Antonio'.");
+  return parts.join(" ");
+}
+
+export function buildEisenhowerBriefing(data, memberId){
+  const all = flatTasks(data.boards, data.projects);
+  const mine = memberId!=null ? all.filter(t => (t.assignees||[]).includes(memberId)) : all;
+  const active = mine.filter(t => t.colName !== "Hecho");
+  const q = { Q1:0, Q2:0, Q3:0, Q4:0 };
+  active.forEach(t => q[getQ(t)]++);
+  const parts = ["Estás en la matriz Eisenhower."];
+  parts.push(`Q1 (urgente-importante): ${q.Q1}. Q2 (importante): ${q.Q2}. Q3 (urgente-poco importante): ${q.Q3}. Q4: ${q.Q4}.`);
+  if(q.Q1 > 3) parts.push("Demasiados incendios en Q1 — eso indica que se está reaccionando, no planificando. Intenta mover trabajo a Q2.");
+  else if(q.Q1 === 0 && q.Q2 > 0) parts.push("Bien: sin urgencias y con Q2 claro. Aprovecha para ejecutar calidad.");
+  if(q.Q3 > q.Q2) parts.push("Tienes más Q3 que Q2: plantéate delegar o recortar alcance de esas tareas urgentes poco importantes.");
+  parts.push("Dime 'abre una tarea urgente' y te llevo directo.");
+  return parts.join(" ");
+}
+
+export function buildReportsBriefing(data){
+  const all = flatTasks(data.boards, data.projects);
+  const totalLogged = all.reduce((s,t)=>s + ((t.timeLogs||[]).reduce((a,l)=>a+l.seconds,0)/3600), 0);
+  const totalEst = all.reduce((s,t)=>s + (t.estimatedHours||0), 0);
+  const over = all.filter(t => {
+    const logged = (t.timeLogs||[]).reduce((a,l)=>a+l.seconds,0)/3600;
+    return t.estimatedHours>0 && logged > t.estimatedHours * 1.2;
+  });
+  const parts = ["Estás en reportes de tiempo."];
+  parts.push(`Total registrado: ${totalLogged.toFixed(1)} horas sobre ${totalEst.toFixed(0)} estimadas.`);
+  if(over.length>0) parts.push(`${over.length} tareas van por encima del presupuesto — revisa si amplían alcance o hubo mala estimación.`);
+  else parts.push("Ninguna tarea excede presupuesto. Buen control de estimaciones.");
+  parts.push("Dime 'qué lleva Marc' o 'resumen' para datos específicos.");
+  return parts.join(" ");
+}
+
+export function buildProjectsBriefing(data){
+  const { projects, boards } = data;
+  const perProj = projects.map(p => {
+    const cols = boards[p.id] || [];
+    const all = cols.flatMap(c => c.tasks.map(t => ({...t, colName:c.name})));
+    const active = all.filter(t => t.colName !== "Hecho");
+    const overdue = active.filter(t => t.dueDate && daysUntil(t.dueDate) < 0);
+    return { p, total: all.length, active: active.length, overdue: overdue.length };
+  });
+  const worst = [...perProj].sort((a,b)=>b.overdue-a.overdue)[0];
+  const parts = [`Estás en la vista de proyectos. Tienes ${projects.length}.`];
+  if(worst && worst.overdue>0) parts.push(`El que peor está: ${worst.p.name} con ${worst.overdue} vencidas.`);
+  const totals = perProj.reduce((s,x)=>({act:s.act+x.active,ov:s.ov+x.overdue}),{act:0,ov:0});
+  parts.push(`Global: ${totals.act} activas, ${totals.ov} vencidas.`);
+  parts.push("Dime 'abre el proyecto X' para ir directo, o 'crea una tarea en X'.");
+  return parts.join(" ");
+}
+
+export function buildUsersBriefing(data){
+  const { members, boards, projects } = data;
+  const all = flatTasks(boards, projects);
+  const loads = members.map(m => ({
+    m,
+    active: all.filter(t => (t.assignees||[]).includes(m.id) && t.colName!=="Hecho").length,
+  })).sort((a,b)=>b.active-a.active);
+  const parts = [`Estás en usuarios. ${members.length} miembros en el sistema.`];
+  if(loads[0]) parts.push(`Más cargado: ${loads[0].m.name} con ${loads[0].active} tareas activas.`);
+  if(loads.length>1 && loads[loads.length-1].active === 0) parts.push(`${loads[loads.length-1].m.name} no tiene ninguna asignada.`);
+  parts.push("Puedes pedirme 'qué lleva Antonio' para ver sus tareas.");
+  return parts.join(" ");
+}
+
+export function buildTeamBriefing(data, projectId){
+  const proj = data.projects.find(p => p.id === projectId);
+  if(!proj) return "Vista de equipo.";
+  const board = data.boards[projectId] || [];
+  const all = board.flatMap(c => c.tasks);
+  const parts = [`Equipo del proyecto ${proj.name}: ${proj.members.length} ${proj.members.length===1?"miembro":"miembros"}.`];
+  const loads = proj.members.map(mid => {
+    const m = data.members.find(x=>x.id===mid);
+    const n = all.filter(t => (t.assignees||[]).includes(mid)).length;
+    return { m, n };
+  }).sort((a,b)=>b.n-a.n);
+  if(loads[0]) parts.push(`${loads[0].m?.name} lleva ${loads[0].n} tareas en este proyecto.`);
+  parts.push("Dime 'qué lleva X' para detalle por persona.");
+  return parts.join(" ");
+}
+
+export function buildWorkspacesBriefing(data){
+  const ws = data.workspaces || [];
+  const parts = [`Vista de workspaces. Tienes ${ws.length}.`];
+  if(ws.length>0){
+    const names = ws.slice(0,3).map(w=>w.name).join(", ");
+    parts.push(`Los primeros: ${names}.`);
+  }
+  parts.push("Los workspaces agrupan proyectos por cliente o contexto.");
+  return parts.join(" ");
+}
+
+// Dispatcher context-aware
+export function buildContextBriefing(scope, data, { activeMemberId, activeProjectId }){
+  switch(scope){
+    case "board":       return buildBoardBriefing(data.projects.find(p=>p.id===activeProjectId), data.boards[activeProjectId]||[], data.members);
+    case "planner":     return buildPlannerBriefing(data, activeMemberId);
+    case "eisenhower":  return buildEisenhowerBriefing(data, activeMemberId);
+    case "reports":     return buildReportsBriefing(data);
+    case "projects":    return buildProjectsBriefing(data);
+    case "users":       return buildUsersBriefing(data);
+    case "team":        return buildTeamBriefing(data, activeProjectId);
+    case "workspaces":  return buildWorkspacesBriefing(data);
+    case "dashboard":
+    case "global":
+    default:            return buildDailyBriefing(data, activeMemberId);
+  }
+}
+
 // Briefing de tablero/proyecto
 export function buildBoardBriefing(project, board, members){
   const all = board.flatMap(col => col.tasks.map(t => ({...t, colName: col.name})));
