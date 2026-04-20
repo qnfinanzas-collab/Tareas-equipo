@@ -159,15 +159,33 @@ export function isCacheFresh(id){
   return Date.now() - e.ts <= CACHE_TTL_MS;
 }
 
+const CORS_PROXIES = [
+  u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+  u => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`,
+  u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+  u => `https://thingproxy.freeboard.io/fetch/${u}`,
+];
+
+async function fetchThroughProxies(url){
+  const errors = [];
+  for(const build of CORS_PROXIES){
+    try{
+      const res = await fetch(build(url), { cache: "no-store" });
+      if(!res.ok){ errors.push(`HTTP ${res.status}`); continue; }
+      const text = await res.text();
+      if(!text || !text.includes("BEGIN:VCALENDAR")){ errors.push("respuesta no-ICS"); continue; }
+      return text;
+    }catch(e){ errors.push(e.message||"fetch error"); }
+  }
+  throw new Error(`todos los proxies fallaron (${errors.slice(0,2).join("; ")})`);
+}
+
 export async function fetchICS(member){
   const url = member.avail?.icsUrl;
   if(!url) return [];
   const fresh = cacheEntry(member.id);
   if(fresh) return fresh.events;
-  const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-  const res = await fetch(proxy);
-  if(!res.ok) throw new Error(`HTTP ${res.status}`);
-  const text = await res.text();
+  const text = await fetchThroughProxies(url);
   const events = parseICS(text);
   ICS_CACHE[member.id] = { events, ts: Date.now() };
   return events;
