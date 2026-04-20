@@ -787,6 +787,24 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,onClos
                   </div>
                   <FL c="Descripcion"/>
                   <textarea value={draft.desc||""} onChange={e=>set("desc",e.target.value)} rows={3} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                  <FL c="Asignados"/>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {members.map(m=>{
+                      const sel=(draft.assignees||[]).includes(m.id);
+                      const mp2=MP[m.id]||MP[0];
+                      return (
+                        <button key={m.id} type="button" onClick={()=>{
+                          const cur=draft.assignees||[];
+                          const nxt=sel?cur.filter(x=>x!==m.id):[...cur,m.id];
+                          set("assignees",nxt);
+                        }} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px 4px 4px",borderRadius:20,border:`1.5px solid ${sel?mp2.solid:"#e5e7eb"}`,background:sel?mp2.light:"#fff",cursor:"pointer",fontFamily:"inherit"}}>
+                          <div style={{width:22,height:22,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{m.initials}</div>
+                          <span style={{fontSize:12,fontWeight:600,color:sel?mp2.solid:"#6b7280"}}>{m.name.split(" ")[0]}</span>
+                          {sel&&<span style={{fontSize:10,color:mp2.solid}}>✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </>
               ):(
                 <>
