@@ -366,7 +366,7 @@ function ProfileModal({member,onClose,onSave}){
 }
 
 // ── Planner View ──────────────────────────────────────────────────────────────
-function PlannerView({data,onApplySchedule}){
+function PlannerView({data,onApplySchedule,saveMemberProfile}){
   const [result,setResult]=useState(null);
   const [running,setRunning]=useState(false);
   const [icsStatus,setIcsStatus]=useState({});
@@ -621,7 +621,7 @@ function PlannerView({data,onApplySchedule}){
         </div>
       )}
 
-      {profileMember&&<ProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onSave={avail=>{setLocalMembers(prev=>prev.map(m=>m.id===profileMember.id?{...m,avail}:m));setResult(null);}}/>}
+      {profileMember&&<ProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onSave={avail=>{setLocalMembers(prev=>prev.map(m=>m.id===profileMember.id?{...m,avail}:m));saveMemberProfile?.(profileMember.id,avail);delete ICS_CACHE[profileMember.id];setResult(null);}}/>}
     </div>
   );
 }
@@ -1994,7 +1994,7 @@ export default function TaskFlow(){
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
-          {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule}/>}
+          {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
           {activeTab==="team"      &&<TeamView project={proj} members={data.members} projects={data.projects} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onEditProfile={m=>setPM(m)}/>}
         </div>
