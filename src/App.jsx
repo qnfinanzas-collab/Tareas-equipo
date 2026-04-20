@@ -336,6 +336,17 @@ function genAlerts(boards,members){
       const est=(task.estimatedHours||0)*3600;
       if(est>0&&logged>est*1.1) alerts.push({id:`ti-${task.id}-${mid}`,memberId:mid,taskId:task.id,taskTitle:task.title,type:"time",level:"warning",msg:`Tiempo superado: ${fmtH(logged)} vs ${fmtH(est)}`,quadrant:q});
     });
+    // Alertas de subtareas
+    (task.subtasks||[]).forEach(sub=>{
+      if(sub.done||!sub.dueDate)return;
+      const sd=daysUntil(sub.dueDate);
+      const target=sub.assigneeId!=null?sub.assigneeId:(task.assignees[0]??null);
+      if(target==null)return;
+      const stTitle=`${task.title} › ${sub.title}`;
+      if(sd<0)      alerts.push({id:`sov-${task.id}-${sub.id}`,memberId:target,taskId:task.id,taskTitle:stTitle,type:"subtask-overdue",level:"critical",msg:`Subtarea vencida hace ${Math.abs(sd)}d`,quadrant:q});
+      else if(sd===0)alerts.push({id:`std-${task.id}-${sub.id}`,memberId:target,taskId:task.id,taskTitle:stTitle,type:"subtask-today",  level:"critical",msg:"Subtarea vence hoy",quadrant:q});
+      else if(sd<=2) alerts.push({id:`sur-${task.id}-${sub.id}`,memberId:target,taskId:task.id,taskTitle:stTitle,type:"subtask-urgent", level:"warning", msg:`Subtarea vence en ${sd}d`,quadrant:q});
+    });
   });
   members.forEach(m=>{
     const my=all.filter(t=>t.assignees.includes(m.id)&&t.colName!=="Hecho");
@@ -728,6 +739,9 @@ function TaskModal({task,colId,cols,members,activeMemberId,onClose,onUpdate,onMo
   const [elapsed,setElapsed]=useState(0);
   const [note,setNote]=useState("");
   const [saved,setSaved]=useState(false);
+  const [newSubTitle,setNewSubTitle]=useState("");
+  const [editingSubId,setEditingSubId]=useState(null);
+  const [editSubDraft,setEditSubDraft]=useState("");
   const intRef=useRef(null);
   const p2=palOf(task.assignees); const q=getQ(task);
 
@@ -741,6 +755,17 @@ function TaskModal({task,colId,cols,members,activeMemberId,onClose,onUpdate,onMo
   const saveEdits=()=>{ onUpdate(task.id,colId,draft); setEditing(false); };
   const addComment=()=>{ const t=comment.trim(); if(!t)return; const u={...task,comments:[...task.comments,{author:activeMemberId,text:t,time:"ahora mismo"}]}; onUpdate(task.id,colId,u); setComment(""); };
   const saveTime=()=>{ if(elapsed<1)return; const u={...task,timeLogs:[...(task.timeLogs||[]),{memberId:activeMemberId,seconds:elapsed,note:note.trim()||"Sin nota",date:fmt(new Date())}]}; onUpdate(task.id,colId,u); setElapsed(0); setRunning(false); setNote(""); setSaved(true); setTimeout(()=>setSaved(false),2500); };
+
+  // ── Subtareas ──
+  const subs=task.subtasks||[];
+  const subsDone=subs.filter(s=>s.done).length;
+  const subPct=subs.length?Math.round(subsDone/subs.length*100):0;
+  const mutateSubs=(fn)=>{ const ns=fn(subs); onUpdate(task.id,colId,{...task,subtasks:ns}); };
+  const addSubtask=()=>{ const t=newSubTitle.trim(); if(!t)return; const id="st_"+Date.now().toString(36)+Math.random().toString(36).slice(2,5); mutateSubs(s=>[...s,{id,title:t,done:false,dueDate:"",assigneeId:null}]); setNewSubTitle(""); };
+  const toggleSub=(id)=>mutateSubs(s=>s.map(x=>x.id===id?{...x,done:!x.done}:x));
+  const patchSub=(id,patch)=>mutateSubs(s=>s.map(x=>x.id===id?{...x,...patch}:x));
+  const deleteSub=(id)=>mutateSubs(s=>s.filter(x=>x.id!==id));
+  const commitEditSub=()=>{ const t=editSubDraft.trim(); if(t && editingSubId){ patchSub(editingSubId,{title:t}); } setEditingSubId(null); };
 
   const totalLogged=(task.timeLogs||[]).reduce((s,l)=>s+l.seconds,0);
   const est=(task.estimatedHours||0)*3600;
@@ -766,8 +791,8 @@ function TaskModal({task,colId,cols,members,activeMemberId,onClose,onUpdate,onMo
         </div>
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
-          {[["detail","Detalle"],["time","Tiempo"],["comments","Comentarios"]].map(([k,l])=>(
-            <div key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400,marginBottom:-0.5}}>{l}{k==="time"&&totalLogged>0?` · ${fmtH(totalLogged)}`:""}{k==="comments"&&task.comments.length>0?` (${task.comments.length})`:""}</div>
+          {[["detail","Detalle"],["subtasks","Subtareas"],["time","Tiempo"],["comments","Comentarios"]].map(([k,l])=>(
+            <div key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400,marginBottom:-0.5}}>{l}{k==="subtasks"&&subs.length>0?` ${subsDone}/${subs.length}`:""}{k==="time"&&totalLogged>0?` · ${fmtH(totalLogged)}`:""}{k==="comments"&&task.comments.length>0?` (${task.comments.length})`:""}</div>
           ))}
         </div>
         <div style={{padding:20}}>
@@ -813,6 +838,50 @@ function TaskModal({task,colId,cols,members,activeMemberId,onClose,onUpdate,onMo
                   </div>
                 </>
               )}
+            </>
+          )}
+          {tab==="subtasks"&&(
+            <>
+              {subs.length>0&&(
+                <div style={{marginBottom:14}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#6b7280",marginBottom:4}}>
+                    <span>Progreso</span>
+                    <span style={{fontWeight:600,color:subPct===100?"#085041":"#374151"}}>{subsDone}/{subs.length} completadas · {subPct}%</span>
+                  </div>
+                  <div style={{height:8,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}>
+                    <div style={{height:"100%",width:`${subPct}%`,background:subPct===100?"#1D9E75":"#7F77DD",borderRadius:20,transition:"width .2s"}}/>
+                  </div>
+                </div>
+              )}
+              <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+                {subs.length===0&&<div style={{textAlign:"center",padding:"18px 12px",color:"#9ca3af",fontSize:12,fontStyle:"italic",background:"#f9fafb",border:"1px dashed #e5e7eb",borderRadius:10}}>Sin subtareas. Añade la primera abajo.</div>}
+                {subs.map(sub=>{
+                  const due=sub.dueDate?daysUntil(sub.dueDate):null;
+                  const dueC=sub.done?"#9ca3af":due===null?"#9ca3af":due<0?"#A32D2D":due===0?"#854F0B":due<=2?"#633806":"#6b7280";
+                  const asgMp=sub.assigneeId!=null?(MP[sub.assigneeId]||MP[0]):null;
+                  const asgM=sub.assigneeId!=null?members.find(m=>m.id===sub.assigneeId):null;
+                  const isEd=editingSubId===sub.id;
+                  return(
+                    <div key={sub.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:sub.done?"#f0fdf7":"#f9fafb",border:`1px solid ${sub.done?"#c6efd9":"#e5e7eb"}`,borderRadius:8}}>
+                      <input type="checkbox" checked={sub.done} onChange={()=>toggleSub(sub.id)} style={{width:16,height:16,cursor:"pointer",accentColor:"#1D9E75",flexShrink:0}}/>
+                      {isEd
+                        ?<input autoFocus value={editSubDraft} onChange={e=>setEditSubDraft(e.target.value)} onBlur={commitEditSub} onKeyDown={e=>{if(e.key==="Enter")e.target.blur();if(e.key==="Escape"){setEditingSubId(null);}}} style={{flex:1,padding:"4px 8px",border:"1px solid #7F77DD",borderRadius:6,fontSize:13,outline:"none",fontFamily:"inherit",minWidth:0}}/>
+                        :<div onClick={()=>{setEditingSubId(sub.id);setEditSubDraft(sub.title);}} style={{flex:1,fontSize:13,cursor:"text",textDecoration:sub.done?"line-through":"none",color:sub.done?"#9ca3af":"#1f2937",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{sub.title}</div>
+                      }
+                      <input type="date" value={sub.dueDate||""} onChange={e=>patchSub(sub.id,{dueDate:e.target.value})} title="Fecha límite" style={{fontSize:11,padding:"3px 6px",borderRadius:6,border:"0.5px solid #d1d5db",color:dueC,fontWeight:due!==null&&(due<0||due===0)&&!sub.done?600:400,background:"#fff",fontFamily:"inherit",width:128,flexShrink:0}}/>
+                      <select value={sub.assigneeId==null?"":sub.assigneeId} onChange={e=>patchSub(sub.id,{assigneeId:e.target.value===""?null:Number(e.target.value)})} title={asgM?asgM.name:"Asignar"} style={{fontSize:11,padding:"3px 6px",borderRadius:6,border:"0.5px solid #d1d5db",background:asgMp?asgMp.light:"#fff",color:asgMp?asgMp.solid:"#6b7280",fontWeight:600,fontFamily:"inherit",width:68,flexShrink:0,cursor:"pointer"}}>
+                        <option value="">—</option>
+                        {members.map(m=><option key={m.id} value={m.id}>{m.initials}</option>)}
+                      </select>
+                      <button onClick={()=>deleteSub(sub.id)} title="Eliminar" style={{background:"none",border:"none",fontSize:14,color:"#9ca3af",cursor:"pointer",padding:0,width:22,height:22,flexShrink:0}}>×</button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <input value={newSubTitle} onChange={e=>setNewSubTitle(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addSubtask();}} placeholder="Añadir subtarea y pulsa Enter..." style={{flex:1,padding:"8px 12px",border:"0.5px solid #d1d5db",borderRadius:8,fontSize:13,outline:"none",fontFamily:"inherit"}}/>
+                <button onClick={addSubtask} disabled={!newSubTitle.trim()} style={{padding:"8px 16px",borderRadius:8,background:newSubTitle.trim()?"#7F77DD":"#e5e7eb",color:newSubTitle.trim()?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:newSubTitle.trim()?"pointer":"default",fontWeight:600}}>+ Añadir</button>
+              </div>
             </>
           )}
           {tab==="time"&&(
@@ -867,6 +936,9 @@ function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
   const totalLogged=(task.timeLogs||[]).reduce((s,l)=>s+l.seconds,0);
   const est=(task.estimatedHours||0)*3600;
   const sched=(aiSchedule||[]).filter(s=>s.taskId===task.id&&task.assignees.includes(s.memberId));
+  const subs=task.subtasks||[];
+  const subDone=subs.filter(s=>s.done).length;
+  const subAllDone=subs.length>0&&subDone===subs.length;
   return(
     <div draggable onDragStart={onDragStart} onClick={onOpen} style={{background:p2?p2.cardBg:"#fff",border:`0.5px solid ${p2?p2.cardBorder+"55":"#e5e7eb"}`,borderLeft:`4px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:10,padding:"10px 12px",marginBottom:8,cursor:"pointer"}}>
       <div style={{fontSize:13,fontWeight:500,marginBottom:6,lineHeight:1.4}}>{task.title}</div>
@@ -880,7 +952,7 @@ function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
       {est>0&&totalLogged>0&&<div style={{marginBottom:6}}><div style={{height:4,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(Math.round(totalLogged/est*100),100)}%`,background:totalLogged>est?"#E24B4A":totalLogged/est>0.8?"#EF9F27":"#1D9E75",borderRadius:20}}/></div></div>}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex"}}>{task.assignees.map((mid,i)=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} title={m?.name} style={{marginLeft:i>0?-7:0,zIndex:task.assignees.length-i,position:"relative",width:24,height:24,borderRadius:"50%",background:mp2.solid,color:"#fff",border:"2px solid #fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{m?.initials||"?"}</div>; })}</div>
-        <div style={{display:"flex",alignItems:"center",gap:5}}><PriBadge p={task.priority}/>{task.comments.length>0&&<span style={{fontSize:11,color:"#9ca3af"}}>{task.comments.length}</span>}</div>
+        <div style={{display:"flex",alignItems:"center",gap:5}}><PriBadge p={task.priority}/>{subs.length>0&&<span title={`${subDone}/${subs.length} subtareas`} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:subAllDone?"#E1F5EE":"#f3f4f6",color:subAllDone?"#085041":"#6b7280",fontWeight:600,border:`0.5px solid ${subAllDone?"#1D9E75":"#e5e7eb"}`}}>☑ {subDone}/{subs.length}</span>}{task.comments.length>0&&<span style={{fontSize:11,color:"#9ca3af"}}>{task.comments.length}</span>}</div>
       </div>
     </div>
   );
