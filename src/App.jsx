@@ -1,0 +1,1677 @@
+import React, { useState, useCallback, useEffect, useRef } from "react";
+
+// ── Paletas ───────────────────────────────────────────────────────────────────
+const MP = [
+  { solid:"#7F77DD", light:"#EEEDFE", cardBorder:"#7F77DD", cardBg:"#f5f4ff" },
+  { solid:"#E24B4A", light:"#FCEBEB", cardBorder:"#E24B4A", cardBg:"#fff5f5" },
+  { solid:"#1D9E75", light:"#E1F5EE", cardBorder:"#1D9E75", cardBg:"#f0fdf7" },
+  { solid:"#EF9F27", light:"#FAEEDA", cardBorder:"#EF9F27", cardBg:"#fffbf0" },
+  { solid:"#378ADD", light:"#E6F1FB", cardBorder:"#378ADD", cardBg:"#f0f7ff" },
+  { solid:"#D85A30", light:"#FAECE7", cardBorder:"#D85A30", cardBg:"#fff8f5" },
+  { solid:"#993556", light:"#FBEAF0", cardBorder:"#993556", cardBg:"#fff5f8" },
+  { solid:"#3B6D11", light:"#EAF3DE", cardBorder:"#3B6D11", cardBg:"#f4fbec" },
+];
+const TAG_COLORS = {
+  purple:{ bg:"#EEEDFE",text:"#3C3489",border:"#AFA9EC" },
+  teal:  { bg:"#E1F5EE",text:"#085041",border:"#5DCAA5" },
+  coral: { bg:"#FAECE7",text:"#712B13",border:"#F0997B" },
+  pink:  { bg:"#FBEAF0",text:"#72243E",border:"#ED93B1" },
+  amber: { bg:"#FAEEDA",text:"#633806",border:"#EF9F27" },
+  blue:  { bg:"#E6F1FB",text:"#0C447C",border:"#85B7EB" },
+  green: { bg:"#EAF3DE",text:"#27500A",border:"#97C459" },
+};
+const QM = {
+  Q1:{ label:"Hazlo ahora", sub:"Urgente+Importante",    bg:"#fff5f5",border:"#E24B4A",icon:"🔴" },
+  Q2:{ label:"Planifícalo", sub:"Importante, no urgente", bg:"#f0f7ff",border:"#378ADD",icon:"🔵" },
+  Q3:{ label:"Delégalo",    sub:"Urgente, no importante", bg:"#fffbf0",border:"#EF9F27",icon:"🟡" },
+  Q4:{ label:"Elimínalo",   sub:"Ni urgente ni importante",bg:"#f9fafb",border:"#9ca3af",icon:"⚪" },
+};
+const PROJECT_COLORS = ["#7F77DD","#E24B4A","#1D9E75","#EF9F27","#378ADD","#D85A30","#993556","#3B6D11"];
+const PROJECT_EMOJIS = ["🚀","📱","🌐","⚙️","🎯","💡","📊","🔧","✨","🏗️"];
+const DOW = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
+const TRANSPORT_KW = ["clase","inglés","ingles","curs","curso","class","jocs","training","entreno","gimnàs","gimnasio","gym","academia","formació","formacion"];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const TODAY = new Date(); TODAY.setHours(0,0,0,0);
+const fmt   = d => d.toISOString().slice(0,10);
+const D     = n => { const d=new Date(TODAY); d.setDate(d.getDate()+n); return fmt(d); };
+const dayName = d => DOW[new Date(d).getDay()];
+function daysUntil(s){ if(!s)return 999; const d=new Date(s); d.setHours(0,0,0,0); return Math.ceil((d-TODAY)/86400000); }
+function getQ(t){ const d=daysUntil(t.dueDate),u=d<=3,i=t.priority==="alta"||t.priority==="media"; return u&&i?"Q1":!u&&i?"Q2":u?"Q3":"Q4"; }
+function fmtSecs(s){ const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sc=s%60; return h>0?`${h}h ${m}m`:`${m}m ${sc}s`; }
+function fmtH(s){ return (s/3600).toFixed(1)+"h"; }
+function palOf(a){ return(!a||!a.length)?null:MP[a[0]]||null; }
+function toH(t){ const[h,m]=(t||"0:0").split(":").map(Number); return h+m/60; }
+function fromH(dec){ const h=Math.floor(dec),m=Math.round((dec-h)*60); return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`; }
+function needsMargin(title){ return TRANSPORT_KW.some(k=>(title||"").toLowerCase().includes(k)); }
+
+// ── ICS parser ────────────────────────────────────────────────────────────────
+function parseICSDate(s){
+  if(!s)return null;
+  const c=s.replace(/[^0-9T]/g,"");
+  if(c.length===8) return new Date(`${c.slice(0,4)}-${c.slice(4,6)}-${c.slice(6,8)}T00:00:00`);
+  if(c.length>=15) return new Date(`${c.slice(0,4)}-${c.slice(4,6)}-${c.slice(6,8)}T${c.slice(9,11)}:${c.slice(11,13)}:${c.slice(13,15)}Z`);
+  return null;
+}
+function parseICS(text){
+  const events=[];
+  const blocks=text.split("BEGIN:VEVENT");
+  for(let i=1;i<blocks.length;i++){
+    const b=blocks[i];
+    const get=k=>{ const m=b.match(new RegExp(`${k}[^:]*:([^\r\n]+)`)); return m?m[1].trim():""; };
+    const title=get("SUMMARY"),start=parseICSDate(get("DTSTART")),end=parseICSDate(get("DTEND"));
+    if(start&&end&&title){
+      events.push({
+        title,start,end,
+        date:fmt(start),
+        startH:start.getHours()+start.getMinutes()/60,
+        endH:end.getHours()+end.getMinutes()/60,
+        hasMargin:needsMargin(title),
+      });
+    }
+  }
+  return events;
+}
+const ICS_CACHE={};
+async function fetchICS(member){
+  const url=member.avail?.icsUrl;
+  if(!url)return[];
+  if(ICS_CACHE[member.id])return ICS_CACHE[member.id];
+  try{
+    const proxy=`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    const res=await fetch(proxy);
+    const text=await res.text();
+    const events=parseICS(text);
+    ICS_CACHE[member.id]=events;
+    return events;
+  }catch(e){ return[]; }
+}
+
+// ── Free afternoon slots calculator ──────────────────────────────────────────
+function calcFreeSlots(dayEvents, member, dateStr){
+  const avail=member.avail;
+  const margin=(avail.transportMarginMins||30)/60;
+  const afS=toH(avail.afternoonStart||"14:30");
+  const afE=toH(avail.afternoonEnd||"20:00");
+  const dow=new Date(dateStr).getDay();
+  const fixed=(avail.blockedSlots||[]).filter(b=>b.days.includes(dow)).map(b=>({s:toH(b.start),e:toH(b.end)}));
+  const cal=dayEvents.filter(e=>e.endH>afS&&e.startH<afE).map(e=>({
+    s:e.hasMargin?Math.max(afS,e.startH-margin):e.startH,
+    e:e.hasMargin?Math.min(afE,e.endH+margin):e.endH,
+  }));
+  const blocks=[...fixed,...cal].sort((a,b)=>a.s-b.s);
+  const free=[]; let cur=afS;
+  for(const b of blocks){
+    if(b.s>cur+0.25) free.push({start:cur,end:b.s,hours:b.s-cur});
+    cur=Math.max(cur,b.e);
+  }
+  if(afE>cur+0.25) free.push({start:cur,end:afE,hours:afE-cur});
+  return free;
+}
+
+// ── Availability helpers ──────────────────────────────────────────────────────
+function getAvailHours(member,dateStr){
+  const a=member.avail;
+  const dow=new Date(dateStr).getDay();
+  if(!a.workDays.includes(dow))return 0;
+  const exc=a.exceptions?.find(e=>e.date===dateStr);
+  if(exc?.type==="off")return 0;
+  if(exc?.type==="half")return a.hoursPerDay/2;
+  return a.hoursPerDay;
+}
+function getBlockLabels(member,dateStr){
+  const dow=new Date(dateStr).getDay();
+  return(member.avail?.blockedSlots||[]).filter(b=>b.days.includes(dow)).map(b=>`${b.label}`);
+}
+function getWorkDays(from,n){
+  const res=[]; const d=new Date(from); let c=0;
+  while(res.length<n&&c<90){ if(d.getDay()!==0&&d.getDay()!==6)res.push(fmt(d)); d.setDate(d.getDate()+1); c++; }
+  return res;
+}
+
+// ── AI Planner ────────────────────────────────────────────────────────────────
+async function runPlanner(boards,members,existing){
+  const schedule=[]; const load={};
+  members.forEach(m=>{load[m.id]={};});
+  existing.forEach(s=>{ load[s.memberId][s.date]=(load[s.memberId][s.date]||0)+s.hours; });
+
+  const ics={};
+  await Promise.all(members.map(async m=>{ ics[m.id]=m.avail?.icsUrl?await fetchICS(m):[]; }));
+
+  const allTasks=Object.values(boards).flatMap(cols=>cols.flatMap(col=>col.tasks.filter(t=>col.name!=="Hecho").map(t=>({...t,colName:col.name}))));
+  const sorted=[...allTasks].sort((a,b)=>{ const o={Q1:0,Q2:1,Q3:2,Q4:3}; const qa=o[getQ(a)],qb=o[getQ(b)]; return qa!==qb?qa-qb:daysUntil(a.dueDate)-daysUntil(b.dueDate); });
+  const days=getWorkDays(fmt(TODAY),14);
+  const planLog=[]; const freeSlotMap={};
+
+  sorted.forEach(task=>{
+    if(!task.estimatedHours||task.estimatedHours<=0)return;
+    const logged=(task.timeLogs||[]).reduce((s,l)=>s+l.seconds,0)/3600;
+    let remaining=Math.max(0,task.estimatedHours-logged);
+    if(remaining<=0)return;
+    const assignees=task.assignees.length>0?task.assignees:[0];
+    const dueIn=daysUntil(task.dueDate);
+    assignees.forEach(mid=>{
+      const m=members.find(x=>x.id===mid); if(!m)return;
+      let left=remaining/assignees.length; const reasons=[];
+      const mornH=toH(m.avail.morningEnd||"13:00")-toH(m.avail.morningStart||"08:00");
+      for(const day of days){
+        if(left<=0)break;
+        if(dueIn<999&&daysUntil(day)>dueIn)break;
+        const avH=getAvailHours(m,day); if(avH<=0)continue;
+        const used=load[mid][day]||0;
+        const dayIcs=(ics[mid]||[]).filter(e=>e.date===day);
+        const freeAft=m.avail.icsUrl?calcFreeSlots(dayIcs,m,day):[];
+        const freeAftH=m.avail.icsUrl?freeAft.reduce((s,x)=>s+x.hours,0):Math.max(0,avH-mornH);
+        const totalFree=mornH+freeAftH-used;
+        if(totalFree<=0)continue;
+        const toSched=Math.min(left,totalFree,4);
+        if(toSched<0.5)continue;
+        const key=`${mid}_${day}`;
+        if(!freeSlotMap[key])freeSlotMap[key]=freeAft;
+        let startTime=m.avail.morningStart||"08:00";
+        if(used>=mornH){ startTime=freeAft.length>0?fromH(freeAft[0].start):m.avail.afternoonStart||"14:30"; }
+        schedule.push({ id:`s-${task.id}-${mid}-${day}`,taskId:task.id,taskTitle:task.title,memberId:mid,date:day,startTime,hours:toSched,quadrant:getQ(task),priority:task.priority,fromICS:dayIcs.length>0 });
+        load[mid][day]=(load[mid][day]||0)+toSched;
+        left-=toSched;
+        reasons.push(`${day} ${startTime} (${toSched.toFixed(1)}h)`);
+      }
+      if(reasons.length>0) planLog.push({taskId:task.id,taskTitle:task.title,memberId:mid,memberName:m.name,quadrant:getQ(task),slots:reasons,totalScheduled:(remaining/assignees.length)-Math.max(0,left),daysUntilDue:dueIn});
+    });
+  });
+
+  const insights=[];
+  members.forEach(m=>{
+    const totalSched=schedule.filter(s=>s.memberId===m.id).reduce((s,x)=>s+x.hours,0);
+    const overDays=days.filter(d=>{ const a=getAvailHours(m,d); return a>0&&(load[m.id][d]||0)>a*0.9; });
+    if(overDays.length>0) insights.push({type:"warning",memberId:m.id,msg:`${m.name} tiene ${overDays.length} día${overDays.length>1?"s":""} al límite (${overDays.slice(0,2).join(", ")})`});
+    if(totalSched===0) insights.push({type:"info",memberId:m.id,msg:`${m.name} no tiene tareas asignadas los próximos 14 días`});
+    const freeDays=days.filter(d=>getAvailHours(m,d)>0&&(load[m.id][d]||0)<getAvailHours(m,d)*0.5);
+    if(freeDays.length>3) insights.push({type:"success",memberId:m.id,msg:`${m.name} tiene ${freeDays.length} días con capacidad libre`});
+  });
+
+  return{schedule,planLog,insights,load,freeSlotMap};
+}
+
+// ── Google Calendar & WhatsApp helpers ────────────────────────────────────────
+function gCalUrl(task,slot){
+  const base="https://calendar.google.com/calendar/render?action=TEMPLATE";
+  const title=encodeURIComponent(`[TaskFlow] ${task.title}`);
+  const d=(slot?.date||task.dueDate||"").replace(/-/g,"");
+  const st=(slot?.startTime||"09:00").replace(":","");
+  const eh=Math.min(23,Math.floor(parseInt(st.slice(0,2))+(slot?.hours||1)));
+  const et=`${String(eh).padStart(2,"0")}${st.slice(2)}`;
+  const dates=d?`&dates=${d}T${st}00/${d}T${et}00`:"";
+  const desc=encodeURIComponent(`Prioridad: ${task.priority}\nEstimado: ${task.estimatedHours||"?"}h\nTaskFlow #${task.id}`);
+  return `${base}&text=${title}${dates}&details=${desc}`;
+}
+function waUrl(member,msg){
+  const phone=(member?.avail?.whatsapp||"").replace(/[^0-9]/g,"");
+  if(!phone)return null;
+  return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+}
+function waMsg(member,slots,log){
+  const my=log.filter(l=>l.memberId===member.id);
+  if(!my.length)return `Hola ${member.name.split(" ")[0]}! Sin tareas nuevas esta semana en TaskFlow.`;
+  const lines=my.slice(0,4).map(l=>`- ${l.taskTitle} (${l.totalScheduled.toFixed(1)}h) ${QM[l.quadrant]?.icon||""}`);
+  return `Hola ${member.name.split(" ")[0]}! TaskFlow ha planificado tus tareas:\n\n${lines.join("\n")}\n\nRevisa el planificador para los detalles.`;
+}
+
+// ── INITIAL DATA ──────────────────────────────────────────────────────────────
+const BASE_AVAIL = {
+  workDays:[1,2,3,4,5],
+  morningStart:"09:00", morningEnd:"14:00",
+  afternoonStart:"16:00", afternoonEnd:"19:00",
+  hoursPerDay:7, exceptions:[],
+  googleCalendarId:"", icsUrl:"", whatsapp:"",
+  transportMarginMins:30, blockedSlots:[],
+};
+const INITIAL_DATA = {
+  members:[
+    {id:0,name:"Ana García",   initials:"AG",role:"Manager",email:"ana@empresa.com",    avail:{...BASE_AVAIL,whatsapp:"+34600000001",hoursPerDay:6}},
+    {id:1,name:"Carlos López", initials:"CL",role:"Editor", email:"carlos@empresa.com", avail:{...BASE_AVAIL,whatsapp:"+34600000002"}},
+    {id:2,name:"Sara Martín",  initials:"SM",role:"Editor", email:"sara@empresa.com",   avail:{...BASE_AVAIL,whatsapp:"+34600000003",workDays:[1,2,3,4],hoursPerDay:6}},
+    {id:3,name:"Javi Ruiz",    initials:"JR",role:"Viewer", email:"javi@empresa.com",   avail:{...BASE_AVAIL,whatsapp:"+34600000004",hoursPerDay:4,exceptions:[{date:D(1),type:"off",note:"Médico"}]}},
+    {id:4,name:"Marta Gil",    initials:"MG",role:"Editor", email:"marta@empresa.com",  avail:{...BASE_AVAIL,whatsapp:"+34600000005"}},
+    {id:5,name:"Marc Díaz",    initials:"MD",role:"Manager",email:"mdiaz.holding@gmail.com", avail:{
+      workDays:[1,2,3,4,5],
+      morningStart:"08:00", morningEnd:"13:00",
+      afternoonStart:"14:30", afternoonEnd:"17:00",
+      hoursPerDay:7, exceptions:[],
+      googleCalendarId:"mdiaz.holding@gmail.com",
+      icsUrl:"https://calendar.google.com/calendar/ical/mdiaz.holding%40gmail.com/private-f4a71632ff13e322717fc770b4208b45/basic.ics",
+      whatsapp:"", transportMarginMins:30,
+      blockedSlots:[
+        {days:[2,3,4],  start:"13:00",end:"14:30",label:"Comer"},
+        {days:[2,3],    start:"17:00",end:"18:30",label:"Jocs d empresa"},
+        {days:[4],      start:"17:45",end:"18:45",label:"Ingles"},
+        {days:[2,3,4,5],start:"20:00",end:"21:00",label:"Entreno Mugendo"},
+        {days:[2],      start:"19:00",end:"20:00",label:"Ingles martes"},
+      ],
+    }},
+    {id:6,name:"Antonio Díaz", initials:"AD",role:"Editor", email:"antonio@empresa.com",avail:{...BASE_AVAIL,whatsapp:"",hoursPerDay:8}},
+    {id:7,name:"Albert Díaz",  initials:"AL",role:"Editor", email:"albert@empresa.com", avail:{...BASE_AVAIL,whatsapp:"",hoursPerDay:8}},
+  ],
+  projects:[
+    {id:1,name:"App móvil",    color:"#7F77DD",members:[0,1,2],desc:"App móvil principal",emoji:"📱"},
+    {id:2,name:"Web rediseño", color:"#1D9E75",members:[0,2,3],desc:"Rediseño web corporativa",emoji:"🌐"},
+    {id:3,name:"Backend API",  color:"#378ADD",members:[1,3,4],desc:"Backend y documentación",emoji:"⚙️"},
+    {id:4,name:"Proyecto Díaz",color:"#D85A30",members:[5,6,7],desc:"Equipo Díaz",emoji:"🚀"},
+  ],
+  boards:{
+    1:[
+      {id:"c1",name:"Por hacer",tasks:[
+        {id:"t1",title:"Diseñar pantalla de login",tags:[{l:"UI/UX",c:"purple"}],assignees:[0,2],priority:"alta",startDate:D(0),dueDate:D(2),estimatedHours:8,timeLogs:[{memberId:0,seconds:5400,note:"Bocetos",date:D(0)},{memberId:2,seconds:3600,note:"Wireframes",date:D(0)}],desc:"Flujo completo de autenticación.",comments:[{author:0,text:"Seguir guías de marca",time:"hace 2h"},{author:2,text:"Wireframes en Drive",time:"hace 1h"}]},
+        {id:"t2",title:"Definir paleta de colores",tags:[{l:"Diseño",c:"pink"}],assignees:[2],priority:"media",startDate:D(0),dueDate:D(3),estimatedHours:4,timeLogs:[{memberId:2,seconds:1800,note:"Research",date:D(0)}],desc:"Paleta definitiva.",comments:[{author:2,text:"Propongo púrpura",time:"ayer"}]},
+        {id:"t13",title:"Reunión sprint planning",tags:[{l:"Reunión",c:"teal"}],assignees:[0,1,2],priority:"alta",startDate:D(0),dueDate:D(0),estimatedHours:1,timeLogs:[],desc:"Planificar sprint.",comments:[]},
+      ]},
+      {id:"c2",name:"En progreso",tasks:[
+        {id:"t3",title:"Integración con API REST",tags:[{l:"Backend",c:"blue"},{l:"Alta",c:"coral"}],assignees:[1],priority:"alta",startDate:D(-2),dueDate:D(-1),estimatedHours:16,timeLogs:[{memberId:1,seconds:21600,note:"Auth",date:D(-2)},{memberId:1,seconds:7200,note:"Users",date:D(-1)}],desc:"Conectar frontend con backend.",comments:[{author:1,text:"Endpoints auth terminados",time:"hace 30m"}]},
+        {id:"t4",title:"Onboarding de usuarios",tags:[{l:"UX",c:"teal"}],assignees:[0,1],priority:"media",startDate:D(-1),dueDate:D(5),estimatedHours:12,timeLogs:[{memberId:0,seconds:3600,note:"Borrador",date:D(-1)}],desc:"Tutorial interactivo.",comments:[]},
+      ]},
+      {id:"c3",name:"Revisión",tasks:[
+        {id:"t5",title:"Tests de rendimiento",tags:[{l:"QA",c:"amber"}],assignees:[3],priority:"baja",startDate:D(-3),dueDate:D(10),estimatedHours:6,timeLogs:[{memberId:3,seconds:10800,note:"Suite",date:D(-3)}],desc:"Batería de tests.",comments:[{author:3,text:"Informe listo",time:"hace 3h"}]},
+      ]},
+      {id:"c4",name:"Hecho",tasks:[
+        {id:"t6",title:"Setup del proyecto",tags:[{l:"Infra",c:"green"}],assignees:[1],priority:"baja",startDate:D(-12),dueDate:D(-10),estimatedHours:3,timeLogs:[{memberId:1,seconds:9000,note:"Repo+CI",date:D(-12)}],desc:"Repositorio y CI/CD.",comments:[{author:1,text:"CI activo",time:"hace 2d"}]},
+      ]},
+    ],
+    2:[
+      {id:"c5",name:"Por hacer",  tasks:[{id:"t7",title:"Auditoría accesibilidad",tags:[{l:"A11y",c:"teal"}],assignees:[2],priority:"alta",startDate:D(0),dueDate:D(3),estimatedHours:5,timeLogs:[],desc:"Revisar accesibilidad.",comments:[]}]},
+      {id:"c6",name:"En progreso",tasks:[{id:"t8",title:"Nuevo sistema navegación",tags:[{l:"UI",c:"purple"},{l:"Media",c:"amber"}],assignees:[0,2],priority:"media",startDate:D(-2),dueDate:D(7),estimatedHours:10,timeLogs:[{memberId:0,seconds:7200,note:"Maqueta",date:D(-2)}],desc:"Navegación adaptada.",comments:[{author:0,text:"Maqueta lista",time:"hace 4h"}]}]},
+      {id:"c7",name:"Hecho",      tasks:[{id:"t9",title:"Análisis de competencia",tags:[{l:"Research",c:"blue"}],assignees:[0],priority:"baja",startDate:D(-22),dueDate:D(-20),estimatedHours:6,timeLogs:[{memberId:0,seconds:18000,note:"Research",date:D(-22)}],desc:"Webs competidoras.",comments:[]}]},
+    ],
+    3:[
+      {id:"c8", name:"Por hacer",  tasks:[{id:"t10",title:"Rate limiting",          tags:[{l:"Seguridad",c:"coral"}],assignees:[4],  priority:"alta", startDate:D(0),dueDate:D(2), estimatedHours:4,timeLogs:[],desc:"Rate limiting endpoints.",comments:[]}]},
+      {id:"c9", name:"En progreso",tasks:[{id:"t11",title:"Documentación Swagger",  tags:[{l:"Docs",c:"teal"}],     assignees:[1,4],priority:"media",startDate:D(-1),dueDate:D(8), estimatedHours:8,timeLogs:[{memberId:4,seconds:5400,note:"Users",date:D(-1)}],desc:"API con Swagger.",comments:[{author:4,text:"Cubriendo users",time:"hace 1h"}]}]},
+      {id:"c10",name:"Hecho",      tasks:[{id:"t12",title:"Setup PostgreSQL+Prisma", tags:[{l:"DB",c:"blue"}],      assignees:[1],  priority:"baja", startDate:D(-17),dueDate:D(-15),estimatedHours:4,timeLogs:[{memberId:1,seconds:12600,note:"Migraciones",date:D(-17)}],desc:"BD y ORM.",comments:[]}]},
+    ],
+    4:[
+      {id:"c11",name:"Por hacer",  tasks:[]},
+      {id:"c12",name:"En progreso",tasks:[]},
+      {id:"c13",name:"Revisión",   tasks:[]},
+      {id:"c14",name:"Hecho",      tasks:[]},
+    ],
+  },
+  aiSchedule:[],
+};
+
+// ── localStorage persistence ──────────────────────────────────────────────────
+const LS_KEY = 'taskflow_v1';
+function _loadData(){
+  try{ const s=localStorage.getItem(LS_KEY); if(s)return JSON.parse(s); }catch(e){}
+  return INITIAL_DATA;
+}
+function _initCounters(d){
+  const taskNums=Object.values(d.boards||{}).flatMap(c=>c.flatMap(col=>col.tasks.map(t=>t.id))).filter(id=>/^t\d+$/.test(id)).map(id=>+id.slice(1));
+  const projNums=(d.projects||[]).map(p=>p.id).filter(n=>typeof n==="number");
+  const colNums=Object.values(d.boards||{}).flatMap(c=>c.map(col=>col.id)).map(id=>+id.replace(/\D/g,"")).filter(n=>n>0);
+  return{
+    nextId:  taskNums.length?Math.max(...taskNums)+1:20,
+    nextProjId:projNums.length?Math.max(...projNums)+1:5,
+    nextColId: colNums.length?Math.max(...colNums)+1:20,
+  };
+}
+const _saved=_loadData();
+const _c=_initCounters(_saved);
+let nextId=_c.nextId,nextProjId=_c.nextProjId,nextColId=_c.nextColId;
+
+// ── Small components ──────────────────────────────────────────────────────────
+const Tag=({tag})=>{ const c=TAG_COLORS[tag.c]||TAG_COLORS.blue; return <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:500,background:c.bg,color:c.text,border:`0.5px solid ${c.border}`}}>{tag.l}</span>; };
+const PriBadge=({p})=>{ const m={alta:{bg:"#FCEBEB",text:"#A32D2D",l:"Alta"},media:{bg:"#FAEEDA",text:"#633806",l:"Media"},baja:{bg:"#EAF3DE",text:"#27500A",l:"Baja"}}[p]||{bg:"#FAEEDA",text:"#633806",l:"Media"}; return <span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:m.bg,color:m.text,fontWeight:500}}>{m.l}</span>; };
+const QBadge=({q})=>{ const qm=QM[q]; if(!qm)return null; return <span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:qm.bg,color:qm.border,border:`1px solid ${qm.border}`,fontWeight:600}}>{qm.icon} {qm.label}</span>; };
+const FL=({c})=><div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5,marginTop:14}}>{c}</div>;
+const FI=({value,onChange,type="text",placeholder=""})=><input type={type} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit",background:"#fff",boxSizing:"border-box"}}/>;
+
+// ── Alerts engine ─────────────────────────────────────────────────────────────
+function genAlerts(boards,members){
+  const alerts=[];
+  const all=Object.values(boards).flatMap(cols=>cols.flatMap(col=>col.tasks.map(t=>({...t,colName:col.name}))));
+  all.forEach(task=>{
+    const days=daysUntil(task.dueDate),q=getQ(task);
+    task.assignees.forEach(mid=>{
+      if(days<0)  alerts.push({id:`ov-${task.id}-${mid}`,memberId:mid,taskId:task.id,taskTitle:task.title,type:"overdue", level:"critical",msg:`Vencida hace ${Math.abs(days)}d`,quadrant:q});
+      else if(days===0) alerts.push({id:`td-${task.id}-${mid}`,memberId:mid,taskId:task.id,taskTitle:task.title,type:"today",   level:"critical",msg:"Vence hoy",quadrant:q});
+      else if(days<=2)  alerts.push({id:`ur-${task.id}-${mid}`,memberId:mid,taskId:task.id,taskTitle:task.title,type:"urgent",  level:"warning", msg:`Vence en ${days}d`,quadrant:q});
+      const logged=(task.timeLogs||[]).filter(l=>l.memberId===mid).reduce((s,l)=>s+l.seconds,0);
+      const est=(task.estimatedHours||0)*3600;
+      if(est>0&&logged>est*1.1) alerts.push({id:`ti-${task.id}-${mid}`,memberId:mid,taskId:task.id,taskTitle:task.title,type:"time",level:"warning",msg:`Tiempo superado: ${fmtH(logged)} vs ${fmtH(est)}`,quadrant:q});
+    });
+  });
+  members.forEach(m=>{
+    const my=all.filter(t=>t.assignees.includes(m.id)&&t.colName!=="Hecho");
+    const q1=my.filter(t=>getQ(t)==="Q1"),q2=my.filter(t=>getQ(t)==="Q2");
+    if(q1.length>3) alerts.push({id:`adv-ol-${m.id}`,memberId:m.id,taskId:null,taskTitle:null,type:"advisor",level:"warning",msg:`${q1.length} tareas críticas simultáneas. Considera delegar.`});
+    if(q2.length>0&&q1.length===0) alerts.push({id:`adv-q2-${m.id}`,memberId:m.id,taskId:null,taskTitle:null,type:"advisor",level:"info",msg:`Sin urgencias. Avanza en las ${q2.length} tareas Q2.`});
+    if(my.length===0) alerts.push({id:`adv-fr-${m.id}`,memberId:m.id,taskId:null,taskTitle:null,type:"advisor",level:"success",msg:"Sin tareas asignadas. Habla con tu manager."});
+  });
+  return alerts;
+}
+
+// ── Member Profile Modal ──────────────────────────────────────────────────────
+function ProfileModal({member,onClose,onSave}){
+  const [avail,setAvail]=useState({...member.avail});
+  const [newExc,setNewExc]=useState({date:"",type:"off",note:""});
+  const mp=MP[member.id]||MP[0];
+  const toggleDay=d=>setAvail(p=>({...p,workDays:p.workDays.includes(d)?p.workDays.filter(x=>x!==d):[...p.workDays,d].sort()}));
+  const addExc=()=>{ if(!newExc.date)return; setAvail(p=>({...p,exceptions:[...p.exceptions,{...newExc}]})); setNewExc({date:"",type:"off",note:""}); };
+
+  return(
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+      <div style={{background:"#fff",borderRadius:16,width:560,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${mp.solid}`,marginBottom:24}}>
+        <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:40,height:40,borderRadius:"50%",background:mp.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700}}>{member.initials}</div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:600,fontSize:15,color:mp.solid}}>{member.name}</div>
+            <div style={{fontSize:12,color:"#6b7280"}}>{member.role} · {member.email}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>x</button>
+        </div>
+        <div style={{padding:20}}>
+          {/* Weekly schedule preview */}
+          {(member.avail?.blockedSlots||[]).length>0&&(
+            <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:10,padding:"10px 14px",marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Horario semanal</div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                {["Lun","Mar","Mié","Jue","Vie","Sáb"].map((d,di)=>{
+                  const dow=[1,2,3,4,5,6][di];
+                  const isWork=member.avail.workDays.includes(dow);
+                  const blocks=(member.avail.blockedSlots||[]).filter(b=>b.days.includes(dow));
+                  return(
+                    <div key={d} style={{flex:1,minWidth:65,background:isWork?"#fff":"#f3f4f6",border:`1px solid ${isWork?mp.solid+"44":"#e5e7eb"}`,borderRadius:8,padding:"6px 8px"}}>
+                      <div style={{fontSize:11,fontWeight:600,color:isWork?mp.solid:"#9ca3af",marginBottom:3}}>{d}</div>
+                      {isWork&&<>
+                        <div style={{fontSize:9,color:"#1D9E75",marginBottom:2}}>OK {member.avail.morningStart}-{member.avail.morningEnd}</div>
+                        <div style={{fontSize:9,color:"#378ADD",marginBottom:3}}>OK {member.avail.afternoonStart}-{member.avail.afternoonEnd}</div>
+                      </>}
+                      {blocks.map((b,i)=><div key={i} style={{fontSize:8,color:"#9ca3af",background:"#f3f4f6",borderRadius:3,padding:"1px 4px",marginBottom:2}}>X {b.label}</div>)}
+                      {!isWork&&<div style={{fontSize:10,color:"#d1d5db"}}>Descanso</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <FL c="Días laborables"/>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {[1,2,3,4,5,6,0].map(d=>(
+              <button key={d} onClick={()=>toggleDay(d)} style={{padding:"5px 10px",borderRadius:8,background:avail.workDays.includes(d)?mp.light:"#f9fafb",color:avail.workDays.includes(d)?mp.solid:"#6b7280",border:`1.5px solid ${avail.workDays.includes(d)?mp.solid:"#e5e7eb"}`,fontSize:12,cursor:"pointer",fontWeight:avail.workDays.includes(d)?600:400}}>{DOW[d]}</button>
+            ))}
+          </div>
+
+          <FL c="Horario de mañana"/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div><div style={{fontSize:11,color:"#9ca3af",marginBottom:3}}>Inicio</div><FI type="time" value={avail.morningStart} onChange={v=>setAvail(p=>({...p,morningStart:v}))}/></div>
+            <div><div style={{fontSize:11,color:"#9ca3af",marginBottom:3}}>Fin</div><FI type="time" value={avail.morningEnd} onChange={v=>setAvail(p=>({...p,morningEnd:v}))}/></div>
+          </div>
+          <FL c="Horario de tarde"/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div><div style={{fontSize:11,color:"#9ca3af",marginBottom:3}}>Inicio</div><FI type="time" value={avail.afternoonStart} onChange={v=>setAvail(p=>({...p,afternoonStart:v}))}/></div>
+            <div><div style={{fontSize:11,color:"#9ca3af",marginBottom:3}}>Fin</div><FI type="time" value={avail.afternoonEnd} onChange={v=>setAvail(p=>({...p,afternoonEnd:v}))}/></div>
+          </div>
+          <FL c="Horas productivas por día"/>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <input type="range" min={1} max={10} step={0.5} value={avail.hoursPerDay} onChange={e=>setAvail(p=>({...p,hoursPerDay:Number(e.target.value)}))} style={{flex:1}}/>
+            <span style={{fontSize:14,fontWeight:600,color:mp.solid,minWidth:36}}>{avail.hoursPerDay}h</span>
+          </div>
+
+          <FL c="Google Calendar — URL secreta ICS"/>
+          <FI value={avail.icsUrl||""} onChange={v=>setAvail(p=>({...p,icsUrl:v}))} placeholder="https://calendar.google.com/calendar/ical/...basic.ics"/>
+          {avail.icsUrl&&<div style={{fontSize:10,background:"#E1F5EE",color:"#085041",border:"1px solid #1D9E75",borderRadius:6,padding:"3px 8px",marginTop:4}}>Calendario conectado — el planificador leera tus eventos de tarde automaticamente</div>}
+
+          <FL c="Margen de transporte (minutos)"/>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <input type="range" min={0} max={60} step={5} value={avail.transportMarginMins||30} onChange={e=>setAvail(p=>({...p,transportMarginMins:Number(e.target.value)}))} style={{flex:1}}/>
+            <span style={{fontSize:13,fontWeight:600,color:mp.solid,minWidth:50}}>{avail.transportMarginMins||30} min</span>
+          </div>
+          <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>Tiempo antes/despues de clases y actividades con desplazamiento</div>
+
+          <FL c="WhatsApp"/>
+          <div style={{display:"flex",gap:8}}>
+            <FI value={avail.whatsapp} onChange={v=>setAvail(p=>({...p,whatsapp:v}))} placeholder="+34600000000"/>
+          </div>
+
+          <FL c="Excepciones (dias libres / medias jornadas)"/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 2fr auto",gap:8,marginBottom:8}}>
+            <input type="date" value={newExc.date} onChange={e=>setNewExc(p=>({...p,date:e.target.value}))} style={{padding:"6px 8px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12}}/>
+            <select value={newExc.type} onChange={e=>setNewExc(p=>({...p,type:e.target.value}))} style={{padding:"6px 8px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12,background:"#fff"}}>
+              <option value="off">Dia libre</option>
+              <option value="half">Media jornada</option>
+            </select>
+            <input value={newExc.note} onChange={e=>setNewExc(p=>({...p,note:e.target.value}))} placeholder="Motivo..." style={{padding:"6px 8px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12,outline:"none",fontFamily:"inherit"}}/>
+            <button onClick={addExc} style={{padding:"6px 12px",borderRadius:8,background:mp.solid,color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>+</button>
+          </div>
+          {avail.exceptions.map((e,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 10px",background:e.type==="off"?"#FCEBEB":"#FAEEDA",borderRadius:8,marginBottom:4,fontSize:12}}>
+              <span style={{fontWeight:500}}>{e.date}</span>
+              <span style={{color:"#6b7280"}}>{e.type==="off"?"Dia libre":"Media jornada"}</span>
+              {e.note&&<span style={{color:"#6b7280"}}>— {e.note}</span>}
+              <button onClick={()=>setAvail(p=>({...p,exceptions:p.exceptions.filter((_,j)=>j!==i)}))} style={{marginLeft:"auto",background:"none",border:"none",fontSize:13,cursor:"pointer",color:"#9ca3af"}}>x</button>
+            </div>
+          ))}
+
+          <div style={{display:"flex",gap:8,marginTop:20,justifyContent:"flex-end"}}>
+            <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={()=>{onSave(avail);onClose();}} style={{padding:"8px 20px",borderRadius:8,background:mp.solid,color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Guardar perfil</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Planner View ──────────────────────────────────────────────────────────────
+function PlannerView({data,onApplySchedule}){
+  const [result,setResult]=useState(null);
+  const [running,setRunning]=useState(false);
+  const [icsStatus,setIcsStatus]=useState({});
+  const [waSent,setWaSent]=useState({});
+  const [profileMember,setProfileMember]=useState(null);
+  const [localMembers,setLocalMembers]=useState(data.members);
+  const workDays=getWorkDays(fmt(TODAY),10);
+
+  const run=async()=>{
+    setRunning(true);
+    const icsMs=localMembers.filter(m=>m.avail?.icsUrl);
+    if(icsMs.length>0){ const s={}; icsMs.forEach(m=>{s[m.id]="loading";}); setIcsStatus(s); }
+    try{
+      const r=await runPlanner(data.boards,localMembers,data.aiSchedule);
+      const s={}; icsMs.forEach(m=>{s[m.id]="ok";}); setIcsStatus(s);
+      setResult(r);
+    }catch(e){
+      const s={}; icsMs.forEach(m=>{s[m.id]="error";}); setIcsStatus(s);
+    }
+    setRunning(false);
+  };
+
+  const sendWA=(member)=>{
+    if(!result)return;
+    const url=waUrl(member,waMsg(member,result.schedule,result.planLog));
+    if(url){window.open(url,"_blank");setWaSent(p=>({...p,[member.id]:true}));}
+  };
+
+  return(
+    <div style={{padding:20}}>
+      {/* ICS status */}
+      {Object.keys(icsStatus).length>0&&(
+        <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+          {localMembers.filter(m=>icsStatus[m.id]).map(m=>{
+            const st=icsStatus[m.id]; const mp2=MP[m.id]||MP[0];
+            return(
+              <div key={m.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:500,background:st==="ok"?"#E1F5EE":st==="error"?"#FCEBEB":"#EEEDFE",color:st==="ok"?"#085041":st==="error"?"#A32D2D":"#3C3489",border:`1px solid ${st==="ok"?"#1D9E75":st==="error"?"#E24B4A":"#7F77DD"}`}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:st==="ok"?"#1D9E75":st==="error"?"#E24B4A":"#7F77DD"}}/>
+                {m.initials} Google Calendar: {st==="loading"?"Leyendo...":st==="ok"?"Sincronizado":"Error"}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:12}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,marginBottom:3}}>Agente IA de planificacion</div>
+          <div style={{fontSize:12,color:"#6b7280"}}>Asigna tareas segun disponibilidad real, Eisenhower y calendario</div>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {result&&<button onClick={()=>localMembers.forEach(m=>m.avail?.whatsapp&&setTimeout(()=>sendWA(m),200*m.id))} style={{padding:"8px 14px",borderRadius:8,background:"#25D366",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Notificar todos (WA)</button>}
+          {result&&<button onClick={()=>onApplySchedule(result.schedule)} style={{padding:"8px 16px",borderRadius:8,background:"#1D9E75",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Aplicar plan</button>}
+          <button onClick={run} disabled={running} style={{padding:"8px 20px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600,opacity:running?0.7:1}}>
+            {running?"Planificando...":"Planificar ahora"}
+          </button>
+        </div>
+      </div>
+
+      {/* Availability table */}
+      <div style={{marginBottom:20}}>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Disponibilidad del equipo — proximos 10 dias</div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+            <thead>
+              <tr>
+                <th style={{textAlign:"left",padding:"6px 10px",borderBottom:"1px solid #e5e7eb",fontWeight:600,color:"#6b7280",width:140}}>Persona</th>
+                {workDays.map(d=>{
+                  const isToday=d===fmt(TODAY);
+                  return(
+                    <th key={d} style={{padding:"4px 6px",textAlign:"center",borderBottom:"1px solid #e5e7eb",fontWeight:isToday?700:500,color:isToday?"#7F77DD":"#374151",minWidth:50,background:isToday?"#EEEDFE":"transparent"}}>
+                      <div>{dayName(d)}</div>
+                      <div style={{fontSize:10,color:"#9ca3af",fontWeight:400}}>{d.slice(5)}</div>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {localMembers.map(m=>{
+                const mp2=MP[m.id]||MP[0];
+                return(
+                  <tr key={m.id}>
+                    <td style={{padding:"6px 10px",borderBottom:"0.5px solid #f3f4f6"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:7}}>
+                        <div style={{width:26,height:26,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,flexShrink:0}}>{m.initials}</div>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name.split(" ")[0]}</div>
+                          <div style={{fontSize:10,color:"#9ca3af"}}>{m.avail.hoursPerDay}h/d</div>
+                        </div>
+                        <button onClick={()=>setProfileMember(m)} style={{marginLeft:"auto",background:"none",border:"none",fontSize:12,cursor:"pointer",color:"#9ca3af",padding:"2px 4px"}}>✏️</button>
+                      </div>
+                    </td>
+                    {workDays.map(d=>{
+                      const avH=getAvailHours(m,d);
+                      const used=result?(result.load[m.id]?.[d]||0):0;
+                      const pct=avH>0?Math.min(Math.round(used/avH*100),100):0;
+                      const exc=m.avail.exceptions?.find(e=>e.date===d);
+                      const labels=getBlockLabels(m,d);
+                      return(
+                        <td key={d} style={{padding:"3px 4px",textAlign:"center",borderBottom:"0.5px solid #f3f4f6",verticalAlign:"top"}}>
+                          {avH===0?(
+                            <div style={{fontSize:10,color:"#d1d5db",paddingTop:6}}>{exc?.type==="half"?"½":"—"}</div>
+                          ):(
+                            <div>
+                              <div style={{height:26,background:"#f3f4f6",borderRadius:6,overflow:"hidden",position:"relative",marginBottom:2}}>
+                                <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                  <div style={{height:"100%",width:`${pct}%`,background:pct>=90?"#E24B4A":pct>=70?"#EF9F27":"#1D9E75",position:"absolute",left:0,top:0,opacity:0.7,borderRadius:6}}/>
+                                  <span style={{fontSize:10,fontWeight:600,position:"relative",color:pct>50?"#fff":"#374151"}}>{avH}h</span>
+                                </div>
+                              </div>
+                              {labels.slice(0,2).map((bl,bi)=>(
+                                <div key={bi} style={{fontSize:8,color:"#9ca3af",background:"#f9fafb",borderRadius:3,padding:"1px 3px",marginBottom:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:52}}>X {bl}</div>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:8,fontSize:11,color:"#6b7280",alignItems:"center"}}>
+          <div style={{width:12,height:12,borderRadius:3,background:"#1D9E75",opacity:0.7}}/><span>Disponible</span>
+          <div style={{width:12,height:12,borderRadius:3,background:"#EF9F27",opacity:0.7}}/><span>+70%</span>
+          <div style={{width:12,height:12,borderRadius:3,background:"#E24B4A",opacity:0.7}}/><span>Al limite</span>
+        </div>
+      </div>
+
+      {/* Results */}
+      {result&&(
+        <>
+          {result.insights.length>0&&(
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:13,fontWeight:600,marginBottom:8}}>Analisis del agente</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {result.insights.map((ins,i)=>{
+                  const s={warning:{bg:"#fffbf0",border:"#EF9F27",text:"#854F0B",icon:"⚠️"},info:{bg:"#f0f7ff",border:"#378ADD",text:"#0C447C",icon:"ℹ️"},success:{bg:"#f0fdf7",border:"#1D9E75",text:"#085041",icon:"✅"}}[ins.type]||{bg:"#f9fafb",border:"#e5e7eb",text:"#374151",icon:"•"};
+                  return(
+                    <div key={i} style={{display:"flex",gap:8,padding:"8px 12px",background:s.bg,border:`1px solid ${s.border}`,borderRadius:8}}>
+                      <span style={{flexShrink:0}}>{s.icon}</span>
+                      <span style={{fontSize:12,color:s.text}}>{ins.msg}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Plan por persona</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12,marginBottom:20}}>
+            {localMembers.map(m=>{
+              const mp2=MP[m.id]||MP[0];
+              const myLog=result.planLog.filter(l=>l.memberId===m.id);
+              const mySlots=result.schedule.filter(s=>s.memberId===m.id);
+              const totalH=mySlots.reduce((s,x)=>s+x.hours,0);
+              const wu=waUrl(m,waMsg(m,mySlots,result.planLog));
+              const icsOk=!!m.avail?.icsUrl;
+              return(
+                <div key={m.id} style={{background:"#fff",border:`1.5px solid ${mp2.solid}22`,borderLeft:`4px solid ${mp2.solid}`,borderRadius:12,padding:14}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                    <div style={{width:34,height:34,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{m.initials}</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:600,color:mp2.solid}}>{m.name}</div>
+                      <div style={{fontSize:11,color:"#6b7280"}}>
+                        {myLog.length} tareas · {totalH.toFixed(1)}h
+                        {icsOk&&<span style={{marginLeft:6,background:"#E1F5EE",color:"#085041",border:"1px solid #1D9E75",borderRadius:4,padding:"1px 5px",fontSize:9}}>Cal. conectado</span>}
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:5}}>
+                      {wu&&<a href={wu} target="_blank" rel="noreferrer" style={{width:30,height:30,borderRadius:8,background:"#25D366",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,textDecoration:"none"}}>{waSent[m.id]?"✓":"💬"}</a>}
+                    </div>
+                  </div>
+                  {myLog.length===0&&<div style={{fontSize:11,color:"#9ca3af",textAlign:"center",padding:8}}>Sin tareas</div>}
+                  {myLog.slice(0,4).map((log,i)=>(
+                    <div key={i} style={{display:"flex",alignItems:"flex-start",gap:6,padding:"5px 0",borderTop:i>0?"0.5px solid #f3f4f6":"none"}}>
+                      <QBadge q={log.quadrant}/>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:11,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{log.taskTitle}</div>
+                        <div style={{fontSize:10,color:"#9ca3af"}}>{log.slots.slice(0,1).join(" · ")} · {log.totalScheduled.toFixed(1)}h</div>
+                      </div>
+                    </div>
+                  ))}
+                  {myLog.length>4&&<div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>+{myLog.length-4} mas...</div>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Timeline */}
+          <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Timeline</div>
+          <div style={{overflowX:"auto"}}>
+            <div style={{display:"grid",gridTemplateColumns:`120px repeat(${workDays.length},1fr)`,gap:2,minWidth:600}}>
+              <div style={{padding:"4px 8px",fontSize:11,fontWeight:600,color:"#9ca3af"}}>Persona</div>
+              {workDays.map(d=>(
+                <div key={d} style={{padding:"4px 4px",textAlign:"center",fontSize:10,fontWeight:d===fmt(TODAY)?700:400,color:d===fmt(TODAY)?"#7F77DD":"#6b7280",background:d===fmt(TODAY)?"#EEEDFE":"transparent",borderRadius:4}}>
+                  {dayName(d)}<br/><span style={{fontSize:9}}>{d.slice(5)}</span>
+                </div>
+              ))}
+              {localMembers.map(m=>{
+                const mp2=MP[m.id]||MP[0];
+                return(
+                  <React.Fragment key={m.id}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,padding:"3px 8px"}}>
+                      <div style={{width:20,height:20,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,flexShrink:0}}>{m.initials}</div>
+                      <span style={{fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name.split(" ")[0]}</span>
+                    </div>
+                    {workDays.map(d=>{
+                      const slots=result.schedule.filter(s=>s.memberId===m.id&&s.date===d);
+                      const avH=getAvailHours(m,d);
+                      return(
+                        <div key={d} style={{padding:2,minHeight:36,background:avH===0?"#f9fafb":"transparent",borderRadius:4}}>
+                          {avH===0&&<div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#d1d5db"}}>—</div>}
+                          {slots.slice(0,2).map((slot,si)=>(
+                            <div key={si} title={`${slot.taskTitle} · ${slot.hours}h`} style={{background:mp2.light,border:`1px solid ${mp2.solid}`,borderRadius:4,padding:"2px 4px",fontSize:9,fontWeight:600,color:mp2.solid,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                              {slot.hours.toFixed(1)}h {slot.fromICS?"📅":""}
+                            </div>
+                          ))}
+                          {slots.length>2&&<div style={{fontSize:9,color:"#9ca3af"}}>+{slots.length-2}</div>}
+                        </div>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
+      {!result&&!running&&(
+        <div style={{textAlign:"center",padding:"40px 20px",background:"#f9fafb",borderRadius:12,border:"1px dashed #d1d5db"}}>
+          <div style={{fontSize:32,marginBottom:12}}>⚡</div>
+          <div style={{fontSize:14,fontWeight:600,marginBottom:6}}>Listo para planificar</div>
+          <div style={{fontSize:12,color:"#6b7280",marginBottom:16}}>El agente analizara tareas, Eisenhower y el calendario real de Marc para asignar automaticamente los bloques optimos</div>
+          <button onClick={run} style={{padding:"10px 24px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:14,cursor:"pointer",fontWeight:600}}>Planificar ahora</button>
+        </div>
+      )}
+
+      {running&&(
+        <div style={{textAlign:"center",padding:"40px 20px"}}>
+          <div style={{fontSize:32,marginBottom:12}}>⏳</div>
+          <div style={{fontSize:14,fontWeight:600,marginBottom:4}}>Leyendo calendario y calculando slots...</div>
+          <div style={{fontSize:12,color:"#6b7280"}}>Eisenhower + fechas limite + disponibilidad real</div>
+        </div>
+      )}
+
+      {profileMember&&<ProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onSave={avail=>{setLocalMembers(prev=>prev.map(m=>m.id===profileMember.id?{...m,avail}:m));setResult(null);}}/>}
+    </div>
+  );
+}
+
+// ── Task Modal ────────────────────────────────────────────────────────────────
+function TaskModal({task,colId,cols,members,activeMemberId,onClose,onUpdate,onMove}){
+  const [editing,setEditing]=useState(false);
+  const [draft,setDraft]=useState({...task});
+  const [comment,setComment]=useState("");
+  const [tab,setTab]=useState("detail");
+  const [running,setRunning]=useState(false);
+  const [elapsed,setElapsed]=useState(0);
+  const [note,setNote]=useState("");
+  const [saved,setSaved]=useState(false);
+  const intRef=useRef(null);
+  const p2=palOf(task.assignees); const q=getQ(task);
+
+  useEffect(()=>{
+    if(running){ const start=Date.now()-elapsed*1000; intRef.current=setInterval(()=>setElapsed(Math.floor((Date.now()-start)/1000)),500); }
+    else clearInterval(intRef.current);
+    return()=>clearInterval(intRef.current);
+  },[running]);
+
+  const set=(k,v)=>setDraft(p=>({...p,[k]:v}));
+  const saveEdits=()=>{ onUpdate(task.id,colId,draft); setEditing(false); };
+  const addComment=()=>{ const t=comment.trim(); if(!t)return; const u={...task,comments:[...task.comments,{author:activeMemberId,text:t,time:"ahora mismo"}]}; onUpdate(task.id,colId,u); setComment(""); };
+  const saveTime=()=>{ if(elapsed<1)return; const u={...task,timeLogs:[...(task.timeLogs||[]),{memberId:activeMemberId,seconds:elapsed,note:note.trim()||"Sin nota",date:fmt(new Date())}]}; onUpdate(task.id,colId,u); setElapsed(0); setRunning(false); setNote(""); setSaved(true); setTimeout(()=>setSaved(false),2500); };
+
+  const totalLogged=(task.timeLogs||[]).reduce((s,l)=>s+l.seconds,0);
+  const est=(task.estimatedHours||0)*3600;
+  const pct=est>0?Math.min(Math.round(totalLogged/est*100),100):null;
+  const gcUrl=gCalUrl(task,null);
+  const wu=waUrl(members.find(m=>m.id===activeMemberId),`Tarea: "${task.title}" — vence ${task.dueDate||"sin fecha"}. Prioridad ${task.priority}.`);
+
+  return(
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,paddingBottom:20,overflowY:"auto"}}>
+      <div style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${p2?p2.cardBorder:"#7F77DD"}`,marginBottom:20}}>
+        <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
+          {editing
+            ?<input value={draft.title} onChange={e=>set("title",e.target.value)} style={{flex:1,fontSize:15,fontWeight:600,border:"none",outline:"2px solid #7F77DD",borderRadius:6,padding:"4px 8px",fontFamily:"inherit"}}/>
+            :<div style={{flex:1,fontWeight:600,fontSize:15}}>{task.title}</div>
+          }
+          <div style={{display:"flex",gap:6}}>
+            {!editing
+              ?<button onClick={()=>{setEditing(true);setDraft({...task});}} style={{padding:"5px 12px",borderRadius:7,border:"0.5px solid #d1d5db",background:"#f9fafb",fontSize:12,cursor:"pointer",fontWeight:500}}>Editar</button>
+              :<><button onClick={saveEdits} style={{padding:"5px 12px",borderRadius:7,border:"none",background:"#7F77DD",color:"#fff",fontSize:12,cursor:"pointer",fontWeight:500}}>Guardar</button><button onClick={()=>setEditing(false)} style={{padding:"5px 10px",borderRadius:7,border:"0.5px solid #d1d5db",background:"transparent",fontSize:12,cursor:"pointer"}}>X</button></>
+            }
+            <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280",lineHeight:1}}>x</button>
+          </div>
+        </div>
+        {/* Tabs */}
+        <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
+          {[["detail","Detalle"],["time","Tiempo"],["comments","Comentarios"]].map(([k,l])=>(
+            <div key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400,marginBottom:-0.5}}>{l}{k==="time"&&totalLogged>0?` · ${fmtH(totalLogged)}`:""}{k==="comments"&&task.comments.length>0?` (${task.comments.length})`:""}</div>
+          ))}
+        </div>
+        <div style={{padding:20}}>
+          {tab==="detail"&&(
+            <>
+              <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+                <PriBadge p={editing?draft.priority:task.priority}/>
+                <QBadge q={q}/>
+                <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#6b7280"}}>
+                  Mover a:
+                  <select value={colId} onChange={e=>onMove(task.id,colId,e.target.value)} style={{fontSize:12,padding:"3px 8px",borderRadius:8,border:"0.5px solid #d1d5db",background:"#fff"}}>
+                    {cols.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              {editing?(
+                <>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                    <div><FL c="Prioridad"/><select value={draft.priority} onChange={e=>set("priority",e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,background:"#fff",fontFamily:"inherit"}}><option value="alta">Alta</option><option value="media">Media</option><option value="baja">Baja</option></select></div>
+                    <div><FL c="Horas estimadas"/><FI type="number" value={draft.estimatedHours} onChange={v=>set("estimatedHours",Number(v))} placeholder="ej. 8"/></div>
+                    <div><FL c="Fecha inicio"/><FI type="date" value={draft.startDate} onChange={v=>set("startDate",v)}/></div>
+                    <div><FL c="Fecha limite"/><FI type="date" value={draft.dueDate} onChange={v=>set("dueDate",v)}/></div>
+                  </div>
+                  <FL c="Descripcion"/>
+                  <textarea value={draft.desc||""} onChange={e=>set("desc",e.target.value)} rows={3} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                </>
+              ):(
+                <>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+                    {task.startDate&&<div style={{background:"#f0f7ff",border:"1px solid #85B7EB",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#0C447C"}}>Inicio: {task.startDate}</div>}
+                    {task.dueDate&&<div style={{background:daysUntil(task.dueDate)<0?"#FCEBEB":daysUntil(task.dueDate)===0?"#FAEEDA":"#f0fdf7",border:`1px solid ${daysUntil(task.dueDate)<0?"#E24B4A":daysUntil(task.dueDate)===0?"#EF9F27":"#1D9E75"}`,borderRadius:8,padding:"4px 10px",fontSize:11,color:daysUntil(task.dueDate)<0?"#A32D2D":daysUntil(task.dueDate)===0?"#854F0B":"#085041",fontWeight:daysUntil(task.dueDate)<=0?600:400}}>{daysUntil(task.dueDate)<0?"Vencida":daysUntil(task.dueDate)===0?"Hoy":"Fin"}: {task.dueDate}</div>}
+                    {task.estimatedHours>0&&<div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#374151"}}>Est: {task.estimatedHours}h</div>}
+                  </div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>{task.tags.map((tg,i)=><Tag key={i} tag={tg}/>)}</div>
+                  {task.desc&&<div style={{fontSize:13,color:"#4b5563",lineHeight:1.6,padding:10,background:"#f9fafb",borderRadius:8,marginBottom:12}}>{task.desc}</div>}
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
+                    <a href={gcUrl} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px",borderRadius:8,background:"#E1F5EE",color:"#085041",border:"1px solid #1D9E75",fontSize:12,fontWeight:600,textDecoration:"none"}}>Añadir a Google Calendar</a>
+                    {wu&&<a href={wu} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px",borderRadius:8,background:"#dcfce7",color:"#166534",border:"1px solid #25D366",fontSize:12,fontWeight:600,textDecoration:"none"}}>Notificar WhatsApp</a>}
+                  </div>
+                  <FL c="Asignados"/>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {task.assignees.length>0?task.assignees.map(mid=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} style={{display:"flex",alignItems:"center",gap:7,background:mp2.light,border:`1.5px solid ${mp2.solid}`,borderRadius:20,padding:"4px 12px 4px 5px"}}><div style={{width:22,height:22,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{m?.initials}</div><span style={{fontSize:12,fontWeight:600,color:mp2.solid}}>{m?.name}</span></div>; }):<span style={{fontSize:12,color:"#9ca3af"}}>Nadie</span>}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+          {tab==="time"&&(
+            <>
+              <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:12,padding:14,marginBottom:12}}>
+                {est>0&&pct!==null&&<div style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#6b7280",marginBottom:4}}><span>Progreso</span><span style={{color:pct>=100?"#A32D2D":"#374151",fontWeight:pct>=100?600:400}}>{fmtH(totalLogged)} / {task.estimatedHours}h ({pct}%)</span></div><div style={{height:8,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:pct>=100?"#E24B4A":pct>=80?"#EF9F27":"#1D9E75",borderRadius:20}}/></div></div>}
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                  <div style={{fontSize:28,fontWeight:700,fontFamily:"monospace",color:running?"#E24B4A":"#374151",minWidth:100}}>{fmtSecs(elapsed)}</div>
+                  <button onClick={()=>setRunning(r=>!r)} style={{padding:"7px 16px",borderRadius:8,background:running?"#FCEBEB":"#E1F5EE",color:running?"#A32D2D":"#085041",border:`1px solid ${running?"#E24B4A":"#1D9E75"}`,fontSize:13,cursor:"pointer",fontWeight:600}}>{running?"Pausar":"Iniciar"}</button>
+                  <button onClick={()=>{setElapsed(0);setRunning(false);}} style={{padding:"7px 10px",borderRadius:8,background:"transparent",color:"#6b7280",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>Reset</button>
+                </div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Nota (opcional)" style={{flex:1,padding:"6px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12,outline:"none",fontFamily:"inherit"}}/>
+                  <button onClick={saveTime} disabled={elapsed<1} style={{padding:"6px 14px",borderRadius:8,background:elapsed>0?"#7F77DD":"#e5e7eb",color:elapsed>0?"#fff":"#9ca3af",border:"none",fontSize:12,cursor:elapsed>0?"pointer":"default",fontWeight:600}}>{saved?"Guardado":"Guardar"}</button>
+                </div>
+              </div>
+              {(task.timeLogs||[]).length>0&&(
+                <div>
+                  <FL c="Registros del equipo"/>
+                  <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                    {[...(task.timeLogs||[])].reverse().map((l,i)=>{ const m=members.find(x=>x.id===l.memberId); const mp2=MP[l.memberId]||MP[0]; return <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:"#f9fafb",borderRadius:8,border:"0.5px solid #e5e7eb"}}><div style={{width:22,height:22,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,flexShrink:0}}>{m?.initials}</div><div style={{flex:1,minWidth:0}}><div style={{fontSize:11,fontWeight:500,color:mp2.solid}}>{m?.name}</div>{l.note&&<div style={{fontSize:10,color:"#6b7280"}}>{l.note}</div>}</div><div style={{fontSize:11,fontWeight:600}}>{fmtSecs(l.seconds)}</div><div style={{fontSize:10,color:"#9ca3af"}}>{l.date}</div></div>; })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {tab==="comments"&&(
+            <>
+              <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
+                {task.comments.length===0&&<span style={{fontSize:12,color:"#9ca3af"}}>Sin comentarios aun.</span>}
+                {task.comments.map((c,i)=>{ const m=members.find(x=>x.id===c.author); const mp2=MP[c.author]||MP[0]; return <div key={i} style={{display:"flex",gap:10}}><div style={{width:30,height:30,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{m?.initials}</div><div style={{flex:1,background:"#f9fafb",borderRadius:10,padding:"8px 12px",borderLeft:`3px solid ${mp2.solid}`}}><div style={{fontSize:12,fontWeight:600,marginBottom:2,color:mp2.solid}}>{m?.name}</div><div style={{fontSize:13,color:"#4b5563",lineHeight:1.5}}>{c.text}</div><div style={{fontSize:11,color:"#9ca3af",marginTop:3}}>{c.time}</div></div></div>; })}
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
+                <div style={{width:30,height:30,borderRadius:"50%",background:(MP[activeMemberId]||MP[0]).solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{members.find(x=>x.id===activeMemberId)?.initials}</div>
+                <textarea rows={2} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Escribe un comentario..." onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();addComment();}}} style={{flex:1,padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"none",fontFamily:"inherit",outline:"none"}}/>
+                <button onClick={addComment} style={{padding:"8px 14px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:500}}>Enviar</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Task Card ─────────────────────────────────────────────────────────────────
+function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
+  const p2=palOf(task.assignees);
+  const isOver=daysUntil(task.dueDate)<0;
+  const isToday=daysUntil(task.dueDate)===0;
+  const q=getQ(task);
+  const totalLogged=(task.timeLogs||[]).reduce((s,l)=>s+l.seconds,0);
+  const est=(task.estimatedHours||0)*3600;
+  const sched=(aiSchedule||[]).filter(s=>s.taskId===task.id&&task.assignees.includes(s.memberId));
+  return(
+    <div draggable onDragStart={onDragStart} onClick={onOpen} style={{background:p2?p2.cardBg:"#fff",border:`0.5px solid ${p2?p2.cardBorder+"55":"#e5e7eb"}`,borderLeft:`4px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:10,padding:"10px 12px",marginBottom:8,cursor:"pointer"}}>
+      <div style={{fontSize:13,fontWeight:500,marginBottom:6,lineHeight:1.4}}>{task.title}</div>
+      {task.tags.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:6}}>{task.tags.map((tg,i)=><Tag key={i} tag={tg}/>)}</div>}
+      <div style={{marginBottom:6}}><QBadge q={q}/></div>
+      <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
+        {task.startDate&&<span style={{fontSize:10,color:"#6b7280"}}>Inicio: {task.startDate}</span>}
+        {task.dueDate&&<span style={{fontSize:10,color:isOver?"#A32D2D":isToday?"#854F0B":"#9ca3af",fontWeight:isOver||isToday?600:400}}>{isOver?"Vencida":isToday?"Hoy":"Fin"}: {task.dueDate}</span>}
+        {sched.length>0&&<span style={{fontSize:10,color:"#7F77DD",fontWeight:600}}>Planificado</span>}
+      </div>
+      {est>0&&totalLogged>0&&<div style={{marginBottom:6}}><div style={{height:4,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(Math.round(totalLogged/est*100),100)}%`,background:totalLogged>est?"#E24B4A":totalLogged/est>0.8?"#EF9F27":"#1D9E75",borderRadius:20}}/></div></div>}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+        <div style={{display:"flex"}}>{task.assignees.map((mid,i)=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} title={m?.name} style={{marginLeft:i>0?-7:0,zIndex:task.assignees.length-i,position:"relative",width:24,height:24,borderRadius:"50%",background:mp2.solid,color:"#fff",border:"2px solid #fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{m?.initials||"?"}</div>; })}</div>
+        <div style={{display:"flex",alignItems:"center",gap:5}}><PriBadge p={task.priority}/>{task.comments.length>0&&<span style={{fontSize:11,color:"#9ca3af"}}>{task.comments.length}</span>}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Board View ────────────────────────────────────────────────────────────────
+function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,onUpdate,onMove,onAddTask}){
+  const [openTaskId,setOpenTaskId]=useState(null);
+  const [dragging,setDragging]=useState(null);
+  const [newCard,setNewCard]=useState(null);
+  const [newCardTitle,setNewCardTitle]=useState("");
+  const handleDrop=(e,toColId)=>{ e.preventDefault(); if(!dragging||dragging.colId===toColId)return; onMove(dragging.taskId,dragging.colId,toColId); setDragging(null); };
+  const saveNew=(colId)=>{ const t=newCardTitle.trim(); if(!t){setNewCard(null);return;} onAddTask(colId,t); setNewCard(null); setNewCardTitle(""); };
+  const openModal=openTaskId?board.flatMap(c=>c.tasks.map(t=>({t,colId:c.id}))).find(x=>x.t.id===openTaskId):null;
+  return(
+    <>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:"10px 20px 0",alignItems:"center"}}>
+        <span style={{fontSize:11,color:"#9ca3af"}}>Persona:</span>
+        {projectMemberIds.map(mid=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} style={{display:"flex",alignItems:"center",gap:5,background:mp2.light,border:`1px solid ${mp2.solid}`,borderRadius:20,padding:"3px 10px 3px 6px"}}><div style={{width:9,height:9,borderRadius:"50%",background:mp2.solid}}/><span style={{fontSize:11,fontWeight:600,color:mp2.solid}}>{m?.name.split(" ")[0]}</span></div>; })}
+      </div>
+      <div style={{display:"flex",gap:14,alignItems:"flex-start",padding:"12px 20px 20px",overflowX:"auto"}}>
+        {board.map(col=>(
+          <div key={col.id} onDragOver={e=>e.preventDefault()} onDrop={e=>handleDrop(e,col.id)} style={{width:268,flexShrink:0,background:"#f3f4f6",borderRadius:14,padding:10}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"0 2px"}}><span style={{fontSize:13,fontWeight:500}}>{col.name}</span><span style={{fontSize:11,background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:20,padding:"1px 7px",color:"#6b7280"}}>{col.tasks.length}</span></div>
+            {col.tasks.map(task=><TaskCard key={task.id} task={task} members={members} aiSchedule={aiSchedule} onOpen={()=>setOpenTaskId(task.id)} onDragStart={()=>setDragging({taskId:task.id,colId:col.id})}/>)}
+            {newCard===col.id
+              ?<div style={{background:"#fff",border:"0.5px solid #7F77DD",borderRadius:10,padding:8}}><input autoFocus value={newCardTitle} onChange={e=>setNewCardTitle(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveNew(col.id);if(e.key==="Escape")setNewCard(null);}} placeholder="Titulo de la tarea..." style={{width:"100%",border:"none",outline:"none",fontSize:13,background:"transparent",fontFamily:"inherit"}}/><div style={{display:"flex",gap:6,marginTop:8}}><button onClick={()=>saveNew(col.id)} style={{padding:"4px 10px",borderRadius:6,background:"#7F77DD",color:"#fff",border:"none",fontSize:12,cursor:"pointer"}}>Añadir</button><button onClick={()=>setNewCard(null)} style={{padding:"4px 10px",borderRadius:6,background:"transparent",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>Cancelar</button></div></div>
+              :<button onClick={()=>{setNewCard(col.id);setNewCardTitle("");}} style={{width:"100%",textAlign:"left",padding:"7px 8px",borderRadius:8,fontSize:13,color:"#6b7280",background:"transparent",border:"none",cursor:"pointer"}}>+ Añadir tarea</button>
+            }
+          </div>
+        ))}
+      </div>
+      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}}/>}
+    </>
+  );
+}
+
+// ── Eisenhower View ───────────────────────────────────────────────────────────
+function EisenhowerView({boards,members,activeMemberId,projects}){
+  const [fm,setFm]=useState(activeMemberId);
+  const allT=Object.entries(boards).flatMap(([pid,cols])=>cols.flatMap(col=>col.tasks.map(t=>({...t,colName:col.name,projName:projects.find(p=>p.id===Number(pid))?.name||""})))).filter(t=>t.colName!=="Hecho");
+  const filt=fm===-1?allT:allT.filter(t=>t.assignees.includes(fm));
+  const quads={Q1:[],Q2:[],Q3:[],Q4:[]}; filt.forEach(t=>quads[getQ(t)].push(t));
+  const allMems=[...new Set(Object.values(boards).flatMap(cols=>cols.flatMap(col=>col.tasks.flatMap(t=>t.assignees))))].map(id=>members.find(m=>m.id===id)).filter(Boolean);
+  return(
+    <div style={{padding:20}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
+        <div><div style={{fontSize:16,fontWeight:600,marginBottom:2}}>Matriz de Eisenhower</div><div style={{fontSize:12,color:"#6b7280"}}>Clasifica por urgencia e importancia</div></div>
+        <select value={fm} onChange={e=>setFm(Number(e.target.value))} style={{fontSize:12,padding:"5px 10px",borderRadius:8,border:"0.5px solid #d1d5db",background:"#fff"}}><option value={-1}>Todo el equipo</option>{allMems.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select>
+      </div>
+      <div style={{display:"flex",justifyContent:"center",marginBottom:4}}><span style={{fontSize:11,color:"#E24B4A",fontWeight:600}}>IMPORTANTE</span></div>
+      <div style={{display:"grid",gridTemplateColumns:"20px 1fr 1fr",gridTemplateRows:"1fr 1fr",gap:10}}>
+        <div style={{gridRow:"1/3",display:"flex",alignItems:"center",justifyContent:"center"}}><div style={{writingMode:"vertical-rl",transform:"rotate(180deg)",fontSize:11,color:"#6b7280",fontWeight:600}}>URGENTE</div></div>
+        {["Q1","Q2","Q3","Q4"].map(qk=>{ const qm=QM[qk]; const tasks=quads[qk]; return(
+          <div key={qk} style={{background:qm.bg,border:`1.5px solid ${qm.border}`,borderRadius:12,padding:12,minHeight:160}}>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:16}}>{qm.icon}</span><div><div style={{fontSize:12,fontWeight:700,color:qm.border}}>{qk}: {qm.label}</div><div style={{fontSize:10,color:"#6b7280"}}>{qm.sub}</div></div><span style={{marginLeft:"auto",fontSize:11,background:"#fff",border:`1px solid ${qm.border}`,borderRadius:20,padding:"1px 7px",color:qm.border,fontWeight:600}}>{tasks.length}</span></div>
+            {tasks.length===0&&<div style={{fontSize:11,color:"#9ca3af",textAlign:"center",padding:8}}>Sin tareas</div>}
+            {tasks.map(task=>{ const days=daysUntil(task.dueDate); const p2=palOf(task.assignees); return <div key={task.id} style={{background:"#fff",border:`0.5px solid ${p2?p2.cardBorder+"44":"#e5e7eb"}`,borderLeft:`3px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:8,padding:"7px 10px",marginBottom:6}}><div style={{fontSize:12,fontWeight:500,marginBottom:3,lineHeight:1.3}}>{task.title}</div><div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontSize:10,color:days<0?"#A32D2D":days<=2?"#854F0B":"#9ca3af",fontWeight:days<=2?600:400}}>{days<0?"Vencida":days===0?"Hoy":`${days}d`}</span><div style={{marginLeft:"auto",display:"flex"}}>{task.assignees.slice(0,3).map((mid,i2)=><div key={mid} style={{marginLeft:i2>0?-5:0,width:16,height:16,borderRadius:"50%",background:(MP[mid]||MP[0]).solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,fontWeight:700,border:"1.5px solid #fff"}}>{members.find(m=>m.id===mid)?.initials.slice(0,2)||"?"}</div>)}</div></div></div>; })}
+          </div>
+        );})}
+      </div>
+    </div>
+  );
+}
+
+// ── Time Reports View ─────────────────────────────────────────────────────────
+function TimeReportsView({boards,members,projects}){
+  const [fm,setFm]=useState(-1); const [fp,setFp]=useState(-1);
+  const allT=Object.entries(boards).flatMap(([pid,cols])=>cols.flatMap(col=>col.tasks.map(t=>({...t,colName:col.name,projId:Number(pid),projName:projects.find(p=>p.id===Number(pid))?.name||""}))));
+  const grand=allT.flatMap(t=>t.timeLogs||[]).reduce((s,l)=>s+l.seconds,0);
+  const grandEst=allT.filter(t=>t.estimatedHours).reduce((s,t)=>s+t.estimatedHours*3600,0);
+  const mStats=members.map(m=>{ const logs=allT.flatMap(t=>(t.timeLogs||[]).filter(l=>l.memberId===m.id)); const total=logs.reduce((s,l)=>s+l.seconds,0); const est=allT.filter(t=>t.assignees.includes(m.id)&&(t.estimatedHours||0)>0).reduce((s,t)=>s+(t.estimatedHours||0)*3600,0); return{...m,total,est,eff:est>0?Math.round(total/est*100):null}; }).filter(m=>m.total>0);
+  return(
+    <div style={{padding:20}}>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <div><div style={{fontSize:16,fontWeight:600,marginBottom:2}}>Reportes de tiempo</div><div style={{fontSize:12,color:"#6b7280"}}>Analisis de tiempos y desviaciones</div></div>
+        <div style={{display:"flex",gap:8}}><select value={fm} onChange={e=>setFm(Number(e.target.value))} style={{fontSize:12,padding:"5px 10px",borderRadius:8,border:"0.5px solid #d1d5db",background:"#fff"}}><option value={-1}>Todos</option>{members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:20}}>
+        {[{l:"Total registrado",v:fmtH(grand),c:"#7F77DD",bg:"#EEEDFE"},{l:"Total estimado",v:fmtH(grandEst),c:"#378ADD",bg:"#E6F1FB"},{l:"Desviacion",v:grandEst>0?`${Math.round((grand/grandEst-1)*100)}%`:"—",c:grand>grandEst?"#A32D2D":"#085041",bg:grand>grandEst?"#FCEBEB":"#E1F5EE"},{l:"Tareas activas",v:allT.filter(t=>t.colName!=="Hecho").length,c:"#633806",bg:"#FAEEDA"}].map((k,i)=><div key={i} style={{background:k.bg,borderRadius:10,padding:"12px 14px"}}><div style={{fontSize:10,fontWeight:600,color:k.c,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>{k.l}</div><div style={{fontSize:22,fontWeight:700,color:k.c}}>{k.v}</div></div>)}
+      </div>
+      <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Por miembro</div>
+      {mStats.map(m=>{ const mp2=MP[m.id]||MP[0]; const pct=m.est>0?Math.min(Math.round(m.total/m.est*100),100):null; const over=pct!==null&&pct>100; return <div key={m.id} style={{background:"#fff",border:"0.5px solid #e5e7eb",borderLeft:`4px solid ${mp2.solid}`,borderRadius:10,padding:"12px 14px",marginBottom:8}}><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:pct!==null?8:0}}><div style={{width:32,height:32,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{m.initials}</div><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:mp2.solid}}>{m.name}</div><div style={{fontSize:11,color:"#6b7280"}}>{m.role}</div></div><div style={{textAlign:"right"}}><div style={{fontSize:16,fontWeight:700,color:over?"#A32D2D":mp2.solid}}>{fmtH(m.total)}</div>{m.est>0&&<div style={{fontSize:10,color:"#6b7280"}}>de {fmtH(m.est)}</div>}</div>{m.eff!==null&&<div style={{background:over?"#FCEBEB":"#E1F5EE",color:over?"#A32D2D":"#085041",border:`1px solid ${over?"#E24B4A":"#1D9E75"}`,borderRadius:20,padding:"3px 9px",fontSize:11,fontWeight:700,flexShrink:0}}>{m.eff}%</div>}</div>{pct!==null&&<div><div style={{height:6,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(pct,100)}%`,background:over?"#E24B4A":pct>80?"#EF9F27":"#1D9E75",borderRadius:20}}/></div>{over&&<div style={{fontSize:10,color:"#A32D2D",marginTop:3}}>Superado en {fmtH(m.total-m.est)}</div>}</div>}</div>; })}
+    </div>
+  );
+}
+
+// ── Project Modal ─────────────────────────────────────────────────────────────
+function ProjectModal({project,members,onClose,onSave}){
+  const isEdit=!!project;
+  const [name,setName]=useState(project?.name||"");
+  const [desc,setDesc]=useState(project?.desc||"");
+  const [color,setColor]=useState(project?.color||PROJECT_COLORS[0]);
+  const [emoji,setEmoji]=useState(project?.emoji||"🚀");
+  const [sel,setSel]=useState(project?.members||[]);
+  const [cols,setCols]=useState(["Por hacer","En progreso","Revision","Hecho"]);
+  const [newCol,setNewCol]=useState("");
+  const toggleM=id=>setSel(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
+  const addCol=()=>{ const t=newCol.trim(); if(!t)return; setCols(p=>[...p,t]); setNewCol(""); };
+  const save=()=>{ if(!name.trim())return; onSave({name:name.trim(),desc,color,emoji,members:sel,columns:cols}); onClose(); };
+  return(
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+      <div style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${color}`,marginBottom:24}}>
+        <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontWeight:600,fontSize:15}}>{isEdit?"Editar proyecto":"Crear nuevo proyecto"}</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>x</button>
+        </div>
+        <div style={{padding:20}}>
+          <div style={{background:`${color}18`,border:`2px solid ${color}`,borderRadius:12,padding:"12px 16px",marginBottom:20,display:"flex",alignItems:"center",gap:12}}>
+            <div style={{fontSize:28}}>{emoji}</div>
+            <div><div style={{fontSize:16,fontWeight:700,color}}>{name||"Nombre del proyecto"}</div><div style={{fontSize:12,color:"#6b7280"}}>{desc||"Descripcion del proyecto"}</div></div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:10,marginBottom:14}}>
+            <div>
+              <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Emoji</div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap",maxWidth:200}}>
+                {PROJECT_EMOJIS.map(e=><button key={e} onClick={()=>setEmoji(e)} style={{width:30,height:30,borderRadius:7,border:`2px solid ${emoji===e?color:"#e5e7eb"}`,background:emoji===e?`${color}18`:"transparent",fontSize:16,cursor:"pointer"}}>{e}</button>)}
+              </div>
+            </div>
+            <div>
+              <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Nombre</div>
+              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Nombre del proyecto..." style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${name?color:"#d1d5db"}`,fontSize:14,fontWeight:500,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              <div style={{marginTop:8}}>
+                <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Descripcion</div>
+                <input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Descripcion breve..." style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              </div>
+            </div>
+          </div>
+          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>Color</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:16}}>
+            {PROJECT_COLORS.map(c=><button key={c} onClick={()=>setColor(c)} style={{width:28,height:28,borderRadius:"50%",background:c,border:`3px solid ${color===c?"#374151":"transparent"}`,cursor:"pointer"}}/>)}
+          </div>
+          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>Columnas del tablero</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+            {cols.map((c,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",gap:4,background:`${color}18`,border:`1px solid ${color}44`,borderRadius:8,padding:"4px 8px"}}>
+                <span style={{fontSize:12,color,fontWeight:500}}>{c}</span>
+                {cols.length>1&&<button onClick={()=>setCols(p=>p.filter((_,j)=>j!==i))} style={{background:"none",border:"none",fontSize:12,cursor:"pointer",color,padding:0,lineHeight:1}}>x</button>}
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",gap:8,marginBottom:16}}>
+            <input value={newCol} onChange={e=>setNewCol(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addCol()} placeholder="+ Nueva columna..." style={{flex:1,padding:"6px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12,outline:"none",fontFamily:"inherit"}}/>
+            <button onClick={addCol} style={{padding:"6px 12px",borderRadius:8,background:color,color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>Añadir</button>
+          </div>
+          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Miembros</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:8,marginBottom:20}}>
+            {members.map(m=>{ const mp2=MP[m.id]||MP[0]; const active=sel.includes(m.id); return <div key={m.id} onClick={()=>toggleM(m.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:10,border:`1.5px solid ${active?mp2.solid:"#e5e7eb"}`,background:active?mp2.light:"#f9fafb",cursor:"pointer"}}><div style={{width:30,height:30,borderRadius:"50%",background:active?mp2.solid:"#d1d5db",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{m.initials}</div><div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:active?600:400,color:active?mp2.solid:"#374151"}}>{m.name}</div><div style={{fontSize:10,color:"#9ca3af"}}>{m.role}</div></div></div>; })}
+          </div>
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={save} disabled={!name.trim()} style={{padding:"8px 20px",borderRadius:8,background:name.trim()?color:"#e5e7eb",color:name.trim()?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:name.trim()?"pointer":"default",fontWeight:600}}>{isEdit?"Guardar cambios":"Crear proyecto"}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Projects Home View ────────────────────────────────────────────────────────
+function ProjectsView({projects,members,boards,onSelectProject,onCreateProject,onEditProject,onDeleteProject}){
+  const total=pid=>(boards[pid]||[]).flatMap(c=>c.tasks).length;
+  const done=pid=>(boards[pid]||[]).filter(c=>c.name==="Hecho").flatMap(c=>c.tasks).length;
+  const [pendingDel,setPendingDel]=useState(null);
+  return(
+    <div style={{padding:20}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <div><div style={{fontSize:16,fontWeight:700,marginBottom:2}}>Todos los proyectos</div><div style={{fontSize:12,color:"#6b7280"}}>{projects.length} proyectos activos</div></div>
+        <button onClick={onCreateProject} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo proyecto</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+        {projects.map((p,i)=>{
+          const t=total(p.id),d=done(p.id),pct=t>0?Math.round(d/t*100):0;
+          const projMs=p.members.map(mid=>members.find(m=>m.id===mid)).filter(Boolean);
+          const isPending=pendingDel===i;
+          return(
+            <div key={p.id} style={{background:"#fff",border:`0.5px solid ${isPending?"#E24B4A":p.color+"44"}`,borderTop:`4px solid ${isPending?"#E24B4A":p.color}`,borderRadius:12,padding:16,cursor:"pointer"}} onClick={()=>!isPending&&onSelectProject(i)}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:12}}>
+                <div style={{fontSize:26,lineHeight:1}}>{p.emoji||"📋"}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:700,color:p.color,marginBottom:2}}>{p.name}</div>
+                  {p.desc&&<div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.desc}</div>}
+                </div>
+                <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
+                  {!isPending&&<>
+                    <button onClick={()=>onEditProject(i)} style={{width:26,height:26,borderRadius:6,border:"0.5px solid #e5e7eb",background:"#f9fafb",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✏️</button>
+                    <button onClick={()=>setPendingDel(i)} style={{width:26,height:26,borderRadius:6,border:"0.5px solid #e5e7eb",background:"#f9fafb",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>🗑️</button>
+                  </>}
+                  {isPending&&<>
+                    <button onClick={()=>{onDeleteProject(i);setPendingDel(null);}} style={{padding:"3px 8px",borderRadius:6,background:"#E24B4A",color:"#fff",border:"none",fontSize:11,cursor:"pointer",fontWeight:600}}>Confirmar</button>
+                    <button onClick={()=>setPendingDel(null)} style={{padding:"3px 8px",borderRadius:6,background:"transparent",border:"0.5px solid #d1d5db",fontSize:11,cursor:"pointer"}}>No</button>
+                  </>}
+                </div>
+              </div>
+              <div style={{marginBottom:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#6b7280",marginBottom:4}}><span>Progreso</span><span style={{fontWeight:600,color:p.color}}>{d}/{t} · {pct}%</span></div>
+                <div style={{height:6,background:"#f3f4f6",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:p.color,borderRadius:20}}/></div>
+              </div>
+              <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
+                {(boards[p.id]||[]).map(col=><div key={col.id} style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:`${p.color}14`,color:p.color,border:`0.5px solid ${p.color}33`,fontWeight:500}}>{col.name} ({col.tasks.length})</div>)}
+              </div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{display:"flex"}}>{projMs.slice(0,5).map((m,mi)=>{ const mp2=MP[m.id]||MP[0]; return <div key={m.id} title={m.name} style={{marginLeft:mi>0?-8:0,zIndex:10-mi,width:26,height:26,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,border:"2px solid #fff"}}>{m.initials}</div>; })}</div>
+                <span style={{fontSize:11,color:"#9ca3af"}}>{projMs.length} miembro{projMs.length!==1?"s":""}</span>
+              </div>
+            </div>
+          );
+        })}
+        <div onClick={onCreateProject} style={{border:"2px dashed #d1d5db",borderRadius:12,padding:16,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:180,gap:8}}>
+          <div style={{width:40,height:40,borderRadius:"50%",background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>+</div>
+          <div style={{fontSize:13,fontWeight:500,color:"#6b7280"}}>Nuevo proyecto</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Team View ─────────────────────────────────────────────────────────────────
+function TeamView({project,members,projects,onSelectProject,onEditProfile}){
+  const [email,setEmail]=useState(""); const [role,setRole]=useState("Editor"); const [fb,setFb]=useState("");
+  const invite=()=>{ if(!email.trim())return; setFb(`Invitacion enviada a ${email.trim()} como ${role}`); setEmail(""); setTimeout(()=>setFb(""),3000); };
+  return(
+    <div style={{padding:20,maxWidth:760}}>
+      <div style={{background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:16,overflow:"hidden"}}>
+        <div style={{padding:"16px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontWeight:500,fontSize:15}}>Equipo — {project.name}</div>
+          <span style={{fontSize:11,padding:"2px 9px",borderRadius:20,background:`${project.color}22`,color:project.color,border:`0.5px solid ${project.color}55`,fontWeight:500}}>{project.members.length} miembros</span>
+        </div>
+        <div style={{padding:20}}>
+          <div style={{fontSize:11,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:10}}>Identificacion por color</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10,marginBottom:24}}>
+            {project.members.map(mid=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; const avH=m?.avail?.hoursPerDay||7; const icsOk=!!m?.avail?.icsUrl; return <div key={mid} style={{background:mp2.light,border:`2px solid ${mp2.solid}`,borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}><div style={{width:40,height:40,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,flexShrink:0}}>{m?.initials}</div><div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:700,color:mp2.solid}}>{m?.name}</div><div style={{fontSize:11,color:"#6b7280"}}>{m?.role} · {avH}h/d</div><div style={{display:"flex",gap:4,marginTop:3}}>{m?.avail?.whatsapp&&<span style={{fontSize:9,background:"#dcfce7",color:"#166534",padding:"1px 5px",borderRadius:6}}>WA</span>}{icsOk&&<span style={{fontSize:9,background:"#dbeafe",color:"#1e40af",padding:"1px 5px",borderRadius:6}}>Cal</span>}</div></div><button onClick={()=>onEditProfile(m)} style={{background:"none",border:`1px solid ${mp2.solid}`,borderRadius:8,padding:"4px 8px",fontSize:11,cursor:"pointer",color:mp2.solid,fontWeight:600}}>Editar</button></div>; })}
+          </div>
+          <div style={{borderTop:"0.5px solid #e5e7eb",paddingTop:16,marginBottom:16}}>
+            <div style={{fontSize:13,fontWeight:500,marginBottom:10}}>Invitar al proyecto</div>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email del nuevo miembro..." onKeyDown={e=>e.key==="Enter"&&invite()} style={{flex:1,minWidth:180,padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit"}}/>
+              <select value={role} onChange={e=>setRole(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,background:"#fff",fontFamily:"inherit"}}><option>Editor</option><option>Viewer</option><option>Manager</option></select>
+              <button onClick={invite} style={{padding:"7px 16px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:500}}>Invitar</button>
+            </div>
+            {fb&&<div style={{fontSize:12,color:"#1D9E75",marginTop:8}}>{fb}</div>}
+          </div>
+          <div style={{borderTop:"0.5px solid #e5e7eb",paddingTop:16}}>
+            <div style={{fontSize:13,fontWeight:500,marginBottom:10}}>Todos los proyectos</div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>{projects.map((p,i)=><div key={p.id} onClick={()=>onSelectProject(i)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:"#f9fafb",borderRadius:10,cursor:"pointer"}}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:10,height:10,borderRadius:"50%",background:p.color}}/><span style={{fontSize:13,fontWeight:500}}>{p.name}</span></div><span style={{fontSize:11,color:"#6b7280"}}>{p.members.length} miembros</span></div>)}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Member Edit Modal (crear / editar / eliminar usuario) ────────────────────
+const ROLES = ["Manager","Editor","Viewer"];
+const MEMBER_COLORS = PROJECT_COLORS; // reutilizamos la misma paleta
+
+function MemberEditModal({member, allMembers, onClose, onSave, onDelete}){
+  const isEdit = !!member;
+  const nextColor = MEMBER_COLORS[allMembers.length % MEMBER_COLORS.length];
+
+  const [name,     setName]     = useState(member?.name     || "");
+  const [email,    setEmail]    = useState(member?.email    || "");
+  const [role,     setRole]     = useState(member?.role     || "Editor");
+  const [whatsapp, setWhatsapp] = useState(member?.avail?.whatsapp || "");
+  const [icsUrl,   setIcsUrl]   = useState(member?.avail?.icsUrl   || "");
+  const [hours,    setHours]    = useState(member?.avail?.hoursPerDay || 8);
+  const [colorIdx, setColorIdx] = useState(
+    isEdit ? MEMBER_COLORS.findIndex(c => c === (MP[member.id]?.solid || "#7F77DD")) : allMembers.length % MEMBER_COLORS.length
+  );
+  const [confirmDel, setConfirmDel] = useState(false);
+
+  const initials = name.trim().split(" ").map(w=>w[0]||"").join("").toUpperCase().slice(0,2) || "??";
+  const color    = MEMBER_COLORS[colorIdx < 0 ? 0 : colorIdx] || nextColor;
+
+  const save = () => {
+    if(!name.trim()||!email.trim()) return;
+    const updated = {
+      name:     name.trim(),
+      email:    email.trim(),
+      role,
+      initials,
+      _color:   color,
+      avail: {
+        ...(member?.avail || {}),
+        ...BASE_AVAIL,
+        ...(member?.avail || {}),
+        whatsapp,
+        icsUrl,
+        hoursPerDay: hours,
+        transportMarginMins: member?.avail?.transportMarginMins || 30,
+        googleCalendarId:    member?.avail?.googleCalendarId    || "",
+        workDays:            member?.avail?.workDays            || [1,2,3,4,5],
+        morningStart:        member?.avail?.morningStart        || "09:00",
+        morningEnd:          member?.avail?.morningEnd          || "14:00",
+        afternoonStart:      member?.avail?.afternoonStart      || "16:00",
+        afternoonEnd:        member?.avail?.afternoonEnd        || "19:00",
+        exceptions:          member?.avail?.exceptions          || [],
+        blockedSlots:        member?.avail?.blockedSlots        || [],
+      },
+    };
+    onSave(updated);
+  };
+
+  return(
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+      <div style={{background:"#fff",borderRadius:16,width:520,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${color}`,marginBottom:24}}>
+        {/* Header */}
+        <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:44,height:44,borderRadius:"50%",background:color,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,flexShrink:0}}>{initials}</div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:600,fontSize:15}}>{isEdit?"Editar usuario":"Nuevo usuario"}</div>
+            <div style={{fontSize:12,color:"#6b7280"}}>{isEdit?member.email:"Completa los datos del nuevo miembro"}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>x</button>
+        </div>
+
+        <div style={{padding:20}}>
+          {/* Nombre + email */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:4}}>
+            <div>
+              <FL c="Nombre completo"/>
+              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Nombre Apellido" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${name?"#7F77DD":"#d1d5db"}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+            </div>
+            <div>
+              <FL c="Email"/>
+              <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="correo@empresa.com" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${email?"#7F77DD":"#d1d5db"}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+            </div>
+          </div>
+
+          {/* Rol */}
+          <FL c="Rol en el equipo"/>
+          <div style={{display:"flex",gap:8,marginBottom:4}}>
+            {ROLES.map(r=>(
+              <button key={r} onClick={()=>setRole(r)} style={{flex:1,padding:"7px 0",borderRadius:8,border:`1.5px solid ${role===r?color:"#e5e7eb"}`,background:role===r?`${color}18`:"#f9fafb",color:role===r?color:"#6b7280",fontSize:12,cursor:"pointer",fontWeight:role===r?600:400}}>{r}</button>
+            ))}
+          </div>
+
+          {/* Color del usuario */}
+          <FL c="Color identificativo"/>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:4}}>
+            {MEMBER_COLORS.map((c,i)=>(
+              <button key={c} onClick={()=>setColorIdx(i)} style={{width:30,height:30,borderRadius:"50%",background:c,border:`3px solid ${colorIdx===i?"#374151":"transparent"}`,cursor:"pointer",outline:`2px solid ${colorIdx===i?c+"66":"transparent"}`,outlineOffset:2}}/>
+            ))}
+          </div>
+
+          {/* Horas productivas */}
+          <FL c="Horas productivas por dia"/>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
+            <input type="range" min={1} max={12} step={0.5} value={hours} onChange={e=>setHours(Number(e.target.value))} style={{flex:1}}/>
+            <span style={{fontSize:14,fontWeight:600,color,minWidth:36}}>{hours}h</span>
+          </div>
+
+          {/* WhatsApp */}
+          <FL c="WhatsApp"/>
+          <input value={whatsapp} onChange={e=>setWhatsapp(e.target.value)} placeholder="+34600000000" style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+
+          {/* ICS URL */}
+          <FL c="Google Calendar ICS URL (opcional)"/>
+          <input value={icsUrl} onChange={e=>setIcsUrl(e.target.value)} placeholder="https://calendar.google.com/calendar/ical/...basic.ics" style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+          {icsUrl&&<div style={{fontSize:10,background:"#E1F5EE",color:"#085041",border:"1px solid #1D9E75",borderRadius:6,padding:"3px 8px",marginTop:4}}>Calendario conectado</div>}
+
+          {/* Preview */}
+          <div style={{marginTop:16,background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:12}}>
+            <div style={{width:38,height:38,borderRadius:"50%",background:color,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,flexShrink:0}}>{initials}</div>
+            <div>
+              <div style={{fontSize:13,fontWeight:600,color}}>{name||"Nombre del usuario"}</div>
+              <div style={{fontSize:11,color:"#6b7280"}}>{role} · {hours}h/dia · {email||"email@empresa.com"}</div>
+            </div>
+          </div>
+
+          {/* Acciones */}
+          <div style={{display:"flex",gap:8,marginTop:20,justifyContent:"space-between",alignItems:"center"}}>
+            {/* Eliminar — solo en modo edicion */}
+            {isEdit&&(
+              !confirmDel
+                ?<button onClick={()=>setConfirmDel(true)} style={{padding:"7px 14px",borderRadius:8,background:"#FCEBEB",color:"#A32D2D",border:"1px solid #E24B4A",fontSize:12,cursor:"pointer",fontWeight:500}}>Eliminar usuario</button>
+                :<div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontSize:12,color:"#A32D2D",fontWeight:500}}>Confirmar</span>
+                  <button onClick={()=>{onDelete(member.id);onClose();}} style={{padding:"7px 14px",borderRadius:8,background:"#E24B4A",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>Si, eliminar</button>
+                  <button onClick={()=>setConfirmDel(false)} style={{padding:"7px 10px",borderRadius:8,background:"transparent",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>No</button>
+                </div>
+            )}
+            {!isEdit&&<div/>}
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={save} disabled={!name.trim()||!email.trim()} style={{padding:"8px 20px",borderRadius:8,background:name.trim()&&email.trim()?color:"#e5e7eb",color:name.trim()&&email.trim()?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:name.trim()&&email.trim()?"pointer":"default",fontWeight:600}}>{isEdit?"Guardar cambios":"Crear usuario"}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Users View (vista de todos los usuarios del sistema) ──────────────────────
+function UsersView({members,projects,onEdit,onCreate,onDelete}){
+  const [search,setSearch]=useState("");
+  const [pendingDel,setPendingDel]=useState(null); // id del usuario pendiente de confirmar
+
+  const filtered=members.filter(m=>
+    m.name.toLowerCase().includes(search.toLowerCase())||
+    m.email.toLowerCase().includes(search.toLowerCase())||
+    m.role.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const confirmDelete=(id)=>{ onDelete(id); setPendingDel(null); };
+
+  return(
+    <div style={{padding:20}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,marginBottom:2}}>Usuarios del sistema</div>
+          <div style={{fontSize:12,color:"#6b7280"}}>{members.length} usuarios registrados</div>
+        </div>
+        <button onClick={onCreate} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo usuario</button>
+      </div>
+
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por nombre, email o rol..." style={{width:"100%",padding:"9px 14px",borderRadius:10,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit",marginBottom:16,boxSizing:"border-box"}}/>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
+        {filtered.map(m=>{
+          const mp2=MP[m.id]||MP[0];
+          const userProjects=projects.filter(p=>p.members.includes(m.id));
+          const icsOk=!!m.avail?.icsUrl;
+          const waOk=!!m.avail?.whatsapp;
+          const rc={Manager:{bg:"#EEEDFE",text:"#3C3489"},Editor:{bg:"#E1F5EE",text:"#085041"},Viewer:{bg:"#F1EFE8",text:"#444441"}}[m.role]||{bg:"#F1EFE8",text:"#444441"};
+          const isPending=pendingDel===m.id;
+
+          return(
+            <div key={m.id} style={{background:"#fff",border:`0.5px solid ${isPending?"#E24B4A":mp2.solid+"33"}`,borderTop:`3px solid ${isPending?"#E24B4A":mp2.solid}`,borderRadius:12,padding:14,transition:"border-color .15s"}}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:12}}>
+                <div style={{width:44,height:44,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,flexShrink:0}}>{m.initials}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:600,color:mp2.solid,marginBottom:2}}>{m.name}</div>
+                  <div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.email}</div>
+                  <div style={{display:"flex",gap:5,marginTop:5,flexWrap:"wrap"}}>
+                    <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:rc.bg,color:rc.text,fontWeight:600}}>{m.role}</span>
+                    <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:"#f3f4f6",color:"#6b7280"}}>{m.avail?.hoursPerDay||7}h/dia</span>
+                    {waOk&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#dcfce7",color:"#166534"}}>WA</span>}
+                    {icsOk&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:"#dbeafe",color:"#1e40af"}}>Cal</span>}
+                  </div>
+                </div>
+              </div>
+
+              {userProjects.length>0&&(
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:5}}>Proyectos</div>
+                  <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                    {userProjects.map(p=><span key={p.id} style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:`${p.color}18`,color:p.color,border:`0.5px solid ${p.color}44`,fontWeight:500}}>{p.emoji} {p.name}</span>)}
+                  </div>
+                </div>
+              )}
+
+              {/* Acciones */}
+              <div style={{paddingTop:10,borderTop:"0.5px solid #f3f4f6"}}>
+                {!isPending?(
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>onEdit(m)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1px solid ${mp2.solid}`,background:"transparent",color:mp2.solid,fontSize:12,cursor:"pointer",fontWeight:500}}>Editar</button>
+                    <button onClick={()=>setPendingDel(m.id)} style={{padding:"6px 14px",borderRadius:8,border:"1px solid #E24B4A",background:"#FCEBEB",color:"#A32D2D",fontSize:12,cursor:"pointer",fontWeight:500}}>Eliminar</button>
+                  </div>
+                ):(
+                  <div style={{background:"#FCEBEB",border:"1px solid #E24B4A",borderRadius:8,padding:"10px 12px"}}>
+                    <div style={{fontSize:12,fontWeight:600,color:"#A32D2D",marginBottom:8}}>Confirmar eliminacion de {m.name}</div>
+                    <div style={{fontSize:11,color:"#A32D2D",marginBottom:10}}>Se quitara de todos los proyectos y tareas asignadas.</div>
+                    <div style={{display:"flex",gap:8}}>
+                      <button onClick={()=>confirmDelete(m.id)} style={{flex:1,padding:"6px 0",borderRadius:8,background:"#E24B4A",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>Si, eliminar</button>
+                      <button onClick={()=>setPendingDel(null)} style={{flex:1,padding:"6px 0",borderRadius:8,background:"transparent",border:"1px solid #d1d5db",fontSize:12,cursor:"pointer"}}>Cancelar</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+
+        <div onClick={onCreate} style={{border:"2px dashed #d1d5db",borderRadius:12,padding:16,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:160,gap:8}}>
+          <div style={{width:44,height:44,borderRadius:"50%",background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>+</div>
+          <div style={{fontSize:13,fontWeight:500,color:"#6b7280"}}>Nuevo usuario</div>
+          <div style={{fontSize:11,color:"#9ca3af",textAlign:"center"}}>Añade un nuevo miembro al sistema</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Alert Panel ───────────────────────────────────────────────────────────────
+function AlertPanel({alerts,members,activeMemberId,onClose,onEmailSend}){
+  const [tab,setTab]=useState("mine"); const [sent,setSent]=useState({});
+  const ls={critical:{bg:"#fff5f5",border:"#E24B4A",text:"#A32D2D",icon:"🚨"},warning:{bg:"#fffbf0",border:"#EF9F27",text:"#854F0B",icon:"⚠️"},info:{bg:"#f0f7ff",border:"#378ADD",text:"#0C447C",icon:"ℹ️"},success:{bg:"#f0fdf7",border:"#1D9E75",text:"#085041",icon:"✅"}};
+  const shown=tab==="mine"?alerts.filter(a=>a.memberId===activeMemberId):tab==="advisor"?alerts.filter(a=>a.type==="advisor"&&a.memberId===activeMemberId):alerts.filter(a=>a.type!=="advisor");
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",zIndex:2000,display:"flex",alignItems:"flex-start",justifyContent:"flex-end",paddingTop:60,paddingRight:20}}>
+      <div style={{background:"#fff",borderRadius:16,width:420,maxHeight:"80vh",display:"flex",flexDirection:"column",border:"0.5px solid #e5e7eb",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}><div style={{fontWeight:600,fontSize:14}}>Centro de alertas</div><button onClick={onClose} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"#6b7280"}}>x</button></div>
+        <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",flexShrink:0}}>{[["mine","Mis alertas"],["advisor","Asesor IA"],["team","Equipo"]].map(([k,l])=><div key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"9px 0",textAlign:"center",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400}}>{l}</div>)}</div>
+        <div style={{flex:1,overflowY:"auto",padding:12}}>
+          {shown.length===0&&<div style={{textAlign:"center",padding:30,color:"#9ca3af",fontSize:13}}>Sin alertas activas</div>}
+          {shown.map(alert=>{ const s=ls[alert.level]||ls.info; const m=members.find(x=>x.id===alert.memberId); const wu=waUrl(m,`Alerta TaskFlow: ${alert.taskTitle||"Aviso"} — ${alert.msg}`);
+            return(
+              <div key={alert.id} style={{background:s.bg,border:`1px solid ${s.border}`,borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+                <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
+                  <span style={{fontSize:16,lineHeight:1.2,flexShrink:0}}>{s.icon}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    {alert.taskTitle&&<div style={{fontSize:12,fontWeight:600,color:s.text,marginBottom:2}}>{alert.taskTitle}</div>}
+                    <div style={{fontSize:12,color:s.text,lineHeight:1.5}}>{alert.msg}</div>
+                    {alert.quadrant&&<div style={{marginTop:5}}><QBadge q={alert.quadrant}/></div>}
+                    <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
+                      {tab==="team"&&<span style={{fontSize:11,color:"#6b7280"}}>{m?.name}</span>}
+                      <div style={{marginLeft:"auto",display:"flex",gap:5}}>
+                        {wu&&<a href={wu} target="_blank" rel="noreferrer" style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"#dcfce7",color:"#166534",border:"1px solid #4ade80",textDecoration:"none",fontWeight:500}}>WA</a>}
+                        <button onClick={()=>{setSent(p=>({...p,[alert.id]:true}));onEmailSend({to:m?.email,subject:`[TaskFlow] ${alert.taskTitle||"Alerta"}`,body:alert.msg});}} style={{fontSize:11,padding:"2px 8px",borderRadius:6,border:`1px solid ${s.border}`,background:"transparent",color:s.text,cursor:"pointer",fontWeight:500}}>{sent[alert.id]?"Enviado":"Email"}</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmailToast({emails,onDismiss}){
+  return(
+    <div style={{position:"fixed",bottom:20,right:20,zIndex:3000,display:"flex",flexDirection:"column",gap:8,maxWidth:340}}>
+      {emails.map((e,i)=>(
+        <div key={i} style={{background:"#fff",border:"1px solid #1D9E75",borderLeft:"4px solid #1D9E75",borderRadius:10,padding:"10px 14px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,fontWeight:600,color:"#085041"}}>Email simulado enviado</span><button onClick={()=>onDismiss(i)} style={{background:"none",border:"none",fontSize:14,cursor:"pointer",color:"#9ca3af"}}>x</button></div>
+          <div style={{fontSize:11,color:"#4b5563"}}>Para: {e.to}</div>
+          <div style={{fontSize:11,color:"#4b5563"}}>Asunto: {e.subject}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Toast system ──────────────────────────────────────────────────────────────
+function Toast({toasts}){
+  if(!toasts.length)return null;
+  const S={
+    success:{bg:"#E1F5EE",border:"#1D9E75",text:"#085041",icon:"✓"},
+    error:  {bg:"#FCEBEB",border:"#E24B4A",text:"#A32D2D",icon:"⚠"},
+    info:   {bg:"#E6F1FB",border:"#378ADD",text:"#0C447C",icon:"ℹ"},
+  };
+  return(
+    <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",zIndex:4000,display:"flex",flexDirection:"column",gap:8,alignItems:"center",pointerEvents:"none"}}>
+      {toasts.map(t=>{ const s=S[t.type]||S.success; return(
+        <div key={t.id} style={{background:s.bg,border:`1px solid ${s.border}`,borderRadius:10,padding:"10px 22px",fontSize:13,fontWeight:600,color:s.text,display:"flex",alignItems:"center",gap:8,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",whiteSpace:"nowrap",animation:"fadeInUp .18s ease"}}>
+          <span style={{fontSize:15}}>{s.icon}</span><span>{t.msg}</span>
+        </div>
+      );})}
+    </div>
+  );
+}
+
+function DailyDigest({boards,members,activeMemberId}){
+  const [open,setOpen]=useState(true); if(!open)return null;
+  const allT=Object.values(boards).flatMap(cols=>cols.flatMap(c=>c.tasks.map(t=>({...t,colName:c.name})))).filter(t=>t.colName!=="Hecho"&&t.assignees.includes(activeMemberId));
+  const q1=allT.filter(t=>getQ(t)==="Q1"); const todayT=allT.filter(t=>daysUntil(t.dueDate)===0);
+  const m=members.find(x=>x.id===activeMemberId); const mp2=MP[activeMemberId]||MP[0];
+  return(
+    <div style={{margin:"12px 20px 0",background:mp2.light,border:`1.5px solid ${mp2.solid}`,borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+      <div style={{width:40,height:40,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,flexShrink:0}}>{m?.initials}</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:13,fontWeight:600,color:mp2.solid}}>Hola, {m?.name.split(" ")[0]} · {m?.avail?.hoursPerDay||7}h disponibles hoy</div>
+        <div style={{fontSize:12,color:"#4b5563",marginTop:2}}>
+          {q1.length>0?`${q1.length} tarea${q1.length>1?"s":""} critica${q1.length>1?"s":""}.`:""}{" "}
+          {todayT.length>0?`${todayT.length} vence${todayT.length>1?"n":""} hoy.`:""}{" "}
+          {q1.length===0&&todayT.length===0?"Sin urgencias. Buen dia para avanzar en Q2.":""}
+        </div>
+      </div>
+      <div style={{display:"flex",gap:8,flexShrink:0,flexWrap:"wrap"}}>
+        {q1.slice(0,2).map(t=><div key={t.id} style={{fontSize:11,background:"#FCEBEB",color:"#A32D2D",border:"1px solid #E24B4A",borderRadius:8,padding:"3px 8px",fontWeight:500}}>{t.title.slice(0,22)}{t.title.length>22?"...":""}</div>)}
+      </div>
+      <button onClick={()=>setOpen(false)} style={{background:"none",border:"none",fontSize:16,cursor:"pointer",color:"#9ca3af",flexShrink:0}}>x</button>
+    </div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+export default function TaskFlow(){
+  const [data,setData]             = useState(_saved);
+  const [activeProject,setAP]      = useState(0);
+  const [activeTab,setActiveTab]   = useState("projects");
+  const [activeMember,setAM]       = useState(5);
+  const [showAlerts,setShowAlerts] = useState(false);
+  const [emailQueue,setEQ]         = useState([]);
+  const [profileMember,setPM]      = useState(null);
+  const [projectModal,setProjModal]= useState(null);
+  const [memberModal,setMemberModal]= useState(null); // null | "create" | member object
+  const [toasts,setToasts]          = useState([]);
+
+  // Persistencia automática en cada cambio de datos
+  useEffect(()=>{
+    try{ localStorage.setItem(LS_KEY,JSON.stringify(data)); }catch(e){}
+  },[data]);
+
+  const toastIdRef=useRef(0);
+  const addToast=useCallback((msg,type="success")=>{
+    const id=++toastIdRef.current;
+    setToasts(prev=>[...prev,{id,msg,type}]);
+    setTimeout(()=>setToasts(prev=>prev.filter(t=>t.id!==id)),3000);
+  },[]);
+
+  const proj  = data.projects[activeProject];
+  const board = data.boards[proj.id];
+  const alerts = genAlerts(data.boards, data.members);
+  const critCount = alerts.filter(a=>a.memberId===activeMember&&(a.level==="critical"||a.level==="warning")).length;
+
+  // ── Member CRUD ──
+  const updateMember = useCallback((updates, memberId)=>{
+    const {name,email,role,initials,avail,_color} = updates;
+    if(_color && MP[memberId]){
+      MP[memberId] = { solid:_color, light:_color+"22", cardBorder:_color, cardBg:_color+"11" };
+    }
+    setData(prev=>({
+      ...prev,
+      members: prev.members.map(m =>
+        m.id === memberId
+          ? { ...m, name, email, role, initials, avail: { ...m.avail, ...avail } }
+          : m
+      ),
+    }));
+    setMemberModal(null);
+    addToast("✓ Usuario actualizado");
+  },[addToast]);
+
+  const createMember = useCallback((updates)=>{
+    const {name,email,role,initials,avail,_color} = updates;
+    setData(prev=>{
+      const id = prev.members.length > 0 ? Math.max(...prev.members.map(m=>m.id)) + 1 : 0;
+      if(_color) MP[id] = { solid:_color, light:_color+"22", cardBorder:_color, cardBg:_color+"11" };
+      return { ...prev, members:[...prev.members, {id,name,email,role,initials,avail}] };
+    });
+    setMemberModal(null);
+    addToast("✓ Usuario creado");
+  },[addToast]);
+
+  const deleteMember = useCallback((memberId)=>{
+    setData(prev=>({
+      ...prev,
+      members: prev.members.filter(m=>m.id!==memberId),
+      projects: prev.projects.map(p=>({...p,members:p.members.filter(mid=>mid!==memberId)})),
+      boards: Object.fromEntries(Object.entries(prev.boards).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t,assignees:t.assignees.filter(a=>a!==memberId)}))}))])),
+    }));
+    if(activeMember===memberId) setAM(0);
+    addToast("Usuario eliminado","info");
+  },[activeMember,addToast]);
+
+  const updateTask = useCallback((taskId,colId,updated)=>{
+    setData(prev=>{ const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:col.tasks.map(t=>t.id===taskId?updated:t)}:col); return{...prev,boards:{...prev.boards,[proj.id]:cols}}; });
+  },[proj.id]);
+  const moveTask = useCallback((taskId,fromColId,toColId)=>{
+    setData(prev=>{ const cols=prev.boards[proj.id]; const fc=cols.find(c=>c.id===fromColId); const task=fc.tasks.find(t=>t.id===taskId); const nc=cols.map(col=>{ if(col.id===fromColId)return{...col,tasks:col.tasks.filter(t=>t.id!==taskId)}; if(col.id===toColId)return{...col,tasks:[...col.tasks,task]}; return col; }); return{...prev,boards:{...prev.boards,[proj.id]:nc}}; });
+    addToast("Tarea movida","info");
+  },[proj.id,addToast]);
+  const addTask = useCallback((colId,title)=>{
+    setData(prev=>{ const nt={id:"t"+nextId++,title,tags:[],assignees:[activeMember],priority:"media",startDate:fmt(new Date()),dueDate:"",estimatedHours:0,timeLogs:[],desc:"",comments:[]}; const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:[...col.tasks,nt]}:col); return{...prev,boards:{...prev.boards,[proj.id]:cols}}; });
+    addToast("✓ Tarea creada");
+  },[proj.id,activeMember,addToast]);
+  const applySchedule = useCallback((schedule)=>{
+    setData(prev=>({...prev,aiSchedule:schedule}));
+    addToast("✓ Plan aplicado");
+  },[addToast]);
+  const saveMemberProfile = useCallback((memberId,avail)=>{
+    setData(prev=>({
+      ...prev,
+      members: prev.members.map(m =>
+        m.id === memberId ? { ...m, avail: { ...m.avail, ...avail } } : m
+      ),
+    }));
+    addToast("✓ Perfil guardado");
+  },[addToast]);
+
+  const createProject = useCallback(({name,desc,color,emoji,members:mems,columns})=>{
+    const id=nextProjId++;
+    const cols=columns.map(n=>({id:`nc${nextColId++}`,name:n,tasks:[]}));
+    setData(prev=>({...prev,projects:[...prev.projects,{id,name,desc,color,emoji,members:mems}],boards:{...prev.boards,[id]:cols}}));
+    addToast("✓ Proyecto creado");
+  },[addToast]);
+  const editProject = useCallback((idx,{name,desc,color,emoji,members:mems,columns})=>{
+    setData(prev=>{
+      const p=prev.projects[idx];
+      const projects=prev.projects.map((x,i)=>i===idx?{...x,name,desc,color,emoji,members:mems}:x);
+      const existing=prev.boards[p.id]||[];
+      const existNames=existing.map(c=>c.name);
+      const newCols=columns.filter(n=>!existNames.includes(n)).map(n=>({id:`nc${nextColId++}`,name:n,tasks:[]}));
+      const merged=[...existing.filter(c=>columns.includes(c.name)),...newCols];
+      return{...prev,projects,boards:{...prev.boards,[p.id]:merged.length>0?merged:existing}};
+    });
+    addToast("✓ Proyecto actualizado");
+  },[addToast]);
+  const deleteProject = useCallback((idx)=>{
+    setData(prev=>{ const p=prev.projects[idx]; const projects=prev.projects.filter((_,i)=>i!==idx); const boards={...prev.boards}; delete boards[p.id]; return{...prev,projects,boards}; });
+    setAP(0); setActiveTab("projects");
+    addToast("Proyecto eliminado","info");
+  },[addToast]);
+
+  const totalTasks=board.reduce((s,c)=>s+c.tasks.length,0);
+  const doneTasks =board.filter(c=>c.name==="Hecho").reduce((s,c)=>s+c.tasks.length,0);
+  const TABS=[{key:"board",l:"Tablero"},{key:"eisenhower",l:"Matriz"},{key:"reports",l:"Tiempos"},{key:"team",l:"Equipo"}];
+
+  return(
+    <div style={{display:"flex",height:"100vh",fontFamily:"'Segoe UI',system-ui,sans-serif",background:"#f9fafb",color:"#111827"}}>
+      {/* SIDEBAR */}
+      <div style={{width:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column"}}>
+        <div style={{padding:"16px 16px 12px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:30,height:30,background:"#7F77DD",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700}}>TF</div>
+          <span style={{fontWeight:600,fontSize:15}}>TaskFlow</span>
+        </div>
+        <div style={{padding:"10px 12px",borderBottom:"0.5px solid #e5e7eb",background:"#fafafa"}}>
+          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Vista como</div>
+          <select value={activeMember} onChange={e=>setAM(Number(e.target.value))} style={{width:"100%",padding:"6px 8px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12,background:"#fff",fontFamily:"inherit"}}>
+            {data.members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </div>
+        <div style={{padding:"6px 8px",borderBottom:"0.5px solid #e5e7eb"}}>
+          <div onClick={()=>setActiveTab("projects")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="projects"?"#EEEDFE":"transparent",color:activeTab==="projects"?"#7F77DD":"#4b5563",fontWeight:activeTab==="projects"?600:400}}>
+            <span style={{fontSize:14}}>📋</span> Proyectos
+          </div>
+          <div onClick={()=>setActiveTab("planner")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="planner"?"#EEEDFE":"transparent",color:activeTab==="planner"?"#7F77DD":"#4b5563",fontWeight:activeTab==="planner"?600:400}}>
+            <span style={{fontSize:14}}>⚡</span> Planificador IA
+          </div>
+          <div onClick={()=>setActiveTab("users")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="users"?"#EEEDFE":"transparent",color:activeTab==="users"?"#7F77DD":"#4b5563",fontWeight:activeTab==="users"?600:400}}>
+            <span style={{fontSize:14}}>👥</span> Usuarios
+          </div>
+        </div>
+        <div style={{padding:8,flex:1,overflowY:"auto"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px 2px"}}>
+            <span style={{fontSize:10,fontWeight:600,color:"#9ca3af",letterSpacing:"0.07em",textTransform:"uppercase"}}>Mis tableros</span>
+            <button onClick={()=>setProjModal("create")} style={{width:18,height:18,borderRadius:4,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>+</button>
+          </div>
+          {data.projects.map((p,i)=>(
+            <div key={p.id} onClick={()=>{setAP(i);setActiveTab("board");}} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",borderRadius:8,cursor:"pointer",fontSize:12,background:i===activeProject&&activeTab!=="projects"&&activeTab!=="planner"?"#f3f4f6":"transparent",color:i===activeProject&&activeTab!=="projects"&&activeTab!=="planner"?"#111827":"#4b5563",fontWeight:i===activeProject&&activeTab!=="projects"&&activeTab!=="planner"?500:400}}>
+              <span style={{fontSize:14,flexShrink:0}}>{p.emoji||"📋"}</span>
+              <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
+              <div style={{width:7,height:7,borderRadius:"50%",background:p.color,flexShrink:0}}/>
+            </div>
+          ))}
+        </div>
+        <div style={{padding:"10px 14px",borderTop:"0.5px solid #e5e7eb"}}>
+          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:7}}>Equipo · {proj.name}</div>
+          {proj.members.slice(0,5).map(mid=>{ const m=data.members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} style={{display:"flex",alignItems:"center",gap:7,padding:"3px 0"}}><div style={{width:24,height:24,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,flexShrink:0}}>{m?.initials}</div><span style={{fontSize:11,color:"#4b5563",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m?.name}</span></div>; })}
+        </div>
+        <div style={{padding:"8px 14px",borderTop:"0.5px solid #e5e7eb"}}>
+          <button onClick={()=>{ if(!window.confirm("¿Borrar todos los datos guardados y volver al estado inicial?"))return; localStorage.removeItem(LS_KEY); window.location.reload(); }} style={{width:"100%",padding:"5px 0",borderRadius:6,border:"0.5px solid #e5e7eb",background:"transparent",fontSize:10,color:"#9ca3af",cursor:"pointer"}}>Resetear datos</button>
+        </div>
+      </div>
+
+      {/* MAIN */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        {activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&(
+          <div style={{background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px",height:52,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
+              <span style={{fontSize:15,fontWeight:600}}>{proj.name}</span>
+              <span style={{fontSize:11,padding:"2px 9px",borderRadius:20,background:`${proj.color}22`,color:proj.color,border:`0.5px solid ${proj.color}55`,fontWeight:500}}>{proj.members.length} miembros</span>
+              {activeTab==="board"&&<span style={{fontSize:12,color:"#6b7280"}}>{doneTasks}/{totalTasks} completadas</span>}
+            </div>
+            <button onClick={()=>setShowAlerts(true)} style={{position:"relative",padding:"6px 14px",borderRadius:8,background:critCount>0?"#fff5f5":"#f9fafb",color:critCount>0?"#A32D2D":"#374151",border:`1px solid ${critCount>0?"#E24B4A":"#d1d5db"}`,fontSize:13,cursor:"pointer",fontWeight:500,display:"flex",alignItems:"center",gap:6}}>
+              Alertas {critCount>0&&<span style={{background:"#E24B4A",color:"#fff",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700}}>{critCount}</span>}
+            </button>
+          </div>
+        )}
+        {activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&(
+          <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",background:"#fff",padding:"0 20px",flexShrink:0,overflowX:"auto"}}>
+            {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #7F77DD":"2px solid transparent",color:activeTab===tab.key?"#7F77DD":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
+          </div>
+        )}
+        {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember}/>}
+        <div style={{flex:1,overflow:"auto"}}>
+          {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
+          {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
+          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
+          {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
+          {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule}/>}
+          {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
+          {activeTab==="team"      &&<TeamView project={proj} members={data.members} projects={data.projects} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onEditProfile={m=>setPM(m)}/>}
+        </div>
+      </div>
+
+      {showAlerts&&<AlertPanel alerts={alerts} members={data.members} activeMemberId={activeMember} onClose={()=>setShowAlerts(false)} onEmailSend={e=>setEQ(q=>[...q,e])}/>}
+      <EmailToast emails={emailQueue} onDismiss={i=>setEQ(q=>q.filter((_,j)=>j!==i))}/>
+      <Toast toasts={toasts}/>
+      {profileMember&&<ProfileModal member={profileMember} onClose={()=>setPM(null)} onSave={avail=>{saveMemberProfile(profileMember.id,avail);setPM(null);}}/>}
+      {projectModal==="create"&&<ProjectModal members={data.members} onClose={()=>setProjModal(null)} onSave={createProject}/>}
+      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)}/>}
+      {memberModal==="create"&&<MemberEditModal allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={createMember}/>}
+      {memberModal&&memberModal!=="create"&&<MemberEditModal member={memberModal} allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={d=>updateMember(d,memberModal.id)} onDelete={id=>{deleteMember(id);setMemberModal(null);}}/>}
+    </div>
+  );
+}
