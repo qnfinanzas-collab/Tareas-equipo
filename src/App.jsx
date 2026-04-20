@@ -1012,6 +1012,170 @@ function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,wor
 }
 
 // ── Eisenhower View ───────────────────────────────────────────────────────────
+// ── Dashboard View ────────────────────────────────────────────────────────────
+function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask}){
+  const {boards,members,projects,aiSchedule}=data;
+  const today=fmt(TODAY);
+  const weekAgo=new Date(TODAY); weekAgo.setDate(weekAgo.getDate()-7);
+  const weekFromStr=fmt(weekAgo);
+  const weekAheadEnd=new Date(TODAY); weekAheadEnd.setDate(weekAheadEnd.getDate()+7);
+
+  const allT=Object.entries(boards).flatMap(([pid,cols])=>cols.flatMap(col=>col.tasks.map(t=>({...t,colName:col.name,projId:Number(pid),projName:projects.find(p=>p.id===Number(pid))?.name||""}))));
+  const active=allT.filter(t=>t.colName!=="Hecho");
+  const done=allT.filter(t=>t.colName==="Hecho");
+  const overdue=active.filter(t=>t.dueDate&&daysUntil(t.dueDate)<0);
+  const dueToday=active.filter(t=>t.dueDate&&daysUntil(t.dueDate)===0);
+
+  // Horas loggeadas últimos 7 días
+  const logsWeek=allT.flatMap(t=>(t.timeLogs||[]).map(l=>({...l,taskId:t.id,taskTitle:t.title,assignees:t.assignees})));
+  const weekLogs=logsWeek.filter(l=>l.date&&l.date>=weekFromStr&&l.date<=today);
+  const weekHours=weekLogs.reduce((s,l)=>s+l.seconds,0)/3600;
+
+  // Progreso general: horas loggeadas / horas estimadas (tareas activas con estimación)
+  const estTotal=active.reduce((s,t)=>s+(t.estimatedHours||0),0);
+  const logTotal=allT.reduce((s,t)=>s+((t.timeLogs||[]).reduce((a,l)=>a+l.seconds,0)/3600),0);
+  const completionPct=estTotal>0?Math.min(100,Math.round(logTotal/estTotal*100)):0;
+
+  // Matriz Eisenhower
+  const quads={Q1:0,Q2:0,Q3:0,Q4:0}; active.forEach(t=>{quads[getQ(t)]++;});
+
+  // Top 5 críticas
+  const critical=[...active].filter(t=>{ const q=getQ(t); return q==="Q1"||(t.dueDate&&daysUntil(t.dueDate)<=1); })
+    .sort((a,b)=>{ const da=daysUntil(a.dueDate),db=daysUntil(b.dueDate); if(da!==db)return da-db; const po={alta:0,media:1,baja:2}; return (po[a.priority]||1)-(po[b.priority]||1); })
+    .slice(0,5);
+
+  // Carga por persona: logged last 7d + scheduled next 7d
+  const loadByMember=members.map(m=>{
+    const logged=logsWeek.filter(l=>l.memberId===m.id).reduce((s,l)=>s+l.seconds,0)/3600;
+    const scheduled=(aiSchedule||[]).filter(s=>s.memberId===m.id&&s.date>=today&&s.date<=fmt(weekAheadEnd)).reduce((s,x)=>s+x.hours,0);
+    const capacity=7*(m.avail?.hoursPerDay||8);
+    return {m,logged,scheduled,capacity,pct:capacity>0?Math.min(100,Math.round(scheduled/capacity*100)):0};
+  }).sort((a,b)=>b.scheduled-a.scheduled);
+
+  // Calendario: miembros con ICS
+  const icsMembers=members.filter(m=>m.avail?.icsUrl);
+  const icsAlerts=icsMembers.map(m=>{
+    const cached=getCachedEvents(m.id);
+    return {m,synced:cached!==null,count:cached?.length||0};
+  });
+
+  const KPI=({label,value,sub,color,onClick})=>(
+    <div onClick={onClick} style={{background:"#fff",border:`1.5px solid ${color}22`,borderLeft:`4px solid ${color}`,borderRadius:12,padding:"14px 16px",cursor:onClick?"pointer":"default",transition:"transform .12s"}} onMouseEnter={e=>onClick&&(e.currentTarget.style.transform="translateY(-1px)")} onMouseLeave={e=>onClick&&(e.currentTarget.style.transform="translateY(0)")}>
+      <div style={{fontSize:11,color:"#6b7280",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4}}>{label}</div>
+      <div style={{fontSize:26,fontWeight:700,color,lineHeight:1.1}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:"#9ca3af",marginTop:3}}>{sub}</div>}
+    </div>
+  );
+
+  return(
+    <div style={{padding:20}}>
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:18,fontWeight:700,marginBottom:3}}>Dashboard</div>
+        <div style={{fontSize:12,color:"#6b7280"}}>Vista global del equipo · {today}</div>
+      </div>
+
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:20}}>
+        <KPI label="Tareas activas" value={active.length} sub={`${done.length} completadas`} color="#7F77DD" onClick={onGoProjects}/>
+        <KPI label="Vencidas" value={overdue.length} sub={dueToday.length>0?`+${dueToday.length} vencen hoy`:"Al día"} color={overdue.length>0?"#E24B4A":"#1D9E75"}/>
+        <KPI label="Horas esta semana" value={weekHours.toFixed(1)+"h"} sub={`${weekLogs.length} registros`} color="#EF9F27"/>
+        <KPI label="Progreso estimado" value={completionPct+"%"} sub={`${logTotal.toFixed(0)}h de ${estTotal.toFixed(0)}h`} color="#1D9E75"/>
+      </div>
+
+      {/* Row: Eisenhower + Críticas */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1.4fr",gap:14,marginBottom:20}}>
+        <div style={{background:"#fff",border:"1px solid #e5e7eb",borderRadius:12,padding:14}}>
+          <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Matriz Eisenhower</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            {["Q1","Q2","Q3","Q4"].map(qk=>{ const qm=QM[qk]; return(
+              <div key={qk} style={{background:qm.bg,border:`1.5px solid ${qm.border}`,borderRadius:10,padding:"10px 12px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                  <span style={{fontSize:14}}>{qm.icon}</span>
+                  <span style={{fontSize:11,fontWeight:700,color:qm.border}}>{qk}</span>
+                </div>
+                <div style={{fontSize:22,fontWeight:700,color:qm.border,lineHeight:1}}>{quads[qk]}</div>
+                <div style={{fontSize:10,color:"#6b7280",marginTop:2}}>{qm.label}</div>
+              </div>
+            );})}
+          </div>
+        </div>
+
+        <div style={{background:"#fff",border:"1px solid #e5e7eb",borderRadius:12,padding:14}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+            <div style={{fontSize:13,fontWeight:600}}>Top 5 críticas hoy</div>
+            <span style={{fontSize:11,color:"#6b7280"}}>{critical.length} tareas</span>
+          </div>
+          {critical.length===0&&<div style={{fontSize:12,color:"#9ca3af",textAlign:"center",padding:"20px 10px"}}>Ninguna tarea crítica hoy 🎉</div>}
+          {critical.map(t=>{
+            const days=daysUntil(t.dueDate);
+            const p2=palOf(t.assignees);
+            const proj=projects.find(p=>p.id===t.projId);
+            const projIdx=projects.findIndex(p=>p.id===t.projId);
+            return(
+              <div key={t.id} onClick={()=>onOpenTask?.(t,projIdx)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderTop:"1px solid #f3f4f6",cursor:"pointer",borderRadius:4}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                <QBadge q={getQ(t)}/>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                  <div style={{fontSize:10,color:"#9ca3af"}}>{proj?.emoji} {proj?.name} · {days<0?`Vencida (${-days}d)`:days===0?"Hoy":`En ${days}d`}</div>
+                </div>
+                <div style={{display:"flex"}}>{t.assignees.slice(0,3).map((mid,i)=>{ const mp2=MP[mid]||MP[0]; const mm=members.find(x=>x.id===mid); return <div key={mid} style={{marginLeft:i>0?-6:0,width:22,height:22,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,border:"1.5px solid #fff"}}>{mm?.initials}</div>; })}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Carga por persona */}
+      <div style={{background:"#fff",border:"1px solid #e5e7eb",borderRadius:12,padding:14,marginBottom:20}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+          <div style={{fontSize:13,fontWeight:600}}>Carga del equipo — próximos 7 días</div>
+          <button onClick={onGoPlanner} style={{fontSize:11,padding:"4px 10px",borderRadius:6,border:"1px solid #7F77DD",background:"#fff",color:"#7F77DD",cursor:"pointer",fontWeight:600}}>Ir al planificador →</button>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {loadByMember.map(({m,logged,scheduled,capacity,pct})=>{
+            const mp2=MP[m.id]||MP[0];
+            const barColor=pct>=90?"#E24B4A":pct>=70?"#EF9F27":"#1D9E75";
+            return(
+              <div key={m.id} style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:7,width:140,flexShrink:0}}>
+                  <div style={{width:26,height:26,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{m.initials}</div>
+                  <div style={{minWidth:0}}><div style={{fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name.split(" ")[0]}</div><div style={{fontSize:10,color:"#9ca3af"}}>{logged.toFixed(1)}h últimos 7d</div></div>
+                </div>
+                <div style={{flex:1,height:22,background:"#f3f4f6",borderRadius:6,position:"relative",overflow:"hidden"}}>
+                  <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${pct}%`,background:barColor,opacity:0.7,borderRadius:6,transition:"width .3s"}}/>
+                  <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:600,color:pct>50?"#fff":"#374151"}}>{scheduled.toFixed(1)}h / {capacity.toFixed(0)}h ({pct}%)</div>
+                </div>
+              </div>
+            );
+          })}
+          {loadByMember.length===0&&<div style={{fontSize:12,color:"#9ca3af",textAlign:"center",padding:10}}>Sin miembros</div>}
+        </div>
+      </div>
+
+      {/* Estado calendarios */}
+      {icsMembers.length>0&&(
+        <div style={{background:"#fff",border:"1px solid #e5e7eb",borderRadius:12,padding:14}}>
+          <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Calendarios conectados</div>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            {icsAlerts.map(({m,synced,count})=>{
+              const mp2=MP[m.id]||MP[0];
+              const bg=!synced?"#FEF3C7":count>0?"#E1F5EE":"#FCEBEB";
+              const bd=!synced?"#F59E0B":count>0?"#1D9E75":"#E24B4A";
+              const txt=!synced?"#92400E":count>0?"#085041":"#A32D2D";
+              return(
+                <div key={m.id} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 12px",background:bg,border:`1px solid ${bd}`,borderRadius:20,fontSize:11}}>
+                  <div style={{width:18,height:18,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700}}>{m.initials}</div>
+                  <span style={{color:txt,fontWeight:500}}>{m.name.split(" ")[0]}: {!synced?"sin sincronizar":count>0?`${count} eventos`:"sin eventos / error"}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EisenhowerView({boards,members,activeMemberId,projects}){
   const [fm,setFm]=useState(activeMemberId);
   const allT=Object.entries(boards).flatMap(([pid,cols])=>cols.flatMap(col=>col.tasks.map(t=>({...t,colName:col.name,projName:projects.find(p=>p.id===Number(pid))?.name||""})))).filter(t=>t.colName!=="Hecho");
@@ -2046,6 +2210,9 @@ export default function TaskFlow(){
           </select>
         </div>
         <div style={{padding:"6px 8px",borderBottom:"0.5px solid #e5e7eb"}}>
+          <div onClick={()=>setActiveTab("dashboard")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="dashboard"?"#EEEDFE":"transparent",color:activeTab==="dashboard"?"#7F77DD":"#4b5563",fontWeight:activeTab==="dashboard"?600:400}}>
+            <span style={{fontSize:14}}>📊</span> Dashboard
+          </div>
           <div onClick={()=>setActiveTab("projects")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="projects"?"#EEEDFE":"transparent",color:activeTab==="projects"?"#7F77DD":"#4b5563",fontWeight:activeTab==="projects"?600:400}}>
             <span style={{fontSize:14}}>📋</span> Proyectos
           </div>
@@ -2065,7 +2232,7 @@ export default function TaskFlow(){
             <button onClick={()=>setProjModal("create")} style={{width:18,height:18,borderRadius:4,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>+</button>
           </div>
           {data.projects.map((p,i)=>(
-            <div key={p.id} onClick={()=>{setAP(i);setActiveTab("board");}} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",borderRadius:8,cursor:"pointer",fontSize:12,background:i===activeProject&&activeTab!=="projects"&&activeTab!=="planner"?"#f3f4f6":"transparent",color:i===activeProject&&activeTab!=="projects"&&activeTab!=="planner"?"#111827":"#4b5563",fontWeight:i===activeProject&&activeTab!=="projects"&&activeTab!=="planner"?500:400}}>
+            <div key={p.id} onClick={()=>{setAP(i);setActiveTab("board");}} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",borderRadius:8,cursor:"pointer",fontSize:12,background:i===activeProject&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"?"#f3f4f6":"transparent",color:i===activeProject&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"?"#111827":"#4b5563",fontWeight:i===activeProject&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"?500:400}}>
               <span style={{fontSize:14,flexShrink:0}}>{p.emoji||"📋"}</span>
               <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
               <div style={{width:7,height:7,borderRadius:"50%",background:p.color,flexShrink:0}}/>
@@ -2083,7 +2250,7 @@ export default function TaskFlow(){
 
       {/* MAIN */}
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        {activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&(
+        {activeTab!=="dashboard"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&(
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px",height:52,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
@@ -2096,13 +2263,14 @@ export default function TaskFlow(){
             </button>
           </div>
         )}
-        {activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&(
+        {activeTab!=="dashboard"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&(
           <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",background:"#fff",padding:"0 20px",flexShrink:0,overflowX:"auto"}}>
             {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #7F77DD":"2px solid transparent",color:activeTab===tab.key?"#7F77DD":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
           </div>
         )}
         {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember}/>}
         <div style={{flex:1,overflow:"auto"}}>
+          {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");}}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
