@@ -1060,3 +1060,85 @@ export function executeScopedCommand(cmd, { scope, data, activeProjectId, active
   return null;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// LLM (Anthropic) — conversación real con el agente usando su promptBase
+// ═══════════════════════════════════════════════════════════════════════════
+
+const LLM_KEY_STORAGE = "tf_anthropic_key";
+const LLM_MODEL = "claude-sonnet-4-5-20250929";
+
+export function getLLMKey(){
+  try { return localStorage.getItem(LLM_KEY_STORAGE) || ""; } catch { return ""; }
+}
+export function setLLMKey(key){
+  try {
+    if(key) localStorage.setItem(LLM_KEY_STORAGE, key);
+    else localStorage.removeItem(LLM_KEY_STORAGE);
+  } catch {}
+}
+export function hasLLMKey(){ return !!getLLMKey(); }
+
+function buildTaskContext(task, members){
+  const q = getQ(task);
+  const d = daysUntil(task.dueDate);
+  const logged = ((task.timeLogs||[]).reduce((s,l)=>s+l.seconds,0)/3600);
+  const est = task.estimatedHours||0;
+  const subs = task.subtasks||[];
+  const assignees = (task.assignees||[]).map(id=>(members||[]).find(m=>m.id===id)?.name||"?").join(", ")||"—";
+  return [
+    `Título: ${task.title}`,
+    task.desc ? `Descripción: ${task.desc}` : null,
+    `Prioridad Eisenhower: ${q}`,
+    task.dueDate ? `Fecha límite: ${task.dueDate} (${d<0?`vencida hace ${-d} días`:d===0?"hoy":`en ${d} días`})` : "Sin fecha límite",
+    est>0 ? `Tiempo: ${logged.toFixed(1)}h registradas de ${est}h estimadas` : `Tiempo registrado: ${logged.toFixed(1)}h (sin estimación)`,
+    subs.length ? `Subtareas: ${subs.filter(s=>s.done).length}/${subs.length} hechas` : "Sin subtareas",
+    `Responsables: ${assignees}`,
+  ].filter(Boolean).join("\n");
+}
+
+export async function llmAgentReply(userText, task, agent, members, history){
+  const key = getLLMKey();
+  if(!key) throw new Error("NO_API_KEY");
+
+  const systemPrompt = [
+    agent.promptBase || `Eres ${agent.name}, ${agent.role||"asesor profesional"}.`,
+    "",
+    "ESTILO DE RESPUESTA:",
+    "- Responde en español, tono profesional pero cercano.",
+    "- Máximo 4-5 frases. Sé concreto y útil.",
+    "- Si la pregunta es ambigua, pide la aclaración mínima imprescindible.",
+    "- Cita normativa/artículos cuando aplique.",
+    "",
+    "CONTEXTO DE LA TAREA ACTUAL:",
+    buildTaskContext(task, members),
+  ].join("\n");
+
+  const messages = [];
+  (history||[]).slice(-8).forEach(m=>{
+    messages.push({ role: m.role==="user"?"user":"assistant", content: m.text });
+  });
+  messages.push({ role:"user", content: userText });
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST",
+    headers:{
+      "content-type":"application/json",
+      "x-api-key": key,
+      "anthropic-version":"2023-06-01",
+      "anthropic-dangerous-direct-browser-access":"true",
+    },
+    body: JSON.stringify({
+      model: LLM_MODEL,
+      max_tokens: 600,
+      system: systemPrompt,
+      messages,
+    }),
+  });
+  if(!res.ok){
+    const errText = await res.text().catch(()=>"");
+    throw new Error(`HTTP ${res.status}: ${errText.slice(0,200)}`);
+  }
+  const data = await res.json();
+  const text = (data.content||[]).filter(c=>c.type==="text").map(c=>c.text).join("\n").trim();
+  return text || "(respuesta vacía del modelo)";
+}

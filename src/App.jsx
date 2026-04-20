@@ -11,7 +11,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery } from "./lib/agent.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, getLLMKey, setLLMKey, hasLLMKey } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen } from "./lib/voice.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
@@ -1062,7 +1062,10 @@ function AvatarModal({task,members,connectedAgents,onClose,onSetCategory,onMutat
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[avatarKey]);
 
-  const handleUser = useCallback((text)=>{
+  const messagesRef = useRef([]);
+  useEffect(()=>{ messagesRef.current = messages; },[messages]);
+
+  const handleUser = useCallback(async (text)=>{
     setMessages(m=>[...m,{role:"user",text,ts:Date.now()}]);
     // 1) ¿Es un comando ejecutable?
     const cmd = parseCommand(text);
@@ -1074,7 +1077,17 @@ function AvatarModal({task,members,connectedAgents,onClose,onSetCategory,onMutat
         return;
       }
     }
-    // 2) Si no, respuesta informativa
+    // 2) Si hay agente custom + API key → LLM real
+    if(activeAgent && hasLLMKey()){
+      try {
+        const reply = await llmAgentReply(text, task, activeAgent, members, messagesRef.current);
+        say(reply,"avatar");
+        return;
+      } catch(e){
+        say(`(Error conectando con la IA: ${e.message}. Uso respuesta local.)`,"avatar");
+      }
+    }
+    // 3) Fallback rule-based
     const reply = activeAgent ? respondAgentQuery(text,task,activeAgent,members) : respondToQuery(text,task,avatarKey,members);
     setTimeout(()=>say(reply,"avatar"),200);
   },[task,avatarKey,activeAgent,members,say,onMutateTask]);
@@ -1106,6 +1119,9 @@ function AvatarModal({task,members,connectedAgents,onClose,onSetCategory,onMutat
   }
 
   const handleClose = ()=>{ stopSpeaking(); stopListen(); onClose(); };
+  const [keyOpen,setKeyOpen] = useState(false);
+  const [keyInput,setKeyInput] = useState(getLLMKey());
+  const llmOn = hasLLMKey();
 
   return (
     <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
@@ -1113,11 +1129,23 @@ function AvatarModal({task,members,connectedAgents,onClose,onSetCategory,onMutat
         <div style={{padding:"14px 18px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:12}}>
           <div style={{width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${av.color},${av.color}88)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,boxShadow:speaking?`0 0 0 4px ${av.color}33`:"none",transition:"box-shadow .2s"}}>{av.icon}</div>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:14,fontWeight:700,color:av.color}}>Asesor de {av.label}</div>
+            <div style={{fontSize:14,fontWeight:700,color:av.color,display:"flex",alignItems:"center",gap:6}}>Asesor de {av.label} {activeAgent && <span title={llmOn?"IA real activa":"IA sin conectar"} style={{fontSize:9,padding:"2px 6px",borderRadius:8,background:llmOn?"#1D9E7522":"#f3f4f6",color:llmOn?"#1D9E75":"#9ca3af",fontWeight:700}}>{llmOn?"IA":"LOCAL"}</span>}</div>
             <div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.title}</div>
           </div>
+          {activeAgent && <button onClick={()=>setKeyOpen(v=>!v)} title="Configurar API key" style={{background:"none",border:"none",fontSize:16,cursor:"pointer",color:"#9ca3af"}}>⚙️</button>}
           <button onClick={handleClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#9ca3af",lineHeight:1}}>×</button>
         </div>
+        {keyOpen && (
+          <div style={{padding:"12px 18px",background:"#fffbeb",borderBottom:"1px solid #fde68a",fontSize:12}}>
+            <div style={{fontWeight:600,marginBottom:6}}>🔑 API key de Anthropic</div>
+            <div style={{color:"#6b7280",marginBottom:8,fontSize:11}}>Se guarda solo en tu navegador (localStorage). Consíguela en console.anthropic.com.</div>
+            <div style={{display:"flex",gap:6}}>
+              <input type="password" value={keyInput} onChange={e=>setKeyInput(e.target.value)} placeholder="sk-ant-..." style={{flex:1,padding:"6px 10px",border:"1px solid #e5e7eb",borderRadius:6,fontSize:12}}/>
+              <button onClick={()=>{ setLLMKey(keyInput.trim()); setKeyOpen(false); }} style={{padding:"6px 12px",background:"#7F77DD",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>Guardar</button>
+              {llmOn && <button onClick={()=>{ setLLMKey(""); setKeyInput(""); setKeyOpen(false); }} style={{padding:"6px 12px",background:"#fff",color:"#E24B4A",border:"1px solid #E24B4A",borderRadius:6,cursor:"pointer",fontSize:12}}>Borrar</button>}
+            </div>
+          </div>
+        )}
 
         <div style={{padding:"10px 18px",borderBottom:"0.5px solid #e5e7eb",display:"flex",gap:6,flexWrap:"wrap",background:"#fafafa"}}>
           {customAgents.map(ag=>{ const k=`agent_${ag.id}`; const a=agentToAvatar(ag); const sel=avatarKey===k; return(
