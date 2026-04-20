@@ -521,3 +521,306 @@ export function executeCommand(cmd, task, members){
   return null;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// NIVEL GLOBAL Y TABLERO — briefings y comandos cross-task
+// ═══════════════════════════════════════════════════════════════════════════
+
+function flatTasks(boards, projects){
+  return Object.entries(boards).flatMap(([pid,cols])=>{
+    const proj = projects.find(p=>p.id===Number(pid));
+    return cols.flatMap(col => col.tasks.map(t => ({
+      ...t, colId: col.id, colName: col.name,
+      projectId: Number(pid), projectName: proj?.name || "",
+    })));
+  });
+}
+
+// Briefing diario — resumen global para un miembro concreto (o todos si memberId=null)
+export function buildDailyBriefing(data, memberId){
+  const { boards, members, projects } = data;
+  const all = flatTasks(boards, projects);
+  const mine = memberId!=null ? all.filter(t => (t.assignees||[]).includes(memberId)) : all;
+  const active = mine.filter(t => t.colName !== "Hecho");
+  const overdue = active.filter(t => t.dueDate && daysUntil(t.dueDate) < 0);
+  const today = active.filter(t => t.dueDate && daysUntil(t.dueDate) === 0);
+  const q1 = active.filter(t => getQ(t) === "Q1");
+  const member = memberId!=null ? members.find(m=>m.id===memberId) : null;
+
+  const parts = [];
+  parts.push(member ? `Buenos días, ${member.name.split(" ")[0]}.` : "Resumen general del equipo.");
+  parts.push(`Tienes ${active.length} ${active.length===1?"tarea activa":"tareas activas"} en ${projects.length} ${projects.length===1?"proyecto":"proyectos"}.`);
+
+  if(overdue.length>0){
+    parts.push(`${overdue.length} ${overdue.length===1?"está vencida":"están vencidas"}: ${overdue.slice(0,3).map(t=>t.title).join("; ")}${overdue.length>3?"…":""}.`);
+  }
+  if(today.length>0){
+    parts.push(`Hoy vencen ${today.length}: ${today.slice(0,3).map(t=>t.title).join("; ")}${today.length>3?"…":""}.`);
+  }
+  if(q1.length>0){
+    parts.push(`En el cuadrante urgente e importante tienes ${q1.length}.`);
+  } else if(overdue.length===0 && today.length===0){
+    parts.push("No hay incendios activos. Buen momento para atacar las tareas importantes pero no urgentes antes de que se conviertan en Q1.");
+  }
+
+  parts.push("Dame una orden o hazme una pregunta: por ejemplo 'crea una tarea urgente en marketing para preparar el newsletter', 'qué tengo para hoy' o 'qué lleva Antonio'.");
+  return parts.join(" ");
+}
+
+// Briefing de tablero/proyecto
+export function buildBoardBriefing(project, board, members){
+  const all = board.flatMap(col => col.tasks.map(t => ({...t, colName: col.name})));
+  const active = all.filter(t => t.colName !== "Hecho");
+  const done = all.filter(t => t.colName === "Hecho");
+  const overdue = active.filter(t => t.dueDate && daysUntil(t.dueDate) < 0);
+  const q1 = active.filter(t => getQ(t) === "Q1");
+  const colLoad = board.map(c => `${c.name}: ${c.tasks.filter(t=>c.name!=="Hecho").length}`).filter(x=>!x.includes(": 0")).join(", ");
+
+  const parts = [];
+  parts.push(`Proyecto ${project.name}.`);
+  parts.push(`${active.length} tareas activas, ${done.length} completadas.`);
+  if(colLoad) parts.push(`Carga por columna: ${colLoad}.`);
+  if(overdue.length>0) parts.push(`${overdue.length} vencidas — priorízalas.`);
+  if(q1.length>0) parts.push(`${q1.length} en Q1 urgente-importante.`);
+  if(overdue.length===0 && q1.length===0) parts.push("El tablero no tiene rojos. Buen momento para Q2.");
+
+  parts.push("Puedes pedirme: 'crea una tarea en Por hacer llamada X', 'qué columna está más cargada', o 'cuántas tengo vencidas'.");
+  return parts.join(" ");
+}
+
+// Busca proyecto por referencia textual
+function findProject(projects, text){
+  const t = text.toLowerCase();
+  for(const p of projects){
+    if(t.includes(p.name.toLowerCase())) return p;
+  }
+  // palabras significativas
+  for(const p of projects){
+    const words = p.name.toLowerCase().split(/\s+/).filter(w=>w.length>3);
+    if(words.some(w => t.includes(w))) return p;
+  }
+  return null;
+}
+
+function findColumn(board, text){
+  const t = text.toLowerCase();
+  for(const c of board){
+    if(t.includes(c.name.toLowerCase())) return c;
+  }
+  if(/\b(hecho|completad|terminad)/.test(t)) return board.find(c=>/hecho/i.test(c.name));
+  if(/\b(progreso|curso|haciendo)/.test(t)) return board.find(c=>/progreso|curso/i.test(c.name));
+  if(/\b(por hacer|pendiente|backlog|todo)/.test(t)) return board.find(c=>/por hacer|pendiente|backlog|todo/i.test(c.name));
+  return null;
+}
+
+// Parser para comandos de ámbito global/tablero.
+// scope: "global" | "board". En "board" pasas activeProject; en "global" pasa projects.
+export function parseScopedCommand(text, { scope, projects, board }){
+  if(!text) return null;
+  const t = text.toLowerCase().trim().replace(/\s+/g," ");
+
+  // CREAR TAREA
+  if(/\b(crea|crear|a[ñn]ade|a[ñn]adir|agrega|nueva)\b.*\btareas?\b/.test(t) && !/\bsub\s?tarea/.test(t)){
+    const title = extractAfter(text, ["tarea","tareas","llamada","llamado","sobre","para","titulada","titulado"]);
+    if(title){
+      const priority = parsePriority(t);
+      const date = parseDate(t);
+      let projectId = null, colId = null;
+      if(scope === "global" && projects){
+        const p = findProject(projects, text);
+        if(p) projectId = p.id;
+      }
+      if(scope === "board" && board){
+        const c = findColumn(board, text);
+        if(c) colId = c.id;
+      }
+      // Limpia la porción de proyecto/columna/prioridad del título
+      let cleanTitle = title;
+      if(projects){ for(const p of projects){ cleanTitle = cleanTitle.replace(new RegExp(`\\b(en |del |proyecto )?${p.name}\\b`,"ig"),"").trim(); } }
+      if(board){ for(const c of board){ cleanTitle = cleanTitle.replace(new RegExp(`\\b(en |columna )?${c.name}\\b`,"ig"),"").trim(); } }
+      cleanTitle = cleanTitle.replace(/\b(urgente|alta|media|baja|cr[ií]tica|importante)\b/ig,"").trim();
+      cleanTitle = cleanTitle.replace(/\b(para hoy|para ma[ñn]ana|hoy|ma[ñn]ana)\b/ig,"").trim();
+      cleanTitle = cleanTitle.replace(/\s+/g," ").replace(/^[,\s-]+|[,\s-]+$/g,"");
+      if(!cleanTitle) cleanTitle = title;
+      return { type:"createTask", title: cleanTitle, priority, date, projectId, colId };
+    }
+  }
+
+  // LISTAR MIS TAREAS / tareas de X
+  if(/\b(qu[eé] tengo|mis tareas|tareas m[ií]as|muestr[ae]me|lista)\b/.test(t) || /\b(qu[eé] lleva|tareas de|tareas que tiene)\b/.test(t)){
+    return { type:"listTasks", ref: text };
+  }
+
+  // VENCIDAS / HOY
+  if(/\b(vencidas?|atrasadas?)\b/.test(t)){
+    return { type:"listOverdue" };
+  }
+  if(/\b(para hoy|de hoy|vencen hoy|hoy)\b/.test(t) && /\b(qu[eé]|tengo|tareas|muestr)/.test(t)){
+    return { type:"listToday" };
+  }
+
+  // CUÁNTAS / RESUMEN
+  if(/\b(cu[aá]ntas|resumen|cu[aá]nto hay|estado general|briefing)\b/.test(t)){
+    return { type:"summary" };
+  }
+
+  // COLUMNA MÁS CARGADA (board)
+  if(scope === "board" && /\b(columna|m[aá]s cargad|saturad)/.test(t)){
+    return { type:"boardLoad" };
+  }
+
+  // CAMBIAR DE PROYECTO
+  if(scope === "global" && /\b(abre|muestra|ve a|ir a|cambia a|ens[eé]ñame)\b.*\b(proyecto|tablero)\b/.test(t)){
+    return { type:"openProject", ref: text };
+  }
+
+  // ABRIR TAREA (por título / keyword / "una activa" / "la primera")
+  if(/\b(abre|abrir|muestra|mu[eé]strame|ens[eé]ñame|ver|ve a|ir a|entra en)\b.*\btareas?\b/.test(t) ||
+     /\b(abre|abrir|muestra|mu[eé]strame|entra en|ver)\b\s+(la|una|esa|esta|aquella)\b/.test(t)){
+    return { type:"openTask", ref: text };
+  }
+
+  return null;
+}
+
+export function respondScopedQuery(text, { scope, data, memberId, project, board, members }){
+  const cmdLess = text.toLowerCase();
+  if(/\b(detente|para|silencio|gracias|vale)\b/.test(cmdLess)) return "Hecho. Llámame cuando me necesites.";
+  if(/\b(resumen|repite|briefing)\b/.test(cmdLess)){
+    if(scope==="global") return buildDailyBriefing(data, memberId);
+    if(scope==="board") return buildBoardBriefing(project, board, members);
+  }
+  return "No te he entendido. Prueba: 'crea una tarea…', 'qué tengo hoy', 'cuántas vencidas', 'resumen'.";
+}
+
+// Ejecuta comando de ámbito global/tablero. Devuelve { data, msg } o { msg, hint }.
+export function executeScopedCommand(cmd, { scope, data, activeProjectId, activeMemberId }){
+  if(!cmd) return null;
+  const { boards, projects, members } = data;
+
+  if(cmd.type === "createTask"){
+    // Determinar proyecto destino
+    let projectId = cmd.projectId;
+    if(projectId == null) projectId = scope==="board" ? activeProjectId : (projects[0]?.id);
+    if(projectId == null) return { msg: "No sé en qué proyecto crear la tarea. Dime el nombre del proyecto." };
+    const proj = projects.find(p=>p.id===projectId);
+    const cols = boards[projectId] || [];
+    if(cols.length === 0) return { msg: "El proyecto no tiene columnas." };
+    // Columna destino: la primera que no sea Hecho, o la que haya indicado
+    let col = cmd.colId ? cols.find(c=>c.id===cmd.colId) : null;
+    if(!col) col = cols.find(c => c.name !== "Hecho") || cols[0];
+
+    const newTask = {
+      id: "t_" + Date.now().toString(36) + Math.random().toString(36).slice(2,4),
+      title: cmd.title,
+      tags: [], assignees: activeMemberId!=null ? [activeMemberId] : [],
+      priority: cmd.priority || "media",
+      startDate: fmt(new Date()),
+      dueDate: cmd.date || "",
+      estimatedHours: 0, timeLogs: [], desc: "", comments: [], subtasks: [],
+    };
+    const newBoards = {
+      ...boards,
+      [projectId]: cols.map(c => c.id===col.id ? {...c, tasks:[...c.tasks, newTask]} : c),
+    };
+    return {
+      data: { ...data, boards: newBoards },
+      msg: `Tarea creada: ${cmd.title}, en ${proj.name}, columna ${col.name}${cmd.priority?`, prioridad ${cmd.priority}`:""}${cmd.date?`, vence ${cmd.date}`:""}.`,
+    };
+  }
+
+  if(cmd.type === "listTasks"){
+    const all = flatTasks(boards, projects);
+    const member = findMemberByName(members, cmd.ref);
+    const targetId = member ? member.id : activeMemberId;
+    const mine = all.filter(t => (t.assignees||[]).includes(targetId) && t.colName !== "Hecho");
+    if(mine.length===0) return { msg: `${member?member.name:"No"} tiene tareas activas.` };
+    const top = mine.slice(0,5).map(t=>t.title).join("; ");
+    return { msg: `${member?member.name:"Tú"} ${mine.length===1?"tiene":"tiene"} ${mine.length} tareas activas. Las primeras: ${top}.` };
+  }
+
+  if(cmd.type === "listOverdue"){
+    const all = flatTasks(boards, projects);
+    const tasks = all.filter(t => t.colName!=="Hecho" && t.dueDate && daysUntil(t.dueDate)<0);
+    if(tasks.length===0) return { msg: "No hay tareas vencidas. Bien." };
+    return { msg: `${tasks.length} vencidas: ${tasks.slice(0,4).map(t=>`${t.title} en ${t.projectName}`).join("; ")}.` };
+  }
+
+  if(cmd.type === "listToday"){
+    const all = flatTasks(boards, projects);
+    const tasks = all.filter(t => t.colName!=="Hecho" && t.dueDate && daysUntil(t.dueDate)===0);
+    if(tasks.length===0) return { msg: "No vence nada hoy." };
+    return { msg: `Hoy vencen ${tasks.length}: ${tasks.slice(0,4).map(t=>t.title).join("; ")}.` };
+  }
+
+  if(cmd.type === "summary"){
+    if(scope==="board"){
+      const project = projects.find(p=>p.id===activeProjectId);
+      return { msg: buildBoardBriefing(project, boards[activeProjectId], members) };
+    }
+    return { msg: buildDailyBriefing(data, activeMemberId) };
+  }
+
+  if(cmd.type === "boardLoad"){
+    const cols = boards[activeProjectId] || [];
+    const active = cols.filter(c => c.name !== "Hecho");
+    if(active.length===0) return { msg: "No hay columnas activas." };
+    const sorted = [...active].sort((a,b)=>b.tasks.length-a.tasks.length);
+    return { msg: `Más cargada: ${sorted[0].name} con ${sorted[0].tasks.length} tareas. ${sorted.slice(1,3).map(c=>`${c.name}: ${c.tasks.length}`).join(", ")}.` };
+  }
+
+  if(cmd.type === "openProject"){
+    const p = findProject(projects, cmd.ref);
+    if(!p) return { msg: "No he identificado el proyecto." };
+    return { msg: `Abriendo ${p.name}.`, hint:{ type:"openProject", projectId: p.id } };
+  }
+
+  if(cmd.type === "openTask"){
+    const all = flatTasks(boards, projects);
+    const refLower = (cmd.ref||"").toLowerCase();
+    // Candidatos activos (no Hecho)
+    let candidates = all.filter(t => t.colName !== "Hecho");
+    // Filtro por asignado: si menciona un nombre concreto
+    const refMember = findMemberByName(members, cmd.ref);
+    if(refMember) candidates = candidates.filter(t => (t.assignees||[]).includes(refMember.id));
+    else if(activeMemberId!=null && /\b(mi|mis|m[ií]a|m[ií]as|tengo|para m[ií])\b/.test(refLower)){
+      candidates = candidates.filter(t => (t.assignees||[]).includes(activeMemberId));
+    }
+    // Filtro por proyecto si se menciona
+    const refProj = findProject(projects, cmd.ref);
+    if(refProj) candidates = candidates.filter(t => t.projectId === refProj.id);
+    // Filtro por urgencia
+    if(/\b(urgente|cr[ií]tica|q1|ahora)\b/.test(refLower)) candidates = candidates.filter(t => getQ(t)==="Q1");
+    if(/\b(hoy)\b/.test(refLower)) candidates = candidates.filter(t => t.dueDate && daysUntil(t.dueDate)===0);
+    if(/\b(vencidas?|atrasadas?)\b/.test(refLower)) candidates = candidates.filter(t => t.dueDate && daysUntil(t.dueDate)<0);
+
+    // Match por palabras del título: quita stop-words y busca overlap
+    const stop = new Set(["la","el","una","un","de","del","sobre","para","tarea","tareas","activa","activas","abre","abrir","muestra","muéstrame","muestrame","enseñame","ensename","ver","ir","a","que","y","en","por","mi","mis"]);
+    const refWords = refLower.split(/[^a-záéíóúñü0-9]+/i).filter(w=>w.length>3 && !stop.has(w));
+    if(refWords.length > 0){
+      const scored = candidates.map(t => {
+        const title = t.title.toLowerCase();
+        const score = refWords.reduce((s,w)=> s + (title.includes(w)?1:0), 0);
+        return { t, score };
+      }).filter(x => x.score > 0).sort((a,b)=>b.score-a.score);
+      if(scored.length > 0) candidates = scored.map(x => x.t);
+    }
+
+    if(candidates.length === 0) return { msg: "No encuentro ninguna tarea activa que encaje. Dime el título o la persona asignada." };
+
+    // Ordena por urgencia: Q1 primero, luego por fecha
+    const qOrder = { Q1:0, Q2:1, Q3:2, Q4:3 };
+    candidates.sort((a,b)=>{
+      const qa = qOrder[getQ(a)], qb = qOrder[getQ(b)];
+      if(qa!==qb) return qa-qb;
+      return daysUntil(a.dueDate) - daysUntil(b.dueDate);
+    });
+    const pick = candidates[0];
+    return {
+      msg: `Abro la tarea: ${pick.title}, en el proyecto ${pick.projectName}.`,
+      hint: { type:"openTask", projectId: pick.projectId, taskId: pick.id },
+    };
+  }
+
+  return null;
+}
+

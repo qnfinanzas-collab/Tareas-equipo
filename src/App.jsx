@@ -11,7 +11,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand } from "./lib/agent.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen } from "./lib/voice.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
@@ -1085,6 +1085,118 @@ function AvatarModal({task,members,onClose,onSetCategory,onMutateTask}){
   );
 }
 
+// ── Scope Avatar Modal (global / board) ──────────────────────────────────────
+function ScopeAvatarModal({scope,data,activeProjectId,activeMemberId,onClose,onMutateData,onOpenProject,onOpenTask}){
+  const support = voiceSupported();
+  const av = AVATARS.gestion;
+  const [messages,setMessages] = useState([]);
+  const [listening,setListening] = useState(false);
+  const [speaking,setSpeaking] = useState(false);
+  const [interim,setInterim] = useState("");
+  const stopFnRef = useRef(null);
+
+  const say = useCallback((text, role="avatar")=>{
+    setMessages(m=>[...m,{role,text,ts:Date.now()}]);
+    if(role==="avatar" && support.tts){
+      setSpeaking(true);
+      speak(text,{ ...av.voice, onEnd: ()=>setSpeaking(false) });
+    }
+  },[av,support.tts]);
+
+  useEffect(()=>{
+    const text = scope==="board"
+      ? buildBoardBriefing(data.projects.find(p=>p.id===activeProjectId), data.boards[activeProjectId], data.members)
+      : buildDailyBriefing(data, activeMemberId);
+    setMessages([]); say(text,"avatar");
+    return ()=>{ stopSpeaking(); if(stopFnRef.current) stopFnRef.current(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[scope]);
+
+  const handleUser = useCallback((text)=>{
+    setMessages(m=>[...m,{role:"user",text,ts:Date.now()}]);
+    const board = scope==="board" ? data.boards[activeProjectId] : null;
+    const cmd = parseScopedCommand(text, { scope, projects: data.projects, board });
+    if(cmd){
+      const result = executeScopedCommand(cmd, { scope, data, activeProjectId, activeMemberId });
+      if(result){
+        if(result.data) onMutateData?.(result.data);
+        if(result.hint?.type === "openProject") onOpenProject?.(result.hint.projectId);
+        if(result.hint?.type === "openTask") { onOpenTask?.(result.hint.projectId, result.hint.taskId); setTimeout(()=>onClose?.(),400); }
+        setTimeout(()=>say(result.msg,"avatar"),200);
+        return;
+      }
+    }
+    const reply = respondScopedQuery(text, { scope, data, memberId: activeMemberId, project: data.projects.find(p=>p.id===activeProjectId), board, members: data.members });
+    setTimeout(()=>say(reply,"avatar"),200);
+  },[scope,data,activeProjectId,activeMemberId,say,onMutateData,onOpenProject,onOpenTask,onClose]);
+
+  const startListen = ()=>{
+    stopSpeaking(); setSpeaking(false); setInterim("");
+    const stop = listen({
+      onStart: ()=>setListening(true),
+      onInterim: t=>setInterim(t),
+      onFinal: t=>{ setInterim(""); handleUser(t); },
+      onError: e=>{ setListening(false); setInterim(""); say("No he podido escuchar: "+(e.message||"error"),"avatar"); },
+      onEnd: ()=>{ setListening(false); stopFnRef.current=null; },
+    });
+    stopFnRef.current = stop;
+  };
+  const stopListen = ()=>{ if(stopFnRef.current) stopFnRef.current(); setListening(false); setInterim(""); };
+  const handleClose = ()=>{ stopSpeaking(); stopListen(); onClose(); };
+
+  const sendText = (txt)=>{ if(txt.trim()) handleUser(txt.trim()); };
+  const [typed,setTyped] = useState("");
+
+  const title = scope==="board"
+    ? `Asesor del tablero · ${data.projects.find(p=>p.id===activeProjectId)?.name||""}`
+    : "Asesor global · Briefing del día";
+
+  return (
+    <div onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#fff",borderRadius:16,width:600,maxWidth:"96vw",maxHeight:"90vh",display:"flex",flexDirection:"column",borderTop:`4px solid ${av.color}`,overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:44,height:44,borderRadius:"50%",background:`linear-gradient(135deg,${av.color},${av.color}88)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,boxShadow:speaking?`0 0 0 4px ${av.color}33`:"none",transition:"box-shadow .2s"}}>{scope==="board"?"📋":"🌍"}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:700,color:av.color}}>{title}</div>
+            <div style={{fontSize:11,color:"#6b7280"}}>Dame órdenes por voz o texto</div>
+          </div>
+          <button onClick={handleClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#9ca3af",lineHeight:1}}>×</button>
+        </div>
+
+        <div style={{flex:1,overflowY:"auto",padding:"14px 18px",display:"flex",flexDirection:"column",gap:10,minHeight:220}}>
+          {messages.map((m,i)=>(
+            <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
+              <div style={{maxWidth:"85%",padding:"9px 13px",borderRadius:12,background:m.role==="user"?"#EEEDFE":av.color+"12",border:`1px solid ${m.role==="user"?"#7F77DD55":av.color+"33"}`,fontSize:13,lineHeight:1.45,color:"#1f2937",whiteSpace:"pre-wrap"}}>{m.text}</div>
+            </div>
+          ))}
+          {interim&&(
+            <div style={{display:"flex",justifyContent:"flex-end"}}>
+              <div style={{maxWidth:"85%",padding:"8px 12px",borderRadius:12,background:"#f3f4f6",fontSize:13,color:"#9ca3af",fontStyle:"italic"}}>{interim}…</div>
+            </div>
+          )}
+        </div>
+
+        <div style={{padding:"10px 18px",borderTop:"0.5px solid #e5e7eb",display:"flex",gap:8,background:"#fafafa"}}>
+          <input value={typed} onChange={e=>setTyped(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){sendText(typed);setTyped("");}}} placeholder="Escribe una orden… (o pulsa el micro)" style={{flex:1,padding:"9px 12px",borderRadius:10,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+          <button onClick={()=>{sendText(typed);setTyped("");}} style={{padding:"9px 14px",borderRadius:10,background:av.color,color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Enviar</button>
+        </div>
+
+        <div style={{padding:"12px 18px",borderTop:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"center",gap:14,background:"#fafafa"}}>
+          {speaking&&<button onClick={()=>{stopSpeaking();setSpeaking(false);}} style={{padding:"8px 14px",borderRadius:20,background:"#fff",border:"1px solid #d1d5db",fontSize:12,cursor:"pointer",color:"#6b7280"}}>⏸ Silenciar</button>}
+          <button
+            onClick={listening?stopListen:startListen}
+            disabled={!support.stt}
+            style={{width:64,height:64,borderRadius:"50%",background:listening?"#E24B4A":`linear-gradient(135deg,${av.color},${av.color}cc)`,color:"#fff",border:"none",fontSize:24,cursor:support.stt?"pointer":"not-allowed",boxShadow:listening?"0 0 0 6px #E24B4A22":`0 4px 14px ${av.color}44`,animation:listening?"pulse 1.2s infinite":"none"}}
+            title={listening?"Para de escuchar":"Habla al asesor"}
+          >{listening?"⏺":"🎤"}</button>
+          <div style={{fontSize:11,color:"#9ca3af",minWidth:90}}>{listening?"Escuchando…":speaking?"Hablando…":support.stt?"Pulsa para hablar":"Mic no disponible"}</div>
+        </div>
+      </div>
+      <style>{`@keyframes pulse{0%,100%{box-shadow:0 0 0 6px #E24B4A22}50%{box-shadow:0 0 0 12px #E24B4A11}}`}</style>
+    </div>
+  );
+}
+
 // ── Task Card ─────────────────────────────────────────────────────────────────
 function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
   const p2=palOf(task.assignees);
@@ -1117,8 +1229,14 @@ function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
 }
 
 // ── Board View ────────────────────────────────────────────────────────────────
-function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,onUpdate,onMove,onAddTask}){
+function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask}){
   const [openTaskId,setOpenTaskId]=useState(null);
+  useEffect(()=>{
+    if(externalOpenTaskId){
+      setOpenTaskId(externalOpenTaskId);
+      onExternalTaskConsumed?.();
+    }
+  },[externalOpenTaskId,onExternalTaskConsumed]);
   const [dragging,setDragging]=useState(null);
   const [newCard,setNewCard]=useState(null);
   const [newCardTitle,setNewCardTitle]=useState("");
@@ -1150,7 +1268,7 @@ function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,wor
 
 // ── Eisenhower View ───────────────────────────────────────────────────────────
 // ── Dashboard View ────────────────────────────────────────────────────────────
-function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask}){
+function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask,onOpenBriefing}){
   const {boards,members,projects,aiSchedule}=data;
   const today=fmt(TODAY);
   const weekAgo=new Date(TODAY); weekAgo.setDate(weekAgo.getDate()-7);
@@ -1206,9 +1324,12 @@ function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask}){
 
   return(
     <div style={{padding:20}}>
-      <div style={{marginBottom:16}}>
+      <div style={{marginBottom:16,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}>
+        <div>
         <div style={{fontSize:18,fontWeight:700,marginBottom:3}}>Dashboard</div>
         <div style={{fontSize:12,color:"#6b7280"}}>Vista global del equipo · {today}</div>
+        </div>
+        <button onClick={onOpenBriefing} style={{padding:"10px 16px",borderRadius:10,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",boxShadow:"0 4px 14px rgba(127,119,221,0.3)"}}>🎙️ Briefing del día</button>
       </div>
 
       {/* KPIs */}
@@ -2175,6 +2296,8 @@ export default function TaskFlow(){
   const [memberModal,setMemberModal]= useState(null); // null | "create" | member object
   const [workspaceModal,setWorkspaceModal]= useState(null); // null | "create" | workspace object
   const [toasts,setToasts]          = useState([]);
+  const [scopeAvatar,setScopeAvatar] = useState(null); // null | "global" | "board"
+  const [pendingOpenTaskId,setPendingOpenTaskId] = useState(null);
 
   // Persistencia automática en cada cambio de datos (local + remoto)
   useEffect(()=>{
@@ -2395,9 +2518,12 @@ export default function TaskFlow(){
               <span style={{fontSize:11,padding:"2px 9px",borderRadius:20,background:`${proj.color}22`,color:proj.color,border:`0.5px solid ${proj.color}55`,fontWeight:500}}>{proj.members.length} miembros</span>
               {activeTab==="board"&&<span style={{fontSize:12,color:"#6b7280"}}>{doneTasks}/{totalTasks} completadas</span>}
             </div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {activeTab==="board"&&<button onClick={()=>setScopeAvatar("board")} style={{padding:"6px 12px",borderRadius:8,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>🎙️ Asesor del tablero</button>}
             <button onClick={()=>setShowAlerts(true)} style={{position:"relative",padding:"6px 14px",borderRadius:8,background:critCount>0?"#fff5f5":"#f9fafb",color:critCount>0?"#A32D2D":"#374151",border:`1px solid ${critCount>0?"#E24B4A":"#d1d5db"}`,fontSize:13,cursor:"pointer",fontWeight:500,display:"flex",alignItems:"center",gap:6}}>
               Alertas {critCount>0&&<span style={{background:"#E24B4A",color:"#fff",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700}}>{critCount}</span>}
             </button>
+            </div>
           </div>
         )}
         {activeTab!=="dashboard"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&(
@@ -2407,11 +2533,11 @@ export default function TaskFlow(){
         )}
         {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember}/>}
         <div style={{flex:1,overflow:"auto"}}>
-          {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");}}/>}
+          {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");}} onOpenBriefing={()=>setScopeAvatar("global")}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
-          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
+          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
           {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile} onUpdateTask={updateTaskAnywhere}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
@@ -2429,6 +2555,20 @@ export default function TaskFlow(){
       {memberModal&&memberModal!=="create"&&<MemberEditModal member={memberModal} allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={d=>updateMember(d,memberModal.id)} onDelete={id=>{deleteMember(id);setMemberModal(null);}}/>}
       {workspaceModal==="create"&&<WorkspaceModal onClose={()=>setWorkspaceModal(null)} onSave={createWorkspace}/>}
       {workspaceModal&&workspaceModal!=="create"&&<WorkspaceModal workspace={workspaceModal} onClose={()=>setWorkspaceModal(null)} onSave={d=>editWorkspace(workspaceModal.id,d)} onDelete={deleteWorkspace}/>}
+
+      {/* Botón flotante global del asesor — siempre visible */}
+      <button onClick={()=>setScopeAvatar("global")} title="Asesor IA global — Briefing del día" style={{position:"fixed",bottom:24,right:24,zIndex:1500,width:60,height:60,borderRadius:"50%",background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 8px 24px rgba(127,119,221,0.4)",display:"flex",alignItems:"center",justifyContent:"center"}}>🎙️</button>
+
+      {scopeAvatar && <ScopeAvatarModal
+        scope={scopeAvatar}
+        data={data}
+        activeProjectId={proj.id}
+        activeMemberId={activeMember}
+        onClose={()=>setScopeAvatar(null)}
+        onMutateData={newData=>setData(newData)}
+        onOpenProject={pid=>{ const idx=data.projects.findIndex(p=>p.id===pid); if(idx>=0){setAP(idx);setActiveTab("board");} }}
+        onOpenTask={(pid,tid)=>{ const idx=data.projects.findIndex(p=>p.id===pid); if(idx>=0){setAP(idx);setActiveTab("board");setPendingOpenTaskId(tid);} }}
+      />}
     </div>
   );
 }
