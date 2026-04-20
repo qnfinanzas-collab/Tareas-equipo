@@ -351,7 +351,12 @@ function extractAfter(text, triggers){
   for(const trigger of triggers){
     const re = new RegExp(`^.*?\\b${trigger}\\b[:,\\s]+(.+)$`,"i");
     const m = t.match(re);
-    if(m) return m[1].trim().replace(/[.!?]+$/,"");
+    if(m){
+      let out = m[1].trim().replace(/[.!?]+$/,"");
+      // Strip prepositions/articles iniciales que sobran
+      out = out.replace(/^(llamad[oa]|titulad[oa]|que se llame|sobre|para|de|del|la|el|una|un)\s+/i, "");
+      return out.trim();
+    }
   }
   return null;
 }
@@ -645,8 +650,19 @@ export function parseScopedCommand(text, { scope, projects, board }){
     }
   }
 
+  // ABRIR TAREA (se comprueba ANTES que listar — para que "muéstrame la tarea X" abra, no liste)
+  if(/\b(abre|abrir|[aá]breme|abreme|muestr[ae]me|ens[eé]ñame|dame|tr[aá]eme|quiero ver|ver|ve a|ir a|entra en)\b[^.]*\b(la|una|esa|esta|aquella|otra|primera|siguiente|pr[oó]xima|[uú]ltima)?\s*tarea\b/.test(t)
+     && !/\bsub\s?tarea/.test(t)){
+    return { type:"openTask", ref: text };
+  }
+
+  // CREAR SUBTAREA desde scope global/board — guía al usuario
+  if(/\b(crea|crear|a[ñn]ade|a[ñn]adir|agrega|agregar|nueva)\b.*\bsub\s?tareas?\b/.test(t)){
+    return { type:"subtaskHint" };
+  }
+
   // LISTAR MIS TAREAS / tareas de X
-  if(/\b(qu[eé] tengo|mis tareas|tareas m[ií]as|muestr[ae]me|lista)\b/.test(t) || /\b(qu[eé] lleva|tareas de|tareas que tiene)\b/.test(t)){
+  if(/\b(qu[eé] tengo|mis tareas|tareas m[ií]as|muestr[ae]me mis|lista|listame|enuncia)\b/.test(t) || /\b(qu[eé] lleva|tareas de|tareas que tiene)\b/.test(t)){
     return { type:"listTasks", ref: text };
   }
 
@@ -671,12 +687,6 @@ export function parseScopedCommand(text, { scope, projects, board }){
   // CAMBIAR DE PROYECTO
   if(scope === "global" && /\b(abre|muestra|ve a|ir a|cambia a|ens[eé]ñame)\b.*\b(proyecto|tablero)\b/.test(t)){
     return { type:"openProject", ref: text };
-  }
-
-  // ABRIR TAREA (por título / keyword / "una activa" / "la primera")
-  if(/\b(abre|abrir|muestra|mu[eé]strame|ens[eé]ñame|ver|ve a|ir a|entra en)\b.*\btareas?\b/.test(t) ||
-     /\b(abre|abrir|muestra|mu[eé]strame|entra en|ver)\b\s+(la|una|esa|esta|aquella)\b/.test(t)){
-    return { type:"openTask", ref: text };
   }
 
   return null;
@@ -766,6 +776,10 @@ export function executeScopedCommand(cmd, { scope, data, activeProjectId, active
     if(active.length===0) return { msg: "No hay columnas activas." };
     const sorted = [...active].sort((a,b)=>b.tasks.length-a.tasks.length);
     return { msg: `Más cargada: ${sorted[0].name} con ${sorted[0].tasks.length} tareas. ${sorted.slice(1,3).map(c=>`${c.name}: ${c.tasks.length}`).join(", ")}.` };
+  }
+
+  if(cmd.type === "subtaskHint"){
+    return { msg: "Las subtareas se crean dentro de una tarea concreta. Primero dime 'abre la tarea X' y luego en el asesor de la tarea pídeme 'crea la subtarea Y'." };
   }
 
   if(cmd.type === "openProject"){
