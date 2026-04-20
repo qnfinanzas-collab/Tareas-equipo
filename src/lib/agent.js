@@ -1,6 +1,6 @@
-// Asesor IA rule-based — briefings y respuestas por categoría, sin API.
+// Asesor IA rule-based — briefings, respuestas y comandos ejecutables, sin API.
 import { getQ } from "./eisenhower.js";
-import { daysUntil } from "./date.js";
+import { daysUntil, fmt } from "./date.js";
 
 export const AVATARS = {
   gestion: {
@@ -239,3 +239,285 @@ export function respondToQuery(userText, task, avatarKey, members){
 
   return "No te he entendido del todo.";
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EJECUCIÓN DE COMANDOS
+// ═══════════════════════════════════════════════════════════════════════════
+
+const ORDINALS = {
+  "primera":1,"primero":1,"1":1,
+  "segunda":2,"segundo":2,"2":2,
+  "tercera":3,"tercero":3,"3":3,
+  "cuarta":4,"cuarto":4,"4":4,
+  "quinta":5,"quinto":5,"5":5,
+  "sexta":6,"sexto":6,"6":6,
+  "séptima":7,"septima":7,"séptimo":7,"septimo":7,"7":7,
+  "octava":8,"octavo":8,"8":8,
+};
+
+const DOW_NAMES = { domingo:0, lunes:1, martes:2, "miércoles":3, miercoles:3, jueves:4, viernes:5, "sábado":6, sabado:6 };
+
+const PRIORITY_WORDS = {
+  alta: ["alta","máxima","maxima","urgente","crítica","critica"],
+  media: ["media","normal","estándar","estandar"],
+  baja: ["baja","mínima","minima","poca"],
+};
+
+function parsePriority(text){
+  const t = text.toLowerCase();
+  for(const [p,words] of Object.entries(PRIORITY_WORDS)){
+    if(words.some(w => new RegExp(`\\b${w}\\b`).test(t))) return p;
+  }
+  return null;
+}
+
+function parseDate(text){
+  const t = text.toLowerCase().trim();
+  const today = new Date(); today.setHours(0,0,0,0);
+  const addDays = n => { const d=new Date(today); d.setDate(d.getDate()+n); return fmt(d); };
+
+  if(/\bhoy\b/.test(t)) return addDays(0);
+  if(/pasado\s+ma[ñn]ana/.test(t)) return addDays(2);
+  if(/\bma[ñn]ana\b/.test(t)) return addDays(1);
+  const inN = t.match(/en\s+(\d+)\s+d[ií]as?/);
+  if(inN) return addDays(parseInt(inN[1]));
+  const inWeeks = t.match(/en\s+(\d+)\s+semanas?/);
+  if(inWeeks) return addDays(parseInt(inWeeks[1])*7);
+  if(/en\s+una\s+semana/.test(t)) return addDays(7);
+
+  // "el lunes" / "el próximo lunes"
+  const dowMatch = t.match(/\b(domingo|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado)\b/);
+  if(dowMatch){
+    const target = DOW_NAMES[dowMatch[1]];
+    const cur = today.getDay();
+    let diff = (target - cur + 7) % 7;
+    if(diff === 0) diff = 7;
+    return addDays(diff);
+  }
+
+  // dd/mm o dd-mm
+  const dm = t.match(/\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
+  if(dm){
+    const d = parseInt(dm[1]), m = parseInt(dm[2])-1;
+    const y = dm[3] ? (dm[3].length===2?2000+parseInt(dm[3]):parseInt(dm[3])) : today.getFullYear();
+    const date = new Date(y, m, d);
+    return fmt(date);
+  }
+
+  return null;
+}
+
+function findMemberByName(members, text){
+  if(!members) return null;
+  const t = text.toLowerCase();
+  // Exact first-name match first
+  for(const m of members){
+    const first = m.name.split(" ")[0].toLowerCase();
+    if(new RegExp(`\\b${first}\\b`).test(t)) return m;
+  }
+  // Full name partial match
+  for(const m of members){
+    if(t.includes(m.name.toLowerCase())) return m;
+  }
+  // Initials
+  for(const m of members){
+    if(t.includes(m.initials.toLowerCase())) return m;
+  }
+  return null;
+}
+
+function resolveSubtask(subs, text){
+  if(!subs || subs.length === 0) return null;
+  const t = text.toLowerCase();
+  // Ordinal
+  const ordMatch = t.match(/\b(primera|primero|segunda|segundo|tercera|tercero|cuarta|cuarto|quinta|quinto|sexta|sexto|s[eé]ptima|s[eé]ptimo|octava|octavo|\d+)\b/);
+  if(ordMatch){
+    const idx = ORDINALS[ordMatch[1]];
+    if(idx && idx <= subs.length) return subs[idx-1];
+  }
+  if(/\b(última|ultima|último|ultimo)\b/.test(t)) return subs[subs.length-1];
+  // Title partial match
+  for(const s of subs){
+    const title = s.title.toLowerCase();
+    const words = title.split(/\s+/).filter(w=>w.length>3);
+    if(words.some(w => t.includes(w))) return s;
+  }
+  return null;
+}
+
+// Devuelve el texto que sigue a una de las palabras gatillo
+function extractAfter(text, triggers){
+  const t = text.trim();
+  for(const trigger of triggers){
+    const re = new RegExp(`^.*?\\b${trigger}\\b[:,\\s]+(.+)$`,"i");
+    const m = t.match(re);
+    if(m) return m[1].trim().replace(/[.!?]+$/,"");
+  }
+  return null;
+}
+
+// Parsea una frase en un comando estructurado.
+// Devuelve { type, ...args } o null si no es un comando.
+export function parseCommand(text){
+  if(!text) return null;
+  const t = text.toLowerCase().trim().replace(/\s+/g," ");
+
+  // 1. Crear subtarea
+  if(/\b(crea|crear|a[ñn]ade|a[ñn]adir|agrega|agregar|nueva)\b.*\b(sub\s?tareas?|tareas?|paso|item|elemento)\b/.test(t)){
+    const title = extractAfter(text, ["subtarea","sub tarea","subtareas","sub tareas","tarea","tareas","paso","item","elemento","llamada","llamado","sobre","para","de"]);
+    if(title) return { type:"addSubtask", title };
+    // Fallback: intenta extraer después de "subtarea"
+    const m = text.match(/sub\s?tareas?\s+(.+)/i);
+    if(m) return { type:"addSubtask", title: m[1].replace(/[.!?]+$/,"").trim() };
+  }
+
+  // 2. Marcar subtarea como hecha
+  if(/\b(marca|completa|termina|finaliza|cierra)\b.*\bsub\s?tareas?\b/.test(t) || /\bsub\s?tareas?\b.*\b(hecha|completada|terminada|lista)\b/.test(t)){
+    return { type:"markSubtaskDone", ref: text };
+  }
+
+  // 3. Eliminar subtarea
+  if(/\b(elimina|borra|quita|suprime)\b.*\bsub\s?tareas?\b/.test(t)){
+    return { type:"deleteSubtask", ref: text };
+  }
+
+  // 4. Prioridad
+  if(/\b(prioridad|priori[zs]a|prior[ií]talo|prior[ií]tala)\b/.test(t) || /\bpon.*\b(alta|media|baja|urgente)\b/.test(t) || /\bcambia.*\bprioridad\b/.test(t)){
+    const p = parsePriority(t);
+    if(p) return { type:"setPriority", priority: p };
+  }
+
+  // 5. Plazo / fecha límite
+  if(/\b(plazo|vence|fecha|deadline|l[ií]mite)\b/.test(t) || /\b(p[oó]n|cambia).*\b(hoy|ma[ñn]ana|pasado)\b/.test(t)){
+    const d = parseDate(t);
+    if(d) return { type:"setDueDate", date: d };
+  }
+
+  // 6. Estimación
+  const estMatch = t.match(/\b(estima|estimar|pon|cambia).*?(\d+(?:[.,]\d+)?)\s*(?:h|horas?)\b/);
+  if(estMatch){
+    return { type:"setEstimate", hours: parseFloat(estMatch[2].replace(",",".")) };
+  }
+
+  // 7. Asignar
+  if(/\b(as[ií]gnal[oa]|as[ií]gna|pon a|a[ñn]ade a)\b/.test(t) && !/\b(sub\s?tarea|comentario|nota)\b/.test(t)){
+    return { type:"assign", ref: text };
+  }
+  if(/\b(quita a|desasigna|desas[ií]gnal[oa]|elimina a)\b/.test(t) && !/\bsub\s?tarea\b/.test(t)){
+    return { type:"unassign", ref: text };
+  }
+
+  // 8. Mover columna
+  if(/\b(mueve|mu[eé]vela|mu[eé]velo|ll[eé]val[oa]|pasa|pon)\b.*\b(hecho|hecha|completada|completado|terminad[oa]|en progreso|en curso|por hacer|pendiente)\b/.test(t)){
+    if(/\b(hecho|hecha|completada|completado|terminad[oa])\b/.test(t)) return { type:"moveColumn", target:"Hecho" };
+    if(/\b(en progreso|en curso)\b/.test(t)) return { type:"moveColumn", target:"En progreso" };
+    if(/\b(por hacer|pendiente)\b/.test(t)) return { type:"moveColumn", target:"Por hacer" };
+  }
+
+  // 9. Añadir comentario
+  if(/\b(comenta|a[ñn]ade comentario|deja comentario|apunta|nota)\b/.test(t)){
+    const txt = extractAfter(text, ["comentario","comenta","nota","apunta","apunte"]);
+    if(txt) return { type:"addComment", text: txt };
+  }
+
+  // 10. Cambiar descripción
+  if(/\b(descripci[oó]n|describe|description)\b/.test(t)){
+    const txt = extractAfter(text, ["descripción","descripcion","describe","description"]);
+    if(txt) return { type:"setDescription", text: txt };
+  }
+
+  // 11. Cambiar título
+  if(/\b(renombra|t[ií]tulo|renombrar)\b/.test(t)){
+    const txt = extractAfter(text, ["título","titulo","renombra","renombrar","renombrala","renombralo"]);
+    if(txt) return { type:"rename", title: txt };
+  }
+
+  return null;
+}
+
+// Ejecuta el comando y devuelve { task: nuevoTask, msg: confirmación para decir al usuario }
+export function executeCommand(cmd, task, members){
+  if(!cmd) return null;
+  const subs = task.subtasks || [];
+
+  if(cmd.type === "addSubtask"){
+    const id = "st_" + Date.now().toString(36) + Math.random().toString(36).slice(2,5);
+    const sub = { id, title: cmd.title, done: false, dueDate:"", assigneeId:null };
+    return {
+      task: { ...task, subtasks: [...subs, sub] },
+      msg: `Hecho. Añadida la subtarea: ${cmd.title}.`
+    };
+  }
+
+  if(cmd.type === "markSubtaskDone"){
+    const sub = resolveSubtask(subs, cmd.ref);
+    if(!sub) return { task, msg: "No he identificado qué subtarea marcar. Dímelo por posición, por ejemplo: 'marca la primera'." };
+    return {
+      task: { ...task, subtasks: subs.map(s => s.id===sub.id ? {...s, done:true} : s) },
+      msg: `Marcada como hecha: ${sub.title}.`
+    };
+  }
+
+  if(cmd.type === "deleteSubtask"){
+    const sub = resolveSubtask(subs, cmd.ref);
+    if(!sub) return { task, msg: "No he identificado qué subtarea borrar." };
+    return {
+      task: { ...task, subtasks: subs.filter(s => s.id !== sub.id) },
+      msg: `Eliminada la subtarea: ${sub.title}.`
+    };
+  }
+
+  if(cmd.type === "setPriority"){
+    return { task: { ...task, priority: cmd.priority }, msg: `Prioridad cambiada a ${cmd.priority}.` };
+  }
+
+  if(cmd.type === "setDueDate"){
+    return { task: { ...task, dueDate: cmd.date }, msg: `Fecha límite fijada al ${cmd.date}.` };
+  }
+
+  if(cmd.type === "setEstimate"){
+    return { task: { ...task, estimatedHours: cmd.hours }, msg: `Estimación actualizada a ${cmd.hours} horas.` };
+  }
+
+  if(cmd.type === "assign"){
+    const m = findMemberByName(members, cmd.ref);
+    if(!m) return { task, msg: "No he identificado a la persona. Dime su nombre." };
+    if((task.assignees||[]).includes(m.id)) return { task, msg: `${m.name} ya estaba asignado.` };
+    return {
+      task: { ...task, assignees: [...(task.assignees||[]), m.id] },
+      msg: `Asignado ${m.name} a esta tarea.`
+    };
+  }
+
+  if(cmd.type === "unassign"){
+    const m = findMemberByName(members, cmd.ref);
+    if(!m) return { task, msg: "No he identificado a la persona a desasignar." };
+    return {
+      task: { ...task, assignees: (task.assignees||[]).filter(id => id !== m.id) },
+      msg: `Desasignado ${m.name}.`
+    };
+  }
+
+  if(cmd.type === "moveColumn"){
+    return { task, msg: `Para mover a "${cmd.target}" tendrás que hacerlo desde el selector "Mover a" — lo he dejado señalado.`, hint:{ type:"moveColumn", target: cmd.target } };
+  }
+
+  if(cmd.type === "addComment"){
+    const c = { author: null, text: cmd.text, time: "ahora mismo" };
+    return {
+      task: { ...task, comments: [...(task.comments||[]), c] },
+      msg: `Comentario añadido: ${cmd.text}.`
+    };
+  }
+
+  if(cmd.type === "setDescription"){
+    return { task: { ...task, desc: cmd.text }, msg: "Descripción actualizada." };
+  }
+
+  if(cmd.type === "rename"){
+    return { task: { ...task, title: cmd.title }, msg: `Tarea renombrada a: ${cmd.title}.` };
+  }
+
+  return null;
+}
+

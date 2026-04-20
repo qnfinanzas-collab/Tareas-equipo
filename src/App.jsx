@@ -11,7 +11,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery } from "./lib/agent.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen } from "./lib/voice.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
@@ -764,7 +764,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,onClos
             <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280",lineHeight:1}}>x</button>
           </div>
         </div>
-        {avatarOpen&&<AvatarModal task={task} members={members} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})}/>}
+        {avatarOpen&&<AvatarModal task={task} members={members} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})} onMutateTask={newTask=>onUpdate(task.id,colId,newTask)}/>}
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
           {[["detail","Detalle"],["subtasks","Subtareas"],["links","Enlaces"],["time","Tiempo"],["comments","Comentarios"]].map(([k,l])=>(
@@ -964,7 +964,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,onClos
 }
 
 // ── Asesor IA (voz del navegador) ─────────────────────────────────────────────
-function AvatarModal({task,members,onClose,onSetCategory}){
+function AvatarModal({task,members,onClose,onSetCategory,onMutateTask}){
   const support = voiceSupported();
   const initialKey = task.category || "gestion";
   const [avatarKey,setAvatarKey] = useState(initialKey);
@@ -993,9 +993,20 @@ function AvatarModal({task,members,onClose,onSetCategory}){
 
   const handleUser = useCallback((text)=>{
     setMessages(m=>[...m,{role:"user",text,ts:Date.now()}]);
+    // 1) ¿Es un comando ejecutable?
+    const cmd = parseCommand(text);
+    if(cmd){
+      const result = executeCommand(cmd,task,members);
+      if(result){
+        if(result.task !== task) onMutateTask?.(result.task);
+        setTimeout(()=>say(result.msg,"avatar"),200);
+        return;
+      }
+    }
+    // 2) Si no, respuesta informativa
     const reply = respondToQuery(text,task,avatarKey,members);
     setTimeout(()=>say(reply,"avatar"),200);
-  },[task,avatarKey,members,say]);
+  },[task,avatarKey,members,say,onMutateTask]);
 
   const startListen = ()=>{
     stopSpeaking(); setSpeaking(false);
