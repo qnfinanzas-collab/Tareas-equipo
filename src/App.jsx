@@ -8,62 +8,107 @@ import { getQ } from "./lib/eisenhower.js";
 import {
   needsMargin, calcFreeSlots, calcFreeMorning, getAvailHours, getBlockLabels, getWorkDays,
 } from "./lib/availability.js";
-import { parseICSDate, parseICS, ICS_CACHE, fetchICS } from "./lib/ics.js";
+import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
+export const PLAN_HORIZON_DAYS = 14;
+const MAX_HOURS_PER_TASK_PER_DAY = 4;
+const MIN_SCHEDULABLE_HOURS = 0.25;
+
 async function runPlanner(boards,members,existing){
-  const schedule=[]; const load={};
+  const schedule=[]; const load={}; const icsErrors=[];
   members.forEach(m=>{load[m.id]={};});
   existing.forEach(s=>{ load[s.memberId][s.date]=(load[s.memberId][s.date]||0)+s.hours; });
 
   const ics={};
-  await Promise.all(members.map(async m=>{ ics[m.id]=m.avail?.icsUrl?await fetchICS(m):[]; }));
+  await Promise.all(members.map(async m=>{
+    if(!m.avail?.icsUrl){ ics[m.id]=[]; return; }
+    try{ ics[m.id]=await fetchICS(m); }
+    catch(e){ ics[m.id]=[]; icsErrors.push({memberId:m.id,memberName:m.name,msg:e.message||"error"}); }
+  }));
 
   const allTasks=Object.values(boards).flatMap(cols=>cols.flatMap(col=>col.tasks.filter(t=>col.name!=="Hecho").map(t=>({...t,colName:col.name}))));
   const sorted=[...allTasks].sort((a,b)=>{ const o={Q1:0,Q2:1,Q3:2,Q4:3}; const qa=o[getQ(a)],qb=o[getQ(b)]; return qa!==qb?qa-qb:daysUntil(a.dueDate)-daysUntil(b.dueDate); });
-  const days=getWorkDays(fmt(TODAY),14);
+  const days=getWorkDays(fmt(TODAY),PLAN_HORIZON_DAYS);
   const planLog=[]; const freeSlotMap={};
+
+  // Schedule one assignee; returns hours left unscheduled.
+  function scheduleForMember(task,mid,hoursToPlace,dueIn,reasons){
+    const m=members.find(x=>x.id===mid); if(!m) return hoursToPlace;
+    let left=hoursToPlace;
+    for(const day of days){
+      if(left<=0)break;
+      if(dueIn<999&&daysUntil(day)>dueIn)break;
+      const avH=getAvailHours(m,day); if(avH<=0)continue;
+      const used=load[mid][day]||0;
+      const dayIcs=(ics[mid]||[]).filter(e=>e.date===day);
+      const freeMorn=calcFreeMorning(dayIcs,m,day);
+      const freeAft=calcFreeSlots(dayIcs,m,day);
+      const freeMornH=freeMorn.reduce((s,x)=>s+x.hours,0);
+      const freeAftH=freeAft.reduce((s,x)=>s+x.hours,0);
+      const totalFree=Math.max(0,freeMornH+freeAftH-used);
+      if(totalFree<=0)continue;
+      const toSched=Math.min(left,totalFree,MAX_HOURS_PER_TASK_PER_DAY);
+      if(toSched<MIN_SCHEDULABLE_HOURS)continue;
+      const key=`${mid}_${day}`;
+      if(!freeSlotMap[key])freeSlotMap[key]=freeAft;
+      // startTime: prefer morning if capacity left, else afternoon
+      const mornCapLeft=Math.max(0,freeMornH-used);
+      let startTime;
+      if(mornCapLeft>=MIN_SCHEDULABLE_HOURS && freeMorn.length>0) startTime=fromH(freeMorn[0].start);
+      else if(freeAft.length>0) startTime=fromH(freeAft[0].start);
+      else startTime=m.avail.morningStart||"08:00";
+      schedule.push({ id:`s-${task.id}-${mid}-${day}`,taskId:task.id,taskTitle:task.title,memberId:mid,date:day,startTime,hours:toSched,quadrant:getQ(task),priority:task.priority,respectsCalendar:!!m.avail?.icsUrl });
+      load[mid][day]=(load[mid][day]||0)+toSched;
+      left-=toSched;
+      reasons.push(`${day} ${startTime} (${toSched.toFixed(1)}h)`);
+    }
+    return left;
+  }
 
   sorted.forEach(task=>{
     if(!task.estimatedHours||task.estimatedHours<=0)return;
-    const logged=(task.timeLogs||[]).reduce((s,l)=>s+l.seconds,0)/3600;
-    let remaining=Math.max(0,task.estimatedHours-logged);
-    if(remaining<=0)return;
-    const assignees=task.assignees.length>0?task.assignees:[0];
+    if(!task.assignees||task.assignees.length===0){
+      planLog.push({taskId:task.id,taskTitle:task.title,memberId:null,memberName:"(sin asignar)",quadrant:getQ(task),slots:[],totalScheduled:0,daysUntilDue:daysUntil(task.dueDate),unassigned:true});
+      return;
+    }
+    // Per-assignee remaining (filter timeLogs by member when possible)
     const dueIn=daysUntil(task.dueDate);
+    const assignees=task.assignees;
+    const perAssigneeShare=task.estimatedHours/assignees.length;
+    const remainingByMid={};
     assignees.forEach(mid=>{
-      const m=members.find(x=>x.id===mid); if(!m)return;
-      let left=remaining/assignees.length; const reasons=[];
-      const mornH=toH(m.avail.morningEnd||"13:00")-toH(m.avail.morningStart||"08:00");
-      for(const day of days){
-        if(left<=0)break;
-        if(dueIn<999&&daysUntil(day)>dueIn)break;
-        const avH=getAvailHours(m,day); if(avH<=0)continue;
-        const used=load[mid][day]||0;
-        const dayIcs=(ics[mid]||[]).filter(e=>e.date===day);
-        const hasIcs=!!m.avail.icsUrl;
-        const freeMorn=hasIcs?calcFreeMorning(dayIcs,m,day):[];
-        const freeAft=hasIcs?calcFreeSlots(dayIcs,m,day):[];
-        const freeMornH=hasIcs?freeMorn.reduce((s,x)=>s+x.hours,0):mornH;
-        const freeAftH=hasIcs?freeAft.reduce((s,x)=>s+x.hours,0):Math.max(0,avH-mornH);
-        const totalFree=freeMornH+freeAftH-used;
-        if(totalFree<=0)continue;
-        const toSched=Math.min(left,totalFree,4);
-        if(toSched<0.5)continue;
-        const key=`${mid}_${day}`;
-        if(!freeSlotMap[key])freeSlotMap[key]=freeAft;
-        let startTime=m.avail.morningStart||"08:00";
-        if(hasIcs&&freeMorn.length>0) startTime=fromH(freeMorn[0].start);
-        if(used>=freeMornH){ startTime=freeAft.length>0?fromH(freeAft[0].start):m.avail.afternoonStart||"14:30"; }
-        schedule.push({ id:`s-${task.id}-${mid}-${day}`,taskId:task.id,taskTitle:task.title,memberId:mid,date:day,startTime,hours:toSched,quadrant:getQ(task),priority:task.priority,fromICS:dayIcs.length>0 });
-        load[mid][day]=(load[mid][day]||0)+toSched;
-        left-=toSched;
-        reasons.push(`${day} ${startTime} (${toSched.toFixed(1)}h)`);
-      }
-      if(reasons.length>0) planLog.push({taskId:task.id,taskTitle:task.title,memberId:mid,memberName:m.name,quadrant:getQ(task),slots:reasons,totalScheduled:(remaining/assignees.length)-Math.max(0,left),daysUntilDue:dueIn});
+      const loggedByMid=(task.timeLogs||[]).filter(l=>l.memberId==null||l.memberId===mid).reduce((s,l)=>s+l.seconds,0)/3600;
+      remainingByMid[mid]=Math.max(0,perAssigneeShare-loggedByMid);
     });
+    // Pass 1: each assignee schedules own share
+    const leftoverByMid={};
+    assignees.forEach(mid=>{
+      const reasons=[];
+      const left=scheduleForMember(task,mid,remainingByMid[mid],dueIn,reasons);
+      leftoverByMid[mid]=left;
+      const m=members.find(x=>x.id===mid);
+      if(reasons.length>0 || remainingByMid[mid]>0){
+        planLog.push({taskId:task.id,taskTitle:task.title,memberId:mid,memberName:m?.name||"?",quadrant:getQ(task),slots:reasons,totalScheduled:remainingByMid[mid]-left,daysUntilDue:dueIn});
+      }
+    });
+    // Pass 2: redistribute leftovers to assignees with capacity
+    let totalLeftover=Object.values(leftoverByMid).reduce((s,x)=>s+x,0);
+    if(totalLeftover>MIN_SCHEDULABLE_HOURS){
+      for(const mid of assignees){
+        if(totalLeftover<=MIN_SCHEDULABLE_HOURS)break;
+        const reasons=[];
+        const left=scheduleForMember(task,mid,totalLeftover,dueIn,reasons);
+        const placed=totalLeftover-left;
+        if(placed>0){
+          const entry=planLog.find(l=>l.taskId===task.id&&l.memberId===mid);
+          if(entry){ entry.slots.push(...reasons); entry.totalScheduled+=placed; }
+        }
+        totalLeftover=left;
+      }
+    }
   });
 
   const insights=[];
@@ -71,10 +116,13 @@ async function runPlanner(boards,members,existing){
     const totalSched=schedule.filter(s=>s.memberId===m.id).reduce((s,x)=>s+x.hours,0);
     const overDays=days.filter(d=>{ const a=getAvailHours(m,d); return a>0&&(load[m.id][d]||0)>a*0.9; });
     if(overDays.length>0) insights.push({type:"warning",memberId:m.id,msg:`${m.name} tiene ${overDays.length} día${overDays.length>1?"s":""} al límite (${overDays.slice(0,2).join(", ")})`});
-    if(totalSched===0) insights.push({type:"info",memberId:m.id,msg:`${m.name} no tiene tareas asignadas los próximos 14 días`});
+    if(totalSched===0) insights.push({type:"info",memberId:m.id,msg:`${m.name} no tiene tareas asignadas los próximos ${PLAN_HORIZON_DAYS} días`});
     const freeDays=days.filter(d=>getAvailHours(m,d)>0&&(load[m.id][d]||0)<getAvailHours(m,d)*0.5);
     if(freeDays.length>3) insights.push({type:"success",memberId:m.id,msg:`${m.name} tiene ${freeDays.length} días con capacidad libre`});
   });
+  icsErrors.forEach(e=>insights.push({type:"warning",memberId:e.memberId,msg:`No se pudo leer el calendario de ${e.memberName}: ${e.msg}`}));
+  const unassigned=planLog.filter(l=>l.unassigned);
+  if(unassigned.length>0) insights.push({type:"warning",memberId:null,msg:`${unassigned.length} tarea${unassigned.length>1?"s":""} sin asignar — no se pueden planificar`});
 
   return{schedule,planLog,insights,load,freeSlotMap};
 }
@@ -309,13 +357,13 @@ function ProfileModal({member,onClose,onSave}){
           <FL c="Google Calendar — URL secreta ICS"/>
           <FI value={avail.icsUrl||""} onChange={v=>setAvail(p=>({...p,icsUrl:v}))} placeholder="https://calendar.google.com/calendar/ical/...basic.ics"/>
           {avail.icsUrl&&(()=>{
-            const cached=ICS_CACHE[member.id];
+            const cached=getCachedEvents(member.id);
             const today=fmt(TODAY);
             const todayEvs=cached?cached.filter(e=>e.date===today):null;
             return(
               <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:4}}>
                 <div style={{fontSize:10,background:"#E1F5EE",color:"#085041",border:"1px solid #1D9E75",borderRadius:6,padding:"3px 8px"}}>Calendario conectado — el planificador respeta mañana y tarde</div>
-                {cached===undefined?(
+                {cached===null?(
                   <div style={{fontSize:10,background:"#FEF3C7",color:"#92400E",border:"1px solid #F59E0B",borderRadius:6,padding:"3px 8px"}}>📅 Sin sincronizar aún — ejecuta el Planificador IA para cargar eventos</div>
                 ):(
                   <div style={{fontSize:10,background:cached.length>0?"#EEF2FF":"#FEE2E2",color:cached.length>0?"#3730A3":"#991B1B",border:`1px solid ${cached.length>0?"#6366F1":"#EF4444"}`,borderRadius:6,padding:"3px 8px"}}>📅 {cached.length} eventos cargados · hoy: {todayEvs?.length||0} {cached.length===0?"— revisa la URL o el proxy CORS":""}</div>
@@ -374,7 +422,8 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
   const [waSent,setWaSent]=useState({});
   const [profileMember,setProfileMember]=useState(null);
   const [editingTask,setEditingTask]=useState(null);
-  const [localMembers,setLocalMembers]=useState(data.members);
+  const members=data.members;
+  useEffect(()=>{ setResult(null); },[members]);
   const findTaskContext=useCallback(taskId=>{
     for(const pid in data.boards){
       for(const col of data.boards[pid]){
@@ -384,14 +433,14 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
     }
     return null;
   },[data.boards]);
-  const workDays=getWorkDays(fmt(TODAY),10);
+  const workDays=getWorkDays(fmt(TODAY),PLAN_HORIZON_DAYS);
 
   const run=async()=>{
     setRunning(true);
-    const icsMs=localMembers.filter(m=>m.avail?.icsUrl);
+    const icsMs=members.filter(m=>m.avail?.icsUrl);
     if(icsMs.length>0){ const s={}; icsMs.forEach(m=>{s[m.id]="loading";}); setIcsStatus(s); }
     try{
-      const r=await runPlanner(data.boards,localMembers,data.aiSchedule);
+      const r=await runPlanner(data.boards,members,data.aiSchedule);
       const s={}; icsMs.forEach(m=>{s[m.id]="ok";}); setIcsStatus(s);
       setResult(r);
     }catch(e){
@@ -411,7 +460,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
       {/* ICS status */}
       {Object.keys(icsStatus).length>0&&(
         <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
-          {localMembers.filter(m=>icsStatus[m.id]).map(m=>{
+          {members.filter(m=>icsStatus[m.id]).map(m=>{
             const st=icsStatus[m.id]; const mp2=MP[m.id]||MP[0];
             return(
               <div key={m.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:500,background:st==="ok"?"#E1F5EE":st==="error"?"#FCEBEB":"#EEEDFE",color:st==="ok"?"#085041":st==="error"?"#A32D2D":"#3C3489",border:`1px solid ${st==="ok"?"#1D9E75":st==="error"?"#E24B4A":"#7F77DD"}`}}>
@@ -430,7 +479,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
           <div style={{fontSize:12,color:"#6b7280"}}>Asigna tareas segun disponibilidad real, Eisenhower y calendario</div>
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {result&&<button onClick={()=>localMembers.forEach(m=>m.avail?.whatsapp&&setTimeout(()=>sendWA(m),200*m.id))} style={{padding:"8px 14px",borderRadius:8,background:"#25D366",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Notificar todos (WA)</button>}
+          {result&&<button onClick={()=>members.forEach(m=>m.avail?.whatsapp&&setTimeout(()=>sendWA(m),200*m.id))} style={{padding:"8px 14px",borderRadius:8,background:"#25D366",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Notificar todos (WA)</button>}
           {result&&<button onClick={()=>onApplySchedule(result.schedule)} style={{padding:"8px 16px",borderRadius:8,background:"#1D9E75",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Aplicar plan</button>}
           <button onClick={run} disabled={running} style={{padding:"8px 20px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600,opacity:running?0.7:1}}>
             {running?"Planificando...":"Planificar ahora"}
@@ -440,7 +489,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
 
       {/* Availability table */}
       <div style={{marginBottom:20}}>
-        <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Disponibilidad del equipo — proximos 10 dias</div>
+        <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Disponibilidad del equipo — proximos {PLAN_HORIZON_DAYS} dias</div>
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead>
@@ -458,7 +507,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
               </tr>
             </thead>
             <tbody>
-              {localMembers.map(m=>{
+              {members.map(m=>{
                 const mp2=MP[m.id]||MP[0];
                 return(
                   <tr key={m.id}>
@@ -474,9 +523,13 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
                     </td>
                     {workDays.map(d=>{
                       const avH=getAvailHours(m,d);
-                      const icsEvs=(ICS_CACHE[m.id]||[]).filter(e=>e.date===d);
-                      const icsBusyH=m.avail?.icsUrl&&ICS_CACHE[m.id]?icsEvs.reduce((s,e)=>s+(e.endH-e.startH),0):0;
-                      const effectiveH=Math.max(0,avH-icsBusyH);
+                      const cachedEvs=getCachedEvents(m.id);
+                      const icsEvs=(cachedEvs||[]).filter(e=>e.date===d);
+                      // Mirror planner's logic: use calcFreeMorning+calcFreeSlots for real capacity
+                      const freeMorn=calcFreeMorning(icsEvs,m,d);
+                      const freeAft=calcFreeSlots(icsEvs,m,d);
+                      const effectiveH=freeMorn.reduce((s,x)=>s+x.hours,0)+freeAft.reduce((s,x)=>s+x.hours,0);
+                      const icsBusyH=Math.max(0,avH-effectiveH);
                       const used=result?(result.load[m.id]?.[d]||0):0;
                       const pct=effectiveH>0?Math.min(Math.round(used/effectiveH*100),100):0;
                       const exc=m.avail.exceptions?.find(e=>e.date===d);
@@ -536,7 +589,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
 
           <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Plan por persona</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12,marginBottom:20}}>
-            {localMembers.map(m=>{
+            {members.map(m=>{
               const mp2=MP[m.id]||MP[0];
               const myLog=result.planLog.filter(l=>l.memberId===m.id);
               const mySlots=result.schedule.filter(s=>s.memberId===m.id);
@@ -584,7 +637,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
                   {dayName(d)}<br/><span style={{fontSize:9}}>{d.slice(5)}</span>
                 </div>
               ))}
-              {localMembers.map(m=>{
+              {members.map(m=>{
                 const mp2=MP[m.id]||MP[0];
                 return(
                   <React.Fragment key={m.id}>
@@ -600,7 +653,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
                           {avH===0&&<div style={{height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#d1d5db"}}>—</div>}
                           {slots.slice(0,2).map((slot,si)=>(
                             <div key={si} title={`${slot.taskTitle} · ${slot.hours}h`} style={{background:mp2.light,border:`1px solid ${mp2.solid}`,borderRadius:4,padding:"2px 4px",fontSize:9,fontWeight:600,color:mp2.solid,marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                              {slot.hours.toFixed(1)}h {slot.fromICS?"📅":""}
+                              {slot.hours.toFixed(1)}h {slot.respectsCalendar?"📅":""}
                             </div>
                           ))}
                           {slots.length>2&&<div style={{fontSize:9,color:"#9ca3af"}}>+{slots.length-2}</div>}
@@ -632,7 +685,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
         </div>
       )}
 
-      {profileMember&&<ProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onSave={avail=>{setLocalMembers(prev=>prev.map(m=>m.id===profileMember.id?{...m,avail}:m));saveMemberProfile?.(profileMember.id,avail);delete ICS_CACHE[profileMember.id];setResult(null);}}/>}
+      {profileMember&&<ProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onSave={avail=>{saveMemberProfile?.(profileMember.id,avail);delete ICS_CACHE[profileMember.id];setResult(null);}}/>}
       {editingTask&&<TaskModal task={editingTask.task} colId={editingTask.colId} cols={editingTask.cols} members={data.members} activeMemberId={0} workspaceLinks={[]} onClose={()=>setEditingTask(null)} onUpdate={(id,cid,upd)=>{onUpdateTask?.(id,upd);setEditingTask(prev=>prev?{...prev,task:upd}:null);}} onMove={()=>setEditingTask(null)}/>}
     </div>
   );
