@@ -2386,7 +2386,7 @@ function AgentEditModal({agent,onClose,onSave,onDelete}){
   const isNew = !agent;
   const [draft,setDraft] = useState(agent || {
     name:"", role:"", emoji:"🤖", color:"#7F77DD",
-    voice:{gender:"female",rate:1.0,pitch:1.0},
+    voice:{gender:"male",rate:1.0,pitch:1.0},
     specialties:[],
     opener:"", style:"", promptBase:"",
     advice:{ default:"", overdue:"", noDueDate:"", noSubtasks:"", overBudget:"", q1:"", q2:"" },
