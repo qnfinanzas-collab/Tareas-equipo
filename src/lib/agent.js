@@ -11,13 +11,13 @@ export const AVATARS = {
   },
   marketing: {
     key: "marketing", label: "Marketing", icon: "📣", color: "#E76AA1",
-    voice: { gender: "female", rate: 1.08, pitch: 1.08 },
+    voice: { gender: "male", rate: 1.05, pitch: 1.0 },
     opener: "Hola, soy tu estratega de marketing.",
     style: "creativo y orientado a audiencia",
   },
   comunicacion: {
     key: "comunicacion", label: "Comunicación", icon: "✍️", color: "#378ADD",
-    voice: { gender: "female", rate: 1.0, pitch: 1.05 },
+    voice: { gender: "male", rate: 1.0, pitch: 0.98 },
     opener: "Hola, soy tu asesor de comunicación.",
     style: "claro y empático",
   },
@@ -35,7 +35,7 @@ export const AVATARS = {
   },
   estrategia: {
     key: "estrategia", label: "Estrategia", icon: "🧠", color: "#7F77DD",
-    voice: { gender: "female", rate: 1.0, pitch: 1.0 },
+    voice: { gender: "male", rate: 1.0, pitch: 0.97 },
     opener: "Hola, soy tu asesor estratégico.",
     style: "estructurado y con visión de largo plazo",
   },
@@ -47,7 +47,7 @@ export const AVATAR_KEYS = Object.keys(AVATARS);
 export const AGENT_DEFAULTS = {
   emoji: "🤖",
   color: "#7F77DD",
-  voice: { gender: "female", rate: 1.0, pitch: 1.0 },
+  voice: { gender: "male", rate: 1.0, pitch: 1.0 },
   specialties: [],
   opener: "Hola, soy tu asesor.",
   style: "profesional",
@@ -70,7 +70,7 @@ export function agentToAvatar(agent){
     label: agent.name,
     icon: agent.emoji || "🤖",
     color: agent.color || "#7F77DD",
-    voice: agent.voice || { gender: "female", rate: 1.0, pitch: 1.0 },
+    voice: agent.voice || { gender: "male", rate: 1.0, pitch: 1.0 },
     opener: agent.opener || `Hola, soy ${agent.name}.`,
     style: agent.style || "profesional",
     _agent: agent,
