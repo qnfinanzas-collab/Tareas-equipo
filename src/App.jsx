@@ -321,6 +321,19 @@ const QBadge=({q})=>{ const qm=QM[q]; if(!qm)return null; return <span style={{f
 const FL=({c})=><div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5,marginTop:14}}>{c}</div>;
 const FI=({value,onChange,type="text",placeholder=""})=><input type={type} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit",background:"#fff",boxSizing:"border-box"}}/>;
 
+// Banda reutilizable de confirmación de descarte para todos los modales con formulario.
+function DiscardBanner({onKeep,onDiscard}){
+  return(
+    <div style={{padding:"10px 20px",background:"#FEF3C7",borderBottom:"0.5px solid #F59E0B",display:"flex",alignItems:"center",gap:12,justifyContent:"space-between",flexWrap:"wrap"}}>
+      <div style={{fontSize:13,color:"#92400E",fontWeight:600}}>¿Descartar cambios?</div>
+      <div style={{display:"flex",gap:6}}>
+        <button onClick={onKeep} style={{padding:"6px 14px",borderRadius:7,background:"#378ADD",color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer"}}>↩ Seguir editando</button>
+        <button onClick={onDiscard} style={{padding:"6px 14px",borderRadius:7,background:"#E24B4A",color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer"}}>❌ Descartar</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Alerts engine ─────────────────────────────────────────────────────────────
 function genAlerts(boards,members){
   const alerts=[];
@@ -361,12 +374,21 @@ function genAlerts(boards,members){
 function ProfileModal({member,onClose,onSave}){
   const [avail,setAvail]=useState({...member.avail});
   const [newExc,setNewExc]=useState({date:"",type:"off",note:""});
+  const [pendingClose,setPendingClose]=useState(false);
+  const [initialSnap]=useState(()=>JSON.stringify({avail:member.avail,newExc:{date:"",type:"off",note:""}}));
+  const isDirty=JSON.stringify({avail,newExc})!==initialSnap;
+  const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
+  useEffect(()=>{
+    const onKey=e=>{ if(e.key==="Escape") handleClose(); };
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[isDirty]);
   const mp=MP[member.id]||MP[0];
   const toggleDay=d=>setAvail(p=>({...p,workDays:p.workDays.includes(d)?p.workDays.filter(x=>x!==d):[...p.workDays,d].sort()}));
   const addExc=()=>{ if(!newExc.date)return; setAvail(p=>({...p,exceptions:[...p.exceptions,{...newExc}]})); setNewExc({date:"",type:"off",note:""}); };
 
   return(
-    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:560,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${mp.solid}`,marginBottom:24}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:12}}>
           <div style={{width:40,height:40,borderRadius:"50%",background:mp.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700}}>{member.initials}</div>
@@ -374,8 +396,9 @@ function ProfileModal({member,onClose,onSave}){
             <div style={{fontWeight:600,fontSize:15,color:mp.solid}}>{member.name}</div>
             <div style={{fontSize:12,color:"#6b7280"}}>{member.role} · {member.email}</div>
           </div>
-          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>x</button>
+          <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>x</button>
         </div>
+        {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
         <div style={{padding:20}}>
           {/* Weekly schedule preview */}
           {(member.avail?.blockedSlots||[]).length>0&&(
@@ -848,15 +871,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
             <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280",lineHeight:1}}>x</button>
           </div>
         </div>
-        {pendingClose&&(
-          <div style={{padding:"10px 20px",background:"#FEF3C7",borderBottom:"0.5px solid #F59E0B",display:"flex",alignItems:"center",gap:12,justifyContent:"space-between",flexWrap:"wrap"}}>
-            <div style={{fontSize:12,color:"#92400E",fontWeight:500}}>⚠️ Tienes cambios sin guardar. ¿Descartarlos?</div>
-            <div style={{display:"flex",gap:6}}>
-              <button onClick={()=>{setPendingClose(false);onClose();}} style={{padding:"5px 12px",borderRadius:7,background:"#E24B4A",color:"#fff",border:"none",fontSize:11,fontWeight:600,cursor:"pointer"}}>Descartar</button>
-              <button onClick={()=>setPendingClose(false)} style={{padding:"5px 12px",borderRadius:7,background:"transparent",color:"#92400E",border:"0.5px solid #F59E0B",fontSize:11,fontWeight:600,cursor:"pointer"}}>Seguir editando</button>
-            </div>
-          </div>
-        )}
+        {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
         {avatarOpen&&<AvatarModal task={task} members={members} connectedAgents={(agents||[]).filter(a=>(task.agentIds||[]).includes(a.id))} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})} onMutateTask={newTask=>onUpdate(task.id,colId,newTask)}/>}
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
@@ -1643,16 +1658,31 @@ function ProjectModal({project,members,workspaces,onClose,onSave}){
   const [workspaceId,setWorkspaceId]=useState(project?.workspaceId??null);
   const [cols,setCols]=useState(["Por hacer","En progreso","Revision","Hecho"]);
   const [newCol,setNewCol]=useState("");
+  const [pendingClose,setPendingClose]=useState(false);
+  const [initialSnap]=useState(()=>JSON.stringify({
+    name:project?.name||"", desc:project?.desc||"",
+    color:project?.color||PROJECT_COLORS[0], emoji:project?.emoji||"🚀",
+    sel:project?.members||[], workspaceId:project?.workspaceId??null,
+    cols:["Por hacer","En progreso","Revision","Hecho"], newCol:"",
+  }));
+  const isDirty=JSON.stringify({name,desc,color,emoji,sel,workspaceId,cols,newCol})!==initialSnap;
+  const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
+  useEffect(()=>{
+    const onKey=e=>{ if(e.key==="Escape") handleClose(); };
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[isDirty]);
   const toggleM=id=>setSel(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
   const addCol=()=>{ const t=newCol.trim(); if(!t)return; setCols(p=>[...p,t]); setNewCol(""); };
   const save=()=>{ if(!name.trim())return; onSave({name:name.trim(),desc,color,emoji,members:sel,columns:cols,workspaceId}); onClose(); };
   return(
-    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${color}`,marginBottom:24}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{fontWeight:600,fontSize:15}}>{isEdit?"Editar proyecto":"Crear nuevo proyecto"}</div>
-          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>x</button>
+          <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>x</button>
         </div>
+        {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
         <div style={{padding:20}}>
           <div style={{background:`${color}18`,border:`2px solid ${color}`,borderRadius:12,padding:"12px 16px",marginBottom:20,display:"flex",alignItems:"center",gap:12}}>
             <div style={{fontSize:28}}>{emoji}</div>
@@ -1821,6 +1851,20 @@ function MemberEditModal({member, allMembers, onClose, onSave, onDelete}){
     isEdit ? MEMBER_COLORS.findIndex(c => c === (MP[member.id]?.solid || "#7F77DD")) : allMembers.length % MEMBER_COLORS.length
   );
   const [confirmDel, setConfirmDel] = useState(false);
+  const [pendingClose,setPendingClose] = useState(false);
+  const [initialSnap] = useState(()=>JSON.stringify({
+    name:member?.name||"", email:member?.email||"", role:member?.role||"Editor",
+    whatsapp:member?.avail?.whatsapp||"", icsUrl:member?.avail?.icsUrl||"",
+    hours:member?.avail?.hoursPerDay||8,
+    colorIdx:isEdit?MEMBER_COLORS.findIndex(c=>c===(MP[member.id]?.solid||"#7F77DD")):allMembers.length%MEMBER_COLORS.length,
+  }));
+  const isDirty = JSON.stringify({name,email,role,whatsapp,icsUrl,hours,colorIdx})!==initialSnap;
+  const handleClose = ()=>{ if(isDirty) setPendingClose(true); else onClose(); };
+  useEffect(()=>{
+    const onKey=e=>{ if(e.key==="Escape") handleClose(); };
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[isDirty]);
 
   const initials = name.trim().split(" ").map(w=>w[0]||"").join("").toUpperCase().slice(0,2) || "??";
   const color    = MEMBER_COLORS[colorIdx < 0 ? 0 : colorIdx] || nextColor;
@@ -1855,7 +1899,7 @@ function MemberEditModal({member, allMembers, onClose, onSave, onDelete}){
   };
 
   return(
-    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:520,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${color}`,marginBottom:24}}>
         {/* Header */}
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:12}}>
@@ -1864,8 +1908,9 @@ function MemberEditModal({member, allMembers, onClose, onSave, onDelete}){
             <div style={{fontWeight:600,fontSize:15}}>{isEdit?"Editar usuario":"Nuevo usuario"}</div>
             <div style={{fontSize:12,color:"#6b7280"}}>{isEdit?member.email:"Completa los datos del nuevo miembro"}</div>
           </div>
-          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>x</button>
+          <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>x</button>
         </div>
+        {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
 
         <div style={{padding:20}}>
           {/* Nombre + email */}
@@ -2144,6 +2189,19 @@ function WorkspaceModal({workspace,onClose,onSave,onDelete}){
   const [links,setLinks]       = useState(workspace?.links||[]);
   const [contacts,setContacts] = useState(workspace?.contacts||[]);
   const [pendingDel,setPendingDel] = useState(false);
+  const [pendingClose,setPendingClose] = useState(false);
+  const [initialSnap] = useState(()=>JSON.stringify({
+    name:workspace?.name||"", description:workspace?.description||"",
+    color:workspace?.color||PROJECT_COLORS[4], emoji:workspace?.emoji||"🏢",
+    links:workspace?.links||[], contacts:workspace?.contacts||[],
+  }));
+  const isDirty = JSON.stringify({name,description,color,emoji,links,contacts})!==initialSnap;
+  const handleClose = ()=>{ if(isDirty) setPendingClose(true); else onClose(); };
+  useEffect(()=>{
+    const onKey=e=>{ if(e.key==="Escape") handleClose(); };
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[isDirty]);
 
   const addLink    = ()=>setLinks(p=>[...p,{id:_uid("wl"),label:"",url:"",icon:"🔗"}]);
   const updLink    = (id,patch)=>setLinks(p=>p.map(l=>l.id===id?{...l,...patch}:l));
@@ -2166,12 +2224,13 @@ function WorkspaceModal({workspace,onClose,onSave,onDelete}){
   };
 
   return(
-    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:30,overflowY:"auto"}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:30,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:680,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${color}`,marginBottom:30}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{fontWeight:600,fontSize:15}}>{isEdit?"Editar workspace":"Nuevo workspace"}</div>
-          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>×</button>
+          <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>×</button>
         </div>
+        {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
         <div style={{padding:20,maxHeight:"75vh",overflowY:"auto"}}>
           {/* Preview */}
           <div style={{background:`${color}18`,border:`2px solid ${color}`,borderRadius:12,padding:"12px 16px",marginBottom:20,display:"flex",alignItems:"center",gap:12}}>
@@ -2435,21 +2494,31 @@ const AGENT_COLORS = ["#7F77DD","#E76AA1","#378ADD","#1D9E75","#E24B4A","#EF9F27
 
 function AgentEditModal({agent,onClose,onSave,onDelete}){
   const isNew = !agent;
-  const [draft,setDraft] = useState(agent || {
+  const DEFAULT_DRAFT = {
     name:"", role:"", emoji:"🤖", color:"#7F77DD",
     voice:{gender:"male",rate:1.0,pitch:1.0},
     specialties:[],
     opener:"", style:"", promptBase:"",
     advice:{ default:"", overdue:"", noDueDate:"", noSubtasks:"", overBudget:"", q1:"", q2:"" },
-  });
+  };
+  const [draft,setDraft] = useState(agent || DEFAULT_DRAFT);
   const [confirmDelete,setConfirmDelete] = useState(false);
+  const [pendingClose,setPendingClose] = useState(false);
+  const [initialSnap] = useState(()=>JSON.stringify(agent||DEFAULT_DRAFT));
+  const isDirty = JSON.stringify(draft)!==initialSnap;
+  const handleClose = ()=>{ if(isDirty) setPendingClose(true); else onClose(); };
+  useEffect(()=>{
+    const onKey=e=>{ if(e.key==="Escape") handleClose(); };
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[isDirty]);
   const set = (k,v)=>setDraft(d=>({...d,[k]:v}));
   const setVoice = (k,v)=>setDraft(d=>({...d,voice:{...d.voice,[k]:v}}));
   const setAdvice = (k,v)=>setDraft(d=>({...d,advice:{...d.advice,[k]:v}}));
   const canSave = draft.name.trim().length > 0;
 
   return (
-    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:640,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${draft.color}`,marginBottom:24}}>
         <div style={{padding:"16px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:40,height:40,borderRadius:10,background:`${draft.color}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{draft.emoji}</div>
@@ -2457,8 +2526,9 @@ function AgentEditModal({agent,onClose,onSave,onDelete}){
             <div style={{fontSize:15,fontWeight:700}}>{isNew?"Nuevo agente IA":"Editar agente"}</div>
             <div style={{fontSize:11,color:"#6b7280"}}>Asesor personalizado que analiza tareas según su especialidad</div>
           </div>
-          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#9ca3af",lineHeight:1}}>×</button>
+          <button onClick={handleClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#9ca3af",lineHeight:1}}>×</button>
         </div>
+        {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
 
         <div style={{padding:"14px 20px"}}>
           <FL c="Nombre del agente"/>
