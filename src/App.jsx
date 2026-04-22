@@ -777,6 +777,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
   const [editSubDraft,setEditSubDraft]=useState("");
   const [newLink,setNewLink]=useState({label:"",url:"",icon:"🔗"});
   const [avatarOpen,setAvatarOpen]=useState(false);
+  const [pendingClose,setPendingClose]=useState(false);
   const intRef=useRef(null);
   const p2=palOf(task.assignees); const q=getQ(task);
 
@@ -814,8 +815,22 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
   const gcUrl=gCalUrl(task,null);
   const wu=waUrl(members.find(m=>m.id===activeMemberId),`Tarea: "${task.title}" — vence ${task.dueDate||"sin fecha"}. Prioridad ${task.priority}.`);
 
+  // Protección contra missclicks: si hay texto en curso o se está editando, un
+  // intento de cerrar (clic fuera, X o Esc) pide confirmación en vez de descartar.
+  const isDirty = editing
+    || newSubTitle.trim().length>0
+    || (newLink.url||"").trim().length>0
+    || comment.trim().length>0
+    || note.trim().length>0;
+  const handleClose = () => { if(isDirty) setPendingClose(true); else onClose(); };
+  useEffect(()=>{
+    const onKey = e => { if(e.key==="Escape" && !avatarOpen) handleClose(); };
+    window.addEventListener("keydown",onKey);
+    return ()=>window.removeEventListener("keydown",onKey);
+  },[isDirty,avatarOpen]);
+
   return(
-    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,paddingBottom:20,overflowY:"auto"}}>
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,paddingBottom:20,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${p2?p2.cardBorder:"#7F77DD"}`,marginBottom:20}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
           {editing
@@ -830,9 +845,18 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
               </>
               :<><button onClick={saveEdits} style={{padding:"5px 12px",borderRadius:7,border:"none",background:"#7F77DD",color:"#fff",fontSize:12,cursor:"pointer",fontWeight:500}}>Guardar</button><button onClick={()=>setEditing(false)} style={{padding:"5px 10px",borderRadius:7,border:"0.5px solid #d1d5db",background:"transparent",fontSize:12,cursor:"pointer"}}>X</button></>
             }
-            <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280",lineHeight:1}}>x</button>
+            <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280",lineHeight:1}}>x</button>
           </div>
         </div>
+        {pendingClose&&(
+          <div style={{padding:"10px 20px",background:"#FEF3C7",borderBottom:"0.5px solid #F59E0B",display:"flex",alignItems:"center",gap:12,justifyContent:"space-between",flexWrap:"wrap"}}>
+            <div style={{fontSize:12,color:"#92400E",fontWeight:500}}>⚠️ Tienes cambios sin guardar. ¿Descartarlos?</div>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>{setPendingClose(false);onClose();}} style={{padding:"5px 12px",borderRadius:7,background:"#E24B4A",color:"#fff",border:"none",fontSize:11,fontWeight:600,cursor:"pointer"}}>Descartar</button>
+              <button onClick={()=>setPendingClose(false)} style={{padding:"5px 12px",borderRadius:7,background:"transparent",color:"#92400E",border:"0.5px solid #F59E0B",fontSize:11,fontWeight:600,cursor:"pointer"}}>Seguir editando</button>
+            </div>
+          </div>
+        )}
         {avatarOpen&&<AvatarModal task={task} members={members} connectedAgents={(agents||[]).filter(a=>(task.agentIds||[]).includes(a.id))} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})} onMutateTask={newTask=>onUpdate(task.id,colId,newTask)}/>}
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
