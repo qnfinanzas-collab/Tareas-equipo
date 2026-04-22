@@ -251,6 +251,23 @@ const INITIAL_DATA = {
 const LS_KEY = 'taskflow_v1';
 function _migrate(d){
   if(!d.workspaces) d.workspaces = [];
+  // Dedup workspace ids: sync realtime entre clientes puede fusionar estados con
+  // contadores independientes y provocar colisiones. Con ids duplicados,
+  // workspaces.find(w=>w.id===x) devuelve siempre el primero → clicks abren el
+  // workspace equivocado. Primera aparición conserva id, las demás reciben nuevo id.
+  {
+    const seen = new Set();
+    let maxId = d.workspaces.reduce((m,w)=>typeof w.id==="number" && w.id>m ? w.id : m, 0);
+    d.workspaces = d.workspaces.map(w=>{
+      if(seen.has(w.id)){
+        const newId = ++maxId;
+        seen.add(newId);
+        return { ...w, id: newId };
+      }
+      seen.add(w.id);
+      return w;
+    });
+  }
   if(!d.agents || d.agents.length===0){
     d._seededAgents = d._seededAgents || false;
     if(!d._seededAgents){
@@ -285,6 +302,16 @@ function _initCounters(d){
 const _saved=_loadData();
 const _c=_initCounters(_saved);
 let nextId=_c.nextId,nextProjId=_c.nextProjId,nextColId=_c.nextColId,nextWsId=_c.nextWsId,nextAgentId=_c.nextAgentId;
+// Re-sync counters cuando llega estado remoto, para que nextWsId/nextProjId no
+// asignen ids ya usados por otros clientes — origen de las colisiones.
+function _syncCounters(d){
+  const c=_initCounters(d);
+  if(c.nextId     >nextId)      nextId=c.nextId;
+  if(c.nextProjId >nextProjId)  nextProjId=c.nextProjId;
+  if(c.nextColId  >nextColId)   nextColId=c.nextColId;
+  if(c.nextWsId   >nextWsId)    nextWsId=c.nextWsId;
+  if(c.nextAgentId>nextAgentId) nextAgentId=c.nextAgentId;
+}
 const _uid=(p)=>`${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`;
 
 // ── Small components ──────────────────────────────────────────────────────────
@@ -2575,16 +2602,20 @@ export default function TaskFlow(){
     fetchState().then(remote=>{
       if(cancelled) return;
       if(remote && Object.keys(remote).length>0 && remote.projects){
+        const migrated=_migrate(remote);
+        _syncCounters(migrated);
         isRemoteUpdate.current=true;
-        setData(_migrate(remote));
+        setData(migrated);
       }
       setSyncReady(true);
       setSyncStatus("connected");
     }).catch(()=>{ if(!cancelled){ setSyncReady(true); setSyncStatus("error"); } });
     const unsub=subscribeState(remote=>{
       if(!remote || !remote.projects) return;
+      const migrated=_migrate(remote);
+      _syncCounters(migrated);
       isRemoteUpdate.current=true;
-      setData(_migrate(remote));
+      setData(migrated);
     });
     return ()=>{ cancelled=true; unsub(); };
   },[]);
