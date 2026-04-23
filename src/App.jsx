@@ -1614,7 +1614,9 @@ function timeAgoDate(dateStr){
 }
 
 // ── Home View (panel de mandos tras login) ────────────────────────────────────
-function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onToast}){
+function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onToast,onOpenTask}){
+  const [expandedCard,setExpandedCard] = useState(null);
+  const toggleExpand = (id)=>setExpandedCard(c=>c===id?null:id);
   const me=data.members.find(m=>m.id===activeMember);
   const firstName=me?.name.split(" ")[0]||"";
 
@@ -1635,6 +1637,59 @@ function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onT
   const agentsCount=(data.agents||[]).length;
 
   const showVideoToast=(label)=>()=>onToast?.(`📹 ${label} — próximamente`,"info");
+
+  // Datasets para cards expandibles ─ se calculan una sola vez por render.
+  const dashCritical=[], myTasks=[];
+  Object.entries(data.boards||{}).forEach(([pid,cols])=>{
+    const proj=data.projects.find(p=>p.id===Number(pid));
+    cols.forEach(col=>{
+      col.tasks.forEach(t=>{
+        if(!t.assignees?.includes(activeMember)) return;
+        const base={id:t.id,title:t.title,projId:Number(pid),projName:proj?.name||"",projEmoji:proj?.emoji||"📋"};
+        myTasks.push({...base,status:col.name,_startDate:t.startDate||""});
+        if(col.name==="Hecho") return;
+        const q=getQ(t); const days=daysUntil(t.dueDate);
+        const isCrit = q==="Q1" || (t.dueDate && days<=1);
+        if(isCrit){
+          const status = !t.dueDate?"Prioridad alta":days<0?`Vencida hace ${-days}d`:days===0?"Vence hoy":`Vence en ${days}d`;
+          dashCritical.push({...base,status,_days:t.dueDate?days:999,_q:q});
+        }
+      });
+    });
+  });
+  dashCritical.sort((a,b)=>{ if(a._days!==b._days) return a._days-b._days; return a._q==="Q1"?-1:1; });
+  myTasks.sort((a,b)=>(b._startDate||"").localeCompare(a._startDate||""));
+
+  // Planificador: entradas aiSchedule del usuario en ventana, dedup por taskId, enriquecidas.
+  const plannerTasks=[];
+  const plannerSeen=new Set();
+  (data.aiSchedule||[])
+    .filter(s=>s.memberId===activeMember&&s.date>=today&&s.date<=horizonEnd)
+    .sort((a,b)=>a.date.localeCompare(b.date))
+    .forEach(s=>{
+      if(plannerSeen.has(s.taskId)) return; plannerSeen.add(s.taskId);
+      let found=null;
+      for(const [pid,cols] of Object.entries(data.boards||{})){
+        for(const col of cols){
+          const t=col.tasks.find(x=>x.id===s.taskId);
+          if(t){ found={t,pid:Number(pid)}; break; }
+        }
+        if(found) break;
+      }
+      if(!found) return;
+      const proj=data.projects.find(p=>p.id===found.pid);
+      const d=new Date(s.date), td=new Date(today);
+      const dd=Math.floor((d-td)/86400000);
+      const when = dd===0?"Hoy":dd===1?"Mañana":`En ${dd}d`;
+      plannerTasks.push({id:found.t.id,title:found.t.title,projId:found.pid,projName:proj?.name||"",projEmoji:proj?.emoji||"📋",status:`${when} · ${s.hours}h`});
+    });
+
+  // Mapa id→tareas para expansión inline.
+  const expansions={
+    dashboard:{tasks:dashCritical, label:"TAREAS CRÍTICAS"},
+    projects: {tasks:myTasks,      label:"MIS TAREAS"},
+    planner:  {tasks:plannerTasks, label:"PLANIFICADAS PRÓXIMOS 14 DÍAS"},
+  };
 
   const cards=[
     {
@@ -1760,11 +1815,15 @@ function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onT
         <div style={{fontSize:15,color:"#6B7280"}}>{statsLine}</div>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(360px,1fr))",gap:20,marginBottom:40}}>
-        {cards.map((c,i)=>(
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(360px,1fr))",gap:20,marginBottom:40,alignItems:"start"}}>
+        {cards.map((c,i)=>{
+          const exp=expansions[c.id];
+          const isExpandable = exp && exp.tasks.length>0;
+          const isExpanded   = expandedCard===c.id;
+          return(
           <div
             key={c.id}
-            onClick={()=>onNavigate(c.id)}
+            onClick={()=>{ if(isExpandable&&isExpanded) return; onNavigate(c.id); }}
             style={{background:"#fff",border:"2px solid #E5E7EB",borderRadius:16,padding:"24px 26px",cursor:"pointer",transition:"all .25s cubic-bezier(0.4,0,0.2,1)",animation:`tf-card-in .3s ease ${i*50}ms both`,display:"flex",flexDirection:"column"}}
             onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-6px) scale(1.01)";e.currentTarget.style.boxShadow="0 20px 40px rgba(59,130,246,0.18)";e.currentTarget.style.borderColor="#3B82F6";const arr=e.currentTarget.querySelector("[data-arr]"); if(arr){arr.style.transform="translateX(4px)";arr.style.color="#3B82F6";}}}
             onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0) scale(1)";e.currentTarget.style.boxShadow="none";e.currentTarget.style.borderColor="#E5E7EB";const arr=e.currentTarget.querySelector("[data-arr]"); if(arr){arr.style.transform="translateX(0)";arr.style.color="#9CA3AF";}}}
@@ -1773,7 +1832,7 @@ function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onT
               <span title={c.tooltip} style={{fontSize:30,lineHeight:1,cursor:"help"}}>{c.emoji}</span>
               <h3 style={{fontSize:19,fontWeight:700,color:"#111827",margin:0,flex:"0 1 auto"}}>{c.title}</h3>
               {c.badge&&<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:4,textTransform:"uppercase",letterSpacing:"0.06em",background:"#10B981",color:"#fff"}}>{c.badge}</span>}
-              <span data-arr style={{fontSize:20,color:"#9CA3AF",transition:"transform .2s ease, color .2s ease",marginLeft:"auto"}}>→</span>
+              <span data-arr onClick={e=>{e.stopPropagation();onNavigate(c.id);}} title="Ir a la sección" style={{fontSize:20,color:"#9CA3AF",transition:"transform .2s ease, color .2s ease",marginLeft:"auto",cursor:"pointer"}}>→</span>
             </div>
 
             <p style={{fontSize:15,fontWeight:500,color:"#111827",margin:"0 0 10px 0",lineHeight:1.45}}>{c.tagline}</p>
@@ -1788,7 +1847,49 @@ function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onT
               ))}
             </ul>
 
-            <div style={{fontSize:13,fontWeight:600,color:"#3B82F6",padding:"9px 12px",background:"#EFF6FF",borderRadius:8,marginBottom:10}}>{c.stats}</div>
+            {isExpandable
+              ? <div
+                  onClick={e=>{e.stopPropagation();toggleExpand(c.id);}}
+                  style={{fontSize:13,fontWeight:600,color:"#3B82F6",padding:"9px 12px",background:"#EFF6FF",border:"1px solid transparent",borderRadius:8,marginBottom:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,transition:"background .15s, border-color .15s"}}
+                  onMouseEnter={e=>{e.currentTarget.style.background="#DBEAFE";e.currentTarget.style.borderColor="#3B82F6";}}
+                  onMouseLeave={e=>{e.currentTarget.style.background="#EFF6FF";e.currentTarget.style.borderColor="transparent";}}
+                >
+                  <span>{c.stats}</span>
+                  <span style={{fontSize:14,color:"#3B82F6",flexShrink:0}}>{isExpanded?"↑":"↓"}</span>
+                </div>
+              : <div style={{fontSize:13,fontWeight:600,color:"#3B82F6",padding:"9px 12px",background:"#EFF6FF",borderRadius:8,marginBottom:10}}>{c.stats}</div>
+            }
+
+            {isExpandable&&isExpanded&&(
+              <div style={{marginTop:6,paddingTop:14,borderTop:"2px solid #E5E7EB",animation:"tf-slide-down .25s ease"}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>{exp.label} ({exp.tasks.length})</div>
+                <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:300,overflowY:"auto",marginBottom:10}}>
+                  {exp.tasks.slice(0,5).map(t=>(
+                    <div
+                      key={t.id}
+                      onClick={e=>{e.stopPropagation();onOpenTask?.(t.id);}}
+                      style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,padding:"9px 11px",cursor:"pointer",transition:"all .15s ease"}}
+                      onMouseEnter={e=>{e.currentTarget.style.background="#fff";e.currentTarget.style.borderColor="#3B82F6";e.currentTarget.style.transform="translateX(3px)";e.currentTarget.style.boxShadow="0 2px 8px rgba(59,130,246,0.1)";}}
+                      onMouseLeave={e=>{e.currentTarget.style.background="#F9FAFB";e.currentTarget.style.borderColor="#E5E7EB";e.currentTarget.style.transform="translateX(0)";e.currentTarget.style.boxShadow="none";}}
+                    >
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
+                        <span style={{fontSize:14,flexShrink:0}}>{t.projEmoji}</span>
+                        <span style={{fontSize:13,fontWeight:500,color:"#111827",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
+                      </div>
+                      <div style={{fontSize:11,color:"#6B7280",marginLeft:22}}>{t.projName} · {t.status}</div>
+                    </div>
+                  ))}
+                </div>
+                {exp.tasks.length>5&&(
+                  <button
+                    onClick={e=>{e.stopPropagation();setExpandedCard(null);onNavigate(c.id);}}
+                    style={{width:"100%",padding:"9px 14px",background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,fontSize:13,fontWeight:500,color:"#3B82F6",cursor:"pointer",fontFamily:"inherit",transition:"background .15s, border-color .15s"}}
+                    onMouseEnter={e=>{e.currentTarget.style.background="#EFF6FF";e.currentTarget.style.borderColor="#3B82F6";}}
+                    onMouseLeave={e=>{e.currentTarget.style.background="#fff";e.currentTarget.style.borderColor="#E5E7EB";}}
+                  >Ver las {exp.tasks.length} en {c.title} →</button>
+                )}
+              </div>
+            )}
 
             <div style={{marginTop:"auto",paddingTop:10,borderTop:"1px solid #E5E7EB"}}>
               <button
@@ -1799,7 +1900,7 @@ function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onT
               >📹 Ver tutorial — {c.videoLabel.match(/\((\d+ min)\)/)?.[1]||"próximamente"}</button>
             </div>
           </div>
-        ))}
+        );})}
       </div>
 
       <div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:12,padding:"20px 24px",animation:`tf-card-in .3s ease ${cards.length*50}ms both`}}>
@@ -3316,6 +3417,7 @@ export default function TaskFlow(){
   const [userMenuOpen,setUserMenuOpen]   = useState(false);
   const [showCommandPalette,setShowCommandPalette] = useState(false);
   const [pendingWorkspaceId,setPendingWorkspaceId] = useState(null);
+  const [overlayTaskId,setOverlayTaskId]           = useState(null);
   const [showAlerts,setShowAlerts] = useState(false);
   const [emailQueue,setEQ]         = useState([]);
   const [profileMember,setPM]      = useState(null);
@@ -3494,6 +3596,24 @@ export default function TaskFlow(){
     });
     addToast("✓ Tarea completada");
   },[addToast]);
+  const moveTaskAnywhere = useCallback((taskId,fromColId,toColId)=>{
+    setData(prev=>{
+      for(const pid in prev.boards){
+        const cols=prev.boards[pid];
+        if(!cols.some(c=>c.id===fromColId)) continue;
+        const fc=cols.find(c=>c.id===fromColId);
+        const task=fc.tasks.find(t=>t.id===taskId); if(!task) return prev;
+        const nc=cols.map(col=>{
+          if(col.id===fromColId) return{...col,tasks:col.tasks.filter(t=>t.id!==taskId)};
+          if(col.id===toColId)   return{...col,tasks:[...col.tasks,task]};
+          return col;
+        });
+        return{...prev,boards:{...prev.boards,[pid]:nc}};
+      }
+      return prev;
+    });
+    addToast("Tarea movida","info");
+  },[addToast]);
   const postponeTaskAnywhere = useCallback((task,newDate,label)=>{
     setData(prev=>{
       const newBoards={};
@@ -3591,6 +3711,26 @@ export default function TaskFlow(){
   return(
     <div style={{display:"flex",height:"100vh",fontFamily:"'Segoe UI',system-ui,sans-serif",background:"#f9fafb",color:"#111827"}}>
       {showUserModal&&<UserSelectionModal members={data.members} onSelectUser={selectUser}/>}
+      {overlayTaskId&&(()=>{
+        for(const p of data.projects){
+          const cols=data.boards[p.id]||[];
+          for(const col of cols){
+            const t=col.tasks.find(x=>x.id===overlayTaskId);
+            if(t){
+              const ws=(data.workspaces||[]).find(w=>w.id===p.workspaceId);
+              return <TaskModal
+                task={t} colId={col.id} cols={cols}
+                members={data.members} activeMemberId={activeMember}
+                workspaceLinks={ws?.links||[]} agents={data.agents||[]}
+                onClose={()=>setOverlayTaskId(null)}
+                onUpdate={(id,_cid,upd)=>updateTaskAnywhere(id,upd)}
+                onMove={(id,from,to)=>{moveTaskAnywhere(id,from,to);setOverlayTaskId(null);}}
+              />;
+            }
+          }
+        }
+        return null;
+      })()}
       {showCommandPalette&&<CommandPalette
         data={data}
         actions={paletteActions}
@@ -3721,7 +3861,7 @@ export default function TaskFlow(){
         )}
         {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember}/>}
         <div style={{flex:1,overflow:"auto"}}>
-          {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>setActiveTab(id)} onToast={addToast}/>}
+          {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>setActiveTab(id)} onToast={addToast} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
