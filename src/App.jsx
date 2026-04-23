@@ -326,6 +326,17 @@ function _migrate(d){
       d.agents = [];
     }
   }
+  // Backfill Héctor: se añadió al seed después del launch inicial. Si un
+  // estado existente ya tenía agentes pero no incluye a Héctor, lo inyectamos
+  // con un id fresco (max+1) para no colisionar con agentes custom. No se
+  // re-siembra si el usuario dejó la lista vacía a propósito.
+  if(d.agents.length>0 && !d.agents.some(a=>a.name==="Héctor")){
+    const hectorSeed = (INITIAL_DATA.agents||[]).find(a=>a.name==="Héctor");
+    if(hectorSeed){
+      const maxId = d.agents.reduce((m,a)=>typeof a.id==="number"&&a.id>m?a.id:m,0);
+      d.agents = [...d.agents, {...JSON.parse(JSON.stringify(hectorSeed)), id: maxId+1, createdAt: new Date().toISOString()}];
+    }
+  }
   d.projects = (d.projects||[]).map(p=>({...p, workspaceId: p.workspaceId ?? null}));
   d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[]}))}))]));
   return d;
