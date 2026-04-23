@@ -7,11 +7,11 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="TaskFlow" />
+    <meta name="apple-mobile-web-app-title" content="SoulBaric" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="apple-touch-icon" href="/icon.svg" />
-    <title>TaskFlow</title>
+    <title>SoulBaric</title>
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       html, body, #root { height: 100%; width: 100%; }
@@ -28,6 +28,7 @@
       @keyframes tf-fade-in { from { opacity: 0; } to { opacity: 1; } }
       @keyframes tf-slide-down { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
       @keyframes tf-palette-in { from { opacity: 0; transform: translateX(-50%) scale(0.97); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+      @keyframes tf-card-in { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: translateY(0); } }
       .tf-press:active { transform: scale(0.95); }
       .tf-lift { transition: transform .15s ease, box-shadow .15s ease; }
       .tf-lift:hover { transform: translateY(-2px); }

@@ -1,6 +1,6 @@
 {
-  "name": "TaskFlow",
-  "short_name": "TaskFlow",
+  "name": "SoulBaric",
+  "short_name": "SoulBaric",
   "description": "Gestión de tareas y equipos con asesor IA",
   "start_url": "/",
   "display": "standalone",

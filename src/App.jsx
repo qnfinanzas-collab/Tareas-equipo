@@ -1599,6 +1599,111 @@ function EisenhowerQuadrant({qk,tasks,onClick}){
   );
 }
 
+// "hace Xd" con granularidad de día (los datos solo tienen fecha YYYY-MM-DD).
+function timeAgoDate(dateStr){
+  if(!dateStr) return "";
+  const then=new Date(dateStr), now=new Date();
+  const diffMs=now-then;
+  if(diffMs<0) return fmt(new Date(dateStr));
+  const days=Math.floor(diffMs/86400000);
+  if(days<=0) return "hoy";
+  if(days===1) return "ayer";
+  if(days<7)   return `hace ${days}d`;
+  if(days<30)  return `hace ${Math.floor(days/7)} sem`;
+  return `hace ${Math.floor(days/30)} mes${days>=60?"es":""}`;
+}
+
+// ── Home View (panel de mandos tras login) ────────────────────────────────────
+function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate}){
+  const me=data.members.find(m=>m.id===activeMember);
+  const firstName=me?.name.split(" ")[0]||"";
+
+  const cards=[
+    {id:"dashboard", emoji:"📊", title:"Dashboard",       desc:"Vista global del equipo",                 meta:"Tareas activas · Matriz Eisenhower · Top 5 críticas"},
+    {id:"projects",  emoji:"📁", title:"Proyectos",       desc:"Tableros Kanban con drag & drop",         meta:`${data.projects.length} proyectos · columnas personalizables`},
+    {id:"planner",   emoji:"⚡", title:"Planificador IA", desc:"Asignación automática con Google Calendar", meta:"ICS real · margen de transporte · 14 días"},
+    {id:"workspaces",emoji:"🏢", title:"Workspaces",      desc:"Clientes y accesos centralizados",         meta:`${(data.workspaces||[]).length} workspaces · contactos · enlaces`},
+    {id:"agents",    emoji:"🤖", title:"Agentes IA",      desc:"Asesores personalizados con voz",          meta:`${(data.agents||[]).length} agentes · LLM + voz bidireccional`},
+    {id:"reports",   emoji:"⏱",  title:"Tiempos",         desc:"Reportes por persona y proyecto",          meta:"Logs · estimaciones · carga del equipo"},
+  ];
+
+  // Actividad: reune time logs, completados (Hecho) y creados. Granularidad diaria.
+  const activity=[];
+  Object.entries(data.boards||{}).forEach(([pid,cols])=>{
+    const proj=data.projects.find(p=>p.id===Number(pid));
+    cols.forEach(col=>{
+      col.tasks.forEach(t=>{
+        (t.timeLogs||[]).forEach(l=>{
+          if(l.date) activity.push({date:l.date, type:"log", memberId:l.memberId, seconds:l.seconds, task:t, proj});
+        });
+        if(col.name==="Hecho"){
+          const lastLog=(t.timeLogs||[]).slice(-1)[0];
+          const d=lastLog?.date||t.startDate;
+          if(d) activity.push({date:d, type:"done", memberId:t.assignees?.[0], task:t, proj});
+        }
+        if(t.startDate) activity.push({date:t.startDate, type:"created", memberId:t.assignees?.[0], task:t, proj});
+      });
+    });
+  });
+  const recent=activity.filter(a=>a.date).sort((a,b)=>a.date<b.date?1:-1).slice(0,5);
+  const iconFor={log:"⏱", done:"✓", created:"➕"};
+  const verbFor={log:"registró tiempo en", done:"completó", created:"creó"};
+
+  const activityText=(a)=>{
+    const m=data.members.find(x=>x.id===a.memberId);
+    const who=m?.name||"Alguien";
+    const when=timeAgoDate(a.date);
+    return <><strong>{who}</strong> {verbFor[a.type]} "<em>{a.task.title}</em>" · <span style={{color:"#9CA3AF"}}>{when}</span></>;
+  };
+
+  const statsLine = critMineCount>0
+    ? `Tienes ${critMineCount} tarea${critMineCount!==1?"s":""} crítica${critMineCount!==1?"s":""} hoy · ${alertMineCount>0?`${alertMineCount} alerta${alertMineCount!==1?"s":""} pendiente${alertMineCount!==1?"s":""}`:"sin alertas pendientes"}`
+    : `Tienes 0 tareas críticas hoy · Todo bajo control ✓`;
+
+  return(
+    <div style={{maxWidth:1200,margin:"0 auto",padding:"40px 20px"}}>
+      <div style={{marginBottom:40}}>
+        <div style={{fontSize:32,fontWeight:700,color:"#111827",marginBottom:8,lineHeight:1.2}}>Bienvenido de nuevo, {firstName} 👋</div>
+        <div style={{fontSize:15,color:"#6B7280"}}>{statsLine}</div>
+      </div>
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:18,marginBottom:40}}>
+        {cards.map((c,i)=>(
+          <div
+            key={c.id}
+            onClick={()=>onNavigate(c.id)}
+            style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:"22px 24px",cursor:"pointer",transition:"transform .2s ease, box-shadow .2s ease, border-color .2s ease",animation:`tf-card-in .3s ease ${i*50}ms both`}}
+            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-4px)";e.currentTarget.style.boxShadow="0 12px 24px rgba(0,0,0,0.08)";e.currentTarget.style.borderColor="#3B82F6";const arr=e.currentTarget.querySelector("[data-arr]"); if(arr){arr.style.transform="translateX(4px)";arr.style.color="#3B82F6";}}}
+            onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow="none";e.currentTarget.style.borderColor="#E5E7EB";const arr=e.currentTarget.querySelector("[data-arr]"); if(arr){arr.style.transform="translateX(0)";arr.style.color="#9CA3AF";}}}
+          >
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+              <span style={{fontSize:30,lineHeight:1}}>{c.emoji}</span>
+              <h3 style={{fontSize:19,fontWeight:600,color:"#111827",flex:1,margin:0}}>{c.title}</h3>
+              <span data-arr style={{fontSize:20,color:"#9CA3AF",transition:"transform .2s ease, color .2s ease"}}>→</span>
+            </div>
+            <p style={{fontSize:14,color:"#4B5563",marginBottom:6,lineHeight:1.5}}>{c.desc}</p>
+            <p style={{fontSize:12,color:"#9CA3AF",lineHeight:1.4,margin:0}}>{c.meta}</p>
+          </div>
+        ))}
+      </div>
+
+      <div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:12,padding:"20px 24px",animation:`tf-card-in .3s ease ${cards.length*50}ms both`}}>
+        <h3 style={{fontSize:12,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginTop:0,marginBottom:14}}>Actividad reciente</h3>
+        {recent.length===0
+          ? <div style={{fontSize:13,color:"#9CA3AF"}}>No hay actividad reciente<div style={{fontSize:12,marginTop:4,color:"#B9BEC6"}}>Las acciones de tu equipo aparecerán aquí</div></div>
+          : <ul style={{listStyle:"none",padding:0,margin:0}}>
+              {recent.map((a,i)=>(
+                <li key={`${a.type}-${a.task.id}-${i}`} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",borderBottom:i===recent.length-1?"none":"1px solid #E5E7EB"}}>
+                  <span style={{fontSize:14,flexShrink:0,marginTop:1}}>{iconFor[a.type]}</span>
+                  <span style={{fontSize:13,color:"#4B5563",lineHeight:1.5}}>{activityText(a)}</span>
+                </li>
+              ))}
+            </ul>}
+      </div>
+    </div>
+  );
+}
+
 // ── Dashboard View ────────────────────────────────────────────────────────────
 function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask,onOpenBriefing,onCompleteTask,onPostponeTask}){
   const {boards,members,projects,aiSchedule}=data;
@@ -2278,7 +2383,7 @@ function AlertPanel({alerts,members,activeMemberId,onClose,onEmailSend,onOpenTas
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",flexShrink:0}}>{[["mine","Mis alertas"],["advisor","Asesor IA"],["team","Equipo"]].map(([k,l])=><div key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"9px 0",textAlign:"center",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400}}>{l}</div>)}</div>
         <div style={{flex:1,overflowY:"auto",padding:12}}>
           {shown.length===0&&<div style={{textAlign:"center",padding:30,color:"#9ca3af",fontSize:13}}>Sin alertas activas</div>}
-          {shown.map(alert=>{ const s=ls[alert.level]||ls.info; const m=members.find(x=>x.id===alert.memberId); const wu=waUrl(m,`Alerta TaskFlow: ${alert.taskTitle||"Aviso"} — ${alert.msg}`);
+          {shown.map(alert=>{ const s=ls[alert.level]||ls.info; const m=members.find(x=>x.id===alert.memberId); const wu=waUrl(m,`Alerta SoulBaric: ${alert.taskTitle||"Aviso"} — ${alert.msg}`);
             const clickable = !!alert.taskId;
             return(
               <div
@@ -2299,7 +2404,7 @@ function AlertPanel({alerts,members,activeMemberId,onClose,onEmailSend,onOpenTas
                       {tab==="team"&&<span style={{fontSize:11,color:"#6b7280"}}>{m?.name}</span>}
                       <div style={{marginLeft:"auto",display:"flex",gap:5}}>
                         {wu&&<a href={wu} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"#dcfce7",color:"#166534",border:"1px solid #4ade80",textDecoration:"none",fontWeight:500}}>WA</a>}
-                        <button onClick={e=>{e.stopPropagation();setSent(p=>({...p,[alert.id]:true}));onEmailSend({to:m?.email,subject:`[TaskFlow] ${alert.taskTitle||"Alerta"}`,body:alert.msg});}} style={{fontSize:11,padding:"2px 8px",borderRadius:6,border:`1px solid ${s.border}`,background:"transparent",color:s.text,cursor:"pointer",fontWeight:500}}>{sent[alert.id]?"Enviado":"Email"}</button>
+                        <button onClick={e=>{e.stopPropagation();setSent(p=>({...p,[alert.id]:true}));onEmailSend({to:m?.email,subject:`[SoulBaric] ${alert.taskTitle||"Alerta"}`,body:alert.msg});}} style={{fontSize:11,padding:"2px 8px",borderRadius:6,border:`1px solid ${s.border}`,background:"transparent",color:s.text,cursor:"pointer",fontWeight:500}}>{sent[alert.id]?"Enviado":"Email"}</button>
                       </div>
                     </div>
                   </div>
@@ -2512,7 +2617,7 @@ function WorkspaceModal({workspace,onClose,onSave,onDelete}){
           </div>
 
           <div style={{background:"#FFF7E6",border:"1px solid #F0B85B",borderRadius:8,padding:"8px 12px",marginTop:14,fontSize:11,color:"#7C4A02"}}>
-            ⚠ Nunca guardes contraseñas aquí. Usa tu gestor (1Password, Bitwarden, llavero). TaskFlow vive en localStorage sin cifrado.
+            ⚠ Nunca guardes contraseñas aquí. Usa tu gestor (1Password, Bitwarden, llavero). SoulBaric vive en localStorage sin cifrado.
           </div>
 
           <div style={{display:"flex",gap:8,justifyContent:"space-between",marginTop:20,alignItems:"center"}}>
@@ -3053,7 +3158,7 @@ function UserSelectionModal({members,onSelectUser}){
     <div style={{position:"fixed",inset:0,background:"rgba(17,24,39,0.65)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,animation:"tf-fade-in .2s ease",opacity:leaving?0:1,transition:"opacity .2s"}}>
       <div style={{background:"#fff",borderRadius:16,width:480,maxWidth:"96vw",maxHeight:"92vh",display:"flex",flexDirection:"column",borderTop:"4px solid #7F77DD",boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
         <div style={{padding:"20px 24px 10px",textAlign:"center"}}>
-          <div style={{fontSize:18,fontWeight:700,marginBottom:4}}>Bienvenido a TaskFlow</div>
+          <div style={{fontSize:18,fontWeight:700,marginBottom:4}}>Bienvenido a SoulBaric</div>
           <div style={{fontSize:13,color:"#6b7280"}}>Selecciona tu usuario:</div>
         </div>
         <div style={{padding:"6px 16px 10px",overflowY:"auto",flex:1,display:"flex",flexDirection:"column",gap:8}}>
@@ -3090,7 +3195,7 @@ export default function TaskFlow(){
   const [syncReady,setSyncReady]   = useState(!syncEnabled);
   const [syncStatus,setSyncStatus] = useState(syncEnabled?"connecting":"off");
   const [activeProject,setAP]      = useState(0);
-  const [activeTab,setActiveTab]   = useState("projects");
+  const [activeTab,setActiveTab]   = useState("home");
   const [activeMember,setAM]       = useState(()=>{ const u=readStoredUser(); return typeof u?.id==="number"?u.id:5; });
   const [showUserModal,setShowUserModal] = useState(()=>!readStoredUser());
   const [userMenuOpen,setUserMenuOpen]   = useState(false);
@@ -3153,6 +3258,7 @@ export default function TaskFlow(){
     writeStoredUser(member);
     setAM(member.id);
     setShowUserModal(false);
+    setActiveTab("home");
     addToast(`Hola, ${member.name.split(" ")[0]}`,"info");
   },[addToast]);
   const changeUser = useCallback(()=>{
@@ -3386,8 +3492,8 @@ export default function TaskFlow(){
       {/* SIDEBAR */}
       <div className={`tf-sidebar${sidebarOpen?" open":""}`} onClick={e=>{ if(e.target.tagName!=="BUTTON" && e.target.tagName!=="INPUT" && e.target.tagName!=="SELECT") setSidebarOpen(false); }} style={{width:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column"}}>
         <div style={{padding:"16px 16px 12px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:30,height:30,background:"#7F77DD",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700}}>TF</div>
-          <span style={{fontWeight:600,fontSize:15}}>TaskFlow</span>
+          <div style={{width:30,height:30,background:"#7F77DD",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700}}>SB</div>
+          <span style={{fontWeight:600,fontSize:15}}>SoulBaric</span>
           <span title={syncStatus==="connected"?"Sincronizado con Supabase":syncStatus==="connecting"?"Conectando…":syncStatus==="error"?"Error de sincronización":"Solo local (sin sync)"} style={{marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:syncStatus==="connected"?"#10b981":syncStatus==="connecting"?"#f59e0b":syncStatus==="error"?"#ef4444":"#9ca3af"}}/>
         </div>
         <div style={{padding:"10px 12px",borderBottom:"0.5px solid #e5e7eb",background:"#fafafa",position:"relative"}}>
@@ -3414,6 +3520,9 @@ export default function TaskFlow(){
           )}
         </div>
         <div style={{padding:"6px 8px",borderBottom:"0.5px solid #e5e7eb"}}>
+          <div onClick={()=>setActiveTab("home")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="home"?"#EEEDFE":"transparent",color:activeTab==="home"?"#7F77DD":"#4b5563",fontWeight:activeTab==="home"?600:400}}>
+            <span style={{fontSize:14}}>🏠</span> Inicio
+          </div>
           <div onClick={()=>setActiveTab("dashboard")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="dashboard"?"#EEEDFE":"transparent",color:activeTab==="dashboard"?"#7F77DD":"#4b5563",fontWeight:activeTab==="dashboard"?600:400}}>
             <span style={{fontSize:14}}>📊</span> Dashboard
           </div>
@@ -3439,7 +3548,7 @@ export default function TaskFlow(){
             <button onClick={()=>setProjModal("create")} style={{width:18,height:18,borderRadius:4,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>+</button>
           </div>
           {data.projects.map((p,i)=>(
-            <div key={p.id} onClick={()=>{setAP(i);setActiveTab("board");}} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",borderRadius:8,cursor:"pointer",fontSize:12,background:i===activeProject&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"?"#f3f4f6":"transparent",color:i===activeProject&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"?"#111827":"#4b5563",fontWeight:i===activeProject&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"?500:400}}>
+            <div key={p.id} onClick={()=>{setAP(i);setActiveTab("board");}} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",borderRadius:8,cursor:"pointer",fontSize:12,background:i===activeProject&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"?"#f3f4f6":"transparent",color:i===activeProject&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"?"#111827":"#4b5563",fontWeight:i===activeProject&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"?500:400}}>
               <span style={{fontSize:14,flexShrink:0}}>{p.emoji||"📋"}</span>
               <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
               <div style={{width:7,height:7,borderRadius:"50%",background:p.color,flexShrink:0}}/>
@@ -3460,7 +3569,7 @@ export default function TaskFlow(){
         {/* Top bar — siempre visible. Hamburger solo en móvil, título + botón de búsqueda en ambos. */}
         <div style={{display:"flex",background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"10px 14px",alignItems:"center",gap:10,flexShrink:0}}>
           <button className="tf-only-mobile" onClick={()=>setSidebarOpen(true)} style={{width:38,height:38,borderRadius:8,background:"#f3f4f6",border:"none",fontSize:18,cursor:"pointer",alignItems:"center",justifyContent:"center"}}>☰</button>
-          <div style={{fontWeight:600,fontSize:14,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>TaskFlow · {activeTab==="board"?proj.name:activeTab}</div>
+          <div style={{fontWeight:600,fontSize:14,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>SoulBaric · {activeTab==="board"?proj.name:activeTab==="home"?"Inicio":activeTab}</div>
           <button
             title="Buscar (⌘K)"
             onClick={()=>setShowCommandPalette(true)}
@@ -3474,7 +3583,7 @@ export default function TaskFlow(){
             <span className="tf-search-kbd" style={{fontSize:10,color:"#9ca3af",border:"0.5px solid #d1d5db",borderRadius:5,padding:"2px 6px",fontWeight:600,background:"#fff",marginLeft:4}}>⌘K</span>
           </button>
         </div>
-        {activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&(
+        {activeTab!=="home"&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&(
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px",height:52,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
@@ -3490,13 +3599,14 @@ export default function TaskFlow(){
             </div>
           </div>
         )}
-        {activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&(
+        {activeTab!=="home"&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&(
           <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",background:"#fff",padding:"0 20px",flexShrink:0,overflowX:"auto"}}>
             {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #7F77DD":"2px solid transparent",color:activeTab===tab.key?"#7F77DD":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
           </div>
         )}
         {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember}/>}
         <div style={{flex:1,overflow:"auto"}}>
+          {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>setActiveTab(id)}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
