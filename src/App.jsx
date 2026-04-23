@@ -452,21 +452,42 @@ function DiscardBanner({onKeep,onDiscard}){
 // el padre recibe onInterim/onFinal con la transcripción y decide qué hacer.
 // Si SpeechRecognition no está disponible (Firefox etc), el componente no
 // renderiza nada — el input queda como estaba.
-function VoiceMicButton({onStart,onInterim,onFinal,onError,disabled,color="#1D9E75",title,size="md"}){
+// Dictado continuo. Click para empezar, click de nuevo para parar.
+// NUNCA auto-envía. Mientras graba, acumula utterances finalizadas en
+// accumRef y emite texto combinado (acumulado + interim) por onInterim
+// / onFinal. Inicializa con initialText para que la dictación continúe
+// desde lo que el usuario ya tenía escrito en el input.
+function VoiceMicButton({onStart,onInterim,onFinal,onError,disabled,color="#1D9E75",title,size="md",initialText=""}){
   const [listening,setListening] = useState(false);
-  const stopRef = useRef(null);
+  const stopRef  = useRef(null);
+  const accumRef = useRef("");
   useEffect(()=>()=>{ if(stopRef.current){ try{stopRef.current();}catch{} } },[]);
   const supported = voiceSupported().stt;
   if(!supported) return null;
   const handleClick = (e)=>{
     e.stopPropagation();
-    if(listening){ if(stopRef.current){ try{stopRef.current();}catch{} } return; }
+    if(listening){
+      // Stop explícito: corta el reconocimiento y deja el texto en el input.
+      if(stopRef.current){ try{stopRef.current();}catch{} }
+      return;
+    }
     if(disabled) return;
+    accumRef.current = (initialText||"").trim();
     onStart?.();
     stopRef.current = listen({
-      onStart: ()=>setListening(true),
-      onInterim: (t)=>onInterim?.(t),
-      onFinal:   (t)=>{ setListening(false); stopRef.current=null; onFinal?.(t); },
+      continuous: true,
+      onStart:   ()=>setListening(true),
+      onInterim: (t)=>{
+        const combined = accumRef.current ? `${accumRef.current} ${t}`.trim() : t;
+        onInterim?.(combined);
+      },
+      onFinal:   (t)=>{
+        // Cada utterance finalizada se concatena al acumulador.
+        // NO detenemos el reconocimiento — sigue escuchando hasta que
+        // el usuario haga click de nuevo.
+        accumRef.current = accumRef.current ? `${accumRef.current} ${t}`.trim() : t;
+        onFinal?.(accumRef.current);
+      },
       onError:   (err)=>{ setListening(false); stopRef.current=null; onError?.(err); },
       onEnd:     ()=>{ setListening(false); stopRef.current=null; },
     });
@@ -477,9 +498,9 @@ function VoiceMicButton({onStart,onInterim,onFinal,onError,disabled,color="#1D9E
       type="button"
       onClick={handleClick}
       disabled={disabled&&!listening}
-      title={listening?"Parar grabación":(title||"Dictar por voz")}
+      title={listening?"Parar dictado":(title||"Dictar por voz (continuo)")}
       style={{width:dim,height:dim,borderRadius:8,background:listening?"#E24B4A":"#fff",color:listening?"#fff":color,border:listening?"none":`1px solid ${color}`,fontSize:size==="sm"?12:15,cursor:(disabled&&!listening)?"not-allowed":"pointer",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:(disabled&&!listening)?0.5:1,animation:listening?"tf-mic-pulse 1.2s infinite":"none",padding:0}}
-    >{listening?"⏺":"🎤"}</button>
+    >{listening?"⏹":"🎤"}</button>
   );
 }
 
@@ -1457,7 +1478,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                   <div style={{position:"relative"}}>
                     <textarea value={draft.desc||""} onChange={e=>set("desc",e.target.value)} rows={3} style={{width:"100%",padding:"8px 38px 8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
                     <div style={{position:"absolute",right:6,top:6}}>
-                      <VoiceMicButton size="sm" color="#7F77DD" title="Dictar descripción" onInterim={t=>set("desc",t)} onFinal={t=>set("desc",t)}/>
+                      <VoiceMicButton size="sm" color="#7F77DD" title="Dictar descripción" initialText={draft.desc||""} onInterim={t=>set("desc",t)} onFinal={t=>set("desc",t)}/>
                     </div>
                   </div>
                   {(agents||[]).length>0 && <>
@@ -1637,7 +1658,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
               <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
                 <div style={{width:30,height:30,borderRadius:"50%",background:(MP[activeMemberId]||MP[0]).solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{members.find(x=>x.id===activeMemberId)?.initials}</div>
                 <textarea rows={2} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Escribe un comentario..." onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();addComment();}}} style={{flex:1,padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"none",fontFamily:"inherit",outline:"none"}}/>
-                <VoiceMicButton size="sm" color="#7F77DD" title="Dictar comentario" onInterim={t=>setComment(t)} onFinal={t=>setComment(t)}/>
+                <VoiceMicButton size="sm" color="#7F77DD" title="Dictar comentario" initialText={comment} onInterim={t=>setComment(t)} onFinal={t=>setComment(t)}/>
                 <button onClick={addComment} style={{padding:"8px 14px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:500}}>Enviar</button>
               </div>
             </>
@@ -3830,6 +3851,7 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
             size="sm"
             color="#1E40AF"
             title="Buscar por voz"
+            initialText={query}
             onInterim={t=>setQuery(t)}
             onFinal={t=>{ setQuery(t); inputRef.current?.focus(); }}
           />
@@ -4305,7 +4327,7 @@ function AddNoteModal({initialNote,onClose,onSave,onDelete}){
           <div style={{position:"relative"}}>
             <textarea autoFocus value={content} onChange={e=>setContent(e.target.value)} rows={6} placeholder="Ej: Emilio mencionó que el timeline es muy ajustado…" style={{width:"100%",padding:"8px 38px 8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
             <div style={{position:"absolute",right:6,top:6}}>
-              <VoiceMicButton size="sm" color="#3B82F6" title="Dictar nota" onInterim={t=>setContent(t)} onFinal={t=>setContent(t)}/>
+              <VoiceMicButton size="sm" color="#3B82F6" title="Dictar nota" initialText={content} onInterim={t=>setContent(t)} onFinal={t=>setContent(t)}/>
             </div>
           </div>
           <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"space-between",alignItems:"center"}}>
@@ -4876,8 +4898,13 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           };
           const callAgent = async(userMessage, opts={})=>{
             if(!hector){ onAppendHectorMessage(negotiation.id,{role:"assistant",content:"⚠ No hay agente Héctor configurado. Añádelo desde Agentes IA.",timestamp:new Date().toISOString()}); return null; }
-            const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + buildContext() + "\n\n" + PLAIN_TEXT_RULE + (opts.extraSystem?("\n\n"+opts.extraSystem):"");
-            const history = (negotiation.hectorChat||[]).slice(-10).map(m=>({role:m.role==="user"?"user":"assistant",content:m.content}));
+            const coherenceRule = "Mantén coherencia con toda la conversación. Si el usuario dice 'como te decía' o 'lo que te expliqué antes', busca en el historial anterior y conecta.";
+            const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + buildContext() + "\n\n" + coherenceRule + "\n\n" + PLAIN_TEXT_RULE + (opts.extraSystem?("\n\n"+opts.extraSystem):"");
+            // Ventana de contexto: ≤30 mensajes se envían enteros. Por encima,
+            // primeros 5 (semilla del hilo) + últimos 25 (continuidad reciente).
+            const all = negotiation.hectorChat||[];
+            const picked = all.length<=30 ? all : [...all.slice(0,5), ...all.slice(-25)];
+            const history = picked.map(m=>({role:m.role==="user"?"user":"assistant",content:m.content}));
             history.push({role:"user",content:userMessage});
             return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:userMessage}]:history,max_tokens:opts.maxTokens||900});
           };
@@ -5050,10 +5077,11 @@ ${taskLines||"(ninguna)"}`;
                 <VoiceMicButton
                   disabled={!hector||chatLoading}
                   color="#1D9E75"
-                  title="Hablar con Héctor (voz)"
+                  title="Dictar mensaje para Héctor (click para parar)"
+                  initialText={chatInput}
                   onStart={()=>{ stopSpeaking(); setSpeakingMsgTs(null); }}
                   onInterim={(t)=>setChatInput(t)}
-                  onFinal={(t)=>{ setChatInput(t); voiceInitiatedRef.current=true; handleSend(t); }}
+                  onFinal={(t)=>{ setChatInput(t); voiceInitiatedRef.current=true; }}
                 />
                 <input
                   value={chatInput}
@@ -5179,7 +5207,7 @@ function SessionDetailView({negotiation,session,agent,relatedProject,onBack,onEd
               <div style={{position:"relative"}}>
                 <textarea value={summaryDraft} onChange={e=>setSummaryDraft(e.target.value)} rows={8} placeholder="Escribe un resumen de la sesión: temas, acuerdos, objeciones, próximos pasos…" style={{width:"100%",padding:"10px 42px 10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit",lineHeight:1.55}}/>
                 <div style={{position:"absolute",right:6,top:6}}>
-                  <VoiceMicButton size="sm" color="#3B82F6" title="Dictar resumen" onInterim={t=>setSummaryDraft(t)} onFinal={t=>setSummaryDraft(t)}/>
+                  <VoiceMicButton size="sm" color="#3B82F6" title="Dictar resumen" initialText={summaryDraft} onInterim={t=>setSummaryDraft(t)} onFinal={t=>setSummaryDraft(t)}/>
                 </div>
               </div>
               <div style={{display:"flex",gap:8,marginTop:10}}>
