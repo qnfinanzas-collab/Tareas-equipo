@@ -252,6 +252,16 @@ const LS_KEY = 'taskflow_v1';
 function _migrate(d){
   if(!d.workspaces) d.workspaces = [];
   if(!d.negotiations) d.negotiations = [];
+  // FASE 2 integración: campos nuevos por negociación y por sesión.
+  d.negotiations = d.negotiations.map(n=>({
+    projectId: null, agentId: null, relatedTaskIds: [],
+    ...n,
+    sessions: (n.sessions||[]).map(s=>({
+      attendees: [], agentConversations: [],
+      ...s,
+      entries: s.entries||[],
+    })),
+  }));
   // Dedup workspace ids: sync realtime entre clientes puede fusionar estados con
   // contadores independientes y provocar colisiones. Con ids duplicados,
   // workspaces.find(w=>w.id===x) devuelve siempre el primero → clicks abren el
@@ -3402,7 +3412,7 @@ function timeAgoIso(iso){
 }
 
 // Modal crear/editar negociación.
-function NegotiationModal({negotiation,members,onClose,onSave,onDelete}){
+function NegotiationModal({negotiation,members,workspaces,projects,agents,onClose,onSave,onDelete}){
   const isEdit=!!negotiation;
   const [title,setTitle]       = useState(negotiation?.title||"");
   const [counterparty,setCP]   = useState(negotiation?.counterparty||"");
@@ -3411,15 +3421,21 @@ function NegotiationModal({negotiation,members,onClose,onSave,onDelete}){
   const [currency,setCurrency] = useState(negotiation?.currency||"EUR");
   const [description,setDesc]  = useState(negotiation?.description||"");
   const [ownerId,setOwnerId]   = useState(negotiation?.ownerId??(members[0]?.id??0));
+  // Integraciones
+  const initialWsId = negotiation?.projectId ? (projects.find(p=>p.id===negotiation.projectId)?.workspaceId??"") : "";
+  const [workspaceId,setWorkspaceId] = useState(initialWsId||"");
+  const [projectId,setProjectId]     = useState(negotiation?.projectId??"");
+  const [agentId,setAgentId]         = useState(negotiation?.agentId??"");
+  const availableProjects = workspaceId!=="" ? projects.filter(p=>p.workspaceId===Number(workspaceId)) : projects;
   const [pendingDel,setPendingDel] = useState(false);
   const [pendingClose,setPendingClose] = useState(false);
-  const [initialSnap]=useState(()=>JSON.stringify({title:negotiation?.title||"",counterparty:negotiation?.counterparty||"",status:negotiation?.status||"en_curso",value:negotiation?.value??"",currency:negotiation?.currency||"EUR",description:negotiation?.description||"",ownerId:negotiation?.ownerId??(members[0]?.id??0)}));
-  const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,ownerId})!==initialSnap;
+  const [initialSnap]=useState(()=>JSON.stringify({title:negotiation?.title||"",counterparty:negotiation?.counterparty||"",status:negotiation?.status||"en_curso",value:negotiation?.value??"",currency:negotiation?.currency||"EUR",description:negotiation?.description||"",ownerId:negotiation?.ownerId??(members[0]?.id??0),workspaceId:initialWsId||"",projectId:negotiation?.projectId??"",agentId:negotiation?.agentId??""}));
+  const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,ownerId,workspaceId,projectId,agentId})!==initialSnap;
   const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
   useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
   const save=()=>{
     if(!title.trim()||!counterparty.trim()) return;
-    onSave({title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId)});
+    onSave({title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),projectId:projectId===""?null:Number(projectId),agentId:agentId===""?null:Number(agentId)});
     onClose();
   };
   return(
@@ -3453,6 +3469,34 @@ function NegotiationModal({negotiation,members,onClose,onSave,onDelete}){
           </select>
           <FL c="Descripción"/>
           <textarea value={description} onChange={e=>setDesc(e.target.value)} rows={3} placeholder="Contexto, objetivo, contraparte, plazos…" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+
+          <div style={{marginTop:18,paddingTop:14,borderTop:"1px solid #E5E7EB"}}>
+            <div style={{fontSize:13,fontWeight:600,color:"#111827",marginBottom:6}}>🔗 Integración con plataforma</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div>
+                <FL c="Workspace"/>
+                <select value={workspaceId} onChange={e=>{setWorkspaceId(e.target.value);setProjectId("");}} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
+                  <option value="">— Todos / sin filtro —</option>
+                  {workspaces.map(w=><option key={w.id} value={w.id}>{w.emoji} {w.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <FL c="Proyecto relacionado"/>
+                <select value={projectId} onChange={e=>setProjectId(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
+                  <option value="">— Ninguno —</option>
+                  {availableProjects.map(p=><option key={p.id} value={p.id}>{p.emoji||"📋"} {p.name}</option>)}
+                </select>
+                <div style={{fontSize:11,color:"#9CA3AF",marginTop:3}}>Las tareas generadas se crearán aquí</div>
+              </div>
+            </div>
+            <FL c="Agente IA asignado"/>
+            <select value={agentId} onChange={e=>setAgentId(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
+              <option value="">— Ninguno —</option>
+              {agents.map(a=><option key={a.id} value={a.id}>{a.emoji||"🤖"} {a.name} — {a.role}</option>)}
+            </select>
+            <div style={{fontSize:11,color:"#9CA3AF",marginTop:3}}>El agente recibirá contexto completo en briefings y consejos</div>
+          </div>
+
           <div style={{display:"flex",gap:8,marginTop:20,justifyContent:"space-between",alignItems:"center"}}>
             <div>
               {isEdit&&onDelete&&(!pendingDel
@@ -3630,7 +3674,7 @@ function DealRoomView({negotiations,members,filter,onSetFilter,onCreate,onOpen,o
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessions=(negotiation.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
@@ -3648,7 +3692,61 @@ function NegotiationDetailView({negotiation,members,onBack,onEditNeg,onCreateSes
       <div style={{display:"flex",gap:10,marginBottom:24,flexWrap:"wrap"}}>
         <button onClick={onCreateSession} style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva sesión</button>
         <button onClick={()=>onEditNeg(negotiation)} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
+        {negotiation.agentId&&<button onClick={()=>onRequestBriefing(negotiation,null)} style={{padding:"9px 16px",borderRadius:10,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>🎯 Pedir briefing</button>}
       </div>
+
+      {/* Cards relacionadas: proyecto, agente, tareas generadas */}
+      {(()=>{
+        const proj = negotiation.projectId ? projects.find(p=>p.id===negotiation.projectId) : null;
+        const ws   = proj && workspaces.find(w=>w.id===proj.workspaceId);
+        const agent= negotiation.agentId ? agents.find(a=>a.id===negotiation.agentId) : null;
+        const relTaskIds = negotiation.relatedTaskIds||[];
+        if(!proj && !agent && relTaskIds.length===0) return null;
+        return(
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12,marginBottom:24}}>
+            {proj&&(
+              <div onClick={()=>onGoProject(proj.id)} className="tf-lift" style={{background:"#fff",border:`2px solid ${proj.color}33`,borderLeft:`4px solid ${proj.color}`,borderRadius:12,padding:"14px 16px",cursor:"pointer"}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>📁 Proyecto</div>
+                <div style={{fontSize:14,fontWeight:600,color:"#111827",marginBottom:2}}>{proj.emoji||"📋"} {proj.name}</div>
+                <div style={{fontSize:11,color:"#6B7280"}}>{ws?`${ws.emoji} ${ws.name} · `:""}{(boards[proj.id]||[]).reduce((s,c)=>s+c.tasks.length,0)} tareas · {relTaskIds.length} desde esta negociación</div>
+                <div style={{fontSize:11,color:proj.color,fontWeight:600,marginTop:6}}>Abrir proyecto →</div>
+              </div>
+            )}
+            {agent&&(
+              <div onClick={()=>onRequestBriefing(negotiation,null)} className="tf-lift" style={{background:"#fff",border:`2px solid ${(agent.color||"#7F77DD")}33`,borderLeft:`4px solid ${agent.color||"#7F77DD"}`,borderRadius:12,padding:"14px 16px",cursor:"pointer"}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>🤖 Agente asignado</div>
+                <div style={{fontSize:14,fontWeight:600,color:"#111827",marginBottom:2}}>{agent.emoji||"🤖"} {agent.name}</div>
+                <div style={{fontSize:11,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{agent.role||agent.style||"Asesor IA"}</div>
+                <div style={{fontSize:11,color:agent.color||"#7F77DD",fontWeight:600,marginTop:6}}>Pedir briefing →</div>
+              </div>
+            )}
+            {relTaskIds.length>0&&(
+              <div style={{background:"#F9FAFB",border:"2px solid #E5E7EB",borderRadius:12,padding:"14px 16px"}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>📋 Tareas generadas</div>
+                <div style={{fontSize:14,fontWeight:600,color:"#111827",marginBottom:8}}>{relTaskIds.length} tarea{relTaskIds.length!==1?"s":""} vinculada{relTaskIds.length!==1?"s":""}</div>
+                {(()=>{
+                  const found=[];
+                  for(const pid in boards){
+                    const cols=boards[pid]||[];
+                    for(const col of cols){
+                      for(const t of col.tasks){
+                        if(relTaskIds.includes(t.id)){ found.push({t,colName:col.name,projId:Number(pid)}); if(found.length>=3) break; }
+                      }
+                      if(found.length>=3) break;
+                    }
+                    if(found.length>=3) break;
+                  }
+                  return found.map(({t,colName,projId})=>(
+                    <div key={t.id} onClick={()=>onOpenTask(t.id,projId)} style={{fontSize:11.5,padding:"5px 8px",background:"#fff",borderRadius:6,marginBottom:4,cursor:"pointer",border:"1px solid #E5E7EB"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#3B82F6";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#E5E7EB";}}>
+                      📌 {t.title.length>40?t.title.slice(0,40)+"…":t.title} <span style={{color:"#9CA3AF"}}>· {colName}</span>
+                    </div>
+                  ));
+                })()}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Timeline de sesiones ({sessions.length})</div>
       {sessions.length===0
@@ -3676,7 +3774,7 @@ function NegotiationDetailView({negotiation,members,onBack,onEditNeg,onCreateSes
 }
 
 // Detalle sesión: notas cronológicas + resumen editable.
-function SessionDetailView({negotiation,session,onBack,onEditSession,onAddNote,onEditNote,onUpdateSummary,onToast}){
+function SessionDetailView({negotiation,session,agent,relatedProject,onBack,onEditSession,onAddNote,onEditNote,onUpdateSummary,onToast,onManageAttendees,onRequestAdvice,onGenerateTasks}){
   const [summaryDraft,setSummaryDraft] = useState(session.summary||"");
   const [editingSummary,setEditingSummary] = useState(false);
   const entries = (session.entries||[]).slice().sort((a,b)=>(a.timestamp||"").localeCompare(b.timestamp||""));
@@ -3694,10 +3792,27 @@ function SessionDetailView({negotiation,session,onBack,onEditSession,onAddNote,o
         <div style={{fontSize:20,fontWeight:700,color:"#111827",marginBottom:4}}>{getSessionTypeIcon(session.type)} {getSessionTypeLabel(session.type)}</div>
         <div style={{fontSize:13,color:"#6b7280"}}>{formatDateTimeES(session.date)}{session.location?` · ${session.location}`:""} · {session.duration} min</div>
       </div>
+      {/* Asistentes */}
+      <div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:(session.attendees||[]).length>0?8:0}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em"}}>👥 Asistentes ({(session.attendees||[]).length})</div>
+          <button onClick={onManageAttendees} style={{fontSize:11,color:"#3B82F6",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>Gestionar</button>
+        </div>
+        {(session.attendees||[]).length===0
+          ? <div style={{fontSize:12,color:"#9CA3AF",fontStyle:"italic"}}>Sin asistentes registrados. Añade miembros internos o contactos externos.</div>
+          : <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {(session.attendees||[]).map(a=>(
+                <span key={a.id} title={`${a.name}${a.company?` · ${a.company}`:""} · ${a.role}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 10px",background:a.external?"#FEF3C7":"#EFF6FF",border:`1px solid ${a.external?"#FCD34D":"#BFDBFE"}`,borderRadius:14,fontSize:12,color:a.external?"#854F0B":"#1E40AF"}}>{a.lead&&"⭐ "}{a.name}{a.external&&<span style={{fontSize:10,opacity:0.7}}>(Ext)</span>}</span>
+              ))}
+            </div>}
+      </div>
+
       <div style={{display:"flex",gap:10,marginBottom:22,flexWrap:"wrap"}}>
         <button onClick={onAddNote} style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Añadir nota</button>
         <button onClick={()=>onEditSession(session)} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar sesión</button>
         <button onClick={autoSummary} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#3B82F6",border:"0.5px solid #3B82F6",fontSize:13,cursor:"pointer",fontWeight:500}}>✨ Generar resumen</button>
+        {agent&&<button onClick={onRequestAdvice} style={{padding:"9px 16px",borderRadius:10,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>🤖 Pedir consejo a {agent.name.split(" ")[0]}</button>}
+        {relatedProject&&<button onClick={onGenerateTasks} style={{padding:"9px 16px",borderRadius:10,background:"#10B981",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>📋 Generar tareas en {relatedProject.emoji||"📋"} {relatedProject.name}</button>}
       </div>
 
       <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Notas ({entries.length})</div>
@@ -3732,6 +3847,251 @@ function SessionDetailView({negotiation,session,onBack,onEditSession,onAddNote,o
           : session.summary
             ? <div style={{fontSize:13,color:"#374151",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{session.summary}</div>
             : <div style={{fontSize:13,color:"#9CA3AF",fontStyle:"italic"}}>Sin resumen aún.</div>}
+      </div>
+
+      {(session.agentConversations||[]).length>0&&(
+        <div style={{marginTop:22,paddingTop:20,borderTop:"2px solid #E5E7EB"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>🤖 Conversaciones con agente ({session.agentConversations.length})</div>
+          {session.agentConversations.slice().reverse().map(c=>(
+            <details key={c.id} style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"10px 14px",marginBottom:8}}>
+              <summary style={{cursor:"pointer",fontSize:12,fontWeight:600,color:"#374151"}}>
+                <span style={{fontFamily:"ui-monospace,monospace",color:"#6B7280",marginRight:8}}>{c.timestamp}</span>
+                {c.type==="briefing_request"?"🎯 Briefing":c.type==="live_advice"?"💬 Consejo":"📝 Resumen"}
+                <span style={{color:"#9CA3AF",fontWeight:400,marginLeft:6}}>· {timeAgoIso(c.createdAt)}</span>
+              </summary>
+              <div style={{marginTop:10,fontSize:12.5,color:"#1f2937",lineHeight:1.6,whiteSpace:"pre-wrap",paddingLeft:10,borderLeft:"2px solid #BFDBFE"}}>{c.agentResponse||"(sin respuesta)"}</div>
+            </details>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Modal gestión de asistentes a una sesión (internos + externos).
+function AttendeesModal({session,members,onClose,onSave,onToast}){
+  const [attendees,setAttendees] = useState(session.attendees||[]);
+  const [showAddExt,setShowAddExt] = useState(false);
+  const [extName,setExtName]       = useState("");
+  const [extCompany,setExtCompany] = useState("");
+  const [extRole,setExtRole]       = useState("");
+  const [pendingClose,setPendingClose] = useState(false);
+  const [initialSnap]=useState(()=>JSON.stringify(session.attendees||[]));
+  const isDirty=JSON.stringify(attendees)!==initialSnap || showAddExt || extName.trim() || extCompany.trim() || extRole.trim();
+  const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
+  useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
+
+  const addInternal = (m)=>{
+    if(attendees.some(a=>a.memberId===m.id)){ onToast?.("Este miembro ya está en la lista","info"); return; }
+    setAttendees([...attendees,{id:_uid("att"),memberId:m.id,name:m.name,company:"SoulBaric",role:m.role||"Miembro del equipo",lead:attendees.length===0,external:false}]);
+  };
+  const addExternal = ()=>{
+    if(!extName.trim()){ onToast?.("Nombre obligatorio","error"); return; }
+    setAttendees([...attendees,{id:_uid("att"),memberId:null,name:extName.trim(),company:extCompany.trim(),role:extRole.trim()||"Invitado",lead:false,external:true}]);
+    setExtName(""); setExtCompany(""); setExtRole(""); setShowAddExt(false);
+  };
+  const toggleLead = (id)=>setAttendees(attendees.map(a=>a.id===id?{...a,lead:!a.lead}:a));
+  const remove = (id)=>setAttendees(attendees.filter(a=>a.id!==id));
+
+  return(
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:620,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:"4px solid #3B82F6",marginBottom:24}}>
+        <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontWeight:600,fontSize:15}}>👥 Gestionar asistentes</div>
+          <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>×</button>
+        </div>
+        {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
+        <div style={{padding:20,maxHeight:"70vh",overflowY:"auto"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Asistentes ({attendees.length})</div>
+          {attendees.length===0
+            ? <div style={{fontSize:12,color:"#9CA3AF",fontStyle:"italic",marginBottom:14}}>Aún no hay asistentes. Añade miembros del equipo o externos.</div>
+            : <div style={{marginBottom:16}}>{attendees.map(a=>{ const mp2=a.memberId!=null?(MP[a.memberId]||MP[0]):null; return(
+                <div key={a.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,marginBottom:6}}>
+                  <div style={{width:30,height:30,borderRadius:"50%",background:mp2?.solid||"#9CA3AF",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{a.name.split(" ").map(w=>w[0]||"").join("").slice(0,2).toUpperCase()}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:"#111827"}}>{a.lead&&"⭐ "}{a.name}{a.external&&<span style={{fontSize:11,color:"#9CA3AF",fontWeight:400,marginLeft:4}}>(Externo)</span>}</div>
+                    <div style={{fontSize:11,color:"#6B7280"}}>{a.company?`${a.company} · `:""}{a.role}</div>
+                  </div>
+                  <button onClick={()=>toggleLead(a.id)} title={a.lead?"Quitar líder":"Marcar como líder"} style={{padding:"6px 9px",borderRadius:6,border:`1px solid ${a.lead?"#FCD34D":"#e5e7eb"}`,background:a.lead?"#FEF3C7":"#fff",fontSize:13,cursor:"pointer"}}>⭐</button>
+                  <button onClick={()=>remove(a.id)} title="Eliminar" style={{padding:"6px 9px",borderRadius:6,border:"1px solid #e5e7eb",background:"#fff",fontSize:12,color:"#6B7280",cursor:"pointer"}}>✕</button>
+                </div>
+              );})}</div>}
+
+          <div style={{fontSize:11,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginTop:16,marginBottom:8}}>Añadir miembros del equipo</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:16}}>
+            {members.map(m=>{ const already=attendees.some(a=>a.memberId===m.id); const mp2=MP[m.id]||MP[0]; return(
+              <button key={m.id} disabled={already} onClick={()=>addInternal(m)} style={{padding:"6px 12px",borderRadius:20,border:`1px solid ${already?"#e5e7eb":mp2.solid+"55"}`,background:already?"#F3F4F6":mp2.light,color:already?"#9CA3AF":mp2.solid,fontSize:12,fontWeight:500,cursor:already?"not-allowed":"pointer",opacity:already?0.6:1}}>{m.name.split(" ")[0]} {already&&"✓"}</button>
+            );})}
+          </div>
+
+          <div style={{fontSize:11,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginTop:16,marginBottom:8}}>Añadir asistente externo</div>
+          {!showAddExt
+            ? <button onClick={()=>setShowAddExt(true)} style={{padding:"8px 14px",borderRadius:8,background:"#fff",color:"#3B82F6",border:"1px dashed #3B82F6",fontSize:12,cursor:"pointer",fontWeight:500}}>+ Añadir externo</button>
+            : <div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:14}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div><FL c="Nombre *"/><FI value={extName} onChange={setExtName} placeholder="Ej: Emilio Calvo"/></div>
+                  <div><FL c="Empresa"/><FI value={extCompany} onChange={setExtCompany} placeholder="Inversor externo"/></div>
+                </div>
+                <FL c="Rol"/><FI value={extRole} onChange={setExtRole} placeholder="Inversor principal"/>
+                <div style={{display:"flex",gap:6,marginTop:10}}>
+                  <button onClick={()=>{setShowAddExt(false);setExtName("");setExtCompany("");setExtRole("");}} style={{padding:"7px 12px",borderRadius:7,background:"transparent",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>Cancelar</button>
+                  <button onClick={addExternal} style={{padding:"7px 14px",borderRadius:7,background:"#3B82F6",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>Añadir</button>
+                </div>
+              </div>}
+        </div>
+        <div style={{padding:"12px 20px",borderTop:"0.5px solid #e5e7eb",display:"flex",gap:8,justifyContent:"flex-end",background:"#fafafa"}}>
+          <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+          <button onClick={()=>{onSave(attendees);onClose();}} style={{padding:"8px 20px",borderRadius:8,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Guardar asistentes</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Modal briefing/consejo con agente IA — llama al proxy /api/agent y guarda
+// la conversación en session.agentConversations cuando hay sesión asociada.
+function AgentBriefingModal({agent,negotiation,session,kind,prompt,onClose,onSavedConversation}){
+  const [response,setResponse] = useState("");
+  const [loading,setLoading] = useState(true);
+  const [error,setError] = useState("");
+  const [editedPrompt,setEditedPrompt] = useState(prompt);
+  useEffect(()=>{
+    let cancelled=false;
+    setLoading(true); setError("");
+    (async()=>{
+      try{
+        const systemPrompt = (agent.promptBase&&agent.promptBase.trim())
+          ? agent.promptBase
+          : `Eres ${agent.name}${agent.role?`, especialista en ${agent.role}`:""}. Estilo: ${agent.style||"profesional y directo"}. Responde en español en ${kind==="briefing"?"estructura clara con secciones numeradas":"tono conciso y accionable"}.`;
+        const r = await fetch("/api/agent",{
+          method:"POST",
+          headers:{"content-type":"application/json"},
+          body:JSON.stringify({system:systemPrompt,messages:[{role:"user",content:editedPrompt}],max_tokens:900}),
+        });
+        const data = await r.json();
+        if(cancelled) return;
+        if(!r.ok) throw new Error(data.error||"Error en el agente");
+        setResponse(data.text||"(respuesta vacía)");
+        if(session&&onSavedConversation){
+          onSavedConversation({id:_uid("conv"),timestamp:kind==="briefing"?"pre-meeting":new Date().toTimeString().slice(0,5),type:kind==="briefing"?"briefing_request":"live_advice",query:editedPrompt,agentResponse:data.text||"",createdAt:new Date().toISOString()});
+        }
+      }catch(e){ if(!cancelled) setError(e.message||"Error"); }
+      finally{ if(!cancelled) setLoading(false); }
+    })();
+    return()=>{ cancelled=true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+  useEffect(()=>{ const k=e=>{if(e.key==="Escape") onClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[onClose]);
+
+  return(
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:700,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${agent.color||"#7F77DD"}`,marginBottom:24}}>
+        <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:40,height:40,borderRadius:10,background:(agent.color||"#7F77DD")+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{agent.emoji||"🤖"}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:700}}>{kind==="briefing"?"🎯 Briefing":"💬 Consejo en tiempo real"} — {agent.name}</div>
+            <div style={{fontSize:11,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{negotiation.title}{session?` · ${formatDateTimeES(session.date)}`:""}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>×</button>
+        </div>
+        <div style={{padding:20,maxHeight:"70vh",overflowY:"auto"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Contexto enviado al agente</div>
+          <textarea value={editedPrompt} onChange={e=>setEditedPrompt(e.target.value)} rows={6} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12.5,resize:"vertical",fontFamily:"ui-monospace,monospace",background:"#F9FAFB",lineHeight:1.55}}/>
+          <div style={{fontSize:11,color:"#9CA3AF",marginTop:4,marginBottom:14}}>Puedes editar el contexto y reenviar — la conversación se guardará en la sesión.</div>
+
+          <div style={{fontSize:11,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Respuesta del agente</div>
+          {loading && <div style={{padding:20,textAlign:"center",color:"#6B7280",fontSize:13}}>⏳ Consultando a {agent.name}…</div>}
+          {error && !loading && <div style={{padding:14,background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:8,fontSize:12.5,color:"#991B1B"}}>⚠ {error}<div style={{fontSize:11,marginTop:4,color:"#7F1D1D"}}>Revisa ANTHROPIC_API_KEY en Vercel o intenta de nuevo.</div></div>}
+          {!loading && !error && response && (
+            <div style={{padding:14,background:(agent.color||"#7F77DD")+"10",border:`1px solid ${(agent.color||"#7F77DD")}44`,borderRadius:10,fontSize:13,color:"#1f2937",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{response}</div>
+          )}
+        </div>
+        <div style={{padding:"12px 20px",borderTop:"0.5px solid #e5e7eb",display:"flex",gap:8,justifyContent:"flex-end",background:"#fafafa"}}>
+          <button onClick={onClose} style={{padding:"8px 20px",borderRadius:8,background:agent.color||"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Cerrar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Detecta compromisos simples por regex (patrón heurístico; FASE 3 usará LLM).
+function detectCommitmentsInSession(session){
+  const text = `${session.summary||""}\n${(session.entries||[]).map(e=>e.content).join("\n")}`;
+  const found = new Set();
+  const patterns = [
+    /(?:enviar|enviamos)\s+(.{5,80}?)(?:\s+(?:antes de|el|para)\s|[.\n])/gi,
+    /(?:preparar|preparamos)\s+(.{5,80}?)(?:\s+(?:para|antes)\s|[.\n])/gi,
+    /(?:acord(?:ar|amos)|acuerdo:)\s*(.{5,80}?)(?:[.\n]|$)/gi,
+    /(?:próximo paso|siguiente paso|next step):?\s*(.{5,80}?)(?:[.\n]|$)/gi,
+    /(?:compromiso|me comprometo a)\s+(.{5,80}?)(?:[.\n]|$)/gi,
+  ];
+  patterns.forEach(p=>{
+    for(const m of text.matchAll(p)){
+      const t=(m[1]||"").trim().replace(/["'"",.]+$/,"");
+      if(t.length>=5&&t.length<=90) found.add(t);
+    }
+  });
+  return Array.from(found);
+}
+
+// Modal generar tareas en proyecto a partir de compromisos detectados.
+function GenerateTasksModal({negotiation,session,project,members,activeMember,onClose,onGenerate}){
+  const [tasks,setTasks] = useState(()=>detectCommitmentsInSession(session).map(title=>({id:_uid("gt"),title,assignee:activeMember,dueDate:"",priority:"media"})));
+  const [pendingClose,setPendingClose] = useState(false);
+  const [initialSnap]=useState(()=>JSON.stringify(tasks));
+  const isDirty=JSON.stringify(tasks)!==initialSnap;
+  const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
+  useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
+  const update = (i,patch)=>setTasks(ts=>ts.map((t,idx)=>idx===i?{...t,...patch}:t));
+  const remove = (i)=>setTasks(ts=>ts.filter((_,idx)=>idx!==i));
+  const add    = ()=>setTasks(ts=>[...ts,{id:_uid("gt"),title:"",assignee:activeMember,dueDate:"",priority:"media"}]);
+  const valid  = tasks.filter(t=>t.title.trim());
+  const generate = ()=>{ onGenerate(valid); onClose(); };
+  return(
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:680,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:"4px solid #3B82F6",marginBottom:24}}>
+        <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div>
+            <div style={{fontWeight:600,fontSize:15}}>📋 Generar tareas en proyecto</div>
+            <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{project.emoji||"📋"} {project.name} · desde {getSessionTypeLabel(session.type)}</div>
+          </div>
+          <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>×</button>
+        </div>
+        {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
+        <div style={{padding:20,maxHeight:"70vh",overflowY:"auto"}}>
+          <div style={{fontSize:12.5,color:"#4B5563",marginBottom:14,lineHeight:1.5}}>
+            {tasks.length===0
+              ? <>No se detectaron compromisos automáticamente en el resumen ni en las notas. Puedes añadir tareas manualmente abajo.</>
+              : <>Se detectaron <b style={{color:"#111827"}}>{tasks.length}</b> compromiso{tasks.length!==1?"s":""} en esta sesión. Revisa, edita o elimina antes de crear las tareas.</>}
+          </div>
+
+          {tasks.map((t,i)=>(
+            <div key={t.id} style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:14,marginBottom:10}}>
+              <FL c={`Tarea ${i+1}`}/>
+              <FI value={t.title} onChange={v=>update(i,{title:v})} placeholder="Ej: Enviar presupuesto revisado"/>
+              <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:8,marginTop:8,alignItems:"flex-end"}}>
+                <div><FL c="Asignado a"/>
+                  <select value={t.assignee} onChange={e=>update(i,{assignee:Number(e.target.value)})} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12,fontFamily:"inherit",background:"#fff"}}>
+                    {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </div>
+                <div><FL c="Fecha límite"/>
+                  <input type="date" value={t.dueDate} onChange={e=>update(i,{dueDate:e.target.value})} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12,fontFamily:"inherit"}}/></div>
+                <div><FL c="Prioridad"/>
+                  <select value={t.priority} onChange={e=>update(i,{priority:e.target.value})} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12,fontFamily:"inherit",background:"#fff"}}>
+                    <option value="alta">Alta</option><option value="media">Media</option><option value="baja">Baja</option>
+                  </select>
+                </div>
+                <button onClick={()=>remove(i)} title="Eliminar" style={{padding:"7px 10px",borderRadius:8,background:"#FEE2E2",color:"#B91C1C",border:"1px solid #FCA5A5",fontSize:12,cursor:"pointer"}}>✕</button>
+              </div>
+            </div>
+          ))}
+          <button onClick={add} style={{width:"100%",padding:"9px 14px",background:"#fff",color:"#3B82F6",border:"1px dashed #3B82F6",borderRadius:8,fontSize:13,cursor:"pointer",fontWeight:500}}>+ Añadir tarea manual</button>
+        </div>
+        <div style={{padding:"12px 20px",borderTop:"0.5px solid #e5e7eb",display:"flex",gap:8,justifyContent:"flex-end",background:"#fafafa"}}>
+          <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+          <button onClick={generate} disabled={valid.length===0} style={{padding:"8px 20px",borderRadius:8,background:valid.length>0?"#3B82F6":"#e5e7eb",color:valid.length>0?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:valid.length>0?"pointer":"default",fontWeight:600}}>Crear {valid.length||0} tarea{valid.length!==1?"s":""}</button>
+        </div>
       </div>
     </div>
   );
@@ -3807,6 +4167,9 @@ export default function TaskFlow(){
   const [negModal,setNegModal]                     = useState(null); // null | "create" | neg object
   const [sessModal,setSessModal]                   = useState(null); // null | "create" | session object
   const [noteModal,setNoteModal]                   = useState(null); // null | "create" | note object
+  const [attendeesModalOpen,setAttendeesModalOpen] = useState(false);
+  const [genTasksOpen,setGenTasksOpen]             = useState(false);
+  const [briefingCtx,setBriefingCtx]               = useState(null); // {agent, negotiation, session|null, kind, prompt}
   const [showAlerts,setShowAlerts] = useState(false);
   const [emailQueue,setEQ]         = useState([]);
   const [profileMember,setPM]      = useState(null);
@@ -4075,6 +4438,37 @@ export default function TaskFlow(){
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,summary,updatedAt:now}:s)}:n)}));
   },[]);
+  const setSessionAttendees = useCallback((negId,sessId,attendees)=>{
+    const now=new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,attendees,updatedAt:now}:s)}:n)}));
+    addToast("✓ Asistentes actualizados");
+  },[addToast]);
+  const addAgentConversation = useCallback((negId,sessId,conv)=>{
+    const now=new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:(n.sessions||[]).map(s=>s.id===sessId?{...s,agentConversations:[...(s.agentConversations||[]),conv],updatedAt:now}:s)}:n)}));
+  },[]);
+  // Crea tareas en el proyecto vinculado a la negociación y las enlaza con
+  // relatedTaskIds + metadatos (negotiationId, sessionId) en cada tarea.
+  const generateTasksFromSession = useCallback((negId,sessId,projId,tasks)=>{
+    const priorityMap={alta:"alta",media:"media",baja:"baja"};
+    const newIds=[]; const now=new Date().toISOString();
+    setData(prev=>{
+      const cols=prev.boards[projId]; if(!cols) return prev;
+      const targetCol = cols.find(c=>c.name==="Por hacer")||cols[0];
+      const newCols=cols.map(col=>{
+        if(col.id!==targetCol.id) return col;
+        const added=tasks.map(t=>{
+          const id=_uid("t");
+          newIds.push(id);
+          return {id,title:t.title.trim(),tags:[],assignees:[t.assignee],priority:priorityMap[t.priority]||"media",startDate:fmt(new Date()),dueDate:t.dueDate||"",estimatedHours:0,timeLogs:[],desc:`Generada desde negociación: ${(prev.negotiations||[]).find(n=>n.id===negId)?.title||""}`,comments:[],subtasks:[],links:[],agentIds:[],negotiationId:negId,sessionId:sessId};
+        });
+        return {...col,tasks:[...col.tasks,...added]};
+      });
+      const newNegs=(prev.negotiations||[]).map(n=>n.id===negId?{...n,relatedTaskIds:[...(n.relatedTaskIds||[]),...newIds],updatedAt:now}:n);
+      return {...prev,boards:{...prev.boards,[projId]:newCols},negotiations:newNegs};
+    });
+    addToast(`✓ ${tasks.length} tarea${tasks.length!==1?"s":""} creada${tasks.length!==1?"s":""}`);
+  },[addToast]);
 
   const createProject = useCallback(({name,desc,color,emoji,members:mems,columns,workspaceId})=>{
     const id=nextProjId++;
@@ -4282,6 +4676,9 @@ export default function TaskFlow(){
               <span style={{fontSize:15,fontWeight:600}}>{proj.name}</span>
               <span style={{fontSize:11,padding:"2px 9px",borderRadius:20,background:`${proj.color}22`,color:proj.color,border:`0.5px solid ${proj.color}55`,fontWeight:500}}>{proj.members.length} miembros</span>
               {activeTab==="board"&&<span style={{fontSize:12,color:"#6b7280"}}>{doneTasks}/{totalTasks} completadas</span>}
+              {(()=>{ const relNeg=(data.negotiations||[]).find(n=>n.projectId===proj.id); if(!relNeg) return null; const st=getNegStatus(relNeg.status); return(
+                <button onClick={()=>{setActiveTab("dealroom");setActiveNegId(relNeg.id);setActiveSessId(null);}} title={`Ir a la negociación: ${relNeg.title}`} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"3px 10px",borderRadius:14,background:"#FEF3C7",border:"1px solid #FCD34D",color:"#854F0B",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>💼 {relNeg.title.length>26?relNeg.title.slice(0,26)+"…":relNeg.title}<span style={{fontSize:10,padding:"1px 6px",background:"#fff",borderRadius:10,color:st.color,fontWeight:600}}>{st.label}</span></button>
+              );})()}
             </div>
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
             {activeTab==="board"&&<button onClick={()=>setScopeAvatar("board")} style={{padding:"6px 12px",borderRadius:8,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>🎙️ Asesor del tablero</button>}
@@ -4302,25 +4699,48 @@ export default function TaskFlow(){
           {activeTab==="dealroom"&&(()=>{
             const activeNeg = activeNegId ? (data.negotiations||[]).find(n=>n.id===activeNegId) : null;
             const activeSess = activeNeg && activeSessId ? (activeNeg.sessions||[]).find(s=>s.id===activeSessId) : null;
+            const negAgent = activeNeg?.agentId ? (data.agents||[]).find(a=>a.id===activeNeg.agentId) : null;
+            const negProject = activeNeg?.projectId ? data.projects.find(p=>p.id===activeNeg.projectId) : null;
+            const openBriefing = (neg,sess,kind)=>{
+              const agent = (data.agents||[]).find(a=>a.id===neg.agentId);
+              if(!agent){ addToast("⚠ Asigna un agente IA a esta negociación primero","error"); return; }
+              const proj = neg.projectId ? data.projects.find(p=>p.id===neg.projectId) : null;
+              const sessions = (neg.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
+              const lastSess = sessions[0];
+              const notes = sess ? (sess.entries||[]).map(e=>`- [${e.timestamp}] ${e.content}`).join("\n") : "";
+              const prompt = kind==="briefing"
+                ? `🎯 BRIEFING PARA NEGOCIACIÓN\n\nNegociación: ${neg.title}\nContraparte: ${neg.counterparty}${neg.value!=null?` · Valor: ${neg.value} ${neg.currency||"EUR"}`:""}\nEstado: ${getNegStatus(neg.status).label}\n${neg.description?`\nDescripción: ${neg.description}`:""}${proj?`\nProyecto: ${proj.name}`:""}\n\n${lastSess?`Última sesión (${formatDateTimeES(lastSess.date)}):\n${lastSess.summary||"(sin resumen)"}`:"Esta será la primera reunión."}\n\nPrepárame un briefing con:\n1. Resumen del contexto y del cliente\n2. Objetivos clave para la próxima sesión\n3. Estrategia recomendada\n4. Posibles objeciones y cómo responderlas\n5. Próximos pasos concretos`
+                : `💬 CONSEJO EN TIEMPO REAL\n\nNegociación: ${neg.title} · Contraparte: ${neg.counterparty}\nSesión: ${getSessionTypeLabel(sess.type)} · ${formatDateTimeES(sess.date)}\n\nNotas tomadas hasta ahora:\n${notes||"(aún sin notas)"}\n\n¿Qué consejo concreto me das para avanzar en esta situación? Sé breve, directo y accionable.`;
+              setBriefingCtx({agent,negotiation:neg,session:sess,kind,prompt});
+            };
             if(activeNeg && activeSess){
               return <SessionDetailView
                 negotiation={activeNeg} session={activeSess}
+                agent={negAgent} relatedProject={negProject}
                 onBack={()=>setActiveSessId(null)}
                 onEditSession={s=>setSessModal(s)}
                 onAddNote={()=>setNoteModal("create")}
                 onEditNote={n=>setNoteModal(n)}
                 onUpdateSummary={summary=>updateSummary(activeNeg.id,activeSess.id,summary)}
                 onToast={addToast}
+                onManageAttendees={()=>setAttendeesModalOpen(true)}
+                onRequestAdvice={()=>openBriefing(activeNeg,activeSess,"advice")}
+                onGenerateTasks={()=>setGenTasksOpen(true)}
               />;
             }
             if(activeNeg){
               return <NegotiationDetailView
                 negotiation={activeNeg} members={data.members}
+                projects={data.projects} workspaces={data.workspaces||[]}
+                agents={data.agents||[]} boards={data.boards}
                 onBack={()=>setActiveNegId(null)}
                 onEditNeg={n=>setNegModal(n)}
                 onCreateSession={()=>setSessModal("create")}
                 onOpenSession={sid=>setActiveSessId(sid)}
                 onEditSession={s=>setSessModal(s)}
+                onRequestBriefing={(n)=>openBriefing(n,null,"briefing")}
+                onGoProject={pid=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); } }}
+                onOpenTask={(taskId,pid)=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); setPendingOpenTaskId(taskId); } }}
               />;
             }
             return <DealRoomView
@@ -4366,8 +4786,26 @@ export default function TaskFlow(){
       {workspaceModal==="create"&&<WorkspaceModal onClose={()=>setWorkspaceModal(null)} onSave={createWorkspace}/>}
       {workspaceModal&&workspaceModal!=="create"&&<WorkspaceModal workspace={workspaceModal} onClose={()=>setWorkspaceModal(null)} onSave={d=>editWorkspace(workspaceModal.id,d)} onDelete={deleteWorkspace}/>}
 
-      {negModal==="create"&&<NegotiationModal members={data.members} onClose={()=>setNegModal(null)} onSave={createNegotiation}/>}
-      {negModal&&negModal!=="create"&&<NegotiationModal negotiation={negModal} members={data.members} onClose={()=>setNegModal(null)} onSave={p=>updateNegotiation(negModal.id,p)} onDelete={id=>{ deleteNegotiation(id); if(activeNegId===id){ setActiveNegId(null); setActiveSessId(null); } }}/>}
+      {negModal==="create"&&<NegotiationModal members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} onClose={()=>setNegModal(null)} onSave={createNegotiation}/>}
+      {negModal&&negModal!=="create"&&<NegotiationModal negotiation={negModal} members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} onClose={()=>setNegModal(null)} onSave={p=>updateNegotiation(negModal.id,p)} onDelete={id=>{ deleteNegotiation(id); if(activeNegId===id){ setActiveNegId(null); setActiveSessId(null); } }}/>}
+      {attendeesModalOpen&&activeNegId&&activeSessId&&(()=>{
+        const n=(data.negotiations||[]).find(x=>x.id===activeNegId); const s=n?.sessions.find(x=>x.id===activeSessId);
+        if(!s) return null;
+        return <AttendeesModal session={s} members={data.members} onClose={()=>setAttendeesModalOpen(false)} onSave={att=>setSessionAttendees(activeNegId,activeSessId,att)} onToast={addToast}/>;
+      })()}
+      {genTasksOpen&&activeNegId&&activeSessId&&(()=>{
+        const n=(data.negotiations||[]).find(x=>x.id===activeNegId); const s=n?.sessions.find(x=>x.id===activeSessId);
+        const project = n?.projectId ? data.projects.find(p=>p.id===n.projectId) : null;
+        if(!n||!s){ return null; }
+        if(!project){ setGenTasksOpen(false); addToast("⚠ Asigna un proyecto a la negociación primero","error"); return null; }
+        return <GenerateTasksModal negotiation={n} session={s} project={project} members={data.members} activeMember={activeMember} onClose={()=>setGenTasksOpen(false)} onGenerate={(tasks)=>generateTasksFromSession(activeNegId,activeSessId,project.id,tasks)}/>;
+      })()}
+      {briefingCtx&&<AgentBriefingModal
+        agent={briefingCtx.agent} negotiation={briefingCtx.negotiation} session={briefingCtx.session}
+        kind={briefingCtx.kind} prompt={briefingCtx.prompt}
+        onClose={()=>setBriefingCtx(null)}
+        onSavedConversation={briefingCtx.session?(conv=>addAgentConversation(briefingCtx.negotiation.id,briefingCtx.session.id,conv)):null}
+      />}
       {activeNegId&&sessModal==="create"&&<SessionModal onClose={()=>setSessModal(null)} onSave={p=>addSession(activeNegId,p)}/>}
       {activeNegId&&sessModal&&sessModal!=="create"&&<SessionModal session={sessModal} onClose={()=>setSessModal(null)} onSave={p=>updateSession(activeNegId,sessModal.id,p)} onDelete={sid=>{ deleteSession(activeNegId,sid); if(activeSessId===sid) setActiveSessId(null); }}/>}
       {activeNegId&&activeSessId&&noteModal==="create"&&<AddNoteModal onClose={()=>setNoteModal(null)} onSave={p=>addNote(activeNegId,activeSessId,p)}/>}
