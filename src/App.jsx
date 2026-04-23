@@ -3444,6 +3444,13 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
             placeholder="Buscar tareas, proyectos, acciones..."
             style={{flex:1,fontSize:17,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",color:"#111827"}}
           />
+          <VoiceMicButton
+            size="sm"
+            color="#1E40AF"
+            title="Buscar por voz"
+            onInterim={t=>setQuery(t)}
+            onFinal={t=>{ setQuery(t); inputRef.current?.focus(); }}
+          />
           <span style={{fontSize:10,color:"#9CA3AF",border:"0.5px solid #E5E7EB",borderRadius:5,padding:"2px 6px",fontWeight:600}}>Esc</span>
         </div>
 
