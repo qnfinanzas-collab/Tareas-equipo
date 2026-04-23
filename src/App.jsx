@@ -334,6 +334,33 @@ function DiscardBanner({onKeep,onDiscard}){
   );
 }
 
+// Fuzzy subsequence match + highlight para el Command Palette.
+function fuzzyMatch(text,query){
+  if(!query) return true;
+  const t=text.toLowerCase(), q=query.toLowerCase();
+  let i=0;
+  for(const ch of q){
+    i=t.indexOf(ch,i);
+    if(i<0) return false;
+    i++;
+  }
+  return true;
+}
+function HighlightedText({text,query}){
+  if(!query||!text) return text||null;
+  const t=text.toLowerCase(), q=query.toLowerCase();
+  const nodes=[]; let last=0, k=0;
+  for(const ch of q){
+    const idx=t.indexOf(ch,last);
+    if(idx<0) break;
+    if(idx>last) nodes.push(<span key={k++}>{text.slice(last,idx)}</span>);
+    nodes.push(<strong key={k++} style={{color:"#1E40AF"}}>{text[idx]}</strong>);
+    last=idx+1;
+  }
+  if(last<text.length) nodes.push(<span key={k++}>{text.slice(last)}</span>);
+  return <>{nodes}</>;
+}
+
 // ── Alerts engine ─────────────────────────────────────────────────────────────
 function genAlerts(boards,members){
   const alerts=[];
@@ -2509,8 +2536,14 @@ function WorkspaceModal({workspace,onClose,onSave,onDelete}){
 }
 
 // ── Workspaces View ───────────────────────────────────────────────────────────
-function WorkspacesView({workspaces,projects,boards,onCreate,onEdit,onSelectProject}){
+function WorkspacesView({workspaces,projects,boards,onCreate,onEdit,onSelectProject,pendingWorkspaceId,onPendingConsumed}){
   const [selected,setSelected] = useState(null);
+  useEffect(()=>{
+    if(pendingWorkspaceId!=null){
+      setSelected(pendingWorkspaceId);
+      onPendingConsumed?.();
+    }
+  },[pendingWorkspaceId,onPendingConsumed]);
   const ws = selected!=null ? workspaces.find(w=>w.id===selected) : null;
 
   if(ws){
@@ -2826,6 +2859,180 @@ function AgentsView({agents,onCreate,onEdit}){
   );
 }
 
+// ── Command Palette (⌘K) ──────────────────────────────────────────────────────
+function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavigateProject,actions}){
+  const [query,setQuery]       = useState("");
+  const [selectedIndex,setSI]  = useState(0);
+  const inputRef               = useRef(null);
+  const listRef                = useRef(null);
+
+  useEffect(()=>{ inputRef.current?.focus(); },[]);
+
+  const results = React.useMemo(()=>{
+    const q=query.trim().toLowerCase();
+    const allTasks=[];
+    Object.entries(data.boards||{}).forEach(([pid,cols])=>{
+      const proj=data.projects.find(p=>p.id===Number(pid));
+      cols.forEach(col=>col.tasks.forEach(t=>{
+        allTasks.push({...t,projId:Number(pid),projName:proj?.name||"",projEmoji:proj?.emoji||"📋",colName:col.name,colId:col.id});
+      }));
+    });
+    if(!q){
+      return {
+        tasks:[],
+        actions,
+        workspaces:(data.workspaces||[]).slice(0,5),
+        projects:[],
+      };
+    }
+    return {
+      tasks:      allTasks.filter(t=>fuzzyMatch(t.title,q)).slice(0,10),
+      actions:    actions.filter(a=>fuzzyMatch(a.label,q)),
+      workspaces: (data.workspaces||[]).filter(w=>fuzzyMatch(w.name,q)).slice(0,6),
+      projects:   data.projects.filter(p=>fuzzyMatch(p.name,q)).slice(0,6),
+    };
+  },[query,data,actions]);
+
+  // Lista plana para navegación por índice; registra el tipo de cada item.
+  const flat = React.useMemo(()=>{
+    const list=[];
+    results.tasks     .forEach(t=>list.push({type:"task",     item:t}));
+    results.actions   .forEach(a=>list.push({type:"action",   item:a}));
+    results.workspaces.forEach(w=>list.push({type:"workspace",item:w}));
+    results.projects  .forEach(p=>list.push({type:"project",  item:p}));
+    return list;
+  },[results]);
+
+  useEffect(()=>{ setSI(0); },[query]);
+
+  const executeAt = useCallback((idx)=>{
+    const entry=flat[idx]; if(!entry) return;
+    if(entry.type==="task")      onNavigateTask(entry.item);
+    else if(entry.type==="workspace") onNavigateWorkspace(entry.item);
+    else if(entry.type==="project")   onNavigateProject(entry.item);
+    else if(entry.type==="action")    entry.item.run();
+    onClose();
+  },[flat,onNavigateTask,onNavigateWorkspace,onNavigateProject,onClose]);
+
+  useEffect(()=>{
+    const onKey=(e)=>{
+      if(e.key==="Escape"){ e.preventDefault(); onClose(); }
+      else if(e.key==="ArrowDown"){ e.preventDefault(); setSI(i=>Math.min((flat.length||1)-1,i+1)); }
+      else if(e.key==="ArrowUp"){ e.preventDefault(); setSI(i=>Math.max(0,i-1)); }
+      else if(e.key==="Enter"){ e.preventDefault(); executeAt(selectedIndex); }
+      else if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){ e.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[flat,selectedIndex,executeAt,onClose]);
+
+  useEffect(()=>{
+    const el=listRef.current?.querySelector(`[data-idx="${selectedIndex}"]`);
+    if(el) el.scrollIntoView({block:"nearest"});
+  },[selectedIndex]);
+
+  const totalAll = flat.length;
+  const hasAny = totalAll>0;
+
+  const rowStyle = (idx)=>{
+    const sel = idx===selectedIndex;
+    return{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderRadius:8,cursor:"pointer",background:sel?"#DBEAFE":"transparent",color:sel?"#1E40AF":"#111827",transition:"background .15s ease"};
+  };
+  const catHeader = (label,count,first)=>(
+    <div style={{fontSize:10,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",padding:"10px 16px 4px",marginTop:first?0:4}}>{label} ({count})</div>
+  );
+
+  let idxCounter = 0;
+
+  return(
+    <>
+      <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:9998,animation:"tf-fade-in .18s ease"}}/>
+      <div style={{position:"fixed",top:"14vh",left:"50%",transform:"translateX(-50%)",width:600,maxWidth:"92vw",maxHeight:"72vh",background:"#fff",borderRadius:14,boxShadow:"0 24px 70px rgba(0,0,0,0.35)",border:"0.5px solid #e5e7eb",zIndex:9999,display:"flex",flexDirection:"column",overflow:"hidden",animation:"tf-palette-in .2s ease"}}>
+        {/* Input */}
+        <div style={{display:"flex",alignItems:"center",gap:10,padding:"14px 18px",borderBottom:"1px solid #E5E7EB"}}>
+          <span style={{fontSize:16,color:"#9CA3AF"}}>🔍</span>
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={e=>setQuery(e.target.value)}
+            placeholder="Buscar tareas, proyectos, acciones..."
+            style={{flex:1,fontSize:17,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",color:"#111827"}}
+          />
+          <span style={{fontSize:10,color:"#9CA3AF",border:"0.5px solid #E5E7EB",borderRadius:5,padding:"2px 6px",fontWeight:600}}>Esc</span>
+        </div>
+
+        {/* Results */}
+        <div ref={listRef} style={{flex:1,overflowY:"auto",padding:"4px 8px 8px"}}>
+          {!hasAny&&(
+            <div style={{padding:"30px 20px",textAlign:"center"}}>
+              {query.trim()
+                ? <><div style={{fontSize:13,color:"#6B7280",marginBottom:4}}>No se encontraron resultados para "<b>{query.trim()}</b>"</div><div style={{fontSize:11,color:"#9CA3AF"}}>Intenta con otros términos</div></>
+                : <div style={{fontSize:13,color:"#9CA3AF"}}>Empieza a escribir para buscar</div>}
+            </div>
+          )}
+
+          {results.tasks.length>0&&<>
+            {catHeader("Tareas",results.tasks.length,true)}
+            {results.tasks.map((t,i)=>{ const idx=idxCounter++; return(
+              <div key={`t-${t.id}-${t.projId}-${i}`} data-idx={idx} onClick={()=>executeAt(idx)} onMouseEnter={()=>setSI(idx)} style={rowStyle(idx)}>
+                <span style={{fontSize:15,flexShrink:0}}>📌</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><HighlightedText text={t.title} query={query.trim()}/></div>
+                  <div style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#6B7280",opacity:0.85}}>{t.projEmoji} {t.projName} · {t.colName}</div>
+                </div>
+              </div>
+            );})}
+          </>}
+
+          {results.actions.length>0&&<>
+            {catHeader("Acciones",results.actions.length,results.tasks.length===0)}
+            {results.actions.map((a,i)=>{ const idx=idxCounter++; return(
+              <div key={`a-${a.id}`} data-idx={idx} onClick={()=>executeAt(idx)} onMouseEnter={()=>setSI(idx)} style={rowStyle(idx)}>
+                <span style={{fontSize:15,flexShrink:0}}>{a.icon}</span>
+                <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:500}}><HighlightedText text={a.label} query={query.trim()}/></div>
+                {a.shortcut&&<span style={{fontSize:10,color:idx===selectedIndex?"#1E40AF":"#9CA3AF",border:"0.5px solid #E5E7EB",borderRadius:5,padding:"2px 6px",fontWeight:600}}>{a.shortcut}</span>}
+              </div>
+            );})}
+          </>}
+
+          {results.workspaces.length>0&&<>
+            {catHeader("Workspaces",results.workspaces.length,results.tasks.length===0&&results.actions.length===0)}
+            {results.workspaces.map(w=>{ const idx=idxCounter++; const wsProjects=data.projects.filter(p=>p.workspaceId===w.id); const total=wsProjects.reduce((s,p)=>s+((data.boards[p.id]||[]).reduce((ss,c)=>ss+c.tasks.length,0)),0); const done=wsProjects.reduce((s,p)=>s+((data.boards[p.id]||[]).filter(c=>c.name==="Hecho").reduce((ss,c)=>ss+c.tasks.length,0)),0); return(
+              <div key={`w-${w.id}`} data-idx={idx} onClick={()=>executeAt(idx)} onMouseEnter={()=>setSI(idx)} style={rowStyle(idx)}>
+                <span style={{fontSize:15,flexShrink:0}}>{w.emoji||"🏢"}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><HighlightedText text={w.name} query={query.trim()}/></div>
+                  <div style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#6B7280",opacity:0.85}}>{wsProjects.length} proyecto{wsProjects.length!==1?"s":""} · {done}/{total} completadas</div>
+                </div>
+              </div>
+            );})}
+          </>}
+
+          {results.projects.length>0&&<>
+            {catHeader("Proyectos",results.projects.length,results.tasks.length===0&&results.actions.length===0&&results.workspaces.length===0)}
+            {results.projects.map(p=>{ const idx=idxCounter++; const cols=data.boards[p.id]||[]; const total=cols.reduce((s,c)=>s+c.tasks.length,0); const ws=(data.workspaces||[]).find(w=>w.id===p.workspaceId); return(
+              <div key={`p-${p.id}`} data-idx={idx} onClick={()=>executeAt(idx)} onMouseEnter={()=>setSI(idx)} style={rowStyle(idx)}>
+                <span style={{fontSize:15,flexShrink:0}}>{p.emoji||"📋"}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><HighlightedText text={p.name} query={query.trim()}/></div>
+                  <div style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#6B7280",opacity:0.85}}>{ws?`${ws.emoji||"🏢"} ${ws.name} · `:""}{total} tarea{total!==1?"s":""}</div>
+                </div>
+              </div>
+            );})}
+          </>}
+        </div>
+
+        {/* Footer */}
+        <div style={{padding:"10px 16px",borderTop:"1px solid #E5E7EB",background:"#F9FAFB",fontSize:11,color:"#9CA3AF",display:"flex",gap:12,flexWrap:"wrap"}}>
+          <span><b style={{color:"#6B7280"}}>↑↓</b> Navegar</span>
+          <span><b style={{color:"#6B7280"}}>Enter</b> Seleccionar</span>
+          <span><b style={{color:"#6B7280"}}>Esc</b> Cerrar</span>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── User selector (temporal, pre-auth) ────────────────────────────────────────
 const USER_KEY = "taskflow_current_user";
 const readStoredUser = () => { try{ const s=localStorage.getItem(USER_KEY); return s?JSON.parse(s):null; }catch{ return null; } };
@@ -2887,6 +3094,8 @@ export default function TaskFlow(){
   const [activeMember,setAM]       = useState(()=>{ const u=readStoredUser(); return typeof u?.id==="number"?u.id:5; });
   const [showUserModal,setShowUserModal] = useState(()=>!readStoredUser());
   const [userMenuOpen,setUserMenuOpen]   = useState(false);
+  const [showCommandPalette,setShowCommandPalette] = useState(false);
+  const [pendingWorkspaceId,setPendingWorkspaceId] = useState(null);
   const [showAlerts,setShowAlerts] = useState(false);
   const [emailQueue,setEQ]         = useState([]);
   const [profileMember,setPM]      = useState(null);
@@ -2956,10 +3165,46 @@ export default function TaskFlow(){
     window.location.reload();
   },[]);
 
+  // Cmd+K / Ctrl+K abre el Command Palette desde cualquier vista (excepto durante el login).
+  useEffect(()=>{
+    if(showUserModal) return;
+    const onKey=(e)=>{
+      if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){
+        e.preventDefault();
+        setShowCommandPalette(v=>!v);
+      }
+    };
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[showUserModal]);
+
   const proj  = data.projects[activeProject];
   const board = data.boards[proj.id];
   const alerts = genAlerts(data.boards, data.members);
   const critCount = alerts.filter(a=>a.memberId===activeMember&&(a.level==="critical"||a.level==="warning")).length;
+
+  // Acciones rápidas del Command Palette.
+  const paletteActions = React.useMemo(()=>[
+    { id:"new-task", icon:"➕", label:"Crear nueva tarea", shortcut:"", run:()=>{
+        const colId=board[0]?.id; if(!colId) return;
+        const id=_uid("t");
+        setData(prev=>{
+          const nt={id,title:"Nueva tarea",tags:[],assignees:[activeMember],priority:"media",startDate:fmt(new Date()),dueDate:"",estimatedHours:0,timeLogs:[],desc:"",comments:[],subtasks:[],links:[],agentIds:[]};
+          const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:[...col.tasks,nt]}:col);
+          return{...prev,boards:{...prev.boards,[proj.id]:cols}};
+        });
+        setActiveTab("board");
+        setPendingOpenTaskId(id);
+        addToast("✓ Tarea creada");
+      } },
+    { id:"dashboard",   icon:"🏠", label:"Ir al Dashboard",   shortcut:"",    run:()=>setActiveTab("dashboard") },
+    { id:"projects",    icon:"📁", label:"Ir a Proyectos",    shortcut:"",    run:()=>setActiveTab("projects") },
+    { id:"planner",     icon:"⚡", label:"Abrir Planificador IA", shortcut:"", run:()=>setActiveTab("planner") },
+    { id:"workspaces",  icon:"🏢", label:"Ver Workspaces",     shortcut:"",    run:()=>setActiveTab("workspaces") },
+    { id:"alerts",      icon:"🔔", label:"Ver alertas",        shortcut:"",    run:()=>setShowAlerts(true) },
+    { id:"change-user", icon:"🔄", label:"Cambiar usuario",    shortcut:"",    run:()=>changeUser() },
+    { id:"logout",      icon:"🚪", label:"Cerrar sesión",      shortcut:"",    run:()=>logoutTemp() },
+  ],[proj.id,board,activeMember,addToast,changeUser,logoutTemp]);
 
   // ── Member CRUD ──
   const updateMember = useCallback((updates, memberId)=>{
@@ -3125,6 +3370,18 @@ export default function TaskFlow(){
   return(
     <div style={{display:"flex",height:"100vh",fontFamily:"'Segoe UI',system-ui,sans-serif",background:"#f9fafb",color:"#111827"}}>
       {showUserModal&&<UserSelectionModal members={data.members} onSelectUser={selectUser}/>}
+      {showCommandPalette&&<CommandPalette
+        data={data}
+        actions={paletteActions}
+        onClose={()=>setShowCommandPalette(false)}
+        onNavigateTask={task=>{
+          const pi=data.projects.findIndex(p=>p.id===task.projId);
+          if(pi<0){ addToast("⚠ Esta tarea ya no existe","error"); return; }
+          setAP(pi); setActiveTab("board"); setPendingOpenTaskId(task.id);
+        }}
+        onNavigateWorkspace={ws=>{ setActiveTab("workspaces"); setPendingWorkspaceId(ws.id); }}
+        onNavigateProject={p=>{ const i=data.projects.findIndex(x=>x.id===p.id); if(i>=0){ setAP(i); setActiveTab("board"); } }}
+      />}
       {sidebarOpen && <div className="tf-backdrop" onClick={()=>setSidebarOpen(false)}/>}
       {/* SIDEBAR */}
       <div className={`tf-sidebar${sidebarOpen?" open":""}`} onClick={e=>{ if(e.target.tagName!=="BUTTON" && e.target.tagName!=="INPUT" && e.target.tagName!=="SELECT") setSidebarOpen(false); }} style={{width:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column"}}>
@@ -3231,7 +3488,7 @@ export default function TaskFlow(){
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
-          {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
+          {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
           {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
