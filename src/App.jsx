@@ -258,6 +258,7 @@ function _migrate(d){
     const m = {
       projectId: null, agentId: null, relatedTaskIds: [],
       relatedProjects: null, relationships: [], stakeholders: [],
+      briefing: null,
       ...n,
       sessions: (n.sessions||[]).map(s=>({
         attendees: [], agentConversations: [],
@@ -3969,7 +3970,7 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessions=(negotiation.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
@@ -3987,8 +3988,26 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
       <div style={{display:"flex",gap:10,marginBottom:24,flexWrap:"wrap"}}>
         <button onClick={onCreateSession} style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva sesión</button>
         <button onClick={()=>onEditNeg(negotiation)} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
-        {negotiation.agentId&&<button onClick={()=>onRequestBriefing(negotiation,null)} style={{padding:"9px 16px",borderRadius:10,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>🎯 Pedir briefing</button>}
+        {negotiation.agentId&&<button onClick={()=>onRequestBriefing(negotiation,null)} style={{padding:"9px 16px",borderRadius:10,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>🎯 {negotiation.briefing?"Actualizar":"Pedir"} briefing</button>}
       </div>
+
+      {/* Briefing preparado y guardado */}
+      {negotiation.briefing&&(()=>{
+        const agent = negotiation.agentId ? agents.find(a=>a.id===negotiation.agentId) : null;
+        return(
+          <div style={{background:"#fff",border:"2px solid #E5E7EB",borderLeft:`4px solid ${agent?.color||"#7F77DD"}`,borderRadius:12,padding:"14px 18px",marginBottom:18}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#111827"}}>📋 Briefing preparado</div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <span style={{fontSize:11,color:"#9CA3AF"}}>Generado {timeAgoIso(negotiation.briefing.generatedAt)}{negotiation.briefing.generatedBy==="ai"&&agent?` por ${agent.emoji||"🤖"} ${agent.name}`:""}</span>
+                <button onClick={()=>onRequestBriefing(negotiation,null)} style={{fontSize:11,color:"#3B82F6",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>Actualizar</button>
+                <button onClick={()=>onClearBriefing(negotiation.id)} title="Eliminar briefing" style={{fontSize:11,color:"#E24B4A",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>Eliminar</button>
+              </div>
+            </div>
+            <div style={{fontSize:13,color:"#374151",lineHeight:1.65,whiteSpace:"pre-wrap",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,padding:"12px 14px"}}>{negotiation.briefing.content}</div>
+          </div>
+        );
+      })()}
 
       {/* Proyectos relacionados (múltiples) */}
       {(negotiation.relatedProjects||[]).length>0&&(
@@ -4285,42 +4304,54 @@ function AttendeesModal({session,members,onClose,onSave,onToast}){
 
 // Modal briefing/consejo con agente IA — llama al proxy /api/agent y guarda
 // la conversación en session.agentConversations cuando hay sesión asociada.
-function AgentBriefingModal({agent,negotiation,session,kind,prompt,onClose,onSavedConversation}){
-  const [response,setResponse] = useState("");
-  const [loading,setLoading] = useState(true);
+function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialResponse,onClose,onSavedConversation,onSaveBriefing}){
+  const [response,setResponse] = useState(initialResponse||"");
+  const [loading,setLoading] = useState(!initialResponse);
   const [error,setError] = useState("");
   const [editedPrompt,setEditedPrompt] = useState(prompt);
-  useEffect(()=>{
-    let cancelled=false;
+  const [saved,setSaved] = useState(false);
+  const runQuery = useCallback(async(signalRef)=>{
     setLoading(true); setError("");
-    (async()=>{
-      try{
-        const systemPrompt = (agent.promptBase&&agent.promptBase.trim())
-          ? agent.promptBase
-          : `Eres ${agent.name}${agent.role?`, especialista en ${agent.role}`:""}. Estilo: ${agent.style||"profesional y directo"}. Responde en español en ${kind==="briefing"?"estructura clara con secciones numeradas":"tono conciso y accionable"}.`;
-        const r = await fetch("/api/agent",{
-          method:"POST",
-          headers:{"content-type":"application/json"},
-          body:JSON.stringify({system:systemPrompt,messages:[{role:"user",content:editedPrompt}],max_tokens:900}),
-        });
-        const data = await r.json();
-        if(cancelled) return;
-        if(!r.ok) throw new Error(data.error||"Error en el agente");
-        setResponse(data.text||"(respuesta vacía)");
-        if(session&&onSavedConversation){
-          onSavedConversation({id:_uid("conv"),timestamp:kind==="briefing"?"pre-meeting":new Date().toTimeString().slice(0,5),type:kind==="briefing"?"briefing_request":"live_advice",query:editedPrompt,agentResponse:data.text||"",createdAt:new Date().toISOString()});
-        }
-      }catch(e){ if(!cancelled) setError(e.message||"Error"); }
-      finally{ if(!cancelled) setLoading(false); }
-    })();
-    return()=>{ cancelled=true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    try{
+      const systemPrompt = (agent.promptBase&&agent.promptBase.trim())
+        ? agent.promptBase
+        : `Eres ${agent.name}${agent.role?`, especialista en ${agent.role}`:""}. Estilo: ${agent.style||"profesional y directo"}. Responde en español en ${kind==="briefing"?"estructura clara con secciones numeradas":"tono conciso y accionable"}.`;
+      const r = await fetch("/api/agent",{
+        method:"POST",
+        headers:{"content-type":"application/json"},
+        body:JSON.stringify({system:systemPrompt,messages:[{role:"user",content:editedPrompt}],max_tokens:900}),
+      });
+      const data = await r.json();
+      if(signalRef.cancelled) return;
+      if(!r.ok) throw new Error(data.error||"Error en el agente");
+      const txt = data.text||"(respuesta vacía)";
+      setResponse(txt);
+      if(session&&onSavedConversation){
+        onSavedConversation({id:_uid("conv"),timestamp:kind==="briefing"?"pre-meeting":new Date().toTimeString().slice(0,5),type:kind==="briefing"?"briefing_request":"live_advice",query:editedPrompt,agentResponse:txt,createdAt:new Date().toISOString(),agentId:agent.id});
+      }
+    }catch(e){ if(!signalRef.cancelled) setError(e.message||"Error"); }
+    finally{ if(!signalRef.cancelled) setLoading(false); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[agent,editedPrompt,kind,session,onSavedConversation]);
+  useEffect(()=>{
+    if(initialResponse) return; // pre-cargado (editar briefing existente)
+    const signal={cancelled:false};
+    runQuery(signal);
+    return()=>{ signal.cancelled=true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
   useEffect(()=>{ const k=e=>{if(e.key==="Escape") onClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[onClose]);
 
+  const handleSaveBriefing = ()=>{
+    if(!response.trim()) return;
+    onSaveBriefing?.({content:response.trim(),generatedAt:new Date().toISOString(),generatedBy:initialResponse?"manual":"ai",agentId:agent.id});
+    setSaved(true);
+    setTimeout(()=>onClose(),600);
+  };
+
   return(
     <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
-      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:700,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${agent.color||"#7F77DD"}`,marginBottom:24}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:720,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${agent.color||"#7F77DD"}`,marginBottom:24}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:40,height:40,borderRadius:10,background:(agent.color||"#7F77DD")+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{agent.emoji||"🤖"}</div>
           <div style={{flex:1,minWidth:0}}>
@@ -4332,17 +4363,31 @@ function AgentBriefingModal({agent,negotiation,session,kind,prompt,onClose,onSav
         <div style={{padding:20,maxHeight:"70vh",overflowY:"auto"}}>
           <div style={{fontSize:11,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Contexto enviado al agente</div>
           <textarea value={editedPrompt} onChange={e=>setEditedPrompt(e.target.value)} rows={6} style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12.5,resize:"vertical",fontFamily:"ui-monospace,monospace",background:"#F9FAFB",lineHeight:1.55}}/>
-          <div style={{fontSize:11,color:"#9CA3AF",marginTop:4,marginBottom:14}}>Puedes editar el contexto y reenviar — la conversación se guardará en la sesión.</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4,marginBottom:14}}>
+            <div style={{fontSize:11,color:"#9CA3AF"}}>Puedes editar el contexto y regenerar — {kind==="advice"?"la conversación se guarda automáticamente en la sesión.":"guarda cuando estés listo."}</div>
+            <button onClick={()=>runQuery({cancelled:false})} disabled={loading} style={{padding:"5px 12px",borderRadius:6,background:"#fff",color:"#3B82F6",border:"0.5px solid #3B82F6",fontSize:11,cursor:loading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit",opacity:loading?0.5:1}}>🔄 Regenerar</button>
+          </div>
 
-          <div style={{fontSize:11,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>Respuesta del agente</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em"}}>Respuesta del agente</div>
+            {kind==="briefing"&&!loading&&response&&<div style={{fontSize:10.5,color:"#9CA3AF",fontStyle:"italic"}}>Editable — ajusta antes de guardar</div>}
+          </div>
           {loading && <div style={{padding:20,textAlign:"center",color:"#6B7280",fontSize:13}}>⏳ Consultando a {agent.name}…</div>}
           {error && !loading && <div style={{padding:14,background:"#FEE2E2",border:"1px solid #FCA5A5",borderRadius:8,fontSize:12.5,color:"#991B1B"}}>⚠ {error}<div style={{fontSize:11,marginTop:4,color:"#7F1D1D"}}>Revisa ANTHROPIC_API_KEY en Vercel o intenta de nuevo.</div></div>}
-          {!loading && !error && response && (
-            <div style={{padding:14,background:(agent.color||"#7F77DD")+"10",border:`1px solid ${(agent.color||"#7F77DD")}44`,borderRadius:10,fontSize:13,color:"#1f2937",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{response}</div>
+          {!loading && !error && response!==undefined && (
+            <textarea
+              value={response}
+              onChange={e=>setResponse(e.target.value)}
+              rows={16}
+              style={{width:"100%",padding:14,borderRadius:10,background:(agent.color||"#7F77DD")+"08",border:`1px solid ${(agent.color||"#7F77DD")}44`,fontSize:13,color:"#1f2937",lineHeight:1.6,fontFamily:"inherit",resize:"vertical"}}
+            />
           )}
         </div>
-        <div style={{padding:"12px 20px",borderTop:"0.5px solid #e5e7eb",display:"flex",gap:8,justifyContent:"flex-end",background:"#fafafa"}}>
-          <button onClick={onClose} style={{padding:"8px 20px",borderRadius:8,background:agent.color||"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Cerrar</button>
+        <div style={{padding:"12px 20px",borderTop:"0.5px solid #e5e7eb",display:"flex",gap:8,justifyContent:"flex-end",background:"#fafafa",flexWrap:"wrap"}}>
+          <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,background:"transparent",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Cerrar</button>
+          {kind==="briefing"&&onSaveBriefing&&(
+            <button onClick={handleSaveBriefing} disabled={loading||!response.trim()||saved} style={{padding:"8px 20px",borderRadius:8,background:saved?"#10B981":(loading||!response.trim())?"#e5e7eb":agent.color||"#7F77DD",color:(saved||(!loading&&response.trim()))?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:(loading||!response.trim())?"default":"pointer",fontWeight:600}}>{saved?"✓ Guardado":"💾 Guardar como briefing"}</button>
+          )}
         </div>
       </div>
     </div>
@@ -4784,6 +4829,16 @@ export default function TaskFlow(){
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,summary,updatedAt:now}:s)}:n)}));
   },[]);
+  const setNegBriefing = useCallback((negId,briefing)=>{
+    const now=new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,briefing,updatedAt:now}:n)}));
+    addToast("✓ Briefing guardado en la negociación");
+  },[addToast]);
+  const clearNegBriefing = useCallback((negId)=>{
+    const now=new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,briefing:null,updatedAt:now}:n)}));
+    addToast("Briefing eliminado","info");
+  },[addToast]);
   const setSessionAttendees = useCallback((negId,sessId,attendees)=>{
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,attendees,updatedAt:now}:s)}:n)}));
@@ -5060,7 +5115,8 @@ export default function TaskFlow(){
               const prompt = kind==="briefing"
                 ? `🎯 BRIEFING PARA NEGOCIACIÓN\n\nNegociación: ${neg.title}\nContraparte: ${neg.counterparty}${neg.value!=null?` · Valor: ${neg.value} ${neg.currency||"EUR"}`:""}\nEstado: ${getNegStatus(neg.status).label}\n${neg.description?`\nDescripción: ${neg.description}`:""}${proj?`\nProyecto: ${proj.name}`:""}\n\n${lastSess?`Última sesión (${formatDateTimeES(lastSess.date)}):\n${lastSess.summary||"(sin resumen)"}`:"Esta será la primera reunión."}\n\nPrepárame un briefing con:\n1. Resumen del contexto y del cliente\n2. Objetivos clave para la próxima sesión\n3. Estrategia recomendada\n4. Posibles objeciones y cómo responderlas\n5. Próximos pasos concretos`
                 : `💬 CONSEJO EN TIEMPO REAL\n\nNegociación: ${neg.title} · Contraparte: ${neg.counterparty}\nSesión: ${getSessionTypeLabel(sess.type)} · ${formatDateTimeES(sess.date)}\n\nNotas tomadas hasta ahora:\n${notes||"(aún sin notas)"}\n\n¿Qué consejo concreto me das para avanzar en esta situación? Sé breve, directo y accionable.`;
-              setBriefingCtx({agent,negotiation:neg,session:sess,kind,prompt});
+              const initialResponse = kind==="briefing" && neg.briefing?.content ? neg.briefing.content : undefined;
+              setBriefingCtx({agent,negotiation:neg,session:sess,kind,prompt,initialResponse});
             };
             if(activeNeg && activeSess){
               return <SessionDetailView
@@ -5092,6 +5148,7 @@ export default function TaskFlow(){
                 onGoProject={pid=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); } }}
                 onOpenTask={(taskId,pid)=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); setPendingOpenTaskId(taskId); } }}
                 onOpenRelatedNeg={nid=>{ setActiveNegId(nid); setActiveSessId(null); }}
+                onClearBriefing={nid=>clearNegBriefing(nid)}
               />;
             }
             return <DealRoomView
@@ -5157,8 +5214,10 @@ export default function TaskFlow(){
       {briefingCtx&&<AgentBriefingModal
         agent={briefingCtx.agent} negotiation={briefingCtx.negotiation} session={briefingCtx.session}
         kind={briefingCtx.kind} prompt={briefingCtx.prompt}
+        initialResponse={briefingCtx.initialResponse}
         onClose={()=>setBriefingCtx(null)}
         onSavedConversation={briefingCtx.session?(conv=>addAgentConversation(briefingCtx.negotiation.id,briefingCtx.session.id,conv)):null}
+        onSaveBriefing={briefingCtx.kind==="briefing"?(b=>setNegBriefing(briefingCtx.negotiation.id,b)):null}
       />}
       {activeNegId&&sessModal==="create"&&<SessionModal onClose={()=>setSessModal(null)} onSave={p=>addSession(activeNegId,p)}/>}
       {activeNegId&&sessModal&&sessModal!=="create"&&<SessionModal session={sessModal} onClose={()=>setSessModal(null)} onSave={p=>updateSession(activeNegId,sessModal.id,p)} onDelete={sid=>{ deleteSession(activeNegId,sid); if(activeSessId===sid) setActiveSessId(null); }}/>}
