@@ -12,6 +12,7 @@ import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
+import html2pdf from "html2pdf.js";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, PLAIN_TEXT_RULE } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown } from "./lib/voice.js";
 
@@ -754,6 +755,20 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
                     {doc.report.summary && <div><div style={{fontSize:10,fontWeight:700,color:"#1E40AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Resumen ejecutivo</div><div style={{lineHeight:1.5,whiteSpace:"pre-wrap"}}>{doc.report.summary}</div></div>}
                     {doc.report.details && <div><div style={{fontSize:10,fontWeight:700,color:"#B45309",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Riesgos y oportunidades</div><div style={{lineHeight:1.5,whiteSpace:"pre-wrap"}}>{doc.report.details}</div></div>}
                     {doc.report.recommendations && <div><div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Recomendaciones</div><div style={{lineHeight:1.5,whiteSpace:"pre-wrap"}}>{doc.report.recommendations}</div></div>}
+                    <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                      <ExportPDFButton
+                        title={`Informe — ${doc.name}`}
+                        filename={`informe-${doc.name.slice(0,40)}`}
+                        getHTML={()=>{
+                          const r = doc.report;
+                          const sec = (title, body, color)=> body ? `<div style="margin-bottom:12px;"><div style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">${escapeHtml(title)}</div><div style="line-height:1.55;white-space:pre-wrap;">${escapeHtml(body)}</div></div>` : "";
+                          return `<div style="font-size:11px;color:#6B7280;margin-bottom:10px;">Documento: ${escapeHtml(doc.name)} · Analizado por ${escapeHtml(doc.analyzedBy||"")}</div>` +
+                            sec("Resumen ejecutivo", r.summary, "#1E40AF") +
+                            sec("Riesgos y oportunidades", r.details, "#B45309") +
+                            sec("Recomendaciones", r.recommendations, "#0E7C5A");
+                        }}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -762,6 +777,78 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
         </div>
       )}
     </div>
+  );
+}
+
+// Renderiza un bloque HTML con header + content + footer de SoulBaric
+// y lo convierte a PDF con html2pdf. Uso:
+//   <ExportPDFButton title="..." getContent={()=>"texto plano"} />
+//   <ExportPDFButton title="..." getHTML={()=>"<div>...</div>"} />
+function buildExportHTML(title, inner){
+  const today = new Date().toLocaleDateString("es-ES", { year:"numeric", month:"long", day:"numeric" });
+  return `
+    <div style="font-family:-apple-system,'Segoe UI',sans-serif;color:#111827;padding:0;">
+      <div style="border-bottom:2px solid #7F77DD;padding-bottom:12px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:flex-end;">
+        <div>
+          <div style="font-size:22px;font-weight:700;color:#7F77DD;letter-spacing:0.02em;">SoulBaric</div>
+          <div style="font-size:13px;color:#6B7280;margin-top:2px;">${title||""}</div>
+        </div>
+        <div style="font-size:11px;color:#9CA3AF;">${today}</div>
+      </div>
+      <div style="font-size:12px;line-height:1.55;color:#1F2937;">${inner}</div>
+      <div style="margin-top:24px;padding-top:10px;border-top:1px solid #E5E7EB;font-size:10px;color:#9CA3AF;text-align:center;">
+        Generado por SoulBaric · Confidencial
+      </div>
+    </div>
+  `;
+}
+
+function escapeHtml(s){
+  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function ExportPDFButton({title, filename, getContent, getHTML, size="sm", label="PDF"}){
+  const [busy,setBusy] = useState(false);
+  const run = async ()=>{
+    setBusy(true);
+    try {
+      const inner = getHTML ? getHTML() : escapeHtml(getContent?.()||"").replace(/\n/g,"<br/>");
+      const html = buildExportHTML(title, inner);
+      const host = document.createElement("div");
+      host.style.cssText = "position:fixed;left:-9999px;top:0;width:210mm;padding:20mm;background:#fff;";
+      host.innerHTML = html;
+      document.body.appendChild(host);
+      const fname = (filename || title || "documento").replace(/[^\w.-]+/g,"_") + ".pdf";
+      await html2pdf().set({
+        margin: 0,
+        filename: fname,
+        image: { type:"jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit:"mm", format:"a4", orientation:"portrait" },
+      }).from(host).save();
+      document.body.removeChild(host);
+    } catch(e){
+      console.warn("[pdf]", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pad = size==="sm" ? "5px 10px" : "7px 14px";
+  const fs  = size==="sm" ? 11 : 12.5;
+  return(
+    <button onClick={run} disabled={busy} title="Descargar como PDF" style={{padding:pad,borderRadius:6,background:busy?"#FEF3C7":"#fff",color:"#7F77DD",border:"1px solid #7F77DD",fontSize:fs,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}>
+      {busy?"⋯":"📄"} {busy?"Generando":label}
+    </button>
+  );
+}
+
+function PrintButton({size="sm", label="Imprimir"}){
+  const pad = size==="sm" ? "5px 10px" : "7px 14px";
+  const fs  = size==="sm" ? 11 : 12.5;
+  return(
+    <button onClick={()=>window.print()} title="Imprimir" style={{padding:pad,borderRadius:6,background:"#fff",color:"#374151",border:"1px solid #D1D5DB",fontSize:fs,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}>
+      🖨️ {label}
+    </button>
   );
 }
 
@@ -4914,6 +5001,19 @@ ${taskLines||"(ninguna)"}`;
                 <button onClick={handleBriefing} disabled={!hector||chatLoading} title={!hector?"Añade a Héctor como agente IA para usar esto":"Briefing estratégico — se guarda y queda en el chat"} style={{padding:"7px 12px",borderRadius:8,background:hector&&!chatLoading?"#1D9E75":"#E5E7EB",color:hector&&!chatLoading?"#fff":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading?"pointer":"not-allowed",fontWeight:600}}>🎯 {negotiation.briefing?"Actualizar":"Pedir"} briefing</button>
                 <button onClick={handleAnalysis} disabled={!hector||chatLoading||(criticalTasks.length===0&&relProjs.length===0)} title="Análisis batch — recomendación por tarea y proyecto" style={{padding:"7px 12px",borderRadius:8,background:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"#378ADD":"#E5E7EB",color:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"#fff":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"pointer":"not-allowed",fontWeight:600}}>🔍 Análisis</button>
                 {negotiation.hectorAnalysis&&<span title={`Análisis generado ${timeAgoIso(negotiation.hectorAnalysis.generatedAt)}`} style={{fontSize:10,color:"#6B7280",display:"inline-flex",alignItems:"center",gap:4,alignSelf:"center"}}>· {Object.keys(negotiation.hectorAnalysis.tasks||{}).length}t/{Object.keys(negotiation.hectorAnalysis.projects||{}).length}p · {timeAgoIso(negotiation.hectorAnalysis.generatedAt)}</span>}
+                {chatMsgs.length>0&&(
+                  <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+                    <ExportPDFButton
+                      title={`Chat con Héctor — ${negotiation.title}`}
+                      filename={`chat-hector-${negotiation.title.slice(0,40)}`}
+                      getContent={()=>chatMsgs.map(m=>{
+                        const who = m.role==="user"?"Usuario":"Héctor";
+                        const tag = m.kind==="briefing"?" [BRIEFING]":m.kind==="analysis"?" [ANÁLISIS]":"";
+                        return `${who}${tag}: ${m.content}`;
+                      }).join("\n\n")}
+                    />
+                  </div>
+                )}
               </div>
               {/* Mensajes */}
               <div ref={chatScrollRef} style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
@@ -4931,8 +5031,8 @@ ${taskLines||"(ninguna)"}`;
                             {isSpeaking&&(
                               <button onClick={e=>{e.stopPropagation();stopSpeaking();setSpeakingMsgTs(null);}} title="Leyendo — click para detener" style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:10,background:"#10B981",color:"#fff",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginBottom:6,animation:"tf-speak-pulse 1.4s infinite"}}>🔊 Leyendo</button>
                             )}
-                            {m.kind==="briefing"&&<div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div>}
-                            {m.kind==="analysis"&&<div style={{fontSize:10,fontWeight:700,color:"#1E40AF",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div>}
+                            {m.kind==="briefing"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div><ExportPDFButton title={`Briefing — ${negotiation.title}`} filename={`briefing-${negotiation.title.slice(0,40)}`} getContent={()=>m.content}/></div>}
+                            {m.kind==="analysis"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#1E40AF",textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div><ExportPDFButton title={`Análisis batch — ${negotiation.title}`} filename={`analisis-${negotiation.title.slice(0,40)}`} getContent={()=>m.content}/></div>}
                             {m.content}
                             <div style={{fontSize:10,color:"#9CA3AF",marginTop:4,opacity:0.8}}>{m.timestamp?new Date(m.timestamp).toLocaleString("es-ES",{hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"}):""}</div>
                           </div>
@@ -5274,6 +5374,16 @@ function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialRespon
           )}
         </div>
         <div style={{padding:"12px 20px",borderTop:"0.5px solid #e5e7eb",display:"flex",gap:8,justifyContent:"flex-end",background:"#fafafa",flexWrap:"wrap"}}>
+          {!loading && response?.trim() && (
+            <>
+              <ExportPDFButton
+                title={`${kind==="briefing"?"Briefing":"Consejo"} — ${agent.name}${negotiation?` — ${negotiation.title}`:""}`}
+                filename={`${kind==="briefing"?"briefing":"consejo"}-${(negotiation?.title||agent.name||"soulbaric").slice(0,40)}`}
+                getContent={()=>response.trim()}
+              />
+              <PrintButton/>
+            </>
+          )}
           <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,background:"transparent",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Cerrar</button>
           {kind==="briefing"&&onSaveBriefing&&(
             <button onClick={handleSaveBriefing} disabled={loading||!response.trim()||saved} style={{padding:"8px 20px",borderRadius:8,background:saved?"#10B981":(loading||!response.trim())?"#e5e7eb":agent.color||"#7F77DD",color:(saved||(!loading&&response.trim()))?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:(loading||!response.trim())?"default":"pointer",fontWeight:600}}>{saved?"✓ Guardado":"💾 Guardar como briefing"}</button>
@@ -5490,12 +5600,21 @@ function BriefingsView({data,onOpenNeg,onOpenSession}){
             {briefings.map(({neg,briefing,agent})=>{
               const preview = briefing.content.length>300 ? briefing.content.slice(0,300)+"…" : briefing.content;
               return(
-                <div key={neg.id} onClick={()=>onOpenNeg(neg.id)} className="tf-lift" style={{background:"#fff",border:"2px solid #E5E7EB",borderLeft:`4px solid ${agent?.color||"#7F77DD"}`,borderRadius:12,padding:"14px 16px",cursor:"pointer"}}>
-                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6,flexWrap:"wrap"}}>
-                    <div style={{fontSize:14,fontWeight:600,color:"#111827"}}>💼 {neg.title}</div>
-                    <div style={{fontSize:11,color:"#9CA3AF"}}>{agent?`${agent.emoji||"🤖"} ${agent.name} · `:""}{timeAgoIso(briefing.generatedAt)}</div>
+                <div key={neg.id} className="tf-lift" style={{background:"#fff",border:"2px solid #E5E7EB",borderLeft:`4px solid ${agent?.color||"#7F77DD"}`,borderRadius:12,padding:"14px 16px"}}>
+                  <div onClick={()=>onOpenNeg(neg.id)} style={{cursor:"pointer"}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+                      <div style={{fontSize:14,fontWeight:600,color:"#111827"}}>💼 {neg.title}</div>
+                      <div style={{fontSize:11,color:"#9CA3AF"}}>{agent?`${agent.emoji||"🤖"} ${agent.name} · `:""}{timeAgoIso(briefing.generatedAt)}</div>
+                    </div>
+                    <div style={{fontSize:12.5,color:"#4B5563",lineHeight:1.55,whiteSpace:"pre-wrap",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,padding:"10px 12px",maxHeight:180,overflow:"hidden"}}>{preview}</div>
                   </div>
-                  <div style={{fontSize:12.5,color:"#4B5563",lineHeight:1.55,whiteSpace:"pre-wrap",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,padding:"10px 12px",maxHeight:180,overflow:"hidden"}}>{preview}</div>
+                  <div onClick={e=>e.stopPropagation()} style={{marginTop:8,display:"flex",gap:6,justifyContent:"flex-end"}}>
+                    <ExportPDFButton
+                      title={`Briefing — ${neg.title}`}
+                      filename={`briefing-${neg.title.slice(0,40)}`}
+                      getContent={()=>briefing.content}
+                    />
+                  </div>
                 </div>
               );
             })}
