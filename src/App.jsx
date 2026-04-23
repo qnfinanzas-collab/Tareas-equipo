@@ -4029,11 +4029,14 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   const expandedHector = hoverHector || pinnedHector;
   const [speakingKey,setSpeakingKey] = useState(null);
   const [individualLoading,setIndividualLoading] = useState({}); // map key → true
+  const [listening,setListening] = useState(false);
+  const listenStopRef = useRef(null);
+  const sttSupported = voiceSupported().stt;
   useEffect(()=>{
     const el = chatScrollRef.current; if(!el) return;
     el.scrollTop = el.scrollHeight;
   },[(negotiation.hectorChat||[]).length,chatLoading]);
-  useEffect(()=>()=>stopSpeaking(),[]); // cleanup TTS al desmontar
+  useEffect(()=>()=>{ stopSpeaking(); if(listenStopRef.current){ try{listenStopRef.current();}catch{} } },[]); // cleanup TTS/STT al desmontar
 
   // Proyectos relacionados — con agregación de tareas por proyecto.
   const relProjs = (negotiation.relatedProjects||[]).map(rp=>{
@@ -4365,8 +4368,8 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             history.push({role:"user",content:userMessage});
             return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:userMessage}]:history,max_tokens:opts.maxTokens||900});
           };
-          const handleSend = async()=>{
-            const txt = chatInput.trim(); if(!txt||chatLoading||!hector) return;
+          const handleSend = async(overrideText)=>{
+            const txt = (overrideText ?? chatInput).trim(); if(!txt||chatLoading||!hector) return;
             setChatLoading(true);
             const now=new Date().toISOString();
             onAppendHectorMessage(negotiation.id,{role:"user",content:txt,timestamp:now});
@@ -4377,6 +4380,17 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             }catch(e){
               onAppendHectorMessage(negotiation.id,{role:"assistant",content:`⚠ ${e.message||"Error"}`,timestamp:new Date().toISOString()});
             }finally{ setChatLoading(false); }
+          };
+          const handleMic = ()=>{
+            if(listening){ if(listenStopRef.current){ try{listenStopRef.current();}catch{} } return; }
+            if(!sttSupported||!hector||chatLoading) return;
+            listenStopRef.current = listen({
+              onStart: ()=>setListening(true),
+              onInterim: (t)=>setChatInput(t),   // feedback en vivo mientras habla
+              onFinal:   (t)=>{ setChatInput(t); setListening(false); listenStopRef.current=null; handleSend(t); },
+              onError:   ()=>{ setListening(false); listenStopRef.current=null; }, // silencioso — user ve que el pulse paró
+              onEnd:     ()=>{ setListening(false); listenStopRef.current=null; },
+            });
           };
           const handleBriefing = async()=>{
             if(!hector||chatLoading) return;
@@ -4500,16 +4514,24 @@ ${taskLines||"(ninguna)"}`;
                 )}
               </div>
               {/* Input */}
-              <div style={{padding:"10px 12px",borderTop:"1px solid #F3F4F6",background:"#FAFAFA",display:"flex",gap:6}}>
+              <div style={{padding:"10px 12px",borderTop:"1px solid #F3F4F6",background:"#FAFAFA",display:"flex",gap:6,alignItems:"center"}}>
+                {sttSupported&&(
+                  <button
+                    onClick={handleMic}
+                    disabled={!hector||chatLoading}
+                    title={listening?"Parar grabación":"Hablar con Héctor (voz)"}
+                    style={{width:38,height:36,borderRadius:8,background:listening?"#E24B4A":"#fff",color:listening?"#fff":"#1D9E75",border:listening?"none":"1px solid #1D9E75",fontSize:15,cursor:(!hector||chatLoading)?"not-allowed":"pointer",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:(!hector||chatLoading)&&!listening?0.5:1,animation:listening?"tf-mic-pulse 1.2s infinite":"none"}}
+                  >{listening?"⏺":"🎤"}</button>
+                )}
                 <input
                   value={chatInput}
                   onChange={e=>setChatInput(e.target.value)}
                   onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleSend(); } }}
-                  placeholder={hector?"Pregunta a Héctor (Enter para enviar)…":"No hay agente Héctor disponible"}
+                  placeholder={listening?"Escuchando…":hector?"Pregunta a Héctor (Enter para enviar)…":"No hay agente Héctor disponible"}
                   disabled={!hector||chatLoading}
-                  style={{flex:1,padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12.5,fontFamily:"inherit",outline:"none",background:"#fff"}}
+                  style={{flex:1,padding:"8px 10px",borderRadius:8,border:listening?"1px solid #E24B4A":"1px solid #d1d5db",fontSize:12.5,fontFamily:"inherit",outline:"none",background:"#fff",transition:"border-color .15s"}}
                 />
-                <button onClick={handleSend} disabled={!hector||chatLoading||!chatInput.trim()} style={{padding:"8px 14px",borderRadius:8,background:hector&&!chatLoading&&chatInput.trim()?"#1D9E75":"#E5E7EB",color:hector&&!chatLoading&&chatInput.trim()?"#fff":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading&&chatInput.trim()?"pointer":"not-allowed",fontWeight:600,flexShrink:0,fontFamily:"inherit"}}>Enviar</button>
+                <button onClick={()=>handleSend()} disabled={!hector||chatLoading||!chatInput.trim()} style={{padding:"8px 14px",borderRadius:8,background:hector&&!chatLoading&&chatInput.trim()?"#1D9E75":"#E5E7EB",color:hector&&!chatLoading&&chatInput.trim()?"#fff":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading&&chatInput.trim()?"pointer":"not-allowed",fontWeight:600,flexShrink:0,fontFamily:"inherit"}}>Enviar</button>
               </div>
             </div>
           );
