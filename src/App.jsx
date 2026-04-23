@@ -444,6 +444,41 @@ function DiscardBanner({onKeep,onDiscard}){
   );
 }
 
+// Botón de dictado por voz reutilizable. Pure: no toca el input directamente,
+// el padre recibe onInterim/onFinal con la transcripción y decide qué hacer.
+// Si SpeechRecognition no está disponible (Firefox etc), el componente no
+// renderiza nada — el input queda como estaba.
+function VoiceMicButton({onStart,onInterim,onFinal,onError,disabled,color="#1D9E75",title,size="md"}){
+  const [listening,setListening] = useState(false);
+  const stopRef = useRef(null);
+  useEffect(()=>()=>{ if(stopRef.current){ try{stopRef.current();}catch{} } },[]);
+  const supported = voiceSupported().stt;
+  if(!supported) return null;
+  const handleClick = (e)=>{
+    e.stopPropagation();
+    if(listening){ if(stopRef.current){ try{stopRef.current();}catch{} } return; }
+    if(disabled) return;
+    onStart?.();
+    stopRef.current = listen({
+      onStart: ()=>setListening(true),
+      onInterim: (t)=>onInterim?.(t),
+      onFinal:   (t)=>{ setListening(false); stopRef.current=null; onFinal?.(t); },
+      onError:   (err)=>{ setListening(false); stopRef.current=null; onError?.(err); },
+      onEnd:     ()=>{ setListening(false); stopRef.current=null; },
+    });
+  };
+  const dim = size==="sm"?28:36;
+  return(
+    <button
+      type="button"
+      onClick={handleClick}
+      disabled={disabled&&!listening}
+      title={listening?"Parar grabación":(title||"Dictar por voz")}
+      style={{width:dim,height:dim,borderRadius:8,background:listening?"#E24B4A":"#fff",color:listening?"#fff":color,border:listening?"none":`1px solid ${color}`,fontSize:size==="sm"?12:15,cursor:(disabled&&!listening)?"not-allowed":"pointer",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:(disabled&&!listening)?0.5:1,animation:listening?"tf-mic-pulse 1.2s infinite":"none",padding:0}}
+    >{listening?"⏺":"🎤"}</button>
+  );
+}
+
 // Fuzzy subsequence match + highlight para el Command Palette.
 function fuzzyMatch(text,query){
   if(!query) return true;
@@ -1046,7 +1081,12 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                     </div>
                   </div>
                   <FL c="Descripcion"/>
-                  <textarea value={draft.desc||""} onChange={e=>set("desc",e.target.value)} rows={3} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                  <div style={{position:"relative"}}>
+                    <textarea value={draft.desc||""} onChange={e=>set("desc",e.target.value)} rows={3} style={{width:"100%",padding:"8px 38px 8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                    <div style={{position:"absolute",right:6,top:6}}>
+                      <VoiceMicButton size="sm" color="#7F77DD" title="Dictar descripción" onInterim={t=>set("desc",t)} onFinal={t=>set("desc",t)}/>
+                    </div>
+                  </div>
                   {(agents||[]).length>0 && <>
                     <FL c="Agentes IA conectados"/>
                     <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -1224,6 +1264,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
               <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
                 <div style={{width:30,height:30,borderRadius:"50%",background:(MP[activeMemberId]||MP[0]).solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{members.find(x=>x.id===activeMemberId)?.initials}</div>
                 <textarea rows={2} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Escribe un comentario..." onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();addComment();}}} style={{flex:1,padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"none",fontFamily:"inherit",outline:"none"}}/>
+                <VoiceMicButton size="sm" color="#7F77DD" title="Dictar comentario" onInterim={t=>setComment(t)} onFinal={t=>setComment(t)}/>
                 <button onClick={addComment} style={{padding:"8px 14px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:500}}>Enviar</button>
               </div>
             </>
@@ -3872,7 +3913,12 @@ function AddNoteModal({initialNote,onClose,onSave,onDelete}){
           <FL c="Hora (HH:MM)"/>
           <input type="time" value={timestamp} onChange={e=>setTs(e.target.value)} style={{width:140,padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit"}}/>
           <FL c="Nota *"/>
-          <textarea autoFocus value={content} onChange={e=>setContent(e.target.value)} rows={6} placeholder="Ej: Emilio mencionó que el timeline es muy ajustado…" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+          <div style={{position:"relative"}}>
+            <textarea autoFocus value={content} onChange={e=>setContent(e.target.value)} rows={6} placeholder="Ej: Emilio mencionó que el timeline es muy ajustado…" style={{width:"100%",padding:"8px 38px 8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+            <div style={{position:"absolute",right:6,top:6}}>
+              <VoiceMicButton size="sm" color="#3B82F6" title="Dictar nota" onInterim={t=>setContent(t)} onFinal={t=>setContent(t)}/>
+            </div>
+          </div>
           <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"space-between",alignItems:"center"}}>
             <div>
               {isEdit&&onDelete&&<button onClick={()=>{onDelete(initialNote.id);onClose();}} style={{padding:"8px 14px",borderRadius:8,background:"transparent",color:"#E24B4A",border:"1px solid #E24B4A55",fontSize:12,cursor:"pointer"}}>Eliminar</button>}
@@ -4079,9 +4125,6 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   const expandedHector = hoverHector || pinnedHector;
   const [speakingKey,setSpeakingKey] = useState(null);
   const [individualLoading,setIndividualLoading] = useState({}); // map key → true
-  const [listening,setListening] = useState(false);
-  const listenStopRef = useRef(null);
-  const sttSupported = voiceSupported().stt;
   // Auto-TTS: solo cuando el usuario inició el turno por voz (mic).
   const voiceInitiatedRef = useRef(false);
   const [speakingMsgTs,setSpeakingMsgTs] = useState(null);
@@ -4089,7 +4132,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
     const el = chatScrollRef.current; if(!el) return;
     el.scrollTop = el.scrollHeight;
   },[(negotiation.hectorChat||[]).length,chatLoading]);
-  useEffect(()=>()=>{ stopSpeaking(); if(listenStopRef.current){ try{listenStopRef.current();}catch{} } },[]); // cleanup TTS/STT al desmontar
+  useEffect(()=>()=>stopSpeaking(),[]); // cleanup TTS al desmontar (STT lo maneja VoiceMicButton)
 
   // Proyectos relacionados — con agregación de tareas por proyecto.
   const relProjs = (negotiation.relatedProjects||[]).map(rp=>{
@@ -4447,19 +4490,6 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               voiceInitiatedRef.current = false; // no leer errores por voz
             }finally{ setChatLoading(false); }
           };
-          const handleMic = ()=>{
-            if(listening){ if(listenStopRef.current){ try{listenStopRef.current();}catch{} } return; }
-            if(!sttSupported||!hector||chatLoading) return;
-            // Si estaba leyendo una respuesta previa, cortarla antes de grabar.
-            stopSpeaking(); setSpeakingMsgTs(null);
-            listenStopRef.current = listen({
-              onStart: ()=>setListening(true),
-              onInterim: (t)=>setChatInput(t),
-              onFinal:   (t)=>{ setChatInput(t); setListening(false); listenStopRef.current=null; voiceInitiatedRef.current=true; handleSend(t); },
-              onError:   ()=>{ setListening(false); listenStopRef.current=null; },
-              onEnd:     ()=>{ setListening(false); listenStopRef.current=null; },
-            });
-          };
           const handleBriefing = async()=>{
             if(!hector||chatLoading) return;
             setChatLoading(true);
@@ -4587,21 +4617,21 @@ ${taskLines||"(ninguna)"}`;
               </div>
               {/* Input */}
               <div style={{padding:"10px 12px",borderTop:"1px solid #F3F4F6",background:"#FAFAFA",display:"flex",gap:6,alignItems:"center"}}>
-                {sttSupported&&(
-                  <button
-                    onClick={handleMic}
-                    disabled={!hector||chatLoading}
-                    title={listening?"Parar grabación":"Hablar con Héctor (voz)"}
-                    style={{width:38,height:36,borderRadius:8,background:listening?"#E24B4A":"#fff",color:listening?"#fff":"#1D9E75",border:listening?"none":"1px solid #1D9E75",fontSize:15,cursor:(!hector||chatLoading)?"not-allowed":"pointer",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:(!hector||chatLoading)&&!listening?0.5:1,animation:listening?"tf-mic-pulse 1.2s infinite":"none"}}
-                  >{listening?"⏺":"🎤"}</button>
-                )}
+                <VoiceMicButton
+                  disabled={!hector||chatLoading}
+                  color="#1D9E75"
+                  title="Hablar con Héctor (voz)"
+                  onStart={()=>{ stopSpeaking(); setSpeakingMsgTs(null); }}
+                  onInterim={(t)=>setChatInput(t)}
+                  onFinal={(t)=>{ setChatInput(t); voiceInitiatedRef.current=true; handleSend(t); }}
+                />
                 <input
                   value={chatInput}
                   onChange={e=>setChatInput(e.target.value)}
                   onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleSend(); } }}
-                  placeholder={listening?"Escuchando…":hector?"Pregunta a Héctor (Enter para enviar)…":"No hay agente Héctor disponible"}
+                  placeholder={hector?"Pregunta a Héctor (Enter para enviar)…":"No hay agente Héctor disponible"}
                   disabled={!hector||chatLoading}
-                  style={{flex:1,padding:"8px 10px",borderRadius:8,border:listening?"1px solid #E24B4A":"1px solid #d1d5db",fontSize:12.5,fontFamily:"inherit",outline:"none",background:"#fff",transition:"border-color .15s"}}
+                  style={{flex:1,padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12.5,fontFamily:"inherit",outline:"none",background:"#fff"}}
                 />
                 <button onClick={()=>handleSend()} disabled={!hector||chatLoading||!chatInput.trim()} style={{padding:"8px 14px",borderRadius:8,background:hector&&!chatLoading&&chatInput.trim()?"#1D9E75":"#E5E7EB",color:hector&&!chatLoading&&chatInput.trim()?"#fff":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading&&chatInput.trim()?"pointer":"not-allowed",fontWeight:600,flexShrink:0,fontFamily:"inherit"}}>Enviar</button>
               </div>
@@ -4716,7 +4746,12 @@ function SessionDetailView({negotiation,session,agent,relatedProject,onBack,onEd
         </div>
         {editingSummary
           ? <div>
-              <textarea value={summaryDraft} onChange={e=>setSummaryDraft(e.target.value)} rows={8} placeholder="Escribe un resumen de la sesión: temas, acuerdos, objeciones, próximos pasos…" style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit",lineHeight:1.55}}/>
+              <div style={{position:"relative"}}>
+                <textarea value={summaryDraft} onChange={e=>setSummaryDraft(e.target.value)} rows={8} placeholder="Escribe un resumen de la sesión: temas, acuerdos, objeciones, próximos pasos…" style={{width:"100%",padding:"10px 42px 10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit",lineHeight:1.55}}/>
+                <div style={{position:"absolute",right:6,top:6}}>
+                  <VoiceMicButton size="sm" color="#3B82F6" title="Dictar resumen" onInterim={t=>setSummaryDraft(t)} onFinal={t=>setSummaryDraft(t)}/>
+                </div>
+              </div>
               <div style={{display:"flex",gap:8,marginTop:10}}>
                 <button onClick={saveSummary} style={{padding:"8px 16px",borderRadius:8,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Guardar</button>
                 <button onClick={()=>{setEditingSummary(false);setSummaryDraft(session.summary||"");}} style={{padding:"8px 16px",borderRadius:8,background:"transparent",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Cancelar</button>
