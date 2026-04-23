@@ -4020,10 +4020,14 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   const [chatInput,setChatInput] = useState("");
   const [chatLoading,setChatLoading] = useState(false);
   const chatScrollRef = useRef(null);
+  const [expandedHector,setExpandedHector] = useState(null); // "task:<id>" | "proj:<id>"
+  const [speakingKey,setSpeakingKey] = useState(null);
+  const [individualLoading,setIndividualLoading] = useState({}); // map key → true
   useEffect(()=>{
     const el = chatScrollRef.current; if(!el) return;
     el.scrollTop = el.scrollHeight;
   },[(negotiation.hectorChat||[]).length,chatLoading]);
+  useEffect(()=>()=>stopSpeaking(),[]); // cleanup TTS al desmontar
 
   // Proyectos relacionados — con agregación de tareas por proyecto.
   const relProjs = (negotiation.relatedProjects||[]).map(rp=>{
@@ -4046,6 +4050,126 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
       if(da!==db) return da-db;
       return (a.title||"").localeCompare(b.title||"");
     });
+
+  // Fingerprints para stale detection en hectorAnalysis.
+  const fpTask = (t)=>`${t.title}|${t.dueDate||""}|${t.colName||""}|${t.priority||""}`;
+  const fpProj = (r)=>`${r.activeCount}|${r.overdueCount}`;
+
+  // TTS con voz de Héctor — reutiliza speak() de lib/voice.js. Toggle
+  // "Escuchar/Detener" por item mediante speakingKey.
+  const handleSpeak = (key,text)=>{
+    if(!text) return;
+    if(speakingKey===key){ stopSpeaking(); setSpeakingKey(null); return; }
+    if(speakingKey) stopSpeaking();
+    const cfg = hector?.voice || {gender:"male",rate:1.1,pitch:0.9};
+    speak(text,{gender:cfg.gender||"male",rate:cfg.rate||1.1,pitch:cfg.pitch||0.9,onEnd:()=>setSpeakingKey(null)});
+    setSpeakingKey(key);
+  };
+
+  // Regeneración individual de una recomendación stale (o primera vez).
+  const regenOne = async(kind,item)=>{
+    if(!hector) return;
+    const key = kind==="task" ? `task:${item.id}` : `proj:${item.p.id}`;
+    setIndividualLoading(prev=>({...prev,[key]:true}));
+    try{
+      const contextLines = [
+        `Negociación: ${negotiation.title}`,
+        `Contraparte: ${negotiation.counterparty}`,
+        `Estado: ${st.label}`,
+      ];
+      if(negotiation.description) contextLines.push(`Descripción: ${negotiation.description}`);
+      const contextStr = contextLines.join("\n");
+      const itemPrompt = kind==="task"
+        ? `Analiza SOLO esta tarea y nada más:\n[${item.id}] ${item.title} (proyecto: ${item.projName}, columna: ${item.colName}, fecha: ${item.dueDate||"sin fecha"}, prioridad: ${item.priority})\n\nDame 2-4 frases de análisis directo + máx 2 tags de esta lista cerrada: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".\n\nResponde EXCLUSIVAMENTE con JSON válido de esta forma exacta: {"text":"…","tags":["…"]}`
+        : `Analiza SOLO este proyecto y nada más:\n[${item.p.id}] ${item.p.name} (rol en esta negociación: ${item.rp.role||"relacionado"}, ${item.activeCount} tareas activas, ${item.overdueCount} vencidas)\n\nDame 2-4 frases de análisis directo + máx 2 tags de esta lista cerrada: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".\n\nResponde EXCLUSIVAMENTE con JSON válido de esta forma exacta: {"text":"…","tags":["…"]}`;
+      const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + contextStr + "\n\nIMPORTANTE: responde ÚNICAMENTE con JSON válido, sin markdown ni prosa.";
+      const r = await fetch("/api/agent",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({system,messages:[{role:"user",content:itemPrompt}],max_tokens:500})});
+      const data = await r.json();
+      if(!r.ok) throw new Error(data.error||"Error");
+      const txt = data.text||"";
+      let parsed=null;
+      try{ parsed=JSON.parse(txt); }
+      catch{ const m=txt.match(/\{[\s\S]*\}/); if(m){ try{ parsed=JSON.parse(m[0]); }catch{} } }
+      if(!parsed) throw new Error("JSON inválido del agente");
+      const itemId = kind==="task"?String(item.id):String(item.p.id);
+      const fp = kind==="task"?fpTask(item):fpProj(item);
+      const prevA = negotiation.hectorAnalysis||{generatedAt:new Date().toISOString(),tasks:{},projects:{}};
+      const field = kind==="task"?"tasks":"projects";
+      const merged = {
+        ...prevA,
+        [field]: {...(prevA[field]||{}), [itemId]: {text:parsed.text||"",tags:Array.isArray(parsed.tags)?parsed.tags:[],fp}},
+      };
+      onSetAnalysis(negotiation.id,merged);
+    }catch(e){
+      onAppendHectorMessage(negotiation.id,{role:"assistant",content:`⚠ Error al regenerar análisis de ${kind==="task"?item.title:item.p.name}: ${e.message}`,timestamp:new Date().toISOString()});
+    }finally{
+      setIndividualLoading(prev=>{ const n={...prev}; delete n[key]; return n; });
+    }
+  };
+
+  // Color/tag styles para los tags de análisis.
+  const TAG_STYLES = {
+    "Bloquea negociación":{bg:"#FEE2E2",border:"#FCA5A5",text:"#991B1B"},
+    "Decisión Tipo 1":    {bg:"#FEE2E2",border:"#FCA5A5",text:"#991B1B"},
+    "Decisión Tipo 2":    {bg:"#DBEAFE",border:"#93C5FD",text:"#1E40AF"},
+    "Riesgo alto":        {bg:"#FEE2E2",border:"#FCA5A5",text:"#991B1B"},
+    "Riesgo bajo":        {bg:"#E1F5EE",border:"#86EFAC",text:"#065F46"},
+    "Delegable":          {bg:"#EDE9FE",border:"#C4B5FD",text:"#5B21B6"},
+    "Urgente":            {bg:"#FEF3C7",border:"#FCD34D",text:"#92400E"},
+  };
+  const tagStyle = (t)=>TAG_STYLES[t]||{bg:"#F3F4F6",border:"#D1D5DB",text:"#374151"};
+
+  // Render del chip "H" + popover inline. Reutilizado en tareas y proyectos.
+  const renderHectorChip = (kind,item,keyId)=>{
+    const key = `${kind}:${keyId}`;
+    const entry = kind==="task" ? negotiation.hectorAnalysis?.tasks?.[String(keyId)] : negotiation.hectorAnalysis?.projects?.[String(keyId)];
+    const currentFp = kind==="task" ? fpTask(item) : fpProj(item);
+    const isStale = entry && entry.fp && entry.fp!==currentFp;
+    const isExpanded = expandedHector===key;
+    const loading = !!individualLoading[key];
+    const hasEntry = !!entry;
+    const chipBg = !hasEntry ? "#F3F4F6" : isStale ? "#E5E7EB" : "#1D9E75";
+    const chipColor = !hasEntry ? "#9CA3AF" : isStale ? "#6B7280" : "#fff";
+    const chipTitle = !hasEntry ? "Sin análisis — click para generar" : isStale ? "Análisis desactualizado — click para regenerar" : "Análisis de Héctor — click para ver";
+    const handleChipClick = (e)=>{
+      e.stopPropagation();
+      // Si no hay entry, o está stale y el usuario cierra el popover, lanzar regen.
+      if(!hasEntry){ regenOne(kind,item); setExpandedHector(key); return; }
+      setExpandedHector(isExpanded?null:key);
+    };
+    return { key, entry, isStale, isExpanded, loading, hasEntry, chipBg, chipColor, chipTitle, handleChipClick };
+  };
+
+  const renderHectorPopover = (kind,item,keyId)=>{
+    const key = `${kind}:${keyId}`;
+    const entry = kind==="task" ? negotiation.hectorAnalysis?.tasks?.[String(keyId)] : negotiation.hectorAnalysis?.projects?.[String(keyId)];
+    if(!entry) return null;
+    const loading = !!individualLoading[key];
+    const currentFp = kind==="task" ? fpTask(item) : fpProj(item);
+    const isStale = entry.fp && entry.fp!==currentFp;
+    const speaking = speakingKey===key;
+    return(
+      <div style={{marginTop:6,background:"#F9FAFB",border:"1px solid #E5E7EB",borderLeft:"3px solid #1D9E75",borderRadius:8,padding:"10px 12px",animation:"tf-slide-down .15s ease"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+          <div style={{width:22,height:22,borderRadius:"50%",background:"linear-gradient(135deg,#1D9E75,#0E7C5A)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>H</div>
+          <div style={{fontSize:11,fontWeight:700,color:"#1D9E75",flex:1}}>Héctor opina{isStale&&<span style={{marginLeft:6,fontSize:10,padding:"1px 6px",background:"#FEF3C7",border:"0.5px solid #FCD34D",borderRadius:10,color:"#92400E",fontWeight:500}}>desactualizado</span>}</div>
+          <button onClick={e=>{e.stopPropagation();setExpandedHector(null);}} title="Cerrar" style={{background:"none",border:"none",fontSize:13,cursor:"pointer",color:"#9CA3AF"}}>×</button>
+        </div>
+        {(entry.tags||[]).length>0&&(
+          <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:7}}>
+            {entry.tags.map((t,i)=>{ const s=tagStyle(t); return(
+              <span key={i} style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:s.bg,border:`1px solid ${s.border}`,color:s.text,fontWeight:500}}>{t}</span>
+            );})}
+          </div>
+        )}
+        <div style={{fontSize:12,color:"#374151",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{entry.text||"(sin contenido)"}</div>
+        <div style={{display:"flex",gap:6,marginTop:9,flexWrap:"wrap"}}>
+          <button onClick={e=>{e.stopPropagation();handleSpeak(key,entry.text);}} disabled={!entry.text} style={{padding:"5px 10px",borderRadius:6,background:speaking?"#E24B4A":"#fff",color:speaking?"#fff":"#1D9E75",border:`1px solid ${speaking?"#E24B4A":"#1D9E75"}`,fontSize:11,cursor:entry.text?"pointer":"not-allowed",fontWeight:500,fontFamily:"inherit"}}>{speaking?"⏸ Detener":"🔊 Escuchar"}</button>
+          <button onClick={e=>{e.stopPropagation();regenOne(kind,item);}} disabled={loading||!hector} style={{padding:"5px 10px",borderRadius:6,background:"transparent",color:"#6B7280",border:"0.5px solid #D1D5DB",fontSize:11,cursor:loading||!hector?"not-allowed":"pointer",fontWeight:500,fontFamily:"inherit"}}>{loading?"⏳ Regenerando…":"🔄 Regenerar"}</button>
+        </div>
+      </div>
+    );
+  };
 
   return(
     <div style={{maxWidth:1200,margin:"0 auto",padding:"30px 20px"}}>
@@ -4077,26 +4201,32 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             {relProjs.length===0
               ? <div style={{fontSize:12,color:"#9CA3AF",fontStyle:"italic",padding:"10px 12px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:8}}>Sin proyectos vinculados. Edita la negociación para añadirlos.</div>
               : <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  {relProjs.map(({p,rp,activeCount,overdueCount,total})=>{
+                  {relProjs.map((rItem)=>{
+                    const {p,rp,activeCount,overdueCount,total} = rItem;
                     const ws = workspaces.find(w=>w.id===p.workspaceId);
                     const pri = PROJ_PRIORITY[rp.priority]||PROJ_PRIORITY.high;
+                    const chip = renderHectorChip("proj",rItem,p.id);
                     return(
-                      <div key={p.id} onClick={()=>onGoProject(p.id)} className="tf-lift" style={{background:"#fff",border:"1.5px solid #E5E7EB",borderLeft:`4px solid ${p.color}`,borderRadius:10,padding:"10px 12px",cursor:"pointer"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                          <span style={{width:10,height:10,borderRadius:"50%",background:p.color,flexShrink:0}}/>
-                          <span style={{fontSize:13,fontWeight:600,color:"#111827",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.emoji||"📋"} {p.name}</span>
-                          <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:pri.bg,border:`1px solid ${pri.border}`,color:pri.text,flexShrink:0}}>{pri.label}</span>
+                      <div key={p.id}>
+                        <div onClick={()=>onGoProject(p.id)} className="tf-lift" style={{background:"#fff",border:"1.5px solid #E5E7EB",borderLeft:`4px solid ${p.color}`,borderRadius:10,padding:"10px 12px",cursor:"pointer"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                            <span style={{width:10,height:10,borderRadius:"50%",background:p.color,flexShrink:0}}/>
+                            <span style={{fontSize:13,fontWeight:600,color:"#111827",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.emoji||"📋"} {p.name}</span>
+                            <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:pri.bg,border:`1px solid ${pri.border}`,color:pri.text,flexShrink:0}}>{pri.label}</span>
+                            <button onClick={chip.handleChipClick} title={chip.chipTitle} disabled={chip.loading} style={{width:22,height:22,borderRadius:"50%",background:chip.loading?"#FEF3C7":chip.chipBg,color:chip.chipColor,border:"none",fontSize:10,fontWeight:700,cursor:chip.loading?"wait":"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>{chip.loading?"⋯":"H"}</button>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:"#6B7280",flexWrap:"wrap"}}>
+                            {ws&&<span>{ws.emoji} {ws.name}</span>}
+                            <span>· {total} tarea{total!==1?"s":""}</span>
+                            {overdueCount>0
+                              ? <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:"#FEE2E2",border:"1px solid #FCA5A5",color:"#B91C1C"}}>{overdueCount} vencida{overdueCount!==1?"s":""}</span>
+                              : activeCount===0
+                                ? <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:"#E1F5EE",border:"1px solid #86EFAC",color:"#065F46"}}>completo</span>
+                                : <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:"#E1F5EE",border:"1px solid #86EFAC",color:"#065F46"}}>al día</span>
+                            }
+                          </div>
                         </div>
-                        <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:"#6B7280",flexWrap:"wrap"}}>
-                          {ws&&<span>{ws.emoji} {ws.name}</span>}
-                          <span>· {total} tarea{total!==1?"s":""}</span>
-                          {overdueCount>0
-                            ? <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:"#FEE2E2",border:"1px solid #FCA5A5",color:"#B91C1C"}}>{overdueCount} vencida{overdueCount!==1?"s":""}</span>
-                            : activeCount===0
-                              ? <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:"#E1F5EE",border:"1px solid #86EFAC",color:"#065F46"}}>completo</span>
-                              : <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:"#E1F5EE",border:"1px solid #86EFAC",color:"#065F46"}}>al día</span>
-                          }
-                        </div>
+                        {chip.isExpanded&&renderHectorPopover("proj",rItem,p.id)}
                       </div>
                     );
                   })}
@@ -4113,14 +4243,19 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                     const days = t.dueDate ? daysUntil(t.dueDate) : null;
                     const dueLabel = !t.dueDate ? "Sin fecha" : days<0 ? `Vencida ${-days}d` : days===0 ? "Hoy" : days<=7 ? `En ${days}d` : `En ${days}d`;
                     const dueColor = !t.dueDate ? "#9CA3AF" : days<0 ? "#E24B4A" : days===0 ? "#EF9F27" : days<=3 ? "#EF9F27" : "#6b7280";
+                    const chip = renderHectorChip("task",t,t.id);
                     return(
-                      <div key={`${t.projId}-${t.id}`} onClick={()=>onOpenTask(t.id,t.projId)} style={{background:"#fff",border:"1px solid #E5E7EB",borderLeft:`3px solid ${t.projColor}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,transition:"background .12s"}} onMouseEnter={e=>{e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{e.currentTarget.style.background="#fff";}}>
-                        <input type="checkbox" readOnly checked={false} style={{flexShrink:0,cursor:"pointer",accentColor:t.projColor}} onClick={e=>e.stopPropagation()}/>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:12.5,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
-                          <div style={{fontSize:10.5,color:"#9CA3AF"}}>{t.projEmoji} {t.projName} · {t.colName}</div>
+                      <div key={`${t.projId}-${t.id}`}>
+                        <div onClick={()=>onOpenTask(t.id,t.projId)} style={{background:"#fff",border:"1px solid #E5E7EB",borderLeft:`3px solid ${t.projColor}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,transition:"background .12s"}} onMouseEnter={e=>{e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{e.currentTarget.style.background="#fff";}}>
+                          <input type="checkbox" readOnly checked={false} style={{flexShrink:0,cursor:"pointer",accentColor:t.projColor}} onClick={e=>e.stopPropagation()}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:12.5,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                            <div style={{fontSize:10.5,color:"#9CA3AF"}}>{t.projEmoji} {t.projName} · {t.colName}</div>
+                          </div>
+                          <span style={{fontSize:10.5,color:dueColor,fontWeight:600,flexShrink:0}}>{dueLabel}</span>
+                          <button onClick={chip.handleChipClick} title={chip.chipTitle} disabled={chip.loading} style={{width:20,height:20,borderRadius:"50%",background:chip.loading?"#FEF3C7":chip.chipBg,color:chip.chipColor,border:"none",fontSize:9,fontWeight:700,cursor:chip.loading?"wait":"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>{chip.loading?"⋯":"H"}</button>
                         </div>
-                        <span style={{fontSize:10.5,color:dueColor,fontWeight:600,flexShrink:0}}>{dueLabel}</span>
+                        {chip.isExpanded&&renderHectorPopover("task",t,t.id)}
                       </div>
                     );
                   })}
