@@ -4635,6 +4635,63 @@ function BriefingsView({data,onOpenNeg,onOpenSession}){
   );
 }
 
+// ── Shortcuts cheatsheet ─────────────────────────────────────────────────────
+function ShortcutsModal({onClose}){
+  useEffect(()=>{ const k=e=>{if(e.key==="Escape") onClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[onClose]);
+  const GROUPS = [
+    { title:"Navegación", items:[
+      [["⌘","⇧","H"], "Ir a Home"],
+      [["⌘","⇧","D"], "Ir a Deal Room"],
+      [["⌘","⇧","T"], "Ir a Mis tareas"],
+      [["⌘","⇧","A"], "Ir a Dashboard"],
+      [["⌘","⇧","B"], "Ir a Briefings IA"],
+    ]},
+    { title:"Acciones", items:[
+      [["⌘","K"],     "Abrir buscador / Command Palette"],
+      [["⌘","⇧","N"], "Abrir menú «Nueva…»"],
+      [["?"],         "Abrir este panel de atajos"],
+    ]},
+    { title:"Interfaz", items:[
+      [["⌘","\\"],    "Colapsar / expandir sidebar"],
+      [["Esc"],       "Cerrar modal, popover o menú activo"],
+    ]},
+  ];
+  const kbdStyle = {fontSize:11,padding:"2px 7px",border:"0.5px solid #d1d5db",borderRadius:5,background:"#fff",color:"#374151",fontFamily:"ui-monospace,monospace",fontWeight:600,minWidth:22,textAlign:"center",display:"inline-block",boxShadow:"0 1px 0 #e5e7eb"};
+  return(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,width:520,maxWidth:"96vw",maxHeight:"86vh",overflowY:"auto",border:"0.5px solid #e5e7eb"}}>
+        <div style={{padding:"16px 22px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontSize:15,fontWeight:700}}>⌨️ Atajos de teclado</div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>×</button>
+        </div>
+        <div style={{padding:"16px 22px 20px"}}>
+          {GROUPS.map((g,gi)=>(
+            <div key={g.title} style={{marginBottom:gi===GROUPS.length-1?0:18}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>{g.title}</div>
+              <table style={{width:"100%",borderCollapse:"collapse"}}>
+                <tbody>
+                  {g.items.map(([keys,desc],i)=>(
+                    <tr key={i} style={{borderBottom:i===g.items.length-1?"none":"1px solid #F3F4F6"}}>
+                      <td style={{padding:"8px 0",width:140}}>{keys.map((k,ki)=>(
+                        <React.Fragment key={ki}>
+                          {ki>0&&<span style={{color:"#D1D5DB",margin:"0 3px"}}>+</span>}
+                          <kbd style={kbdStyle}>{k}</kbd>
+                        </React.Fragment>
+                      ))}</td>
+                      <td style={{padding:"8px 0",fontSize:13,color:"#374151"}}>{desc}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+          <div style={{fontSize:11,color:"#9CA3AF",marginTop:16,paddingTop:14,borderTop:"0.5px solid #E5E7EB",fontStyle:"italic"}}>En Windows/Linux, ⌘ = Ctrl. Los atajos con ⌘⇧ se bloquean si hay un input focuseado — excepto ⌘K que siempre funciona.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── User selector (temporal, pre-auth) ────────────────────────────────────────
 const USER_KEY = "taskflow_current_user";
 const readStoredUser = () => { try{ const s=localStorage.getItem(USER_KEY); return s?JSON.parse(s):null; }catch{ return null; } };
@@ -4789,18 +4846,40 @@ export default function TaskFlow(){
     window.location.reload();
   },[]);
 
-  // Cmd+K / Ctrl+K abre el Command Palette desde cualquier vista (excepto durante el login).
+  // Atajos globales — deshabilitados durante login. ⌘K siempre activo (incluso
+  // con input focuseado); el resto se bloquea si hay input/textarea/select/CE.
   useEffect(()=>{
     if(showUserModal) return;
     const onKey=(e)=>{
-      if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){
-        e.preventDefault();
-        setShowCommandPalette(v=>!v);
+      const el = document.activeElement;
+      const inputFocused = el && (el.tagName==="INPUT" || el.tagName==="TEXTAREA" || el.tagName==="SELECT" || el.isContentEditable);
+      const meta = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+
+      // ⌘K — command palette (siempre activo)
+      if(meta && key==="k"){ e.preventDefault(); setShowCommandPalette(v=>!v); return; }
+
+      if(inputFocused) return;
+
+      // ⌘⇧<letra> — navegación
+      if(meta && e.shiftKey){
+        if(key==="h"){ e.preventDefault(); setActiveTab("home"); return; }
+        if(key==="d"){ e.preventDefault(); setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null); return; }
+        if(key==="t"){ e.preventDefault(); setActiveTab("mytasks"); return; }
+        if(key==="a"){ e.preventDefault(); setActiveTab("dashboard"); return; }
+        if(key==="b"){ e.preventDefault(); setActiveTab("briefings"); return; }
+        if(key==="n"){ e.preventDefault(); setNuevaOpen(true); setTimeout(()=>nuevaFirstBtnRef.current?.focus(),40); return; }
       }
+
+      // ⌘\ — toggle sidebar colapsado
+      if(meta && e.key==="\\"){ e.preventDefault(); toggleSidebarCollapsed(); return; }
+
+      // ? — abrir panel de atajos
+      if(e.key==="?"){ e.preventDefault(); setShowShortcuts(true); return; }
     };
     window.addEventListener("keydown",onKey);
     return()=>window.removeEventListener("keydown",onKey);
-  },[showUserModal]);
+  },[showUserModal,toggleSidebarCollapsed]);
 
   const proj  = data.projects[activeProject];
   const board = data.boards[proj.id];
@@ -5174,15 +5253,7 @@ export default function TaskFlow(){
   return(
     <div style={{display:"flex",height:"100vh",fontFamily:"'Segoe UI',system-ui,sans-serif",background:"#f9fafb",color:"#111827"}}>
       {showUserModal&&<UserSelectionModal members={data.members} onSelectUser={selectUser}/>}
-      {showShortcuts&&(
-        <div onClick={()=>setShowShortcuts(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,width:420,maxWidth:"96vw",padding:22,border:"0.5px solid #e5e7eb"}}>
-            <div style={{fontSize:15,fontWeight:700,marginBottom:10}}>⌨️ Atajos — próximamente</div>
-            <div style={{fontSize:13,color:"#6B7280",marginBottom:14}}>La lista completa llega en el siguiente commit.</div>
-            <button onClick={()=>setShowShortcuts(false)} style={{padding:"8px 16px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Cerrar</button>
-          </div>
-        </div>
-      )}
+      {showShortcuts&&<ShortcutsModal onClose={()=>setShowShortcuts(false)}/>}
       {overlayTaskId&&(()=>{
         for(const p of data.projects){
           const cols=data.boards[p.id]||[];
