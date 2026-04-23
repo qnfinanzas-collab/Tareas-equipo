@@ -1430,16 +1430,157 @@ function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,wor
   );
 }
 
-// ── Eisenhower View ───────────────────────────────────────────────────────────
+// ── Slideout (panel lateral reutilizable) ─────────────────────────────────────
+function Slideout({isOpen,onClose,title,subtitle,children}){
+  useEffect(()=>{
+    if(!isOpen) return;
+    const onKey=e=>{ if(e.key==="Escape") onClose(); };
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[isOpen,onClose]);
+  if(!isOpen) return null;
+  return(
+    <>
+      <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.3)",zIndex:1500,animation:"tf-fade-in .2s ease"}}/>
+      <div style={{position:"fixed",top:0,right:0,bottom:0,width:400,maxWidth:"90vw",background:"#fff",zIndex:1600,boxShadow:"-6px 0 28px rgba(0,0,0,0.18)",display:"flex",flexDirection:"column",animation:"tf-slide-in-right .25s ease-out"}}>
+        <div style={{padding:"16px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{title}</div>
+            {subtitle&&<div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{subtitle}</div>}
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#9ca3af",lineHeight:1}}>×</button>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"12px 14px"}}>{children}</div>
+      </div>
+    </>
+  );
+}
+
+// Botón inline estilo pill para quick actions
+function QuickActionBtn({icon,label,color,onClick}){
+  return(
+    <button className="tf-press" onClick={e=>{e.stopPropagation();onClick();}} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:20,background:color+"14",color,border:`1px solid ${color}44`,fontSize:11,fontWeight:600,cursor:"pointer",transition:"background .15s, border-color .15s"}} onMouseEnter={e=>{e.currentTarget.style.background=color+"22";e.currentTarget.style.borderColor=color+"88";}} onMouseLeave={e=>{e.currentTarget.style.background=color+"14";e.currentTarget.style.borderColor=color+"44";}}>
+      <span>{icon}</span><span>{label}</span>
+    </button>
+  );
+}
+
+// Tarjeta expandible de tarea crítica con quick actions inline.
+function CriticalTaskCard({task,proj,members,onComplete,onPostpone,onOpenModal}){
+  const [expanded,setExpanded] = useState(false);
+  const [confirm,setConfirm]   = useState(false);
+  const [showPostpone,setShowPostpone] = useState(false);
+  const [leaving,setLeaving]   = useState(false);
+  const days=daysUntil(task.dueDate);
+  const dueLabel = !task.dueDate ? "Sin fecha" : days<0 ? `Vencida hace ${-days} día${-days!==1?"s":""}` : days===0 ? "Vence hoy" : `Vence en ${days} día${days!==1?"s":""}`;
+
+  const resetAfterAction = () => { setLeaving(false); setConfirm(false); setShowPostpone(false); setExpanded(false); };
+  const doComplete = () => { setLeaving(true); setTimeout(()=>{ onComplete(task); resetAfterAction(); },280); };
+  const doPostpone = (deltaDays,label) => {
+    const d=new Date(); d.setDate(d.getDate()+deltaDays);
+    setLeaving(true); setTimeout(()=>{ onPostpone(task,fmt(d),label); resetAfterAction(); },280);
+  };
+  const doPostponeCustom = (dateStr) => {
+    if(!dateStr) return;
+    setLeaving(true); setTimeout(()=>{ onPostpone(task,dateStr,dateStr); resetAfterAction(); },280);
+  };
+
+  return(
+    <div style={{borderTop:"1px solid #f3f4f6",padding:"10px 12px",borderRadius:4,background:expanded?"#fafafa":"#fff",transition:"opacity .28s ease, transform .28s ease, background .2s",opacity:leaving?0:1,transform:leaving?"translateX(24px)":"translateX(0)"}}>
+      <div onClick={()=>setExpanded(e=>!e)} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
+        <QBadge q={getQ(task)}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.title}</div>
+          <div style={{fontSize:10,color:"#9ca3af"}}>{proj?.emoji} {proj?.name} · <span style={{color:days<0?"#E24B4A":days===0?"#EF9F27":"#6b7280",fontWeight:500}}>{dueLabel}</span></div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:6}}>
+          {task.assignees.slice(0,3).map((mid,i)=>{ const mp2=MP[mid]||MP[0]; const mm=members.find(x=>x.id===mid); return <div key={mid} style={{marginLeft:i>0?-6:0,width:22,height:22,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,border:"1.5px solid #fff"}}>{mm?.initials}</div>; })}
+          <span style={{fontSize:11,color:"#7F77DD",fontWeight:600,marginLeft:4,userSelect:"none"}}>{expanded?"▴":"⚡ Acciones"}</span>
+        </div>
+      </div>
+      {expanded&&!leaving&&(
+        <div style={{marginTop:10,paddingTop:10,borderTop:"1px dashed #e5e7eb",animation:"tf-slide-down .2s ease-in-out"}}>
+          {!confirm&&!showPostpone&&(
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <QuickActionBtn icon="✓" label="Completar" color="#10B981" onClick={()=>setConfirm(true)}/>
+              <QuickActionBtn icon="💬" label="Comentar"  color="#3B82F6" onClick={onOpenModal}/>
+              <QuickActionBtn icon="📅" label="Posponer"  color="#F59E0B" onClick={()=>setShowPostpone(true)}/>
+              <QuickActionBtn icon="👁" label="Ver más"   color="#6B7280" onClick={onOpenModal}/>
+            </div>
+          )}
+          {confirm&&(
+            <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",animation:"tf-slide-down .15s ease"}}>
+              <span style={{fontSize:12,color:"#065F46",fontWeight:600}}>¿Marcar como completada?</span>
+              <button onClick={doComplete} style={{padding:"6px 14px",borderRadius:7,background:"#10B981",color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer"}}>✓ Sí</button>
+              <button onClick={()=>setConfirm(false)} style={{padding:"6px 14px",borderRadius:7,background:"transparent",color:"#6B7280",border:"0.5px solid #d1d5db",fontSize:12,fontWeight:600,cursor:"pointer"}}>✗ No</button>
+            </div>
+          )}
+          {showPostpone&&(
+            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",animation:"tf-slide-down .15s ease"}}>
+              <span style={{fontSize:12,color:"#854F0B",fontWeight:600}}>Posponer:</span>
+              <button onClick={()=>doPostpone(1,"24h")}     style={{padding:"5px 12px",borderRadius:7,background:"#F59E0B",color:"#fff",border:"none",fontSize:11,fontWeight:600,cursor:"pointer"}}>24h</button>
+              <button onClick={()=>doPostpone(2,"48h")}     style={{padding:"5px 12px",borderRadius:7,background:"#F59E0B",color:"#fff",border:"none",fontSize:11,fontWeight:600,cursor:"pointer"}}>48h</button>
+              <button onClick={()=>doPostpone(7,"1 semana")} style={{padding:"5px 12px",borderRadius:7,background:"#F59E0B",color:"#fff",border:"none",fontSize:11,fontWeight:600,cursor:"pointer"}}>1 semana</button>
+              <input type="date" onChange={e=>doPostponeCustom(e.target.value)} style={{padding:"4px 8px",borderRadius:7,border:"0.5px solid #F59E0B",fontSize:11,fontFamily:"inherit"}}/>
+              <button onClick={()=>setShowPostpone(false)} style={{padding:"5px 10px",borderRadius:7,background:"transparent",color:"#6B7280",border:"0.5px solid #d1d5db",fontSize:11,fontWeight:500,cursor:"pointer"}}>Cancelar</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Cuadrante Eisenhower interactivo (hover preview + click → slideout).
+const DASH_Q_COLORS = {
+  Q1:{ border:"#EF4444", bg:"#FEE2E2", label:"URGENTE + IMPORTANTE" },
+  Q2:{ border:"#3B82F6", bg:"#DBEAFE", label:"IMPORTANTE"            },
+  Q3:{ border:"#F59E0B", bg:"#FEF3C7", label:"URGENTE"               },
+  Q4:{ border:"#9CA3AF", bg:"#F3F4F6", label:"ELIMINAR"              },
+};
+function EisenhowerQuadrant({qk,tasks,onClick}){
+  const [hover,setHover] = useState(false);
+  const qc = DASH_Q_COLORS[qk];
+  const qm = QM[qk];
+  const clickable = tasks.length>0;
+  return(
+    <div
+      onClick={()=>clickable&&onClick(qk,tasks)}
+      onMouseEnter={()=>setHover(true)}
+      onMouseLeave={()=>setHover(false)}
+      style={{background:qc.bg,border:`1.5px solid ${qc.border}`,borderRadius:10,padding:"12px 14px",cursor:clickable?"pointer":"default",position:"relative",minHeight:120,transition:"transform .15s ease, box-shadow .15s ease",transform:clickable&&hover?"translateY(-2px)":"translateY(0)",boxShadow:clickable&&hover?`0 8px 20px ${qc.border}33`:"none"}}
+    >
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+        <span style={{fontSize:14}}>{qm.icon}</span>
+        <span style={{fontSize:10,fontWeight:700,color:qc.border,letterSpacing:"0.04em"}}>{qk} · {qc.label}</span>
+      </div>
+      <div style={{fontSize:26,fontWeight:700,color:qc.border,lineHeight:1}}>{tasks.length}</div>
+      <div style={{fontSize:10,color:"#6b7280",marginTop:2}}>{qm.sub||qm.label}</div>
+      {hover&&clickable&&(
+        <div style={{marginTop:10,paddingTop:10,borderTop:`1px dashed ${qc.border}55`,animation:"tf-fade-in .15s ease"}}>
+          {tasks.slice(0,3).map(t=>(
+            <div key={t.id} style={{fontSize:11,padding:"5px 8px",background:"#fff",border:`1px solid ${qc.border}33`,borderRadius:6,marginTop:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📌 {t.title}</div>
+          ))}
+          {tasks.length>3&&<div style={{fontSize:10,color:"#6b7280",marginTop:5,fontStyle:"italic"}}>… +{tasks.length-3} más</div>}
+          <div style={{fontSize:10,color:qc.border,fontWeight:700,marginTop:8}}>Click para ver todas →</div>
+        </div>
+      )}
+      {!clickable&&hover&&(
+        <div style={{marginTop:10,fontSize:10,color:"#9ca3af",fontStyle:"italic"}}>Sin tareas en este cuadrante</div>
+      )}
+    </div>
+  );
+}
+
 // ── Dashboard View ────────────────────────────────────────────────────────────
-function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask,onOpenBriefing}){
+function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask,onOpenBriefing,onCompleteTask,onPostponeTask}){
   const {boards,members,projects,aiSchedule}=data;
   const today=fmt(TODAY);
   const weekAgo=new Date(TODAY); weekAgo.setDate(weekAgo.getDate()-7);
   const weekFromStr=fmt(weekAgo);
   const weekAheadEnd=new Date(TODAY); weekAheadEnd.setDate(weekAheadEnd.getDate()+7);
 
-  const allT=Object.entries(boards).flatMap(([pid,cols])=>cols.flatMap(col=>col.tasks.map(t=>({...t,colName:col.name,projId:Number(pid),projName:projects.find(p=>p.id===Number(pid))?.name||""}))));
+  const allT=Object.entries(boards).flatMap(([pid,cols])=>cols.flatMap(col=>col.tasks.map(t=>({...t,colId:col.id,colName:col.name,projId:Number(pid),projName:projects.find(p=>p.id===Number(pid))?.name||""}))));
   const active=allT.filter(t=>t.colName!=="Hecho");
   const done=allT.filter(t=>t.colName==="Hecho");
   const overdue=active.filter(t=>t.dueDate&&daysUntil(t.dueDate)<0);
@@ -1455,8 +1596,9 @@ function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask,onOpe
   const logTotal=allT.reduce((s,t)=>s+((t.timeLogs||[]).reduce((a,l)=>a+l.seconds,0)/3600),0);
   const completionPct=estTotal>0?Math.min(100,Math.round(logTotal/estTotal*100)):0;
 
-  // Matriz Eisenhower
-  const quads={Q1:0,Q2:0,Q3:0,Q4:0}; active.forEach(t=>{quads[getQ(t)]++;});
+  // Matriz Eisenhower — lista completa por cuadrante (no solo count) para preview + slideout
+  const quadTasks={Q1:[],Q2:[],Q3:[],Q4:[]}; active.forEach(t=>{quadTasks[getQ(t)].push(t);});
+  const [slideoutQ,setSlideoutQ] = useState(null); // null | "Q1" | "Q2" | ...
 
   // Top 5 críticas
   const critical=[...active].filter(t=>{ const q=getQ(t); return q==="Q1"||(t.dueDate&&daysUntil(t.dueDate)<=1); })
@@ -1505,47 +1647,63 @@ function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask,onOpe
       </div>
 
       {/* Row: Eisenhower + Críticas */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1.4fr",gap:14,marginBottom:20}}>
+      <div className="tf-dashboard-grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1.4fr",gap:14,marginBottom:20}}>
         <div style={{background:"#fff",border:"1px solid #e5e7eb",borderRadius:12,padding:14}}>
           <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Matriz Eisenhower</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            {["Q1","Q2","Q3","Q4"].map(qk=>{ const qm=QM[qk]; return(
-              <div key={qk} style={{background:qm.bg,border:`1.5px solid ${qm.border}`,borderRadius:10,padding:"10px 12px"}}>
-                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                  <span style={{fontSize:14}}>{qm.icon}</span>
-                  <span style={{fontSize:11,fontWeight:700,color:qm.border}}>{qk}</span>
-                </div>
-                <div style={{fontSize:22,fontWeight:700,color:qm.border,lineHeight:1}}>{quads[qk]}</div>
-                <div style={{fontSize:10,color:"#6b7280",marginTop:2}}>{qm.label}</div>
-              </div>
-            );})}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8}}>
+            {["Q1","Q2","Q3","Q4"].map(qk=>(
+              <EisenhowerQuadrant key={qk} qk={qk} tasks={quadTasks[qk]} onClick={(k)=>setSlideoutQ(k)}/>
+            ))}
           </div>
         </div>
 
         <div style={{background:"#fff",border:"1px solid #e5e7eb",borderRadius:12,padding:14}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
             <div style={{fontSize:13,fontWeight:600}}>Top 5 críticas hoy</div>
-            <span style={{fontSize:11,color:"#6b7280"}}>{critical.length} tareas</span>
+            <span style={{fontSize:11,color:"#6b7280"}}>{critical.length} tarea{critical.length!==1?"s":""}</span>
           </div>
-          {critical.length===0&&<div style={{fontSize:12,color:"#9ca3af",textAlign:"center",padding:"20px 10px"}}>Ninguna tarea crítica hoy 🎉</div>}
+          {critical.length===0&&<div style={{fontSize:12,color:"#9ca3af",textAlign:"center",padding:"24px 10px"}}>🎉 No hay tareas críticas. ¡Buen trabajo!</div>}
           {critical.map(t=>{
-            const days=daysUntil(t.dueDate);
-            const p2=palOf(t.assignees);
             const proj=projects.find(p=>p.id===t.projId);
             const projIdx=projects.findIndex(p=>p.id===t.projId);
             return(
-              <div key={t.id} onClick={()=>onOpenTask?.(t,projIdx)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderTop:"1px solid #f3f4f6",cursor:"pointer",borderRadius:4}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                <QBadge q={getQ(t)}/>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
-                  <div style={{fontSize:10,color:"#9ca3af"}}>{proj?.emoji} {proj?.name} · {days<0?`Vencida (${-days}d)`:days===0?"Hoy":`En ${days}d`}</div>
-                </div>
-                <div style={{display:"flex"}}>{t.assignees.slice(0,3).map((mid,i)=>{ const mp2=MP[mid]||MP[0]; const mm=members.find(x=>x.id===mid); return <div key={mid} style={{marginLeft:i>0?-6:0,width:22,height:22,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,border:"1.5px solid #fff"}}>{mm?.initials}</div>; })}</div>
-              </div>
+              <CriticalTaskCard
+                key={t.id}
+                task={t}
+                proj={proj}
+                members={members}
+                onComplete={()=>onCompleteTask?.(t.id,t.projId,t.colId)}
+                onPostpone={(task,newDate,label)=>onPostponeTask?.(task,newDate,label)}
+                onOpenModal={()=>onOpenTask?.(t,projIdx)}
+              />
             );
           })}
         </div>
       </div>
+
+      {/* Slideout con todas las tareas de un cuadrante */}
+      <Slideout
+        isOpen={slideoutQ!==null}
+        onClose={()=>setSlideoutQ(null)}
+        title={slideoutQ?`${slideoutQ} · ${DASH_Q_COLORS[slideoutQ].label}`:""}
+        subtitle={slideoutQ?`${quadTasks[slideoutQ].length} tarea${quadTasks[slideoutQ].length!==1?"s":""}`:""}
+      >
+        {slideoutQ&&quadTasks[slideoutQ].map(t=>{
+          const proj=projects.find(p=>p.id===t.projId);
+          const projIdx=projects.findIndex(p=>p.id===t.projId);
+          const days=daysUntil(t.dueDate);
+          const dueLabel=!t.dueDate?"Sin fecha":days<0?`Vencida hace ${-days}d`:days===0?"Hoy":`En ${days}d`;
+          return(
+            <div key={t.id} className="tf-lift" onClick={()=>{onOpenTask?.(t,projIdx);setSlideoutQ(null);}} style={{padding:"10px 12px",border:"0.5px solid #e5e7eb",borderLeft:`3px solid ${DASH_Q_COLORS[slideoutQ].border}`,borderRadius:10,marginBottom:8,cursor:"pointer",background:"#fff"}}>
+              <div style={{fontSize:13,fontWeight:500,marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+              <div style={{fontSize:11,color:"#6b7280"}}>{proj?.emoji} {proj?.name} · {t.colName} · <span style={{color:days<0?"#E24B4A":days===0?"#EF9F27":"#6b7280"}}>{dueLabel}</span></div>
+            </div>
+          );
+        })}
+        {slideoutQ&&quadTasks[slideoutQ].length===0&&(
+          <div style={{fontSize:12,color:"#9ca3af",textAlign:"center",padding:30}}>Sin tareas en este cuadrante</div>
+        )}
+      </Slideout>
 
       {/* Carga por persona */}
       <div style={{background:"#fff",border:"1px solid #e5e7eb",borderRadius:12,padding:14,marginBottom:20}}>
@@ -2776,6 +2934,33 @@ export default function TaskFlow(){
     setData(prev=>{ const cols=prev.boards[proj.id]; const fc=cols.find(c=>c.id===fromColId); const task=fc.tasks.find(t=>t.id===taskId); const nc=cols.map(col=>{ if(col.id===fromColId)return{...col,tasks:col.tasks.filter(t=>t.id!==taskId)}; if(col.id===toColId)return{...col,tasks:[...col.tasks,task]}; return col; }); return{...prev,boards:{...prev.boards,[proj.id]:nc}}; });
     addToast("Tarea movida","info");
   },[proj.id,addToast]);
+  // Acciones cross-project para el Dashboard (Top 5 críticas puede venir de cualquier proyecto).
+  const completeTaskAnywhere = useCallback((taskId,projId,fromColId)=>{
+    setData(prev=>{
+      const cols=prev.boards[projId]; if(!cols) return prev;
+      const done=cols.find(c=>c.name==="Hecho")||cols[cols.length-1];
+      if(!done||done.id===fromColId) return prev;
+      const src=cols.find(c=>c.id===fromColId);
+      const task=src?.tasks.find(t=>t.id===taskId); if(!task) return prev;
+      const nc=cols.map(col=>{
+        if(col.id===fromColId) return{...col,tasks:col.tasks.filter(t=>t.id!==taskId)};
+        if(col.id===done.id)   return{...col,tasks:[...col.tasks,task]};
+        return col;
+      });
+      return{...prev,boards:{...prev.boards,[projId]:nc}};
+    });
+    addToast("✓ Tarea completada");
+  },[addToast]);
+  const postponeTaskAnywhere = useCallback((task,newDate,label)=>{
+    setData(prev=>{
+      const newBoards={};
+      for(const pid in prev.boards){
+        newBoards[pid]=prev.boards[pid].map(col=>({...col,tasks:col.tasks.map(t=>t.id===task.id?{...t,dueDate:newDate}:t)}));
+      }
+      return{...prev,boards:newBoards};
+    });
+    addToast(`📅 Pospuesta hasta ${label||newDate}`,"info");
+  },[addToast]);
   const addTask = useCallback((colId,title)=>{
     setData(prev=>{ const nt={id:"t"+nextId++,title,tags:[],assignees:[activeMember],priority:"media",startDate:fmt(new Date()),dueDate:"",estimatedHours:0,timeLogs:[],desc:"",comments:[]}; const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:[...col.tasks,nt]}:col); return{...prev,boards:{...prev.boards,[proj.id]:cols}}; });
     addToast("✓ Tarea creada");
@@ -2948,7 +3133,7 @@ export default function TaskFlow(){
         )}
         {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember}/>}
         <div style={{flex:1,overflow:"auto"}}>
-          {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");}} onOpenBriefing={()=>setScopeAvatar("global")}/>}
+          {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}

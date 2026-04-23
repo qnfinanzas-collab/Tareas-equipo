@@ -24,6 +24,13 @@
       input, textarea, select, button { font-size: 16px; } /* evita zoom en iOS */
       @media (min-width: 700px){ input, textarea, select, button { font-size: inherit; } }
 
+      @keyframes tf-slide-in-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
+      @keyframes tf-fade-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes tf-slide-down { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+      .tf-press:active { transform: scale(0.95); }
+      .tf-lift { transition: transform .15s ease, box-shadow .15s ease; }
+      .tf-lift:hover { transform: translateY(-2px); }
+
       /* Responsive: sidebar drawer en móvil */
       .tf-sidebar { transition: transform .2s ease; }
       .tf-backdrop { display: none; }
