@@ -493,6 +493,8 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
   const [agentId,setAgentId]   = useState("none");
   const [analyzing,setAnalyzing] = useState(null);
   const [expanded,setExpanded]   = useState(null);
+  const [urlInput,setUrlInput]   = useState("");
+  const [urlBusy,setUrlBusy]     = useState(false);
   const fileInputRef      = useRef(null);
 
   if(!storageEnabled()){
@@ -503,9 +505,15 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
 
   // El análisis por Anthropic soporta PDF (document block) e imágenes PNG/JPG
   // (image block). DOCX no es soportado natively por la API. TXT va como texto.
-  const canAnalyze = (type)=> type==="application/pdf" || type==="image/png" || type==="image/jpeg" || type==="text/plain";
+  // URLs (type:text/html) van como texto ya extraído por /api/fetch-url.
+  const canAnalyze = (doc)=>{
+    if(doc.url) return true;
+    const type = doc.type;
+    return type==="application/pdf" || type==="image/png" || type==="image/jpeg" || type==="text/plain";
+  };
 
   const buildAttachment = async (doc)=>{
+    if(doc.url){ return { kind:"text", name:doc.name, text: (doc.text||"").slice(0,50000) }; }
     const blob = await downloadDocumentBlob(doc.storagePath);
     if(doc.type==="text/plain"){
       const text = await blob.text();
@@ -520,7 +528,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
   const runAnalyze = async (doc)=>{
     const agent = agents.find(a=>String(a.id)===String(agentId));
     if(!agent) return;
-    if(!canAnalyze(doc.type)){ setError(`${doc.type||"Tipo desconocido"} no soporta análisis automático`); return; }
+    if(!canAnalyze(doc)){ setError(`${doc.type||"Tipo desconocido"} no soporta análisis automático`); return; }
     setError(null);
     setAnalyzing(doc.id);
     try {
@@ -566,7 +574,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
       onChange?.(next);
       if(analyze){
         for(const doc of uploadedDocs){
-          if(canAnalyze(doc.type)) await runAnalyze(doc);
+          if(canAnalyze(doc)) await runAnalyze(doc);
         }
       }
     } catch(e){
@@ -579,22 +587,77 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
 
   const onDrop = (e)=>{
     e.preventDefault(); setDragOver(false);
-    handleFiles(e.dataTransfer.files);
+    handleFiles(e.dataTransfer.files, {analyze: agentId!=="none"});
+  };
+
+  // URL fetch: contenido web que se pasa como texto al agente (no se sube
+  // a Storage, se referencia por URL). Si hay agente seleccionado, se analiza
+  // automáticamente tras descargar.
+  const addUrl = async ()=>{
+    const u = urlInput.trim();
+    if(!u) return;
+    setError(null);
+    setUrlBusy(true);
+    try {
+      const r = await fetch("/api/fetch-url", {
+        method:"POST",
+        headers:{ "content-type":"application/json" },
+        body: JSON.stringify({ url: u }),
+      });
+      const data = await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      const doc = {
+        id: "doc_"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+        name: data.title || data.url,
+        type: "text/html",
+        size: (data.text||"").length,
+        storagePath: null,
+        url: data.url,
+        text: data.text || "",
+        uploadedAt: new Date().toISOString(),
+        analyzedBy: null,
+        analyzedAt: null,
+        report: null,
+      };
+      const next = [...documents, doc];
+      onChange?.(next);
+      setUrlInput("");
+      if(agentId!=="none"){
+        const agent = agents.find(a=>String(a.id)===String(agentId));
+        if(agent){
+          setAnalyzing(doc.id);
+          try {
+            const att = { kind:"text", name:doc.name, text: doc.text.slice(0,50000) };
+            const report = await analyzeDocument(att, agent, contextLabel||"el caso actual");
+            const updated = next.map(d=>d.id===doc.id ? {...d, analyzedBy: agent.name, analyzedAt: new Date().toISOString(), report} : d);
+            onChange?.(updated);
+            setExpanded(doc.id);
+          } finally { setAnalyzing(null); }
+        }
+      }
+    } catch(e){
+      setError(e.message||"Error al recuperar URL");
+    } finally {
+      setUrlBusy(false);
+    }
   };
 
   const openDoc = async (doc)=>{
     try {
+      if(doc.url){ window.open(doc.url,"_blank","noopener"); return; }
       const url = await getSignedUrl(doc.storagePath);
       window.open(url,"_blank","noopener");
     } catch(e){ setError(e.message); }
   };
 
   const removeDoc = async (doc)=>{
-    await storageDeleteDocument(doc.storagePath);
+    if(doc.storagePath) await storageDeleteDocument(doc.storagePath);
     onChange?.(documents.filter(d=>d.id!==doc.id));
   };
 
-  const iconFor = (type)=>{
+  const iconFor = (doc)=>{
+    if(doc.url) return "🔗";
+    const type = doc.type;
     if(!type) return "📄";
     if(type.includes("pdf")) return "📕";
     if(type.includes("word")||type.includes("document")) return "📘";
@@ -646,6 +709,22 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
           </select>
         </div>
       )}
+      <div style={{display:"flex",alignItems:"center",gap:6}}>
+        <input
+          type="url"
+          value={urlInput}
+          onChange={e=>setUrlInput(e.target.value)}
+          onKeyDown={e=>{ if(e.key==="Enter"&&!urlBusy){ e.preventDefault(); addUrl(); } }}
+          placeholder="O pega una URL (https://...)"
+          disabled={urlBusy}
+          style={{flex:1,padding:"6px 10px",borderRadius:6,border:"1px solid #D1D5DB",fontSize:12,fontFamily:"inherit",outline:"none",background:"#fff"}}
+        />
+        <button
+          onClick={addUrl}
+          disabled={urlBusy||!urlInput.trim()}
+          style={{padding:"6px 12px",borderRadius:6,background:urlBusy?"#FEF3C7":(urlInput.trim()?"#1E40AF":"#E5E7EB"),color:urlBusy?"#92400E":(urlInput.trim()?"#fff":"#9CA3AF"),border:"none",fontSize:11.5,fontWeight:600,cursor:(urlBusy||!urlInput.trim())?"default":"pointer"}}
+        >{urlBusy?"Descargando…":"Añadir URL"}</button>
+      </div>
       {error&&<div style={{fontSize:11.5,color:"#B91C1C",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:6,padding:"6px 10px"}}>{error}</div>}
       {documents.length>0 && (
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -655,7 +734,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
             return(
               <div key={doc.id} style={{display:"flex",flexDirection:"column",background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,overflow:"hidden"}}>
                 <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px"}}>
-                  <span style={{fontSize:16,flexShrink:0}}>{iconFor(doc.type)}</span>
+                  <span style={{fontSize:16,flexShrink:0}}>{iconFor(doc)}</span>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:12.5,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</div>
                     <div style={{fontSize:10.5,color:"#9CA3AF"}}>
@@ -664,7 +743,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
                     </div>
                   </div>
                   {doc.report && <button onClick={()=>setExpanded(e=>e===doc.id?null:doc.id)} title={isExpanded?"Ocultar informe":"Ver informe"} style={{padding:"4px 10px",borderRadius:6,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",cursor:"pointer",fontSize:11,fontWeight:600}}>{isExpanded?"Ocultar":"Ver informe"}</button>}
-                  {!doc.report && hasAgents && agentSelected && canAnalyze(doc.type) && (
+                  {!doc.report && hasAgents && agentSelected && canAnalyze(doc) && (
                     <button onClick={()=>runAnalyze(doc)} disabled={isAnalyzing} title="Analizar con el agente seleccionado" style={{padding:"4px 10px",borderRadius:6,background:isAnalyzing?"#FEF3C7":"#F0F9F1",color:isAnalyzing?"#92400E":"#0E7C5A",border:`1px solid ${isAnalyzing?"#FCD34D":"#86EFAC"}`,cursor:isAnalyzing?"wait":"pointer",fontSize:11,fontWeight:600}}>{isAnalyzing?"Analizando…":"Analizar"}</button>
                   )}
                   <button onClick={()=>openDoc(doc)} title="Abrir" style={{width:28,height:28,borderRadius:6,background:"#F3F4F6",border:"none",cursor:"pointer",fontSize:13}}>↗</button>
