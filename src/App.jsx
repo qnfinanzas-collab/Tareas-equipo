@@ -2240,7 +2240,7 @@ function UsersView({members,projects,onEdit,onCreate,onDelete}){
 }
 
 // ── Alert Panel ───────────────────────────────────────────────────────────────
-function AlertPanel({alerts,members,activeMemberId,onClose,onEmailSend}){
+function AlertPanel({alerts,members,activeMemberId,onClose,onEmailSend,onOpenTask}){
   const [tab,setTab]=useState("mine"); const [sent,setSent]=useState({});
   const ls={critical:{bg:"#fff5f5",border:"#E24B4A",text:"#A32D2D",icon:"🚨"},warning:{bg:"#fffbf0",border:"#EF9F27",text:"#854F0B",icon:"⚠️"},info:{bg:"#f0f7ff",border:"#378ADD",text:"#0C447C",icon:"ℹ️"},success:{bg:"#f0fdf7",border:"#1D9E75",text:"#085041",icon:"✅"}};
   const shown=tab==="mine"?alerts.filter(a=>a.memberId===activeMemberId):tab==="advisor"?alerts.filter(a=>a.type==="advisor"&&a.memberId===activeMemberId):alerts.filter(a=>a.type!=="advisor");
@@ -2252,8 +2252,16 @@ function AlertPanel({alerts,members,activeMemberId,onClose,onEmailSend}){
         <div style={{flex:1,overflowY:"auto",padding:12}}>
           {shown.length===0&&<div style={{textAlign:"center",padding:30,color:"#9ca3af",fontSize:13}}>Sin alertas activas</div>}
           {shown.map(alert=>{ const s=ls[alert.level]||ls.info; const m=members.find(x=>x.id===alert.memberId); const wu=waUrl(m,`Alerta TaskFlow: ${alert.taskTitle||"Aviso"} — ${alert.msg}`);
+            const clickable = !!alert.taskId;
             return(
-              <div key={alert.id} style={{background:s.bg,border:`1px solid ${s.border}`,borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+              <div
+                key={alert.id}
+                onClick={clickable?()=>onOpenTask?.(alert):undefined}
+                title={clickable?"Click para abrir tarea":undefined}
+                style={{background:s.bg,border:`1px solid ${s.border}`,borderRadius:10,padding:"10px 12px",marginBottom:8,cursor:clickable?"pointer":"default",transition:"transform .15s ease, box-shadow .15s ease"}}
+                onMouseEnter={clickable?e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 4px 14px ${s.border}33`;}:undefined}
+                onMouseLeave={clickable?e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow="none";}:undefined}
+              >
                 <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
                   <span style={{fontSize:16,lineHeight:1.2,flexShrink:0}}>{s.icon}</span>
                   <div style={{flex:1,minWidth:0}}>
@@ -2263,8 +2271,8 @@ function AlertPanel({alerts,members,activeMemberId,onClose,onEmailSend}){
                     <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
                       {tab==="team"&&<span style={{fontSize:11,color:"#6b7280"}}>{m?.name}</span>}
                       <div style={{marginLeft:"auto",display:"flex",gap:5}}>
-                        {wu&&<a href={wu} target="_blank" rel="noreferrer" style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"#dcfce7",color:"#166534",border:"1px solid #4ade80",textDecoration:"none",fontWeight:500}}>WA</a>}
-                        <button onClick={()=>{setSent(p=>({...p,[alert.id]:true}));onEmailSend({to:m?.email,subject:`[TaskFlow] ${alert.taskTitle||"Alerta"}`,body:alert.msg});}} style={{fontSize:11,padding:"2px 8px",borderRadius:6,border:`1px solid ${s.border}`,background:"transparent",color:s.text,cursor:"pointer",fontWeight:500}}>{sent[alert.id]?"Enviado":"Email"}</button>
+                        {wu&&<a href={wu} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"#dcfce7",color:"#166534",border:"1px solid #4ade80",textDecoration:"none",fontWeight:500}}>WA</a>}
+                        <button onClick={e=>{e.stopPropagation();setSent(p=>({...p,[alert.id]:true}));onEmailSend({to:m?.email,subject:`[TaskFlow] ${alert.taskTitle||"Alerta"}`,body:alert.msg});}} style={{fontSize:11,padding:"2px 8px",borderRadius:6,border:`1px solid ${s.border}`,background:"transparent",color:s.text,cursor:"pointer",fontWeight:500}}>{sent[alert.id]?"Enviado":"Email"}</button>
                       </div>
                     </div>
                   </div>
@@ -3233,7 +3241,16 @@ export default function TaskFlow(){
         </div>
       </div>
 
-      {showAlerts&&<AlertPanel alerts={alerts} members={data.members} activeMemberId={activeMember} onClose={()=>setShowAlerts(false)} onEmailSend={e=>setEQ(q=>[...q,e])}/>}
+      {showAlerts&&<AlertPanel alerts={alerts} members={data.members} activeMemberId={activeMember} onClose={()=>setShowAlerts(false)} onEmailSend={e=>setEQ(q=>[...q,e])} onOpenTask={alert=>{
+        if(!alert.taskId){ addToast("⚠ Alerta sin tarea asociada","error"); return; }
+        let projIdx=-1;
+        for(let i=0;i<data.projects.length;i++){
+          const cols=data.boards[data.projects[i].id]||[];
+          if(cols.some(c=>c.tasks.some(t=>t.id===alert.taskId))){ projIdx=i; break; }
+        }
+        if(projIdx<0){ addToast("⚠ Esta tarea ya no existe","error"); return; }
+        setAP(projIdx); setActiveTab("board"); setPendingOpenTaskId(alert.taskId); setShowAlerts(false);
+      }}/>}
       <EmailToast emails={emailQueue} onDismiss={i=>setEQ(q=>q.filter((_,j)=>j!==i))}/>
       <Toast toasts={toasts}/>
       {profileMember&&<ProfileModal member={profileMember} onClose={()=>setPM(null)} onSave={avail=>{saveMemberProfile(profileMember.id,avail);setPM(null);}}/>}
