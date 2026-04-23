@@ -11,8 +11,8 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply } from "./lib/agent.js";
-import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse } from "./lib/voice.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, PLAIN_TEXT_RULE } from "./lib/agent.js";
+import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown } from "./lib/voice.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
 export const PLAN_HORIZON_DAYS = 14;
@@ -4085,9 +4085,9 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
     if(!data){
       // Respuesta OK pero body no-JSON (muy raro — probablemente infra
       // devolvió texto plano). Tratar el raw como la respuesta.
-      return raw || "(respuesta vacía del servidor)";
+      return stripMarkdown(raw || "") || "(respuesta vacía del servidor)";
     }
-    return data.text || "";
+    return stripMarkdown(data.text || "");
   };
 
   // TTS con voz de Héctor — reutiliza speak() de lib/voice.js. Toggle
@@ -4117,7 +4117,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
       const itemPrompt = kind==="task"
         ? `Analiza SOLO esta tarea y nada más:\n[${item.id}] ${item.title} (proyecto: ${item.projName}, columna: ${item.colName}, fecha: ${item.dueDate||"sin fecha"}, prioridad: ${item.priority})\n\nDame 2-4 frases de análisis directo + máx 2 tags de esta lista cerrada: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".\n\nResponde EXCLUSIVAMENTE con JSON válido de esta forma exacta: {"text":"…","tags":["…"]}`
         : `Analiza SOLO este proyecto y nada más:\n[${item.p.id}] ${item.p.name} (rol en esta negociación: ${item.rp.role||"relacionado"}, ${item.activeCount} tareas activas, ${item.overdueCount} vencidas)\n\nDame 2-4 frases de análisis directo + máx 2 tags de esta lista cerrada: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".\n\nResponde EXCLUSIVAMENTE con JSON válido de esta forma exacta: {"text":"…","tags":["…"]}`;
-      const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + contextStr + "\n\nIMPORTANTE: responde ÚNICAMENTE con JSON válido, sin markdown ni prosa.";
+      const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + contextStr + "\n\n" + PLAIN_TEXT_RULE + "\n\nIMPORTANTE: responde ÚNICAMENTE con JSON válido, sin markdown ni prosa. El valor del campo \"text\" debe ser texto plano sin asteriscos ni guiones de lista.";
       const txt = await callAgentSafe({system,messages:[{role:"user",content:itemPrompt}],max_tokens:500});
       let parsed=null;
       try{ parsed=JSON.parse(txt); }
@@ -4129,7 +4129,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
       const field = kind==="task"?"tasks":"projects";
       const merged = {
         ...prevA,
-        [field]: {...(prevA[field]||{}), [itemId]: {text:parsed.text||"",tags:Array.isArray(parsed.tags)?parsed.tags:[],fp}},
+        [field]: {...(prevA[field]||{}), [itemId]: {text:stripMarkdown(parsed.text||""),tags:Array.isArray(parsed.tags)?parsed.tags:[],fp}},
       };
       onSetAnalysis(negotiation.id,merged);
     }catch(e){
@@ -4366,7 +4366,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           };
           const callAgent = async(userMessage, opts={})=>{
             if(!hector){ onAppendHectorMessage(negotiation.id,{role:"assistant",content:"⚠ No hay agente Héctor configurado. Añádelo desde Agentes IA.",timestamp:new Date().toISOString()}); return null; }
-            const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + buildContext() + (opts.extraSystem?("\n\n"+opts.extraSystem):"");
+            const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + buildContext() + "\n\n" + PLAIN_TEXT_RULE + (opts.extraSystem?("\n\n"+opts.extraSystem):"");
             const history = (negotiation.hectorChat||[]).slice(-10).map(m=>({role:m.role==="user"?"user":"assistant",content:m.content}));
             history.push({role:"user",content:userMessage});
             return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:userMessage}]:history,max_tokens:opts.maxTokens||900});
@@ -4465,14 +4465,14 @@ ${taskLines||"(ninguna)"}`;
                 const found = criticalTasks.find(x=>String(x.id)===String(id));
                 if(!found) continue;
                 const entry = parsed.tasks[id]||{};
-                tasksOut[id] = {text:entry.text||"",tags:Array.isArray(entry.tags)?entry.tags:[],fp:fpTask(found)};
+                tasksOut[id] = {text:stripMarkdown(entry.text||""),tags:Array.isArray(entry.tags)?entry.tags:[],fp:fpTask(found)};
               }
               const projsOut={};
               for(const id in (parsed.projects||{})){
                 const found = relProjs.find(x=>String(x.p.id)===String(id));
                 if(!found) continue;
                 const entry = parsed.projects[id]||{};
-                projsOut[id] = {text:entry.text||"",tags:Array.isArray(entry.tags)?entry.tags:[],fp:fpProj(found)};
+                projsOut[id] = {text:stripMarkdown(entry.text||""),tags:Array.isArray(entry.tags)?entry.tags:[],fp:fpProj(found)};
               }
               const tCount=Object.keys(tasksOut).length, pCount=Object.keys(projsOut).length;
               onSetAnalysis(negotiation.id,{generatedAt:new Date().toISOString(),tasks:tasksOut,projects:projsOut});
@@ -4787,9 +4787,10 @@ function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialRespon
   const runQuery = useCallback(async(signalRef)=>{
     setLoading(true); setError("");
     try{
-      const systemPrompt = (agent.promptBase&&agent.promptBase.trim())
+      const baseSystem = (agent.promptBase&&agent.promptBase.trim())
         ? agent.promptBase
-        : `Eres ${agent.name}${agent.role?`, especialista en ${agent.role}`:""}. Estilo: ${agent.style||"profesional y directo"}. Responde en español en ${kind==="briefing"?"estructura clara con secciones numeradas":"tono conciso y accionable"}.`;
+        : `Eres ${agent.name}${agent.role?`, especialista en ${agent.role}`:""}. Estilo: ${agent.style||"profesional y directo"}. Responde en español en ${kind==="briefing"?"párrafos claros separados por tema":"tono conciso y accionable"}.`;
+      const systemPrompt = baseSystem + "\n\n" + PLAIN_TEXT_RULE;
       const r = await fetch("/api/agent",{
         method:"POST",
         headers:{"content-type":"application/json"},
@@ -4798,7 +4799,7 @@ function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialRespon
       const data = await r.json();
       if(signalRef.cancelled) return;
       if(!r.ok) throw new Error(data.error||"Error en el agente");
-      const txt = data.text||"(respuesta vacía)";
+      const txt = stripMarkdown(data.text||"") || "(respuesta vacía)";
       setResponse(txt);
       if(session&&onSavedConversation){
         onSavedConversation({id:_uid("conv"),timestamp:kind==="briefing"?"pre-meeting":new Date().toTimeString().slice(0,5),type:kind==="briefing"?"briefing_request":"live_advice",query:editedPrompt,agentResponse:txt,createdAt:new Date().toISOString(),agentId:agent.id});

@@ -34,12 +34,27 @@ export function pickVoice(preferredGender = "any"){
   return pool[0];
 }
 
+// Limpia sintaxis markdown del texto antes de pasarlo a un TTS o de
+// mostrarlo crudo. Segura: no escapa contenido legítimo (ej. "5-year"
+// no matchea ^-\s). Se aplica también en speak() como safety net por
+// si el LLM ignora la regla del system prompt.
+export function stripMarkdown(text){
+  if(!text) return text;
+  return String(text)
+    .replace(/\*\*/g, "")
+    .replace(/\*/g, "")
+    .replace(/#{1,6}\s?/g, "")
+    .replace(/^[-•]\s/gm, "")
+    .replace(/^\d+\.\s/gm, "")
+    .trim();
+}
+
 let currentUtterance = null;
 
 export function speak(text, { rate = 1, pitch = 1, gender = "any", onEnd } = {}){
   if(!("speechSynthesis" in window)){ onEnd?.(); return null; }
   stopSpeaking();
-  const u = new SpeechSynthesisUtterance(text);
+  const u = new SpeechSynthesisUtterance(stripMarkdown(text));
   const v = pickVoice(gender);
   if(v) u.voice = v;
   u.lang = v?.lang || "es-ES";

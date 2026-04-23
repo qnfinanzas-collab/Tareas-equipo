@@ -1,6 +1,12 @@
 // Asesor IA rule-based — briefings, respuestas y comandos ejecutables, sin API.
 import { getQ } from "./eisenhower.js";
 import { daysUntil, fmt } from "./date.js";
+import { stripMarkdown } from "./voice.js";
+
+// Regla de estilo que se inyecta en el system prompt de CUALQUIER llamada
+// al LLM de agentes. Fuerza texto plano sin markdown para que las respuestas
+// se rendericen limpias en UI y suenen bien al TTS sin leer "asterisco".
+export const PLAIN_TEXT_RULE = "FORMATO OBLIGATORIO: Responde en texto plano sin ningún formato. Prohibido usar asteriscos, almohadillas, guiones como viñetas, listas numeradas, o cualquier sintaxis markdown. Escribe como si hablaras: frases naturales, párrafos cortos, sin decoración. Usa saltos de línea para separar ideas, nada más.";
 
 export const AVATARS = {
   gestion: {
@@ -1094,6 +1100,7 @@ export async function llmAgentReply(userText, task, agent, members, history){
     "- Máximo 4-5 frases. Sé concreto y útil.",
     "- Si la pregunta es ambigua, pide la aclaración mínima imprescindible.",
     "- Cita normativa/artículos cuando aplique.",
+    PLAIN_TEXT_RULE,
     "",
     "CONTEXTO DE LA TAREA ACTUAL:",
     buildTaskContext(task, members),
@@ -1114,5 +1121,5 @@ export async function llmAgentReply(userText, task, agent, members, history){
   if(!res.ok){
     throw new Error(data.error || `HTTP ${res.status}`);
   }
-  return data.text || "(respuesta vacía del modelo)";
+  return stripMarkdown(data.text || "") || "(respuesta vacía del modelo)";
 }
