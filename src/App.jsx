@@ -4488,6 +4488,153 @@ function GenerateTasksModal({negotiation,session,availableProjects,members,activ
   );
 }
 
+// ── Mis tareas (vista global tipo "My Issues") ───────────────────────────────
+function MyTasksView({data,activeMember,onOpenTask,onNavigate}){
+  const [filter,setFilter] = useState("all"); // all | overdue | today | soon | done
+  const me = data.members.find(m=>m.id===activeMember);
+  const allMine = [];
+  Object.entries(data.boards||{}).forEach(([pid,cols])=>{
+    const proj=data.projects.find(p=>p.id===Number(pid));
+    cols.forEach(col=>col.tasks.forEach(t=>{
+      if(!t.assignees?.includes(activeMember)) return;
+      allMine.push({...t, colName:col.name, colId:col.id, projId:Number(pid), projName:proj?.name||"", projEmoji:proj?.emoji||"📋", projColor:proj?.color||"#7F77DD"});
+    }));
+  });
+  const today = fmt(TODAY);
+  const counts = {
+    all:      allMine.length,
+    overdue:  allMine.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)<0).length,
+    today:    allMine.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)===0).length,
+    soon:     allMine.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)>0&&daysUntil(t.dueDate)<=7).length,
+    done:     allMine.filter(t=>t.colName==="Hecho").length,
+  };
+  let filtered=allMine;
+  if(filter==="overdue") filtered = allMine.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)<0);
+  else if(filter==="today") filtered = allMine.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)===0);
+  else if(filter==="soon") filtered = allMine.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)>0&&daysUntil(t.dueDate)<=7);
+  else if(filter==="done") filtered = allMine.filter(t=>t.colName==="Hecho");
+  // Sort: overdue/today first, then by due date asc, then by project
+  filtered = filtered.slice().sort((a,b)=>{
+    const da=a.dueDate?daysUntil(a.dueDate):9999;
+    const db=b.dueDate?daysUntil(b.dueDate):9999;
+    if(da!==db) return da-db;
+    return (a.projName||"").localeCompare(b.projName||"");
+  });
+  const FILTERS=[["all","Todas"],["overdue","Vencidas"],["today","Hoy"],["soon","Próximos 7d"],["done","Hechas"]];
+
+  return(
+    <div style={{maxWidth:900,margin:"0 auto",padding:"30px 20px"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18,flexWrap:"wrap",gap:10}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>✅ Mis tareas</div>
+          <div style={{fontSize:13,color:"#6b7280"}}>{me?.name} · {allMine.length} tarea{allMine.length!==1?"s":""} asignada{allMine.length!==1?"s":""}</div>
+        </div>
+      </div>
+
+      <div style={{display:"flex",gap:6,marginBottom:18,flexWrap:"wrap"}}>
+        {FILTERS.map(([k,label])=>{
+          const sel=filter===k;
+          const n=counts[k]||0;
+          return <button key={k} onClick={()=>setFilter(k)} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${sel?"#3B82F6":"#e5e7eb"}`,background:sel?"#3B82F6":"#fff",color:sel?"#fff":"#6b7280",fontSize:12,cursor:"pointer",fontWeight:sel?600:400,fontFamily:"inherit"}}>{label} ({n})</button>;
+        })}
+      </div>
+
+      {filtered.length===0
+        ? <div style={{textAlign:"center",padding:"50px 20px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:12}}>
+            <div style={{fontSize:30,marginBottom:10}}>{filter==="done"?"🎉":"✨"}</div>
+            <div style={{fontSize:14,color:"#6b7280",marginBottom:8}}>{filter==="all"?"No tienes tareas asignadas":filter==="overdue"?"Sin tareas vencidas — bien hecho":filter==="today"?"Nada vence hoy":filter==="soon"?"Sin tareas en los próximos 7 días":"Aún no has completado tareas"}</div>
+            <button onClick={()=>onNavigate("projects")} style={{padding:"8px 16px",borderRadius:8,background:"transparent",color:"#3B82F6",border:"0.5px solid #3B82F6",fontSize:12,cursor:"pointer",fontWeight:500}}>Ir a Proyectos →</button>
+          </div>
+        : <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {filtered.map(t=>{
+              const days=t.dueDate?daysUntil(t.dueDate):null;
+              const q=getQ(t);
+              const dueLabel = !t.dueDate ? "Sin fecha" : days<0 ? `Vencida hace ${-days}d` : days===0 ? "Vence hoy" : days<=7 ? `En ${days}d` : `En ${days}d`;
+              const dueColor = !t.dueDate ? "#9CA3AF" : days<0 ? "#E24B4A" : days===0 ? "#EF9F27" : "#6b7280";
+              return(
+                <div key={`${t.projId}-${t.id}`} onClick={()=>onOpenTask(t.id)} className="tf-lift" style={{background:"#fff",border:"1px solid #E5E7EB",borderLeft:`4px solid ${t.projColor}`,borderRadius:10,padding:"11px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                  <QBadge q={q}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:500,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                    <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{t.projEmoji} {t.projName} · {t.colName} · <span style={{color:dueColor,fontWeight:500}}>{dueLabel}</span></div>
+                  </div>
+                  <PriBadge p={t.priority}/>
+                </div>
+              );
+            })}
+          </div>}
+    </div>
+  );
+}
+
+// ── Briefings IA (vista global) ──────────────────────────────────────────────
+function BriefingsView({data,onOpenNeg,onOpenSession}){
+  const briefings=[]; const conversations=[];
+  (data.negotiations||[]).forEach(n=>{
+    if(n.briefing?.content){
+      const agent = n.agentId ? (data.agents||[]).find(a=>a.id===n.agentId) : null;
+      briefings.push({neg:n, briefing:n.briefing, agent});
+    }
+    (n.sessions||[]).forEach(s=>{
+      (s.agentConversations||[]).forEach(c=>{
+        const agent = c.agentId ? (data.agents||[]).find(a=>a.id===c.agentId) : (n.agentId ? (data.agents||[]).find(a=>a.id===n.agentId) : null);
+        conversations.push({neg:n, sess:s, conv:c, agent});
+      });
+    });
+  });
+  briefings.sort((a,b)=>new Date(b.briefing.generatedAt||0)-new Date(a.briefing.generatedAt||0));
+  conversations.sort((a,b)=>new Date(b.conv.createdAt||0)-new Date(a.conv.createdAt||0));
+  const recentConversations = conversations.slice(0,10);
+
+  return(
+    <div style={{maxWidth:920,margin:"0 auto",padding:"30px 20px"}}>
+      <div style={{marginBottom:20}}>
+        <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>🧠 Briefings IA</div>
+        <div style={{fontSize:13,color:"#6b7280"}}>{briefings.length} briefing{briefings.length!==1?"s":""} guardado{briefings.length!==1?"s":""} · {conversations.length} conversación{conversations.length!==1?"es":""} totales con agentes</div>
+      </div>
+
+      <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>📋 Briefings guardados ({briefings.length})</div>
+      {briefings.length===0
+        ? <div style={{padding:"20px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:10,fontSize:13,color:"#9CA3AF",fontStyle:"italic",marginBottom:26}}>Sin briefings guardados. Asigna un agente IA a una negociación y pide su briefing desde el Deal Room.</div>
+        : <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:26}}>
+            {briefings.map(({neg,briefing,agent})=>{
+              const preview = briefing.content.length>300 ? briefing.content.slice(0,300)+"…" : briefing.content;
+              return(
+                <div key={neg.id} onClick={()=>onOpenNeg(neg.id)} className="tf-lift" style={{background:"#fff",border:"2px solid #E5E7EB",borderLeft:`4px solid ${agent?.color||"#7F77DD"}`,borderRadius:12,padding:"14px 16px",cursor:"pointer"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+                    <div style={{fontSize:14,fontWeight:600,color:"#111827"}}>💼 {neg.title}</div>
+                    <div style={{fontSize:11,color:"#9CA3AF"}}>{agent?`${agent.emoji||"🤖"} ${agent.name} · `:""}{timeAgoIso(briefing.generatedAt)}</div>
+                  </div>
+                  <div style={{fontSize:12.5,color:"#4B5563",lineHeight:1.55,whiteSpace:"pre-wrap",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,padding:"10px 12px",maxHeight:180,overflow:"hidden"}}>{preview}</div>
+                </div>
+              );
+            })}
+          </div>}
+
+      <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>🤖 Conversaciones recientes ({recentConversations.length})</div>
+      {recentConversations.length===0
+        ? <div style={{padding:"20px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:10,fontSize:13,color:"#9CA3AF",fontStyle:"italic"}}>Sin conversaciones. Usa "🤖 Pedir consejo" en una sesión activa.</div>
+        : <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {recentConversations.map(({neg,sess,conv,agent})=>{
+              const queryPrev = (conv.query||"").split("\n")[0].slice(0,120);
+              const respPrev = (conv.agentResponse||"").slice(0,240);
+              const typeLabel = conv.type==="briefing_request"?"🎯 Briefing":conv.type==="live_advice"?"💬 Consejo":"📝 Conversación";
+              return(
+                <div key={conv.id} onClick={()=>onOpenSession(neg.id,sess.id)} className="tf-lift" style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6,flexWrap:"wrap"}}>
+                    <div style={{fontSize:12.5,fontWeight:600,color:"#111827"}}>{typeLabel} · {neg.title}</div>
+                    <div style={{fontSize:11,color:"#9CA3AF"}}>{agent?`${agent.emoji||"🤖"} ${agent.name} · `:""}{timeAgoIso(conv.createdAt)}</div>
+                  </div>
+                  {queryPrev&&<div style={{fontSize:11.5,color:"#6B7280",marginBottom:4,fontStyle:"italic"}}>❓ {queryPrev}{(conv.query||"").length>120?"…":""}</div>}
+                  <div style={{fontSize:12,color:"#374151",lineHeight:1.5,whiteSpace:"pre-wrap"}}>{respPrev}{(conv.agentResponse||"").length>240?"…":""}</div>
+                </div>
+              );
+            })}
+          </div>}
+    </div>
+  );
+}
+
 // ── User selector (temporal, pre-auth) ────────────────────────────────────────
 const USER_KEY = "taskflow_current_user";
 const readStoredUser = () => { try{ const s=localStorage.getItem(USER_KEY); return s?JSON.parse(s):null; }catch{ return null; } };
@@ -5255,6 +5402,8 @@ export default function TaskFlow(){
         {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember}/>}
         <div style={{flex:1,overflow:"auto"}}>
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onToast={addToast} onOpenTask={id=>setOverlayTaskId(id)}/>}
+          {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)}/>}
+          {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
           {activeTab==="dealroom"&&(()=>{
             const activeNeg = activeNegId ? (data.negotiations||[]).find(n=>n.id===activeNegId) : null;
             const activeSess = activeNeg && activeSessId ? (activeNeg.sessions||[]).find(s=>s.id===activeSessId) : null;
