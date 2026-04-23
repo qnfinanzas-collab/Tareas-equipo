@@ -1614,17 +1614,110 @@ function timeAgoDate(dateStr){
 }
 
 // ── Home View (panel de mandos tras login) ────────────────────────────────────
-function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate}){
+function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onToast}){
   const me=data.members.find(m=>m.id===activeMember);
   const firstName=me?.name.split(" ")[0]||"";
 
+  // Stats dinámicos personalizados por usuario activo.
+  const today=fmt(TODAY);
+  const horizonEnd=(()=>{ const d=new Date(TODAY); d.setDate(d.getDate()+PLAN_HORIZON_DAYS); return fmt(d); })();
+  const weekFrom=(()=>{ const d=new Date(TODAY); d.setDate(d.getDate()-7); return fmt(d); })();
+  const allMyTasks=[]; const myProjIds=new Set();
+  Object.entries(data.boards||{}).forEach(([pid,cols])=>cols.forEach(c=>c.tasks.forEach(t=>{
+    if(t.assignees?.includes(activeMember)){ allMyTasks.push(t); myProjIds.add(Number(pid)); }
+  })));
+  const scheduledMine=(data.aiSchedule||[]).filter(s=>s.memberId===activeMember&&s.date>=today&&s.date<=horizonEnd).length;
+  const myWorkspaces=(data.workspaces||[]).filter(w=>data.projects.some(p=>p.workspaceId===w.id&&p.members?.includes(activeMember)));
+  const weekSeconds=Object.values(data.boards||{}).flatMap(cols=>cols.flatMap(c=>c.tasks.flatMap(t=>(t.timeLogs||[])))).filter(l=>l.memberId===activeMember&&l.date>=weekFrom&&l.date<=today).reduce((s,l)=>s+l.seconds,0);
+  const weekHours=(weekSeconds/3600).toFixed(1);
+  const projectsCount=data.projects.length;
+  const workspacesCount=(data.workspaces||[]).length;
+  const agentsCount=(data.agents||[]).length;
+
+  const showVideoToast=(label)=>()=>onToast?.(`📹 ${label} — próximamente`,"info");
+
   const cards=[
-    {id:"dashboard", emoji:"📊", title:"Dashboard",       desc:"Vista global del equipo",                 meta:"Tareas activas · Matriz Eisenhower · Top 5 críticas"},
-    {id:"projects",  emoji:"📁", title:"Proyectos",       desc:"Tableros Kanban con drag & drop",         meta:`${data.projects.length} proyectos · columnas personalizables`},
-    {id:"planner",   emoji:"⚡", title:"Planificador IA", desc:"Asignación automática con Google Calendar", meta:"ICS real · margen de transporte · 14 días"},
-    {id:"workspaces",emoji:"🏢", title:"Workspaces",      desc:"Clientes y accesos centralizados",         meta:`${(data.workspaces||[]).length} workspaces · contactos · enlaces`},
-    {id:"agents",    emoji:"🤖", title:"Agentes IA",      desc:"Asesores personalizados con voz",          meta:`${(data.agents||[]).length} agentes · LLM + voz bidireccional`},
-    {id:"reports",   emoji:"⏱",  title:"Tiempos",         desc:"Reportes por persona y proyecto",          meta:"Logs · estimaciones · carga del equipo"},
+    {
+      id:"dashboard", emoji:"📊", title:"Dashboard",
+      tooltip:"Centro de comando para tareas urgentes y matriz de prioridades",
+      tagline:"Centro de control para gestionar el trabajo diario",
+      description:"Ve las 5 tareas más críticas del equipo, organiza tu trabajo con la matriz de prioridades (urgente vs importante), y detecta cuellos de botella antes de que se conviertan en problemas. Todo en una sola pantalla optimizada para tomar decisiones rápidas.",
+      features:[
+        "Top 5 tareas críticas con quick actions (completar, posponer, comentar)",
+        "Matriz Eisenhower interactiva con preview por cuadrante",
+        "Vista global del progreso de todos los proyectos",
+      ],
+      stats: critMineCount>0 ? `Tienes ${critMineCount} tarea${critMineCount!==1?"s":""} crítica${critMineCount!==1?"s":""} esperándote` : "Todo bajo control — 0 tareas críticas hoy ✓",
+      videoLabel:"Ver cómo usar el Dashboard (2 min)",
+    },
+    {
+      id:"projects", emoji:"📋", title:"Proyectos",
+      tooltip:"Tableros Kanban para gestionar flujos de trabajo por proyecto",
+      tagline:"Gestiona SHOWROOM MARBELLA, Iceflow, y todos tus proyectos en tableros Kanban",
+      description:"Arrastra tareas entre columnas (Por hacer → En curso → Hecho), asigna responsables, establece deadlines, y colabora en tiempo real. Cada proyecto tiene su propio tablero personalizable con columnas que se adaptan a tu flujo de trabajo.",
+      features:[
+        `${projectsCount} proyecto${projectsCount!==1?"s":""} activo${projectsCount!==1?"s":""} con tableros independientes`,
+        "Drag & drop intuitivo entre columnas",
+        "Asignación de responsables y deadlines",
+      ],
+      stats: `Tienes ${allMyTasks.length} tarea${allMyTasks.length!==1?"s":""} asignada${allMyTasks.length!==1?"s":""} en ${myProjIds.size} proyecto${myProjIds.size!==1?"s":""}`,
+      videoLabel:"Cómo organizar proyectos en Kanban (3 min)",
+    },
+    {
+      id:"planner", emoji:"🎯", title:"Planificador IA", badge:"Nuevo",
+      tooltip:"IA que organiza tu calendario automáticamente según prioridades",
+      tagline:"Deja que la IA organice tu día automáticamente",
+      description:"Conecta tu Google Calendar y el planificador distribuye tus tareas considerando prioridad, urgencia, tiempo disponible entre reuniones, y márgenes de transporte entre ubicaciones. La IA aprende de tus patrones y optimiza tu calendario para máxima productividad.",
+      features:[
+        "Integración bidireccional con Google Calendar",
+        "Priorización automática basada en matriz Eisenhower",
+        "Considera tiempo de desplazamiento entre ubicaciones",
+        "Ahorra ~2 horas semanales en planificación manual",
+      ],
+      stats: `Has planificado ${scheduledMine} tarea${scheduledMine!==1?"s":""} para los próximos ${PLAN_HORIZON_DAYS} días`,
+      videoLabel:"Conectar Google Calendar paso a paso (4 min)",
+    },
+    {
+      id:"workspaces", emoji:"📁", title:"Workspaces",
+      tooltip:"Espacios organizados por cliente con proyectos y miembros",
+      tagline:"Espacios de trabajo organizados por cliente o proyecto estratégico",
+      description:"Cada workspace agrupa múltiples proyectos relacionados con un cliente específico (ej: SHOWROOM MARBELLA incluye diseño, logística, ventas). Ideal para separar contextos y mantener conversaciones y archivos centralizados por cuenta. Colabora en tiempo real con acceso granular por miembro.",
+      features:[
+        `${workspacesCount} workspace${workspacesCount!==1?"s":""} activo${workspacesCount!==1?"s":""}${workspacesCount>0?" ("+(data.workspaces||[]).slice(0,3).map(w=>w.name).join(", ")+(workspacesCount>3?"…":"")+")":""}`,
+        "Permisos por miembro y acceso compartido",
+        "Historial de cambios y sincronización realtime",
+      ],
+      stats: `Tienes acceso a ${myWorkspaces.length} workspace${myWorkspaces.length!==1?"s":""} con ${projectsCount} proyecto${projectsCount!==1?"s":""} totales`,
+      videoLabel:"Organizar equipos con Workspaces (3 min)",
+    },
+    {
+      id:"agents", emoji:"🤖", title:"Agentes IA", badge:"Nuevo",
+      tooltip:"Asesores virtuales con contexto de SoulBaric y memoria persistente",
+      tagline:"Asesores virtuales personalizados para marketing, ventas, y estrategia",
+      description:"Conversa por voz o texto con agentes especializados que entienden el contexto de SoulBaric. Pídeles que redacten emails de prospección, analicen competencia, sugieran estrategias de captación, o respondan dudas técnicas. Cada agente tiene memoria persistente y aprende de tus conversaciones anteriores.",
+      features:[
+        `${agentsCount} agente${agentsCount!==1?"s":""} configurado${agentsCount!==1?"s":""}`,
+        "Conversación bidireccional por voz o texto",
+        "Memoria persistente entre sesiones",
+        "Respuestas contextualizadas a SoulBaric",
+      ],
+      stats: `Tienes ${agentsCount} agente${agentsCount!==1?"s":""} disponible${agentsCount!==1?"s":""} para consultar`,
+      videoLabel:"Usar agentes IA para redactar propuestas (5 min)",
+    },
+    {
+      id:"reports", emoji:"⏱", title:"Tiempos",
+      tooltip:"Tracking de horas para facturación y análisis de productividad",
+      tagline:"Seguimiento de horas invertidas por tarea, proyecto y persona",
+      description:"Registra automáticamente el tiempo que dedicas a cada tarea con un timer integrado. Genera reportes por miembro, proyecto, o cliente para facturación precisa, análisis de rentabilidad, y detección de cuellos de botella. Identifica qué tareas consumen más tiempo y optimiza la asignación de recursos.",
+      features:[
+        "Timer integrado en cada tarea",
+        "Reportes por persona, proyecto y periodo",
+        "Exportación para facturación",
+        "Análisis de productividad del equipo",
+      ],
+      stats: `Has registrado ${weekHours} horas esta semana`,
+      videoLabel:"Registrar tiempo y generar reportes (3 min)",
+    },
   ];
 
   // Actividad: reune time logs, completados (Hecho) y creados. Granularidad diaria.
@@ -1667,22 +1760,44 @@ function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate}){
         <div style={{fontSize:15,color:"#6B7280"}}>{statsLine}</div>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))",gap:18,marginBottom:40}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(360px,1fr))",gap:20,marginBottom:40}}>
         {cards.map((c,i)=>(
           <div
             key={c.id}
             onClick={()=>onNavigate(c.id)}
-            style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:"22px 24px",cursor:"pointer",transition:"transform .2s ease, box-shadow .2s ease, border-color .2s ease",animation:`tf-card-in .3s ease ${i*50}ms both`}}
-            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-4px)";e.currentTarget.style.boxShadow="0 12px 24px rgba(0,0,0,0.08)";e.currentTarget.style.borderColor="#3B82F6";const arr=e.currentTarget.querySelector("[data-arr]"); if(arr){arr.style.transform="translateX(4px)";arr.style.color="#3B82F6";}}}
-            onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow="none";e.currentTarget.style.borderColor="#E5E7EB";const arr=e.currentTarget.querySelector("[data-arr]"); if(arr){arr.style.transform="translateX(0)";arr.style.color="#9CA3AF";}}}
+            style={{background:"#fff",border:"2px solid #E5E7EB",borderRadius:16,padding:"24px 26px",cursor:"pointer",transition:"all .25s cubic-bezier(0.4,0,0.2,1)",animation:`tf-card-in .3s ease ${i*50}ms both`,display:"flex",flexDirection:"column"}}
+            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-6px) scale(1.01)";e.currentTarget.style.boxShadow="0 20px 40px rgba(59,130,246,0.18)";e.currentTarget.style.borderColor="#3B82F6";const arr=e.currentTarget.querySelector("[data-arr]"); if(arr){arr.style.transform="translateX(4px)";arr.style.color="#3B82F6";}}}
+            onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0) scale(1)";e.currentTarget.style.boxShadow="none";e.currentTarget.style.borderColor="#E5E7EB";const arr=e.currentTarget.querySelector("[data-arr]"); if(arr){arr.style.transform="translateX(0)";arr.style.color="#9CA3AF";}}}
           >
             <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
-              <span style={{fontSize:30,lineHeight:1}}>{c.emoji}</span>
-              <h3 style={{fontSize:19,fontWeight:600,color:"#111827",flex:1,margin:0}}>{c.title}</h3>
-              <span data-arr style={{fontSize:20,color:"#9CA3AF",transition:"transform .2s ease, color .2s ease"}}>→</span>
+              <span title={c.tooltip} style={{fontSize:30,lineHeight:1,cursor:"help"}}>{c.emoji}</span>
+              <h3 style={{fontSize:19,fontWeight:700,color:"#111827",margin:0,flex:"0 1 auto"}}>{c.title}</h3>
+              {c.badge&&<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:4,textTransform:"uppercase",letterSpacing:"0.06em",background:"#10B981",color:"#fff"}}>{c.badge}</span>}
+              <span data-arr style={{fontSize:20,color:"#9CA3AF",transition:"transform .2s ease, color .2s ease",marginLeft:"auto"}}>→</span>
             </div>
-            <p style={{fontSize:14,color:"#4B5563",marginBottom:6,lineHeight:1.5}}>{c.desc}</p>
-            <p style={{fontSize:12,color:"#9CA3AF",lineHeight:1.4,margin:0}}>{c.meta}</p>
+
+            <p style={{fontSize:15,fontWeight:500,color:"#111827",margin:"0 0 10px 0",lineHeight:1.45}}>{c.tagline}</p>
+            <p style={{fontSize:13.5,color:"#6B7280",lineHeight:1.55,margin:"0 0 14px 0"}}>{c.description}</p>
+
+            <ul style={{listStyle:"none",padding:0,margin:"0 0 14px 0"}}>
+              {c.features.map((f,fi)=>(
+                <li key={fi} style={{fontSize:12.5,color:"#4B5563",lineHeight:1.55,display:"flex",alignItems:"flex-start",gap:7,marginBottom:5}}>
+                  <span style={{color:"#10B981",flexShrink:0,fontWeight:700}}>✓</span>
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div style={{fontSize:13,fontWeight:600,color:"#3B82F6",padding:"9px 12px",background:"#EFF6FF",borderRadius:8,marginBottom:10}}>{c.stats}</div>
+
+            <div style={{marginTop:"auto",paddingTop:10,borderTop:"1px solid #E5E7EB"}}>
+              <button
+                onClick={e=>{e.stopPropagation();showVideoToast(c.videoLabel)();}}
+                style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:13,color:"#3B82F6",background:"none",border:"none",padding:0,cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}
+                onMouseEnter={e=>{e.currentTarget.style.color="#2563EB";e.currentTarget.style.textDecoration="underline";}}
+                onMouseLeave={e=>{e.currentTarget.style.color="#3B82F6";e.currentTarget.style.textDecoration="none";}}
+              >📹 Ver tutorial — {c.videoLabel.match(/\((\d+ min)\)/)?.[1]||"próximamente"}</button>
+            </div>
           </div>
         ))}
       </div>
@@ -3606,7 +3721,7 @@ export default function TaskFlow(){
         )}
         {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember}/>}
         <div style={{flex:1,overflow:"auto"}}>
-          {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>setActiveTab(id)}/>}
+          {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>setActiveTab(id)} onToast={addToast}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
