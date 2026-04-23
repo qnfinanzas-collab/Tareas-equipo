@@ -287,7 +287,7 @@ function _migrate(d){
     const m = {
       projectId: null, agentId: null, relatedTaskIds: [],
       relatedProjects: null, relationships: [], stakeholders: [],
-      briefing: null,
+      briefing: null, hectorChat: [], hectorAnalysis: null,
       ...n,
       sessions: (n.sessions||[]).map(s=>({
         attendees: [], agentConversations: [],
@@ -4010,11 +4010,20 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onSetAnalysis,onSaveBriefing,onOverlayTask}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessionsAsc = (negotiation.sessions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
   const sessionsDesc = (negotiation.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
+  // Héctor: prioridad por nombre, fallback a agentId de la negociación.
+  const hector = (agents||[]).find(a=>a.name==="Héctor") || (negotiation.agentId?(agents||[]).find(a=>a.id===negotiation.agentId):null) || null;
+  const [chatInput,setChatInput] = useState("");
+  const [chatLoading,setChatLoading] = useState(false);
+  const chatScrollRef = useRef(null);
+  useEffect(()=>{
+    const el = chatScrollRef.current; if(!el) return;
+    el.scrollTop = el.scrollHeight;
+  },[(negotiation.hectorChat||[]).length,chatLoading]);
 
   // Proyectos relacionados — con agregación de tareas por proyecto.
   const relProjs = (negotiation.relatedProjects||[]).map(rp=>{
@@ -4144,31 +4153,200 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           </section>
         </div>
 
-        {/* ─── DERECHA: Héctor panel (skeleton — commit 2 cableará chat inline) ─── */}
-        <div style={{position:"sticky",top:20,background:"#fff",border:"1.5px solid #E5E7EB",borderTop:"4px solid #1D9E75",borderRadius:12,minWidth:0,display:"flex",flexDirection:"column",minHeight:360,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
-          <div style={{padding:"14px 16px",borderBottom:"1px solid #F3F4F6",display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:38,height:38,borderRadius:"50%",background:"linear-gradient(135deg,#1D9E75,#0E7C5A)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,flexShrink:0}}>H</div>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:14,fontWeight:700,color:"#111827"}}>Héctor</div>
-              <div style={{fontSize:11,color:"#6B7280"}}>Chief of Staff Estratégico</div>
-            </div>
-          </div>
-          <div style={{padding:"10px 16px",borderBottom:"1px solid #F3F4F6",display:"flex",gap:8,flexWrap:"wrap"}}>
-            <button onClick={()=>onRequestBriefing(negotiation,null)} title="Generar briefing estratégico" style={{padding:"7px 12px",borderRadius:8,background:"#1D9E75",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>🎯 {negotiation.briefing?"Actualizar":"Pedir"} briefing</button>
-            <button disabled title="Próximamente — análisis batch en commit 2" style={{padding:"7px 12px",borderRadius:8,background:"#F3F4F6",color:"#9CA3AF",border:"0.5px solid #E5E7EB",fontSize:12,cursor:"not-allowed",fontWeight:600}}>🔍 Análisis</button>
-          </div>
-          <div style={{flex:1,overflowY:"auto",padding:"14px 16px",fontSize:12.5,color:"#4B5563",lineHeight:1.6}}>
-            {negotiation.briefing
-              ? <div>
-                  <div style={{fontSize:10.5,fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <span>📋 Briefing guardado · {timeAgoIso(negotiation.briefing.generatedAt)}</span>
-                    <button onClick={()=>onClearBriefing(negotiation.id)} title="Eliminar briefing" style={{fontSize:10,color:"#E24B4A",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Eliminar</button>
-                  </div>
-                  <div style={{whiteSpace:"pre-wrap",color:"#374151",fontSize:12.5,lineHeight:1.65,background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,padding:"11px 13px"}}>{negotiation.briefing.content}</div>
+        {/* ─── DERECHA: Héctor chat en vivo ─── */}
+        {(()=>{
+          // Construye contexto narrativo de la negociación para el system prompt.
+          const buildContext = ()=>{
+            const lines=[];
+            lines.push(`Negociación: ${negotiation.title}`);
+            lines.push(`Contraparte: ${negotiation.counterparty}`);
+            lines.push(`Estado: ${st.label}`);
+            if(negotiation.value!=null) lines.push(`Valor: ${negotiation.value} ${negotiation.currency||"EUR"}`);
+            if(negotiation.description) lines.push(`Descripción: ${negotiation.description}`);
+            if(relProjs.length>0){
+              lines.push(`\nProyectos vinculados (${relProjs.length}):`);
+              relProjs.forEach(({p,rp,activeCount,overdueCount})=>{
+                lines.push(`- [${p.id}] ${p.name} — rol "${rp.role||"relacionado"}", prioridad ${rp.priority||"high"}, ${activeCount} tareas activas (${overdueCount} vencidas)`);
+              });
+            }
+            if(criticalTasks.length>0){
+              lines.push(`\nTareas activas destacadas (${Math.min(20,criticalTasks.length)}/${criticalTasks.length}):`);
+              criticalTasks.slice(0,20).forEach(t=>{
+                const d = t.dueDate ? daysUntil(t.dueDate) : null;
+                const dueLabel = !t.dueDate ? "sin fecha" : d<0 ? `vencida ${-d}d` : d===0 ? "hoy" : `en ${d}d`;
+                lines.push(`- [${t.id}] ${t.title} (${t.projName}·${t.colName}, ${dueLabel}, prio=${t.priority})`);
+              });
+            }
+            if((negotiation.stakeholders||[]).length>0){
+              lines.push(`\nStakeholders:`);
+              negotiation.stakeholders.forEach(s=>{
+                lines.push(`- ${s.name}${s.company?` (${s.company})`:""} · ${getStkRole(s.role)} · influencia: ${getStkInfluence(s.influence)}`);
+              });
+            }
+            if(sessionsDesc.length>0){
+              const last = sessionsDesc[0];
+              lines.push(`\nÚltima sesión: ${getSessionTypeLabel(last.type)} · ${formatDateTimeES(last.date)}`);
+              if(last.summary) lines.push(`Resumen: ${last.summary.slice(0,600)}`);
+            }
+            return lines.join("\n");
+          };
+          const callAgent = async(userMessage, opts={})=>{
+            if(!hector){ onAppendHectorMessage(negotiation.id,{role:"assistant",content:"⚠ No hay agente Héctor configurado. Añádelo desde Agentes IA.",timestamp:new Date().toISOString()}); return null; }
+            const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + buildContext() + (opts.extraSystem?("\n\n"+opts.extraSystem):"");
+            const history = (negotiation.hectorChat||[]).slice(-10).map(m=>({role:m.role==="user"?"user":"assistant",content:m.content}));
+            history.push({role:"user",content:userMessage});
+            const r = await fetch("/api/agent",{
+              method:"POST",
+              headers:{"content-type":"application/json"},
+              body:JSON.stringify({system,messages:opts.isolatedHistory?[{role:"user",content:userMessage}]:history,max_tokens:opts.maxTokens||900}),
+            });
+            const data = await r.json();
+            if(!r.ok) throw new Error(data.error||`Error HTTP ${r.status}`);
+            return data.text||"";
+          };
+          const handleSend = async()=>{
+            const txt = chatInput.trim(); if(!txt||chatLoading||!hector) return;
+            setChatLoading(true);
+            const now=new Date().toISOString();
+            onAppendHectorMessage(negotiation.id,{role:"user",content:txt,timestamp:now});
+            setChatInput("");
+            try{
+              const reply = await callAgent(txt);
+              onAppendHectorMessage(negotiation.id,{role:"assistant",content:reply||"(respuesta vacía)",timestamp:new Date().toISOString()});
+            }catch(e){
+              onAppendHectorMessage(negotiation.id,{role:"assistant",content:`⚠ ${e.message||"Error"}`,timestamp:new Date().toISOString()});
+            }finally{ setChatLoading(false); }
+          };
+          const handleBriefing = async()=>{
+            if(!hector||chatLoading) return;
+            setChatLoading(true);
+            const now=new Date().toISOString();
+            onAppendHectorMessage(negotiation.id,{role:"user",content:negotiation.briefing?"🎯 Actualizar briefing estratégico":"🎯 Pedir briefing estratégico",timestamp:now});
+            const userMsg = "Prepárame un briefing estratégico completo de esta negociación. Estructura: 1) Resumen del contexto y situación actual. 2) Objetivos clave para la próxima sesión. 3) Estrategia recomendada (BATNA, palancas, movimientos). 4) Posibles objeciones con respuestas. 5) Próximos pasos accionables y quién hace qué.";
+            try{
+              const reply = await callAgent(userMsg,{isolatedHistory:true,maxTokens:1400});
+              if(reply){
+                onAppendHectorMessage(negotiation.id,{role:"assistant",content:reply,timestamp:new Date().toISOString(),kind:"briefing"});
+                onSaveBriefing(negotiation.id,{content:reply,generatedAt:new Date().toISOString(),generatedBy:"ai",agentId:hector.id});
+              }
+            }catch(e){
+              onAppendHectorMessage(negotiation.id,{role:"assistant",content:`⚠ ${e.message||"Error"}`,timestamp:new Date().toISOString()});
+            }finally{ setChatLoading(false); }
+          };
+          const handleAnalysis = async()=>{
+            if(!hector||chatLoading) return;
+            if(criticalTasks.length===0 && relProjs.length===0){
+              onAppendHectorMessage(negotiation.id,{role:"assistant",content:"⚠ Sin tareas ni proyectos vinculados que analizar.",timestamp:new Date().toISOString()});
+              return;
+            }
+            setChatLoading(true);
+            const taskLines = criticalTasks.map(t=>`- [${t.id}] ${t.title} (${t.projName}·${t.colName}, ${t.dueDate||"sin fecha"})`).join("\n");
+            const projLines = relProjs.map(({p,rp,activeCount,overdueCount})=>`- [${p.id}] ${p.name} (${rp.role||"relacionado"}, ${activeCount} activas, ${overdueCount} vencidas)`).join("\n");
+            const userMsg = `Analiza cada tarea y proyecto vinculado a esta negociación. Para cada uno da:
+1. Análisis en 2-4 frases (directo, sin rodeos, accionable, estilo Chief of Staff).
+2. Tags de categorización (máx 2 por item) de esta lista cerrada exacta: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".
+
+Responde EXCLUSIVAMENTE con JSON válido (sin markdown, sin prosa antes o después). Estructura exacta:
+{"tasks":{"<task-id>":{"text":"…","tags":["…"]},…},"projects":{"<project-id>":{"text":"…","tags":["…"]},…}}
+
+Usa EXACTAMENTE estos IDs (no inventes):
+Proyectos:
+${projLines||"(ninguno)"}
+Tareas:
+${taskLines||"(ninguna)"}`;
+            onAppendHectorMessage(negotiation.id,{role:"user",content:"🔍 Pedir análisis batch de tareas y proyectos",timestamp:new Date().toISOString()});
+            try{
+              const reply = await callAgent(userMsg,{isolatedHistory:true,maxTokens:2400,extraSystem:"En esta solicitud debes responder ÚNICAMENTE con JSON válido. Sin markdown, sin texto antes ni después."});
+              let parsed=null;
+              try{ parsed = JSON.parse(reply); }
+              catch{
+                const m = reply?.match(/\{[\s\S]*\}/);
+                if(m){ try{ parsed = JSON.parse(m[0]); }catch{} }
+              }
+              if(!parsed){ throw new Error("No pude parsear el JSON de Héctor. Vuelve a intentarlo."); }
+              // Fingerprints para stale detection (commit 3 los usará).
+              const fpTask = (t)=>`${t.title}|${t.dueDate||""}|${t.colName||""}|${t.priority||""}`;
+              const fpProj = (r)=>`${r.activeCount}|${r.overdueCount}`;
+              const tasksOut={};
+              for(const id in (parsed.tasks||{})){
+                const found = criticalTasks.find(x=>String(x.id)===String(id));
+                if(!found) continue;
+                const entry = parsed.tasks[id]||{};
+                tasksOut[id] = {text:entry.text||"",tags:Array.isArray(entry.tags)?entry.tags:[],fp:fpTask(found)};
+              }
+              const projsOut={};
+              for(const id in (parsed.projects||{})){
+                const found = relProjs.find(x=>String(x.p.id)===String(id));
+                if(!found) continue;
+                const entry = parsed.projects[id]||{};
+                projsOut[id] = {text:entry.text||"",tags:Array.isArray(entry.tags)?entry.tags:[],fp:fpProj(found)};
+              }
+              const tCount=Object.keys(tasksOut).length, pCount=Object.keys(projsOut).length;
+              onSetAnalysis(negotiation.id,{generatedAt:new Date().toISOString(),tasks:tasksOut,projects:projsOut});
+              onAppendHectorMessage(negotiation.id,{role:"assistant",content:`✓ Análisis completo guardado: ${tCount} tarea${tCount!==1?"s":""} y ${pCount} proyecto${pCount!==1?"s":""} evaluado${pCount!==1?"s":""}. Hover (desktop) o tap (móvil) sobre cada fila para ver la recomendación de Héctor.`,timestamp:new Date().toISOString(),kind:"analysis"});
+            }catch(e){
+              onAppendHectorMessage(negotiation.id,{role:"assistant",content:`⚠ Error en análisis: ${e.message||"desconocido"}`,timestamp:new Date().toISOString()});
+            }finally{ setChatLoading(false); }
+          };
+          const chatMsgs = negotiation.hectorChat||[];
+          return(
+            <div style={{position:"sticky",top:20,background:"#fff",border:"1.5px solid #E5E7EB",borderTop:"4px solid #1D9E75",borderRadius:12,minWidth:0,display:"flex",flexDirection:"column",minHeight:380,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
+              {/* Header */}
+              <div style={{padding:"12px 16px",borderBottom:"1px solid #F3F4F6",display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:38,height:38,borderRadius:"50%",background:"linear-gradient(135deg,#1D9E75,#0E7C5A)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,flexShrink:0}}>H</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:700,color:"#111827"}}>Héctor</div>
+                  <div style={{fontSize:11,color:"#6B7280"}}>Chief of Staff Estratégico</div>
                 </div>
-              : <div style={{textAlign:"center",padding:"30px 10px",color:"#9CA3AF",fontSize:12,fontStyle:"italic"}}>Panel de chat en vivo — disponible en el siguiente commit.<br/>Mientras tanto, pulsa <b>Pedir briefing</b> para generar el análisis estratégico inicial.</div>}
-          </div>
-        </div>
+                {chatMsgs.length>0&&<button onClick={()=>{ if(window.confirm("¿Limpiar todo el chat con Héctor en esta negociación?")) onClearHectorChat(negotiation.id); }} title="Limpiar chat" style={{background:"none",border:"none",fontSize:14,cursor:"pointer",color:"#9CA3AF"}}>🗑</button>}
+              </div>
+              {/* Acciones */}
+              <div style={{padding:"10px 16px",borderBottom:"1px solid #F3F4F6",display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button onClick={handleBriefing} disabled={!hector||chatLoading} title={!hector?"Añade a Héctor como agente IA para usar esto":"Briefing estratégico — se guarda y queda en el chat"} style={{padding:"7px 12px",borderRadius:8,background:hector&&!chatLoading?"#1D9E75":"#E5E7EB",color:hector&&!chatLoading?"#fff":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading?"pointer":"not-allowed",fontWeight:600}}>🎯 {negotiation.briefing?"Actualizar":"Pedir"} briefing</button>
+                <button onClick={handleAnalysis} disabled={!hector||chatLoading||(criticalTasks.length===0&&relProjs.length===0)} title="Análisis batch — recomendación por tarea y proyecto" style={{padding:"7px 12px",borderRadius:8,background:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"#378ADD":"#E5E7EB",color:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"#fff":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"pointer":"not-allowed",fontWeight:600}}>🔍 Análisis</button>
+                {negotiation.hectorAnalysis&&<span title={`Análisis generado ${timeAgoIso(negotiation.hectorAnalysis.generatedAt)}`} style={{fontSize:10,color:"#6B7280",display:"inline-flex",alignItems:"center",gap:4,alignSelf:"center"}}>· {Object.keys(negotiation.hectorAnalysis.tasks||{}).length}t/{Object.keys(negotiation.hectorAnalysis.projects||{}).length}p · {timeAgoIso(negotiation.hectorAnalysis.generatedAt)}</span>}
+              </div>
+              {/* Mensajes */}
+              <div ref={chatScrollRef} style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+                {chatMsgs.length===0
+                  ? <div style={{textAlign:"center",padding:"26px 10px",color:"#9CA3AF",fontSize:12,fontStyle:"italic"}}>
+                      Aún no has consultado a Héctor sobre esta negociación.<br/>
+                      Pulsa <b>Pedir briefing</b> o escribe una pregunta abajo.
+                    </div>
+                  : chatMsgs.map((m,i)=>{
+                      const isUser=m.role==="user";
+                      return(
+                        <div key={i} style={{display:"flex",justifyContent:isUser?"flex-end":"flex-start"}}>
+                          <div style={{maxWidth:"88%",padding:"9px 12px",borderRadius:10,background:isUser?"#EEEDFE":m.kind==="briefing"?"#F0F9F1":m.kind==="analysis"?"#EFF6FF":"#F9FAFB",border:`1px solid ${isUser?"#CFC9F3":m.kind==="briefing"?"#86EFAC":m.kind==="analysis"?"#BFDBFE":"#E5E7EB"}`,fontSize:12.5,color:"#1f2937",lineHeight:1.55,whiteSpace:"pre-wrap"}}>
+                            {m.kind==="briefing"&&<div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div>}
+                            {m.kind==="analysis"&&<div style={{fontSize:10,fontWeight:700,color:"#1E40AF",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div>}
+                            {m.content}
+                            <div style={{fontSize:10,color:"#9CA3AF",marginTop:4,opacity:0.8}}>{m.timestamp?new Date(m.timestamp).toLocaleString("es-ES",{hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"}):""}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                {chatLoading&&(
+                  <div style={{display:"flex",justifyContent:"flex-start"}}>
+                    <div style={{padding:"9px 12px",borderRadius:10,background:"#F9FAFB",border:"1px solid #E5E7EB",fontSize:12,color:"#6B7280",fontStyle:"italic"}}>⏳ Héctor está respondiendo…</div>
+                  </div>
+                )}
+              </div>
+              {/* Input */}
+              <div style={{padding:"10px 12px",borderTop:"1px solid #F3F4F6",background:"#FAFAFA",display:"flex",gap:6}}>
+                <input
+                  value={chatInput}
+                  onChange={e=>setChatInput(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleSend(); } }}
+                  placeholder={hector?"Pregunta a Héctor (Enter para enviar)…":"No hay agente Héctor disponible"}
+                  disabled={!hector||chatLoading}
+                  style={{flex:1,padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12.5,fontFamily:"inherit",outline:"none",background:"#fff"}}
+                />
+                <button onClick={handleSend} disabled={!hector||chatLoading||!chatInput.trim()} style={{padding:"8px 14px",borderRadius:8,background:hector&&!chatLoading&&chatInput.trim()?"#1D9E75":"#E5E7EB",color:hector&&!chatLoading&&chatInput.trim()?"#fff":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading&&chatInput.trim()?"pointer":"not-allowed",fontWeight:600,flexShrink:0,fontFamily:"inherit"}}>Enviar</button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Stakeholders + Relaciones (datos secundarios, full-width bajo el grid) */}
@@ -5239,6 +5417,18 @@ export default function TaskFlow(){
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,briefing:null,updatedAt:now}:n)}));
     addToast("Briefing eliminado","info");
   },[addToast]);
+  // Héctor chat persistente en negotiation.hectorChat[].
+  const appendHectorMessage = useCallback((negId,msg)=>{
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,hectorChat:[...(n.hectorChat||[]),msg],updatedAt:new Date().toISOString()}:n)}));
+  },[]);
+  const clearHectorChat = useCallback((negId)=>{
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,hectorChat:[],updatedAt:new Date().toISOString()}:n)}));
+    addToast("Chat con Héctor limpiado","info");
+  },[addToast]);
+  const setNegHectorAnalysis = useCallback((negId,analysis)=>{
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,hectorAnalysis:analysis,updatedAt:new Date().toISOString()}:n)}));
+    addToast("✓ Análisis de Héctor guardado");
+  },[addToast]);
   const setSessionAttendees = useCallback((negId,sessId,attendees)=>{
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,attendees,updatedAt:now}:s)}:n)}));
@@ -5616,6 +5806,11 @@ export default function TaskFlow(){
                 onOpenTask={(taskId,pid)=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); setPendingOpenTaskId(taskId); } }}
                 onOpenRelatedNeg={nid=>{ setActiveNegId(nid); setActiveSessId(null); }}
                 onClearBriefing={nid=>clearNegBriefing(nid)}
+                onAppendHectorMessage={appendHectorMessage}
+                onClearHectorChat={clearHectorChat}
+                onSetAnalysis={setNegHectorAnalysis}
+                onSaveBriefing={(nid,briefing)=>setNegBriefing(nid,briefing)}
+                onOverlayTask={id=>setOverlayTaskId(id)}
               />;
             }
             return <DealRoomView
