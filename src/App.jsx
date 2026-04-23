@@ -4728,6 +4728,8 @@ function ShortcutsModal({onClose}){
       [["⌘","⇧","H"], "Ir a Home"],
       [["⌘","⇧","D"], "Ir a Deal Room"],
       [["⌘","⇧","T"], "Ir a Mis tareas"],
+      [["⌘","⇧","P"], "Ir a Proyectos"],
+      [["⌘","⇧","W"], "Ir a Workspaces"],
       [["⌘","⇧","A"], "Ir a Dashboard"],
       [["⌘","⇧","B"], "Ir a Briefings IA"],
     ]},
@@ -4951,6 +4953,8 @@ export default function TaskFlow(){
         if(key==="h"){ e.preventDefault(); setActiveTab("home"); return; }
         if(key==="d"){ e.preventDefault(); setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null); return; }
         if(key==="t"){ e.preventDefault(); setActiveTab("mytasks"); return; }
+        if(key==="p"){ e.preventDefault(); setActiveTab("projects"); return; }
+        if(key==="w"){ e.preventDefault(); setActiveTab("workspaces"); return; }
         if(key==="a"){ e.preventDefault(); setActiveTab("dashboard"); return; }
         if(key==="b"){ e.preventDefault(); setActiveTab("briefings"); return; }
         if(key==="n"){ e.preventDefault(); setNuevaOpen(true); setTimeout(()=>nuevaFirstBtnRef.current?.focus(),40); return; }
@@ -5377,11 +5381,13 @@ export default function TaskFlow(){
         const me=data.members.find(x=>x.id===activeMember)||data.members[0];
         const mp2=MP[me?.id]||MP[0];
         const PRIMARY=[
-          {id:"home",      icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}},
-          {id:"dealroom",  icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}},
-          {id:"mytasks",   icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}},
-          {id:"dashboard", icon:"📊", label:"Dashboard",    shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}},
-          {id:"briefings", icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}},
+          {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}},
+          {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}},
+          {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}},
+          {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}},
+          {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}},
+          {id:"dashboard",  icon:"📊", label:"Dashboard",    shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}},
+          {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}},
         ];
         return(
         <div className={`tf-sidebar${sidebarOpen?" open":""}`} data-sb-no-close style={{width:sidebarCollapsed?60:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column",transition:"width .18s ease"}}>
