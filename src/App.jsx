@@ -11,6 +11,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
+import { storageEnabled, uploadDocument, getSignedUrl, deleteDocument as storageDeleteDocument, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, PLAIN_TEXT_RULE } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown } from "./lib/voice.js";
 
@@ -388,7 +389,9 @@ function _migrate(d){
     return a;
   });
   d.projects = (d.projects||[]).map(p=>({...p, workspaceId: p.workspaceId ?? null}));
-  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[]}))}))]));
+  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[]}))}))]));
+  // Backfill documents[] en negociaciones (upload + informes de análisis).
+  d.negotiations = d.negotiations.map(n=>({...n, documents: n.documents||[]}));
   return d;
 }
 function _loadData(){
@@ -476,6 +479,134 @@ function VoiceMicButton({onStart,onInterim,onFinal,onError,disabled,color="#1D9E
       title={listening?"Parar grabación":(title||"Dictar por voz")}
       style={{width:dim,height:dim,borderRadius:8,background:listening?"#E24B4A":"#fff",color:listening?"#fff":color,border:listening?"none":`1px solid ${color}`,fontSize:size==="sm"?12:15,cursor:(disabled&&!listening)?"not-allowed":"pointer",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:(disabled&&!listening)?0.5:1,animation:listening?"tf-mic-pulse 1.2s infinite":"none",padding:0}}
     >{listening?"⏺":"🎤"}</button>
+  );
+}
+
+// Adjuntos de documentos con upload a Supabase Storage.
+// ownerKey = identificador del contenedor ("neg-<id>" o "task-<id>") que se
+// usa como prefijo del path en el bucket. documents se persiste en el estado
+// (negotiation.documents o task.documents) vía onChange.
+function DocumentUploader({ownerKey, documents = [], onChange}){
+  const [busy,setBusy]    = useState(false);
+  const [error,setError]  = useState(null);
+  const [dragOver,setDragOver] = useState(false);
+  const fileInputRef      = useRef(null);
+
+  if(!storageEnabled()){
+    return <div style={{padding:"12px 14px",background:"#FEF3C7",border:"1px solid #FCD34D",borderRadius:8,fontSize:12,color:"#92400E"}}>
+      Documentos requieren Supabase Storage. Añade VITE_SUPABASE_URL y VITE_SUPABASE_KEY para activarlo.
+    </div>;
+  }
+
+  const handleFiles = async (fileList)=>{
+    const files = Array.from(fileList||[]);
+    if(files.length===0) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const next = [...documents];
+      for(const file of files){
+        const v = validateFile(file);
+        if(v){ setError(v); continue; }
+        const meta = await uploadDocument(file, ownerKey);
+        next.push({
+          id: "doc_"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+          name: meta.name,
+          type: meta.type,
+          size: meta.size,
+          storagePath: meta.storagePath,
+          uploadedAt: new Date().toISOString(),
+          analyzedBy: null,
+          analyzedAt: null,
+          report: null,
+        });
+      }
+      onChange?.(next);
+    } catch(e){
+      setError(e.message||"Error al subir");
+    } finally {
+      setBusy(false);
+      if(fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const onDrop = (e)=>{
+    e.preventDefault(); setDragOver(false);
+    handleFiles(e.dataTransfer.files);
+  };
+
+  const openDoc = async (doc)=>{
+    try {
+      const url = await getSignedUrl(doc.storagePath);
+      window.open(url,"_blank","noopener");
+    } catch(e){ setError(e.message); }
+  };
+
+  const removeDoc = async (doc)=>{
+    await storageDeleteDocument(doc.storagePath);
+    onChange?.(documents.filter(d=>d.id!==doc.id));
+  };
+
+  const iconFor = (type)=>{
+    if(!type) return "📄";
+    if(type.includes("pdf")) return "📕";
+    if(type.includes("word")||type.includes("document")) return "📘";
+    if(type.startsWith("image/")) return "🖼️";
+    if(type.startsWith("text/")) return "📝";
+    return "📄";
+  };
+
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <div
+        onDragOver={e=>{e.preventDefault();setDragOver(true);}}
+        onDragLeave={()=>setDragOver(false)}
+        onDrop={onDrop}
+        onClick={()=>fileInputRef.current?.click()}
+        style={{
+          border:`2px dashed ${dragOver?"#7F77DD":"#D1D5DB"}`,
+          background: dragOver?"#F5F3FF":"#F9FAFB",
+          borderRadius:10, padding:"16px 14px", textAlign:"center",
+          cursor:busy?"wait":"pointer", transition:"all .15s",
+        }}
+      >
+        <div style={{fontSize:22,marginBottom:4}}>📎</div>
+        <div style={{fontSize:12.5,fontWeight:600,color:"#374151",marginBottom:2}}>
+          {busy?"Subiendo…":"Arrastra o haz clic para adjuntar"}
+        </div>
+        <div style={{fontSize:10.5,color:"#9CA3AF"}}>
+          PDF, DOCX, PNG, JPG, TXT · máx {MAX_FILE_MB}MB
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={ALLOWED_MIME.join(",")}
+          multiple
+          disabled={busy}
+          onChange={e=>handleFiles(e.target.files)}
+          style={{display:"none"}}
+        />
+      </div>
+      {error&&<div style={{fontSize:11.5,color:"#B91C1C",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:6,padding:"6px 10px"}}>{error}</div>}
+      {documents.length>0 && (
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {documents.map(doc=>(
+            <div key={doc.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:"#fff",border:"1px solid #E5E7EB",borderRadius:8}}>
+              <span style={{fontSize:16,flexShrink:0}}>{iconFor(doc.type)}</span>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12.5,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</div>
+                <div style={{fontSize:10.5,color:"#9CA3AF"}}>
+                  {fmtFileSize(doc.size)} · {new Date(doc.uploadedAt).toLocaleDateString("es-ES")}
+                  {doc.analyzedBy && <> · <span style={{color:"#0E7C5A",fontWeight:600}}>analizado por {doc.analyzedBy}</span></>}
+                </div>
+              </div>
+              <button onClick={()=>openDoc(doc)} title="Abrir" style={{width:28,height:28,borderRadius:6,background:"#F3F4F6",border:"none",cursor:"pointer",fontSize:13}}>↗</button>
+              <button onClick={()=>removeDoc(doc)} title="Eliminar" style={{width:28,height:28,borderRadius:6,background:"#FEF2F2",border:"none",cursor:"pointer",fontSize:13,color:"#B91C1C"}}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1047,8 +1178,8 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
         {avatarOpen&&<AvatarModal task={task} members={members} connectedAgents={(agents||[]).filter(a=>(task.agentIds||[]).includes(a.id))} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})} onMutateTask={newTask=>onUpdate(task.id,colId,newTask)}/>}
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
-          {[["detail","Detalle"],["subtasks","Subtareas"],["links","Enlaces"],["time","Tiempo"],["comments","Comentarios"]].map(([k,l])=>(
-            <div key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400,marginBottom:-0.5}}>{l}{k==="subtasks"&&subs.length>0?` ${subsDone}/${subs.length}`:""}{k==="links"&&links.length>0?` (${links.length})`:""}{k==="time"&&totalLogged>0?` · ${fmtH(totalLogged)}`:""}{k==="comments"&&task.comments.length>0?` (${task.comments.length})`:""}</div>
+          {[["detail","Detalle"],["subtasks","Subtareas"],["links","Enlaces"],["time","Tiempo"],["comments","Comentarios"],["documents","Documentos"]].map(([k,l])=>(
+            <div key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400,marginBottom:-0.5}}>{l}{k==="subtasks"&&subs.length>0?` ${subsDone}/${subs.length}`:""}{k==="links"&&links.length>0?` (${links.length})`:""}{k==="time"&&totalLogged>0?` · ${fmtH(totalLogged)}`:""}{k==="comments"&&task.comments.length>0?` (${task.comments.length})`:""}{k==="documents"&&(task.documents||[]).length>0?` (${(task.documents||[]).length})`:""}</div>
           ))}
         </div>
         <div style={{padding:20}}>
@@ -1268,6 +1399,13 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                 <button onClick={addComment} style={{padding:"8px 14px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:500}}>Enviar</button>
               </div>
             </>
+          )}
+          {tab==="documents"&&(
+            <DocumentUploader
+              ownerKey={`task-${task.id}`}
+              documents={task.documents||[]}
+              onChange={docs=>onUpdate(task.id,colId,{...task,documents:docs})}
+            />
           )}
         </div>
       </div>
@@ -4113,7 +4251,7 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onOverlayTask}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessionsAsc = (negotiation.sessions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -4424,6 +4562,16 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                     );
                   })}
                 </div>}
+          </section>
+
+          {/* Documentos */}
+          <section>
+            <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>📎 Documentos</span><span style={{fontSize:10,color:"#9CA3AF"}}>{(negotiation.documents||[]).length}</span></div>
+            <DocumentUploader
+              ownerKey={`neg-${negotiation.id}`}
+              documents={negotiation.documents||[]}
+              onChange={docs=>onUpdateDocuments?.(negotiation.id,docs)}
+            />
           </section>
         </div>
 
@@ -5732,6 +5880,10 @@ export default function TaskFlow(){
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,briefing,updatedAt:now}:n)}));
     addToast("✓ Briefing guardado en la negociación");
   },[addToast]);
+  const setNegDocuments = useCallback((negId,documents)=>{
+    const now=new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,documents,updatedAt:now}:n)}));
+  },[]);
   const clearNegBriefing = useCallback((negId)=>{
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,briefing:null,updatedAt:now}:n)}));
@@ -6139,6 +6291,7 @@ export default function TaskFlow(){
                 onClearHectorErrors={clearHectorErrors}
                 onSetAnalysis={setNegHectorAnalysis}
                 onSaveBriefing={(nid,briefing)=>setNegBriefing(nid,briefing)}
+                onUpdateDocuments={setNegDocuments}
                 onOverlayTask={id=>setOverlayTaskId(id)}
               />;
             }
