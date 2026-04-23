@@ -23,25 +23,12 @@ export function validateFile(file){
   return null;
 }
 
-async function ensureBucket(){
-  if(!supa) return;
-  try {
-    const { data } = await supa.storage.getBucket(STORAGE_BUCKET);
-    if(data) return;
-  } catch {}
-  try {
-    await supa.storage.createBucket(STORAGE_BUCKET, { public: false });
-  } catch(e){
-    // El bucket ya existe o faltan permisos; seguimos adelante y
-    // dejamos que el upload falle con mensaje claro si hace falta.
-    console.warn("[storage] createBucket:", e.message);
-  }
-}
-
 export async function uploadDocument(file, ownerKey){
   if(!supa) throw new Error("Storage no disponible (sin Supabase)");
   const err = validateFile(file); if(err) throw new Error(err);
-  await ensureBucket();
+  // El bucket se asume creado manualmente en Supabase (crear buckets desde
+  // el cliente requiere permisos de RLS que la anon key no suele tener).
+  // Si no existe, el upload fallará con un mensaje claro de Supabase.
   const ts = Date.now();
   const safeName = file.name.replace(/[^A-Za-z0-9._-]/g,"_");
   const path = `${ownerKey}/${ts}-${safeName}`;
