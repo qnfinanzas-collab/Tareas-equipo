@@ -4455,6 +4455,22 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               lines.push(`\nÚltima sesión: ${getSessionTypeLabel(last.type)} · ${formatDateTimeES(last.date)}`);
               if(last.summary) lines.push(`Resumen: ${last.summary.slice(0,600)}`);
             }
+            // Comentarios de tareas vinculadas: máx 5 por tarea, 20 totales.
+            // Da a Héctor visibilidad del hilo de discusión humana en cada tarea,
+            // no solo los metadatos. Útil para entender bloqueos y decisiones.
+            const taskComments = [];
+            relProjs.forEach(({p,tasks})=>{
+              tasks.forEach(t=>{
+                (t.comments||[]).slice(-5).forEach(c=>{
+                  const author = members.find(m=>m.id===c.author)?.name || "?";
+                  taskComments.push(`[${t.title}] ${author} (${c.time||"sin fecha"}): ${c.text||""}`);
+                });
+              });
+            });
+            if(taskComments.length>0){
+              lines.push(`\nCOMENTARIOS DE TAREAS VINCULADAS (${Math.min(20,taskComments.length)}/${taskComments.length}):`);
+              taskComments.slice(0,20).forEach(c=>lines.push(`- ${c}`));
+            }
             return lines.join("\n");
           };
           const callAgent = async(userMessage, opts={})=>{

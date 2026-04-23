@@ -1080,6 +1080,13 @@ function buildTaskContext(task, members){
   const est = task.estimatedHours||0;
   const subs = task.subtasks||[];
   const assignees = (task.assignees||[]).map(id=>(members||[]).find(m=>m.id===id)?.name||"?").join(", ")||"—";
+  const comments = task.comments||[];
+  const commentsBlock = comments.length
+    ? "COMENTARIOS RECIENTES (últimos 10):\n" + comments.slice(-10).map(c=>{
+        const author = (members||[]).find(m=>m.id===c.author)?.name || "?";
+        return `- ${author} (${c.time||"sin fecha"}): ${c.text||""}`;
+      }).join("\n")
+    : "COMENTARIOS: ninguno";
   return [
     `Título: ${task.title}`,
     task.desc ? `Descripción: ${task.desc}` : null,
@@ -1088,6 +1095,7 @@ function buildTaskContext(task, members){
     est>0 ? `Tiempo: ${logged.toFixed(1)}h registradas de ${est}h estimadas` : `Tiempo registrado: ${logged.toFixed(1)}h (sin estimación)`,
     subs.length ? `Subtareas: ${subs.filter(s=>s.done).length}/${subs.length} hechas` : "Sin subtareas",
     `Responsables: ${assignees}`,
+    commentsBlock,
   ].filter(Boolean).join("\n");
 }
 
