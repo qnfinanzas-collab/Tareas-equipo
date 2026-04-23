@@ -4013,84 +4013,171 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
 function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
-  const sessions=(negotiation.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const sessionsAsc = (negotiation.sessions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const sessionsDesc = (negotiation.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
+
+  // Proyectos relacionados — con agregación de tareas por proyecto.
+  const relProjs = (negotiation.relatedProjects||[]).map(rp=>{
+    const p = projects.find(x=>x.id===rp.projectId); if(!p) return null;
+    const cols = boards[p.id]||[];
+    const ownTasks = cols.flatMap(c=>c.tasks.map(t=>({...t, colName:c.name, colId:c.id})));
+    const active = ownTasks.filter(t=>t.colName!=="Hecho");
+    const overdue = active.filter(t=>t.dueDate&&daysUntil(t.dueDate)<0).length;
+    const done = ownTasks.length - active.length;
+    return { p, rp, tasks: ownTasks, activeCount: active.length, overdueCount: overdue, doneCount: done, total: ownTasks.length };
+  }).filter(Boolean);
+
+  // Tareas críticas cross-project: TODAS las tareas activas de TODOS los
+  // proyectos vinculados, ordenadas por urgencia (vencidas primero, luego
+  // por fecha próxima; sin fecha al final).
+  const criticalTasks = relProjs.flatMap(({p,tasks})=>tasks.filter(t=>t.colName!=="Hecho").map(t=>({...t, projId:p.id, projName:p.name, projColor:p.color, projEmoji:p.emoji||"📋"})))
+    .sort((a,b)=>{
+      const da = a.dueDate ? daysUntil(a.dueDate) : 9999;
+      const db = b.dueDate ? daysUntil(b.dueDate) : 9999;
+      if(da!==db) return da-db;
+      return (a.title||"").localeCompare(b.title||"");
+    });
+
   return(
-    <div style={{maxWidth:900,margin:"0 auto",padding:"30px 20px"}}>
+    <div style={{maxWidth:1200,margin:"0 auto",padding:"30px 20px"}}>
       <button onClick={onBack} style={{background:"none",border:"none",color:"#3B82F6",fontSize:13,cursor:"pointer",marginBottom:14,padding:0,fontFamily:"inherit"}}>← Deal Room</button>
-      <div style={{marginBottom:18}}>
+
+      {/* Header */}
+      <div style={{marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
           <div style={{fontSize:22,fontWeight:700,color:"#111827"}}>{negotiation.title}</div>
           <span style={{fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:14,background:st.color+"18",color:st.color}}>{st.label}</span>
         </div>
         <div style={{fontSize:13,color:"#6b7280"}}>Contraparte: <b style={{color:"#374151"}}>{negotiation.counterparty}</b>{negotiation.value!=null&&<> · <b style={{color:"#059669"}}>{Number(negotiation.value).toLocaleString("es-ES")} {negotiation.currency||"EUR"}</b></>}{owner&&<> · Responsable: <b style={{color:"#374151"}}>{owner.name}</b></>}</div>
       </div>
-      {negotiation.description&&<div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:18,fontSize:13,color:"#4B5563",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{negotiation.description}</div>}
-      <div style={{display:"flex",gap:10,marginBottom:24,flexWrap:"wrap"}}>
+      {negotiation.description&&<div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13,color:"#4B5563",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{negotiation.description}</div>}
+      <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
         <button onClick={onCreateSession} style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva sesión</button>
         <button onClick={()=>onEditNeg(negotiation)} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
-        {negotiation.agentId&&<button onClick={()=>onRequestBriefing(negotiation,null)} style={{padding:"9px 16px",borderRadius:10,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>🎯 {negotiation.briefing?"Actualizar":"Pedir"} briefing</button>}
       </div>
 
-      {/* Briefing preparado y guardado */}
-      {negotiation.briefing&&(()=>{
-        const agent = negotiation.agentId ? agents.find(a=>a.id===negotiation.agentId) : null;
-        return(
-          <div style={{background:"#fff",border:"2px solid #E5E7EB",borderLeft:`4px solid ${agent?.color||"#7F77DD"}`,borderRadius:12,padding:"14px 18px",marginBottom:18}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:8,flexWrap:"wrap"}}>
-              <div style={{fontSize:13,fontWeight:700,color:"#111827"}}>📋 Briefing preparado</div>
-              <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                <span style={{fontSize:11,color:"#9CA3AF"}}>Generado {timeAgoIso(negotiation.briefing.generatedAt)}{negotiation.briefing.generatedBy==="ai"&&agent?` por ${agent.emoji||"🤖"} ${agent.name}`:""}</span>
-                <button onClick={()=>onRequestBriefing(negotiation,null)} style={{fontSize:11,color:"#3B82F6",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>Actualizar</button>
-                <button onClick={()=>onClearBriefing(negotiation.id)} title="Eliminar briefing" style={{fontSize:11,color:"#E24B4A",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>Eliminar</button>
-              </div>
+      {/* Dashboard grid 50/50 — stack en móvil vía .tf-dashboard-grid-2 */}
+      <div className="tf-dashboard-grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start",marginBottom:20}}>
+
+        {/* ─── IZQUIERDA: datos operativos ─── */}
+        <div style={{display:"flex",flexDirection:"column",gap:18,minWidth:0}}>
+
+          {/* Proyectos relacionados */}
+          <section>
+            <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>📊 Proyectos relacionados</span><span style={{fontSize:10,color:"#9CA3AF"}}>{relProjs.length}</span></div>
+            {relProjs.length===0
+              ? <div style={{fontSize:12,color:"#9CA3AF",fontStyle:"italic",padding:"10px 12px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:8}}>Sin proyectos vinculados. Edita la negociación para añadirlos.</div>
+              : <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {relProjs.map(({p,rp,activeCount,overdueCount,total})=>{
+                    const ws = workspaces.find(w=>w.id===p.workspaceId);
+                    const pri = PROJ_PRIORITY[rp.priority]||PROJ_PRIORITY.high;
+                    return(
+                      <div key={p.id} onClick={()=>onGoProject(p.id)} className="tf-lift" style={{background:"#fff",border:"1.5px solid #E5E7EB",borderLeft:`4px solid ${p.color}`,borderRadius:10,padding:"10px 12px",cursor:"pointer"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                          <span style={{width:10,height:10,borderRadius:"50%",background:p.color,flexShrink:0}}/>
+                          <span style={{fontSize:13,fontWeight:600,color:"#111827",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.emoji||"📋"} {p.name}</span>
+                          <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:pri.bg,border:`1px solid ${pri.border}`,color:pri.text,flexShrink:0}}>{pri.label}</span>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:"#6B7280",flexWrap:"wrap"}}>
+                          {ws&&<span>{ws.emoji} {ws.name}</span>}
+                          <span>· {total} tarea{total!==1?"s":""}</span>
+                          {overdueCount>0
+                            ? <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:"#FEE2E2",border:"1px solid #FCA5A5",color:"#B91C1C"}}>{overdueCount} vencida{overdueCount!==1?"s":""}</span>
+                            : activeCount===0
+                              ? <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:"#E1F5EE",border:"1px solid #86EFAC",color:"#065F46"}}>completo</span>
+                              : <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:"#E1F5EE",border:"1px solid #86EFAC",color:"#065F46"}}>al día</span>
+                          }
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>}
+          </section>
+
+          {/* Tareas críticas cross-project */}
+          <section>
+            <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>🔥 Tareas críticas</span><span style={{fontSize:10,color:"#9CA3AF"}}>{criticalTasks.length}</span></div>
+            {criticalTasks.length===0
+              ? <div style={{fontSize:12,color:"#9CA3AF",fontStyle:"italic",padding:"10px 12px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:8}}>Sin tareas activas en los proyectos vinculados.</div>
+              : <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:340,overflowY:"auto",paddingRight:4}}>
+                  {criticalTasks.map(t=>{
+                    const days = t.dueDate ? daysUntil(t.dueDate) : null;
+                    const dueLabel = !t.dueDate ? "Sin fecha" : days<0 ? `Vencida ${-days}d` : days===0 ? "Hoy" : days<=7 ? `En ${days}d` : `En ${days}d`;
+                    const dueColor = !t.dueDate ? "#9CA3AF" : days<0 ? "#E24B4A" : days===0 ? "#EF9F27" : days<=3 ? "#EF9F27" : "#6b7280";
+                    return(
+                      <div key={`${t.projId}-${t.id}`} onClick={()=>onOpenTask(t.id,t.projId)} style={{background:"#fff",border:"1px solid #E5E7EB",borderLeft:`3px solid ${t.projColor}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,transition:"background .12s"}} onMouseEnter={e=>{e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{e.currentTarget.style.background="#fff";}}>
+                        <input type="checkbox" readOnly checked={false} style={{flexShrink:0,cursor:"pointer",accentColor:t.projColor}} onClick={e=>e.stopPropagation()}/>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:12.5,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                          <div style={{fontSize:10.5,color:"#9CA3AF"}}>{t.projEmoji} {t.projName} · {t.colName}</div>
+                        </div>
+                        <span style={{fontSize:10.5,color:dueColor,fontWeight:600,flexShrink:0}}>{dueLabel}</span>
+                      </div>
+                    );
+                  })}
+                </div>}
+          </section>
+
+          {/* Sesiones */}
+          <section>
+            <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>📅 Sesiones</span><span style={{fontSize:10,color:"#9CA3AF"}}>{sessionsDesc.length}</span></div>
+            {sessionsDesc.length===0
+              ? <div style={{fontSize:12,color:"#9CA3AF",fontStyle:"italic",padding:"10px 12px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:8}}>Sin sesiones aún.</div>
+              : <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {sessionsDesc.map(s=>{
+                    const idx = sessionsAsc.findIndex(x=>x.id===s.id) + 1;
+                    const notes = (s.entries||[]).length;
+                    return(
+                      <div key={s.id} onClick={()=>onOpenSession(s.id)} className="tf-lift" style={{background:"#fff",border:"1.5px solid #E5E7EB",borderRadius:10,padding:"10px 12px",cursor:"pointer"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                          <span style={{fontSize:10.5,fontWeight:700,color:"#6B7280",minWidth:20,fontFamily:"ui-monospace,monospace"}}>#{idx}</span>
+                          <span style={{fontSize:13}}>{getSessionTypeIcon(s.type)}</span>
+                          <span style={{fontSize:12.5,fontWeight:600,color:"#111827",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{getSessionTypeLabel(s.type)}</span>
+                          <span style={{fontSize:10.5,color:"#9CA3AF",flexShrink:0}}>{timeAgoIso(s.date)}</span>
+                        </div>
+                        <div style={{fontSize:11,color:"#6b7280",marginBottom:s.summary?4:0}}>{formatDateTimeES(s.date)} · {s.duration} min · 📝 {notes}</div>
+                        {s.summary&&<div style={{fontSize:11.5,color:"#4B5563",lineHeight:1.4,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>{s.summary}</div>}
+                      </div>
+                    );
+                  })}
+                </div>}
+          </section>
+        </div>
+
+        {/* ─── DERECHA: Héctor panel (skeleton — commit 2 cableará chat inline) ─── */}
+        <div style={{position:"sticky",top:20,background:"#fff",border:"1.5px solid #E5E7EB",borderTop:"4px solid #1D9E75",borderRadius:12,minWidth:0,display:"flex",flexDirection:"column",minHeight:360,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
+          <div style={{padding:"14px 16px",borderBottom:"1px solid #F3F4F6",display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:38,height:38,borderRadius:"50%",background:"linear-gradient(135deg,#1D9E75,#0E7C5A)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,flexShrink:0}}>H</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:14,fontWeight:700,color:"#111827"}}>Héctor</div>
+              <div style={{fontSize:11,color:"#6B7280"}}>Chief of Staff Estratégico</div>
             </div>
-            <div style={{fontSize:13,color:"#374151",lineHeight:1.65,whiteSpace:"pre-wrap",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,padding:"12px 14px"}}>{negotiation.briefing.content}</div>
           </div>
-        );
-      })()}
-
-      {/* Proyectos relacionados (múltiples) */}
-      {(negotiation.relatedProjects||[]).length>0&&(
-        <div style={{marginBottom:18}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>📊 Proyectos relacionados ({negotiation.relatedProjects.length})</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
-            {negotiation.relatedProjects.map(rp=>{ const p=projects.find(x=>x.id===rp.projectId); if(!p) return null; const ws=workspaces.find(w=>w.id===p.workspaceId); const pri=PROJ_PRIORITY[rp.priority]||PROJ_PRIORITY.high; return(
-              <div key={rp.projectId} onClick={()=>onGoProject(p.id)} className="tf-lift" style={{background:"#fff",border:`2px solid ${p.color}33`,borderLeft:`4px solid ${p.color}`,borderRadius:12,padding:"12px 14px",cursor:"pointer"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4,gap:8}}>
-                  <div style={{fontSize:13,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.emoji||"📋"} {p.name}</div>
-                  <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:10,background:pri.bg,border:`1px solid ${pri.border}`,color:pri.text,flexShrink:0}}>{pri.label}</span>
+          <div style={{padding:"10px 16px",borderBottom:"1px solid #F3F4F6",display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button onClick={()=>onRequestBriefing(negotiation,null)} title="Generar briefing estratégico" style={{padding:"7px 12px",borderRadius:8,background:"#1D9E75",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>🎯 {negotiation.briefing?"Actualizar":"Pedir"} briefing</button>
+            <button disabled title="Próximamente — análisis batch en commit 2" style={{padding:"7px 12px",borderRadius:8,background:"#F3F4F6",color:"#9CA3AF",border:"0.5px solid #E5E7EB",fontSize:12,cursor:"not-allowed",fontWeight:600}}>🔍 Análisis</button>
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:"14px 16px",fontSize:12.5,color:"#4B5563",lineHeight:1.6}}>
+            {negotiation.briefing
+              ? <div>
+                  <div style={{fontSize:10.5,fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span>📋 Briefing guardado · {timeAgoIso(negotiation.briefing.generatedAt)}</span>
+                    <button onClick={()=>onClearBriefing(negotiation.id)} title="Eliminar briefing" style={{fontSize:10,color:"#E24B4A",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Eliminar</button>
+                  </div>
+                  <div style={{whiteSpace:"pre-wrap",color:"#374151",fontSize:12.5,lineHeight:1.65,background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,padding:"11px 13px"}}>{negotiation.briefing.content}</div>
                 </div>
-                <div style={{fontSize:11,color:"#6B7280"}}>{ws?`${ws.emoji} ${ws.name} · `:""}Rol: {rp.role}</div>
-                <div style={{fontSize:10.5,color:p.color,fontWeight:600,marginTop:6}}>Abrir proyecto →</div>
-              </div>
-            );})}
+              : <div style={{textAlign:"center",padding:"30px 10px",color:"#9CA3AF",fontSize:12,fontStyle:"italic"}}>Panel de chat en vivo — disponible en el siguiente commit.<br/>Mientras tanto, pulsa <b>Pedir briefing</b> para generar el análisis estratégico inicial.</div>}
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Relaciones con otras negociaciones */}
-      {((negotiation.relationships||[]).length>0)&&(
-        <div style={{marginBottom:18}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>🔗 Relaciones ({negotiation.relationships.length})</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
-            {negotiation.relationships.map(r=>{ const target = (allNegotiations||[]).find(n=>n.id===r.negotiationId); const rt=getRelType(r.type); const bg = r.type==="blocks"?"#FEF2F2":r.type==="depends_on"?"#FEF2F2":r.type==="influences"?"#EFF6FF":"#F9FAFB"; const bd = r.type==="blocks"?"#FCA5A5":r.type==="depends_on"?"#FCA5A5":r.type==="influences"?"#BFDBFE":"#E5E7EB"; return(
-              <div key={r.id} onClick={()=>target&&onOpenRelatedNeg?.(r.negotiationId)} className="tf-lift" style={{background:bg,border:`2px solid ${bd}`,borderRadius:10,padding:"11px 13px",cursor:target?"pointer":"default"}}>
-                <div style={{fontSize:12.5,fontWeight:600,color:rt.color,marginBottom:3}}>{rt.icon} {rt.label} {r.critical&&<span style={{marginLeft:6,fontSize:10,padding:"1px 6px",background:"#FEE2E2",color:"#B91C1C",borderRadius:10}}>Crítica</span>}</div>
-                <div style={{fontSize:12.5,fontWeight:600,color:"#111827"}}>{target?.title||"(negociación borrada)"}</div>
-                {r.description&&<div style={{fontSize:11,color:"#4B5563",fontStyle:"italic",marginTop:4,lineHeight:1.5}}>{r.description}</div>}
-              </div>
-            );})}
-          </div>
-        </div>
-      )}
-
-      {/* Stakeholders */}
+      {/* Stakeholders + Relaciones (datos secundarios, full-width bajo el grid) */}
       {((negotiation.stakeholders||[]).length>0)&&(
-        <div style={{marginBottom:18}}>
-          <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>👥 Stakeholders ({negotiation.stakeholders.length})</div>
+        <section style={{marginBottom:18}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>👥 Stakeholders ({negotiation.stakeholders.length})</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
             {negotiation.stakeholders.map(s=>(
-              <div key={s.id} style={{background:"#fff",border:"2px solid #E5E7EB",borderRadius:10,padding:"11px 13px"}}>
+              <div key={s.id} style={{background:"#fff",border:"1.5px solid #E5E7EB",borderRadius:10,padding:"11px 13px"}}>
                 <div style={{fontSize:13,fontWeight:600,color:"#111827",marginBottom:3}}>👤 {s.name}</div>
                 <div style={{fontSize:11,color:"#6B7280",marginBottom:4}}>{s.company&&`${s.company} · `}{getStkRole(s.role)} · <b>{getStkInfluence(s.influence)}</b></div>
                 {(s.email||s.phone)&&<div style={{fontSize:11,color:"#9CA3AF",marginBottom:4}}>{s.email}{s.email&&s.phone&&" · "}{s.phone}</div>}
@@ -4098,71 +4185,29 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Agente + tareas vinculadas (via refs O relatedTaskIds) */}
-      {(()=>{
-        const agent= negotiation.agentId ? agents.find(a=>a.id===negotiation.agentId) : null;
-        const relSet = new Set(negotiation.relatedTaskIds||[]);
-        const linkedTasks=[];
-        for(const pid in boards){
-          const cols=boards[pid]||[]; const p=projects.find(x=>x.id===Number(pid));
-          for(const col of cols){
-            for(const t of col.tasks){
-              const viaRefs = (t.refs||[]).some(r=>r.type==="negotiation"&&r.targetId===negotiation.id);
-              if(viaRefs || relSet.has(t.id)) linkedTasks.push({t,col,projId:Number(pid),projName:p?.name||"",projEmoji:p?.emoji||"📋"});
-            }
-          }
-        }
-        if(!agent && linkedTasks.length===0) return null;
-        return(
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12,marginBottom:24}}>
-            {agent&&(
-              <div onClick={()=>onRequestBriefing(negotiation,null)} className="tf-lift" style={{background:"#fff",border:`2px solid ${(agent.color||"#7F77DD")}33`,borderLeft:`4px solid ${agent.color||"#7F77DD"}`,borderRadius:12,padding:"14px 16px",cursor:"pointer"}}>
-                <div style={{fontSize:10,fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>🤖 Agente asignado</div>
-                <div style={{fontSize:14,fontWeight:600,color:"#111827",marginBottom:2}}>{agent.emoji||"🤖"} {agent.name}</div>
-                <div style={{fontSize:11,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{agent.role||agent.style||"Asesor IA"}</div>
-                <div style={{fontSize:11,color:agent.color||"#7F77DD",fontWeight:600,marginTop:6}}>Pedir briefing →</div>
-              </div>
-            )}
-            {linkedTasks.length>0&&(
-              <div style={{background:"#F9FAFB",border:"2px solid #E5E7EB",borderRadius:12,padding:"14px 16px"}}>
-                <div style={{fontSize:10,fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>📋 Tareas vinculadas</div>
-                <div style={{fontSize:14,fontWeight:600,color:"#111827",marginBottom:8}}>{linkedTasks.length} tarea{linkedTasks.length!==1?"s":""}</div>
-                {linkedTasks.slice(0,5).map(({t,col,projId,projName,projEmoji})=>(
-                  <div key={t.id} onClick={()=>onOpenTask(t.id,projId)} style={{fontSize:11.5,padding:"5px 8px",background:"#fff",borderRadius:6,marginBottom:4,cursor:"pointer",border:"1px solid #E5E7EB"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#3B82F6";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#E5E7EB";}}>
-                    📌 {t.title.length>36?t.title.slice(0,36)+"…":t.title} <span style={{color:"#9CA3AF"}}>· {projEmoji} {projName} · {col.name}</span>
-                  </div>
-                ))}
-                {linkedTasks.length>5&&<div style={{fontSize:11,color:"#9CA3AF",marginTop:4,fontStyle:"italic"}}>+{linkedTasks.length-5} más</div>}
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Timeline de sesiones ({sessions.length})</div>
-      {sessions.length===0
-        ? <div style={{textAlign:"center",padding:"40px 20px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:10,fontSize:13,color:"#6b7280"}}>Sin sesiones aún. Registra la primera reunión, llamada o conversación.</div>
-        : sessions.map(s=>{
-            const notes=(s.entries||[]).length;
-            return(
-              <div key={s.id} onClick={()=>onOpenSession(s.id)} className="tf-lift" style={{background:"#fff",border:"2px solid #E5E7EB",borderRadius:12,padding:"14px 16px",marginBottom:12,cursor:"pointer"}}>
-                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:14}}>{getSessionTypeIcon(s.type)}</span>
-                    <span style={{fontSize:11,padding:"2px 8px",borderRadius:14,background:"#F3F4F6",color:"#4b5563",fontWeight:500}}>{getSessionTypeLabel(s.type)}</span>
-                  </div>
-                  <button onClick={e=>{e.stopPropagation();onEditSession(s);}} title="Editar sesión" style={{background:"none",border:"none",fontSize:13,cursor:"pointer",color:"#9ca3af"}}>✏️</button>
+      {((negotiation.relationships||[]).length>0)&&(
+        <section style={{marginBottom:18}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>🔗 Relaciones con otras negociaciones ({negotiation.relationships.length})</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
+            {negotiation.relationships.map(r=>{
+              const target = (allNegotiations||[]).find(n=>n.id===r.negotiationId);
+              const rt=getRelType(r.type);
+              const bg = r.type==="blocks"?"#FEF2F2":r.type==="depends_on"?"#FEF2F2":r.type==="influences"?"#EFF6FF":"#F9FAFB";
+              const bd = r.type==="blocks"?"#FCA5A5":r.type==="depends_on"?"#FCA5A5":r.type==="influences"?"#BFDBFE":"#E5E7EB";
+              return(
+                <div key={r.id} onClick={()=>target&&onOpenRelatedNeg?.(r.negotiationId)} className="tf-lift" style={{background:bg,border:`1.5px solid ${bd}`,borderRadius:10,padding:"11px 13px",cursor:target?"pointer":"default"}}>
+                  <div style={{fontSize:12.5,fontWeight:600,color:rt.color,marginBottom:3}}>{rt.icon} {rt.label} {r.critical&&<span style={{marginLeft:6,fontSize:10,padding:"1px 6px",background:"#FEE2E2",color:"#B91C1C",borderRadius:10}}>Crítica</span>}</div>
+                  <div style={{fontSize:12.5,fontWeight:600,color:"#111827"}}>{target?.title||"(negociación borrada)"}</div>
+                  {r.description&&<div style={{fontSize:11,color:"#4B5563",fontStyle:"italic",marginTop:4,lineHeight:1.5}}>{r.description}</div>}
                 </div>
-                <div style={{fontSize:13,color:"#374151",fontWeight:500,marginBottom:3}}>{formatDateTimeES(s.date)}</div>
-                <div style={{fontSize:12,color:"#6b7280",marginBottom:6}}>{s.duration} min{s.location?` · ${s.location}`:""}</div>
-                {s.summary&&<div style={{fontSize:13,color:"#4B5563",lineHeight:1.5,marginBottom:6,whiteSpace:"pre-wrap"}}>{s.summary.length>160?s.summary.slice(0,160)+"…":s.summary}</div>}
-                <div style={{fontSize:11,color:"#9ca3af"}}>📝 {notes} nota{notes!==1?"s":""} · {timeAgoIso(s.date)}</div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
