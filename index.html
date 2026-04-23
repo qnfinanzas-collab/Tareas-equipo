@@ -32,6 +32,17 @@
       .tf-lift { transition: transform .15s ease, box-shadow .15s ease; }
       .tf-lift:hover { transform: translateY(-2px); }
 
+      /* Command Palette trigger button */
+      .tf-search-btn { display: flex; }
+      .tf-search-label, .tf-search-kbd { display: inline; }
+      @media (max-width: 768px){
+        .tf-search-label, .tf-search-kbd { display: none; }
+        .tf-search-btn { padding: 0 !important; width: 38px; height: 38px; border-radius: 50% !important; justify-content: center; }
+      }
+      /* Hamburger button solo en móvil */
+      .tf-only-mobile { display: flex; }
+      @media (min-width: 901px){ .tf-only-mobile { display: none !important; } }
+
       /* Responsive: sidebar drawer en móvil */
       .tf-sidebar { transition: transform .2s ease; }
       .tf-backdrop { display: none; }

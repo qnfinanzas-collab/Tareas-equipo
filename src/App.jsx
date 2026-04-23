@@ -3457,10 +3457,22 @@ export default function TaskFlow(){
 
       {/* MAIN */}
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
-        {/* Barra superior móvil con hamburguesa (visible solo < 900px) */}
-        <div className="tf-hamburger" style={{display:"none",background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"10px 14px",alignItems:"center",gap:10,flexShrink:0}}>
-          <button onClick={()=>setSidebarOpen(true)} style={{width:38,height:38,borderRadius:8,background:"#f3f4f6",border:"none",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>☰</button>
+        {/* Top bar — siempre visible. Hamburger solo en móvil, título + botón de búsqueda en ambos. */}
+        <div style={{display:"flex",background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"10px 14px",alignItems:"center",gap:10,flexShrink:0}}>
+          <button className="tf-only-mobile" onClick={()=>setSidebarOpen(true)} style={{width:38,height:38,borderRadius:8,background:"#f3f4f6",border:"none",fontSize:18,cursor:"pointer",alignItems:"center",justifyContent:"center"}}>☰</button>
           <div style={{fontWeight:600,fontSize:14,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>TaskFlow · {activeTab==="board"?proj.name:activeTab}</div>
+          <button
+            title="Buscar (⌘K)"
+            onClick={()=>setShowCommandPalette(true)}
+            className="tf-search-btn"
+            style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderRadius:20,background:"#f3f4f6",color:"#4b5563",border:"0.5px solid #e5e7eb",fontSize:13,cursor:"pointer",fontFamily:"inherit",transition:"background .15s, color .15s, border-color .15s"}}
+            onMouseEnter={e=>{e.currentTarget.style.background="#DBEAFE";e.currentTarget.style.color="#1E40AF";e.currentTarget.style.borderColor="#93C5FD";}}
+            onMouseLeave={e=>{e.currentTarget.style.background="#f3f4f6";e.currentTarget.style.color="#4b5563";e.currentTarget.style.borderColor="#e5e7eb";}}
+          >
+            <span style={{fontSize:14,lineHeight:1}}>🔍</span>
+            <span className="tf-search-label">Buscar tareas, acciones…</span>
+            <span className="tf-search-kbd" style={{fontSize:10,color:"#9ca3af",border:"0.5px solid #d1d5db",borderRadius:5,padding:"2px 6px",fontWeight:600,background:"#fff",marginLeft:4}}>⌘K</span>
+          </button>
         </div>
         {activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&(
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px",height:52,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
