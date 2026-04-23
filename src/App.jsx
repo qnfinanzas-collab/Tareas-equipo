@@ -2818,6 +2818,56 @@ function AgentsView({agents,onCreate,onEdit}){
   );
 }
 
+// ── User selector (temporal, pre-auth) ────────────────────────────────────────
+const USER_KEY = "taskflow_current_user";
+const readStoredUser = () => { try{ const s=localStorage.getItem(USER_KEY); return s?JSON.parse(s):null; }catch{ return null; } };
+const writeStoredUser = u => { try{ localStorage.setItem(USER_KEY,JSON.stringify({id:u.id,name:u.name,email:u.email})); }catch{} };
+const clearStoredUser = () => { try{ localStorage.removeItem(USER_KEY); }catch{} };
+
+// Modal bloqueante de selección inicial. Sin backdrop-close, sin X, sin Esc.
+function UserSelectionModal({members,onSelectUser}){
+  const [selectedId,setSelectedId] = useState(null);
+  const [leaving,setLeaving] = useState(false);
+  const canContinue = selectedId!==null;
+  const commit = () => {
+    const m = members.find(x=>x.id===selectedId); if(!m) return;
+    setLeaving(true);
+    setTimeout(()=>onSelectUser(m),200);
+  };
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(17,24,39,0.65)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,animation:"tf-fade-in .2s ease",opacity:leaving?0:1,transition:"opacity .2s"}}>
+      <div style={{background:"#fff",borderRadius:16,width:480,maxWidth:"96vw",maxHeight:"92vh",display:"flex",flexDirection:"column",borderTop:"4px solid #7F77DD",boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
+        <div style={{padding:"20px 24px 10px",textAlign:"center"}}>
+          <div style={{fontSize:18,fontWeight:700,marginBottom:4}}>Bienvenido a TaskFlow</div>
+          <div style={{fontSize:13,color:"#6b7280"}}>Selecciona tu usuario:</div>
+        </div>
+        <div style={{padding:"6px 16px 10px",overflowY:"auto",flex:1,display:"flex",flexDirection:"column",gap:8}}>
+          {members.map(m=>{
+            const mp2 = MP[m.id]||MP[0];
+            const sel = selectedId===m.id;
+            return(
+              <div key={m.id} onClick={()=>setSelectedId(m.id)} className="tf-lift" style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",border:`1.5px solid ${sel?mp2.solid:"#e5e7eb"}`,borderRadius:10,background:sel?mp2.light:"#fff",cursor:"pointer",transition:"background .15s, border-color .15s"}}>
+                <div style={{width:20,height:20,borderRadius:"50%",border:`2px solid ${sel?mp2.solid:"#d1d5db"}`,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  {sel && <div style={{width:10,height:10,borderRadius:"50%",background:mp2.solid}}/>}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:sel?mp2.solid:"#111827"}}>{m.name}</div>
+                  <div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.email}</div>
+                </div>
+                <div style={{width:34,height:34,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,flexShrink:0}}>{m.initials}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{padding:"14px 24px 10px",borderTop:"0.5px solid #f3f4f6",display:"flex",justifyContent:"center"}}>
+          <button onClick={commit} disabled={!canContinue} style={{padding:"10px 28px",borderRadius:10,background:canContinue?"#378ADD":"#e5e7eb",color:canContinue?"#fff":"#9ca3af",border:"none",fontSize:14,fontWeight:600,cursor:canContinue?"pointer":"not-allowed",transition:"background .15s"}}>Continuar →</button>
+        </div>
+        <div style={{padding:"6px 24px 18px",fontSize:11,color:"#9ca3af",textAlign:"center",fontStyle:"italic"}}>Nota: Sistema temporal. Login completo próximamente.</div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function TaskFlow(){
   const [data,setData]             = useState(_saved);
@@ -2826,7 +2876,9 @@ export default function TaskFlow(){
   const [syncStatus,setSyncStatus] = useState(syncEnabled?"connecting":"off");
   const [activeProject,setAP]      = useState(0);
   const [activeTab,setActiveTab]   = useState("projects");
-  const [activeMember,setAM]       = useState(5);
+  const [activeMember,setAM]       = useState(()=>{ const u=readStoredUser(); return typeof u?.id==="number"?u.id:5; });
+  const [showUserModal,setShowUserModal] = useState(()=>!readStoredUser());
+  const [userMenuOpen,setUserMenuOpen]   = useState(false);
   const [showAlerts,setShowAlerts] = useState(false);
   const [emailQueue,setEQ]         = useState([]);
   const [profileMember,setPM]      = useState(null);
@@ -2877,6 +2929,23 @@ export default function TaskFlow(){
     const id=++toastIdRef.current;
     setToasts(prev=>[...prev,{id,msg,type}]);
     setTimeout(()=>setToasts(prev=>prev.filter(t=>t.id!==id)),3000);
+  },[]);
+
+  // Handlers del selector de usuario temporal (pre-auth).
+  const selectUser = useCallback((member)=>{
+    writeStoredUser(member);
+    setAM(member.id);
+    setShowUserModal(false);
+    addToast(`Hola, ${member.name.split(" ")[0]}`,"info");
+  },[addToast]);
+  const changeUser = useCallback(()=>{
+    clearStoredUser();
+    setUserMenuOpen(false);
+    setShowUserModal(true);
+  },[]);
+  const logoutTemp = useCallback(()=>{
+    clearStoredUser();
+    window.location.reload();
   },[]);
 
   const proj  = data.projects[activeProject];
@@ -3047,6 +3116,7 @@ export default function TaskFlow(){
 
   return(
     <div style={{display:"flex",height:"100vh",fontFamily:"'Segoe UI',system-ui,sans-serif",background:"#f9fafb",color:"#111827"}}>
+      {showUserModal&&<UserSelectionModal members={data.members} onSelectUser={selectUser}/>}
       {sidebarOpen && <div className="tf-backdrop" onClick={()=>setSidebarOpen(false)}/>}
       {/* SIDEBAR */}
       <div className={`tf-sidebar${sidebarOpen?" open":""}`} onClick={e=>{ if(e.target.tagName!=="BUTTON" && e.target.tagName!=="INPUT" && e.target.tagName!=="SELECT") setSidebarOpen(false); }} style={{width:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column"}}>
@@ -3055,11 +3125,28 @@ export default function TaskFlow(){
           <span style={{fontWeight:600,fontSize:15}}>TaskFlow</span>
           <span title={syncStatus==="connected"?"Sincronizado con Supabase":syncStatus==="connecting"?"Conectando…":syncStatus==="error"?"Error de sincronización":"Solo local (sin sync)"} style={{marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:syncStatus==="connected"?"#10b981":syncStatus==="connecting"?"#f59e0b":syncStatus==="error"?"#ef4444":"#9ca3af"}}/>
         </div>
-        <div style={{padding:"10px 12px",borderBottom:"0.5px solid #e5e7eb",background:"#fafafa"}}>
-          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Vista como</div>
-          <select value={activeMember} onChange={e=>setAM(Number(e.target.value))} style={{width:"100%",padding:"6px 8px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12,background:"#fff",fontFamily:"inherit"}}>
-            {data.members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
+        <div style={{padding:"10px 12px",borderBottom:"0.5px solid #e5e7eb",background:"#fafafa",position:"relative"}}>
+          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Usuario activo</div>
+          {(()=>{ const m=data.members.find(x=>x.id===activeMember)||data.members[0]; const mp2=MP[m?.id]||MP[0]; return(
+            <button title="Cambiar de usuario activo" onClick={()=>setUserMenuOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"7px 9px",borderRadius:8,border:"0.5px solid #d1d5db",background:"#fff",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
+              <div style={{width:26,height:26,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{m?.initials}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m?.name}</div>
+                <div style={{fontSize:10,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m?.email}</div>
+              </div>
+              <span style={{fontSize:10,color:"#9ca3af",flexShrink:0}}>{userMenuOpen?"▴":"▾"}</span>
+            </button>
+          );})()}
+          {userMenuOpen&&(
+            <>
+              <div onClick={()=>setUserMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:1600}}/>
+              <div style={{position:"absolute",top:"calc(100% - 2px)",left:12,right:12,background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:10,boxShadow:"0 10px 28px rgba(0,0,0,0.14)",zIndex:1700,overflow:"hidden",animation:"tf-slide-down .15s ease-out"}}>
+                <div onClick={()=>{setUserMenuOpen(false);setPM(data.members.find(x=>x.id===activeMember));}} className="tf-lift-item" style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>⚙ Mi perfil</div>
+                <div onClick={changeUser} className="tf-lift-item" style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🔄 Cambiar usuario</div>
+                <div onClick={logoutTemp} style={{padding:"9px 12px",fontSize:12,color:"#A32D2D",cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background="#FEF2F2"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🚪 Cerrar sesión</div>
+              </div>
+            </>
+          )}
         </div>
         <div style={{padding:"6px 8px",borderBottom:"0.5px solid #e5e7eb"}}>
           <div onClick={()=>setActiveTab("dashboard")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="dashboard"?"#EEEDFE":"transparent",color:activeTab==="dashboard"?"#7F77DD":"#4b5563",fontWeight:activeTab==="dashboard"?600:400}}>
