@@ -252,16 +252,24 @@ const LS_KEY = 'taskflow_v1';
 function _migrate(d){
   if(!d.workspaces) d.workspaces = [];
   if(!d.negotiations) d.negotiations = [];
-  // FASE 2 integración: campos nuevos por negociación y por sesión.
-  d.negotiations = d.negotiations.map(n=>({
-    projectId: null, agentId: null, relatedTaskIds: [],
-    ...n,
-    sessions: (n.sessions||[]).map(s=>({
-      attendees: [], agentConversations: [],
-      ...s,
-      entries: s.entries||[],
-    })),
-  }));
+  // FASE 1.5: negociaciones complejas — multi-proyecto, relaciones,
+  // stakeholders; y tasks con refs cruzadas a neg/sesión.
+  d.negotiations = d.negotiations.map(n=>{
+    const m = {
+      projectId: null, agentId: null, relatedTaskIds: [],
+      relatedProjects: null, relationships: [], stakeholders: [],
+      ...n,
+      sessions: (n.sessions||[]).map(s=>({
+        attendees: [], agentConversations: [],
+        ...s,
+        entries: s.entries||[],
+      })),
+    };
+    if(!Array.isArray(m.relatedProjects)){
+      m.relatedProjects = m.projectId!=null ? [{projectId:m.projectId,role:"main",priority:"high"}] : [];
+    }
+    return m;
+  });
   // Dedup workspace ids: sync realtime entre clientes puede fusionar estados con
   // contadores independientes y provocar colisiones. Con ids duplicados,
   // workspaces.find(w=>w.id===x) devuelve siempre el primero → clicks abren el
@@ -289,7 +297,7 @@ function _migrate(d){
     }
   }
   d.projects = (d.projects||[]).map(p=>({...p, workspaceId: p.workspaceId ?? null}));
-  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[]}))}))]));
+  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[]}))}))]));
   return d;
 }
 function _loadData(){
@@ -3394,6 +3402,35 @@ const SESSION_TYPES = [
 const getNegStatus     = s => NEG_STATUSES.find(x=>x.id===s)||NEG_STATUSES[0];
 const getSessionTypeLabel = t => SESSION_TYPES.find(x=>x.id===t)?.label||t;
 const getSessionTypeIcon  = t => SESSION_TYPES.find(x=>x.id===t)?.icon||"📅";
+const REL_TYPES = [
+  { id:"blocks",      label:"Bloquea a",      icon:"🔒", color:"#B91C1C" },
+  { id:"depends_on",  label:"Depende de",     icon:"⏳", color:"#EF4444" },
+  { id:"influences",  label:"Influye en",     icon:"🔗", color:"#2563EB" },
+  { id:"parallel",    label:"Paralela a",     icon:"📍", color:"#6B7280" },
+];
+const getRelType = t => REL_TYPES.find(x=>x.id===t)||REL_TYPES[2];
+const STK_ROLES = [
+  { id:"landlord",   label:"Propietario" },
+  { id:"investor",   label:"Inversor"    },
+  { id:"vendor",     label:"Proveedor"   },
+  { id:"contractor", label:"Contratista" },
+  { id:"partner",    label:"Socio"       },
+  { id:"other",      label:"Otro"        },
+];
+const STK_INFLUENCE = [
+  { id:"decision_maker", label:"Toma decisiones" },
+  { id:"influencer",     label:"Influenciador"   },
+  { id:"blocker",        label:"Bloqueador"      },
+  { id:"facilitator",    label:"Facilitador"     },
+];
+const getStkRole      = r => STK_ROLES.find(x=>x.id===r)?.label||r;
+const getStkInfluence = i => STK_INFLUENCE.find(x=>x.id===i)?.label||i;
+const PROJ_PRIORITY = {
+  critical: { bg:"#FEE2E2", border:"#FCA5A5", text:"#991B1B", label:"Crítica" },
+  high:     { bg:"#FEF3C7", border:"#FCD34D", text:"#92400E", label:"Alta" },
+  medium:   { bg:"#DBEAFE", border:"#93C5FD", text:"#1E40AF", label:"Media" },
+  low:      { bg:"#F3F4F6", border:"#D1D5DB", text:"#6B7280", label:"Baja" },
+};
 function formatDateTimeES(iso){
   if(!iso) return "";
   try{ return new Date(iso).toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"}); }
@@ -3412,7 +3449,7 @@ function timeAgoIso(iso){
 }
 
 // Modal crear/editar negociación.
-function NegotiationModal({negotiation,members,workspaces,projects,agents,onClose,onSave,onDelete}){
+function NegotiationModal({negotiation,members,workspaces,projects,agents,allNegotiations,onClose,onSave,onDelete}){
   const isEdit=!!negotiation;
   const [title,setTitle]       = useState(negotiation?.title||"");
   const [counterparty,setCP]   = useState(negotiation?.counterparty||"");
@@ -3421,23 +3458,67 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,onClos
   const [currency,setCurrency] = useState(negotiation?.currency||"EUR");
   const [description,setDesc]  = useState(negotiation?.description||"");
   const [ownerId,setOwnerId]   = useState(negotiation?.ownerId??(members[0]?.id??0));
-  // Integraciones
-  const initialWsId = negotiation?.projectId ? (projects.find(p=>p.id===negotiation.projectId)?.workspaceId??"") : "";
-  const [workspaceId,setWorkspaceId] = useState(initialWsId||"");
-  const [projectId,setProjectId]     = useState(negotiation?.projectId??"");
-  const [agentId,setAgentId]         = useState(negotiation?.agentId??"");
-  const availableProjects = workspaceId!=="" ? projects.filter(p=>p.workspaceId===Number(workspaceId)) : projects;
+  // Multi-proyecto (FASE 1.5)
+  const [relatedProjects,setRelatedProjects] = useState(negotiation?.relatedProjects||[]);
+  const [relationships,setRelationships]     = useState(negotiation?.relationships||[]);
+  const [stakeholders,setStakeholders]       = useState(negotiation?.stakeholders||[]);
+  const [agentId,setAgentId] = useState(negotiation?.agentId??"");
   const [pendingDel,setPendingDel] = useState(false);
   const [pendingClose,setPendingClose] = useState(false);
-  const [initialSnap]=useState(()=>JSON.stringify({title:negotiation?.title||"",counterparty:negotiation?.counterparty||"",status:negotiation?.status||"en_curso",value:negotiation?.value??"",currency:negotiation?.currency||"EUR",description:negotiation?.description||"",ownerId:negotiation?.ownerId??(members[0]?.id??0),workspaceId:initialWsId||"",projectId:negotiation?.projectId??"",agentId:negotiation?.agentId??""}));
-  const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,ownerId,workspaceId,projectId,agentId})!==initialSnap;
+  const [initialSnap]=useState(()=>JSON.stringify({title:negotiation?.title||"",counterparty:negotiation?.counterparty||"",status:negotiation?.status||"en_curso",value:negotiation?.value??"",currency:negotiation?.currency||"EUR",description:negotiation?.description||"",ownerId:negotiation?.ownerId??(members[0]?.id??0),relatedProjects:negotiation?.relatedProjects||[],relationships:negotiation?.relationships||[],stakeholders:negotiation?.stakeholders||[],agentId:negotiation?.agentId??""}));
+  const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,ownerId,relatedProjects,relationships,stakeholders,agentId})!==initialSnap;
   const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
   useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
   const save=()=>{
     if(!title.trim()||!counterparty.trim()) return;
-    onSave({title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),projectId:projectId===""?null:Number(projectId),agentId:agentId===""?null:Number(agentId)});
+    const primaryProjectId = relatedProjects[0]?.projectId ?? null;
+    onSave({title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),projectId:primaryProjectId,agentId:agentId===""?null:Number(agentId),relatedProjects,relationships,stakeholders});
     onClose();
   };
+
+  // Helpers UI multi-proyecto
+  const [addProjOpen,setAddProjOpen] = useState(false);
+  const [addProjSel,setAddProjSel]   = useState("");
+  const [addProjRole,setAddProjRole] = useState("relacionado");
+  const [addProjPri,setAddProjPri]   = useState("high");
+  const addProject = ()=>{
+    if(addProjSel===""){ return; }
+    const pid = Number(addProjSel);
+    if(relatedProjects.some(rp=>rp.projectId===pid)) return;
+    setRelatedProjects([...relatedProjects,{projectId:pid,role:addProjRole.trim()||"relacionado",priority:addProjPri}]);
+    setAddProjSel(""); setAddProjRole("relacionado"); setAddProjPri("high"); setAddProjOpen(false);
+  };
+  const removeProject = (pid)=>setRelatedProjects(relatedProjects.filter(rp=>rp.projectId!==pid));
+
+  // Helpers UI relaciones
+  const [addRelOpen,setAddRelOpen] = useState(false);
+  const [addRelTarget,setAddRelTarget] = useState("");
+  const [addRelType,setAddRelType] = useState("influences");
+  const [addRelDesc,setAddRelDesc] = useState("");
+  const [addRelCritical,setAddRelCritical] = useState(false);
+  const availableNegs = (allNegotiations||[]).filter(n=>n.id!==negotiation?.id && !relationships.some(r=>r.negotiationId===n.id));
+  const addRelation = ()=>{
+    if(!addRelTarget) return;
+    setRelationships([...relationships,{id:_uid("rel"),negotiationId:addRelTarget,type:addRelType,description:addRelDesc.trim(),critical:addRelCritical,createdAt:new Date().toISOString()}]);
+    setAddRelTarget(""); setAddRelDesc(""); setAddRelCritical(false); setAddRelType("influences"); setAddRelOpen(false);
+  };
+  const removeRelation = (rid)=>setRelationships(relationships.filter(r=>r.id!==rid));
+
+  // Helpers UI stakeholders
+  const [addStkOpen,setAddStkOpen]  = useState(false);
+  const [stkName,setStkName]        = useState("");
+  const [stkCompany,setStkCompany]  = useState("");
+  const [stkEmail,setStkEmail]      = useState("");
+  const [stkPhone,setStkPhone]      = useState("");
+  const [stkRole,setStkRole]        = useState("other");
+  const [stkInfl,setStkInfl]        = useState("influencer");
+  const [stkNotes,setStkNotes]      = useState("");
+  const addStakeholder = ()=>{
+    if(!stkName.trim()) return;
+    setStakeholders([...stakeholders,{id:_uid("stk"),name:stkName.trim(),company:stkCompany.trim(),email:stkEmail.trim(),phone:stkPhone.trim(),role:stkRole,influence:stkInfl,notes:stkNotes.trim()}]);
+    setStkName(""); setStkCompany(""); setStkEmail(""); setStkPhone(""); setStkRole("other"); setStkInfl("influencer"); setStkNotes(""); setAddStkOpen(false);
+  };
+  const removeStakeholder = (sid)=>setStakeholders(stakeholders.filter(s=>s.id!==sid));
   return(
     <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:560,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:"4px solid #3B82F6",marginBottom:24}}>
@@ -3470,26 +3551,129 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,onClos
           <FL c="Descripción"/>
           <textarea value={description} onChange={e=>setDesc(e.target.value)} rows={3} placeholder="Contexto, objetivo, contraparte, plazos…" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
 
+          {/* Proyectos relacionados (múltiple) */}
           <div style={{marginTop:18,paddingTop:14,borderTop:"1px solid #E5E7EB"}}>
-            <div style={{fontSize:13,fontWeight:600,color:"#111827",marginBottom:6}}>🔗 Integración con plataforma</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              <div>
-                <FL c="Workspace"/>
-                <select value={workspaceId} onChange={e=>{setWorkspaceId(e.target.value);setProjectId("");}} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
-                  <option value="">— Todos / sin filtro —</option>
-                  {workspaces.map(w=><option key={w.id} value={w.id}>{w.emoji} {w.name}</option>)}
-                </select>
+            <div style={{fontSize:13,fontWeight:600,color:"#111827",marginBottom:4}}>📊 Proyectos relacionados ({relatedProjects.length})</div>
+            <div style={{fontSize:11,color:"#6B7280",marginBottom:8}}>Una negociación puede afectar a varios proyectos (legal, obra, financiación…). El primero se considera principal.</div>
+            {relatedProjects.map(rp=>{ const p=projects.find(x=>x.id===rp.projectId); const ws=workspaces.find(w=>w.id===p?.workspaceId); const pri=PROJ_PRIORITY[rp.priority]||PROJ_PRIORITY.high; return(
+              <div key={rp.projectId} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,marginBottom:6}}>
+                <span style={{fontSize:16}}>{p?.emoji||"📋"}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ws?`${ws.emoji} ${ws.name} / `:""}{p?.name||"(proyecto borrado)"}</div>
+                  <div style={{fontSize:11,color:"#6B7280"}}>Rol: {rp.role}</div>
+                </div>
+                <span style={{fontSize:10,fontWeight:600,padding:"3px 8px",borderRadius:10,background:pri.bg,border:`1px solid ${pri.border}`,color:pri.text}}>{pri.label}</span>
+                <button onClick={()=>removeProject(rp.projectId)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #e5e7eb",background:"#fff",fontSize:12,color:"#6b7280",cursor:"pointer"}}>✕</button>
               </div>
-              <div>
-                <FL c="Proyecto relacionado"/>
-                <select value={projectId} onChange={e=>setProjectId(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
-                  <option value="">— Ninguno —</option>
-                  {availableProjects.map(p=><option key={p.id} value={p.id}>{p.emoji||"📋"} {p.name}</option>)}
-                </select>
-                <div style={{fontSize:11,color:"#9CA3AF",marginTop:3}}>Las tareas generadas se crearán aquí</div>
+            );})}
+            {!addProjOpen
+              ? <button onClick={()=>setAddProjOpen(true)} style={{padding:"7px 12px",borderRadius:8,background:"#fff",color:"#3B82F6",border:"1px dashed #3B82F6",fontSize:12,cursor:"pointer",fontWeight:500}}>+ Añadir proyecto</button>
+              : <div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:12}}>
+                  <FL c="Proyecto"/>
+                  <select value={addProjSel} onChange={e=>setAddProjSel(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
+                    <option value="">— Seleccionar —</option>
+                    {projects.filter(p=>!relatedProjects.some(rp=>rp.projectId===p.id)).map(p=>{ const ws=workspaces.find(w=>w.id===p.workspaceId); return <option key={p.id} value={p.id}>{ws?`${ws.name} / `:""}{p.name}</option>; })}
+                  </select>
+                  <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:8,marginTop:6}}>
+                    <div><FL c="Rol"/><FI value={addProjRole} onChange={setAddProjRole} placeholder="contrato, especificaciones…"/></div>
+                    <div><FL c="Prioridad"/>
+                      <select value={addProjPri} onChange={e=>setAddProjPri(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
+                        {Object.entries(PROJ_PRIORITY).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:6,marginTop:8,justifyContent:"flex-end"}}>
+                    <button onClick={()=>{setAddProjOpen(false);setAddProjSel("");setAddProjRole("relacionado");setAddProjPri("high");}} style={{padding:"6px 12px",borderRadius:7,background:"transparent",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>Cancelar</button>
+                    <button onClick={addProject} disabled={!addProjSel} style={{padding:"6px 12px",borderRadius:7,background:addProjSel?"#3B82F6":"#e5e7eb",color:addProjSel?"#fff":"#9ca3af",border:"none",fontSize:12,cursor:addProjSel?"pointer":"default",fontWeight:600}}>Añadir</button>
+                  </div>
+                </div>}
+          </div>
+
+          {/* Relaciones entre negociaciones */}
+          <div style={{marginTop:18,paddingTop:14,borderTop:"1px solid #E5E7EB"}}>
+            <div style={{fontSize:13,fontWeight:600,color:"#111827",marginBottom:4}}>🔗 Relaciones con otras negociaciones ({relationships.length})</div>
+            <div style={{fontSize:11,color:"#6B7280",marginBottom:8}}>Bloquea, depende, influye o corre en paralelo — visible en el Deal Room con badges.</div>
+            {relationships.map(r=>{ const target=(allNegotiations||[]).find(n=>n.id===r.negotiationId); const rt=getRelType(r.type); return(
+              <div key={r.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"10px 12px",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,marginBottom:6}}>
+                <span style={{fontSize:15,flexShrink:0}}>{rt.icon}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12.5,fontWeight:600,color:rt.color}}>{rt.label}: <span style={{color:"#111827"}}>{target?.title||"(negociación borrada)"}</span>{r.critical&&<span style={{marginLeft:6,fontSize:10,padding:"1px 6px",background:"#FEE2E2",color:"#B91C1C",borderRadius:10}}>Crítica</span>}</div>
+                  {r.description&&<div style={{fontSize:11,color:"#6B7280",fontStyle:"italic",marginTop:3}}>{r.description}</div>}
+                </div>
+                <button onClick={()=>removeRelation(r.id)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #e5e7eb",background:"#fff",fontSize:12,color:"#6b7280",cursor:"pointer"}}>✕</button>
               </div>
-            </div>
-            <FL c="Agente IA asignado"/>
+            );})}
+            {!addRelOpen
+              ? <button onClick={()=>setAddRelOpen(true)} disabled={availableNegs.length===0} style={{padding:"7px 12px",borderRadius:8,background:"#fff",color:availableNegs.length===0?"#9CA3AF":"#3B82F6",border:`1px dashed ${availableNegs.length===0?"#e5e7eb":"#3B82F6"}`,fontSize:12,cursor:availableNegs.length===0?"not-allowed":"pointer",fontWeight:500}}>+ Añadir relación {availableNegs.length===0&&"(sin otras negociaciones)"}</button>
+              : <div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:12}}>
+                  <FL c="Tipo de relación"/>
+                  <select value={addRelType} onChange={e=>setAddRelType(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
+                    {REL_TYPES.map(t=><option key={t.id} value={t.id}>{t.icon} {t.label}…</option>)}
+                  </select>
+                  <FL c="Negociación relacionada"/>
+                  <select value={addRelTarget} onChange={e=>setAddRelTarget(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
+                    <option value="">— Seleccionar —</option>
+                    {availableNegs.map(n=><option key={n.id} value={n.id}>{n.title}</option>)}
+                  </select>
+                  <FL c="Descripción"/>
+                  <textarea value={addRelDesc} onChange={e=>setAddRelDesc(e.target.value)} rows={2} placeholder="Ej: Necesitamos local firmado antes de comprar cámaras" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12.5,resize:"vertical",fontFamily:"inherit"}}/>
+                  <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,marginTop:8,cursor:"pointer"}}>
+                    <input type="checkbox" checked={addRelCritical} onChange={e=>setAddRelCritical(e.target.checked)}/>
+                    <span>Relación crítica (bloquea progreso)</span>
+                  </label>
+                  <div style={{display:"flex",gap:6,marginTop:10,justifyContent:"flex-end"}}>
+                    <button onClick={()=>{setAddRelOpen(false);setAddRelTarget("");setAddRelDesc("");setAddRelCritical(false);}} style={{padding:"6px 12px",borderRadius:7,background:"transparent",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>Cancelar</button>
+                    <button onClick={addRelation} disabled={!addRelTarget} style={{padding:"6px 12px",borderRadius:7,background:addRelTarget?"#3B82F6":"#e5e7eb",color:addRelTarget?"#fff":"#9ca3af",border:"none",fontSize:12,cursor:addRelTarget?"pointer":"default",fontWeight:600}}>Añadir</button>
+                  </div>
+                </div>}
+          </div>
+
+          {/* Stakeholders */}
+          <div style={{marginTop:18,paddingTop:14,borderTop:"1px solid #E5E7EB"}}>
+            <div style={{fontSize:13,fontWeight:600,color:"#111827",marginBottom:4}}>👥 Stakeholders ({stakeholders.length})</div>
+            <div style={{fontSize:11,color:"#6B7280",marginBottom:8}}>Personas clave externas al equipo: propietarios, inversores, proveedores…</div>
+            {stakeholders.map(s=>(
+              <div key={s.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,marginBottom:6}}>
+                <span style={{fontSize:16,flexShrink:0}}>👤</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:"#111827"}}>{s.name}{s.company&&<span style={{fontWeight:400,color:"#6B7280"}}> · {s.company}</span>}</div>
+                  <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{getStkRole(s.role)} · <b>{getStkInfluence(s.influence)}</b>{s.email&&` · ${s.email}`}{s.phone&&` · ${s.phone}`}</div>
+                  {s.notes&&<div style={{fontSize:11,color:"#4B5563",fontStyle:"italic",marginTop:4}}>{s.notes}</div>}
+                </div>
+                <button onClick={()=>removeStakeholder(s.id)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #e5e7eb",background:"#fff",fontSize:12,color:"#6b7280",cursor:"pointer"}}>✕</button>
+              </div>
+            ))}
+            {!addStkOpen
+              ? <button onClick={()=>setAddStkOpen(true)} style={{padding:"7px 12px",borderRadius:8,background:"#fff",color:"#3B82F6",border:"1px dashed #3B82F6",fontSize:12,cursor:"pointer",fontWeight:500}}>+ Añadir stakeholder</button>
+              : <div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:12}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                    <div><FL c="Nombre *"/><FI value={stkName} onChange={setStkName} placeholder="Juan García"/></div>
+                    <div><FL c="Empresa"/><FI value={stkCompany} onChange={setStkCompany} placeholder="Inmobiliaria XYZ"/></div>
+                    <div><FL c="Email"/><FI value={stkEmail} onChange={setStkEmail} placeholder="juan@ejemplo.com"/></div>
+                    <div><FL c="Teléfono"/><FI value={stkPhone} onChange={setStkPhone} placeholder="+34 600…"/></div>
+                    <div><FL c="Rol"/>
+                      <select value={stkRole} onChange={e=>setStkRole(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
+                        {STK_ROLES.map(r=><option key={r.id} value={r.id}>{r.label}</option>)}
+                      </select>
+                    </div>
+                    <div><FL c="Influencia"/>
+                      <select value={stkInfl} onChange={e=>setStkInfl(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
+                        {STK_INFLUENCE.map(i=><option key={i.id} value={i.id}>{i.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <FL c="Notas"/>
+                  <textarea value={stkNotes} onChange={e=>setStkNotes(e.target.value)} rows={2} placeholder="Contexto importante sobre esta persona…" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12.5,resize:"vertical",fontFamily:"inherit"}}/>
+                  <div style={{display:"flex",gap:6,marginTop:10,justifyContent:"flex-end"}}>
+                    <button onClick={()=>{setAddStkOpen(false);setStkName("");setStkCompany("");setStkEmail("");setStkPhone("");setStkNotes("");}} style={{padding:"6px 12px",borderRadius:7,background:"transparent",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>Cancelar</button>
+                    <button onClick={addStakeholder} disabled={!stkName.trim()} style={{padding:"6px 12px",borderRadius:7,background:stkName.trim()?"#3B82F6":"#e5e7eb",color:stkName.trim()?"#fff":"#9ca3af",border:"none",fontSize:12,cursor:stkName.trim()?"pointer":"default",fontWeight:600}}>Añadir</button>
+                  </div>
+                </div>}
+          </div>
+
+          {/* Agente IA */}
+          <div style={{marginTop:18,paddingTop:14,borderTop:"1px solid #E5E7EB"}}>
+            <div style={{fontSize:13,fontWeight:600,color:"#111827",marginBottom:4}}>🤖 Agente IA asignado</div>
             <select value={agentId} onChange={e=>setAgentId(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
               <option value="">— Ninguno —</option>
               {agents.map(a=><option key={a.id} value={a.id}>{a.emoji||"🤖"} {a.name} — {a.role}</option>)}
@@ -3614,9 +3798,51 @@ function AddNoteModal({initialNote,onClose,onSave,onDelete}){
 }
 
 // Vista principal: lista de negociaciones con filtros.
-function DealRoomView({negotiations,members,filter,onSetFilter,onCreate,onOpen,onEdit}){
+function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilter,onCreate,onOpen,onEdit}){
   const filtered = filter==="all" ? negotiations : negotiations.filter(n=>n.status===filter);
   const counts = NEG_STATUSES.reduce((o,s)=>{o[s.id]=negotiations.filter(n=>n.status===s.id).length;return o;},{all:negotiations.length});
+
+  // Alerts automáticas: bloqueada >7d, sesión sin seguimiento >3d sin resumen,
+  // stakeholder repetido en varias negociaciones activas.
+  const alerts = React.useMemo(()=>{
+    const out=[];
+    const now=Date.now();
+    const byId = new Map(negotiations.map(n=>[n.id,n]));
+    negotiations.forEach(n=>{
+      const daysSince = n.updatedAt ? Math.floor((now-new Date(n.updatedAt))/86400000) : 0;
+      const blockedBy = negotiations.filter(x=>(x.relationships||[]).some(r=>r.negotiationId===n.id&&r.type==="blocks"));
+      if(n.status==="en_curso" && blockedBy.length>0 && daysSince>7){
+        out.push({id:`blk-${n.id}`,level:"critical",title:`${n.title} bloqueada hace ${daysSince}d`,description:`Bloqueada por: ${blockedBy.map(x=>x.title).join(", ")}`,negId:n.id});
+      }
+      const sessions=(n.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
+      const last = sessions[0];
+      if(last){
+        const sd = Math.floor((now-new Date(last.date))/86400000);
+        if(sd>3 && (!last.summary?.trim() || (last.entries||[]).length===0) && n.status==="en_curso"){
+          out.push({id:`ses-${n.id}-${last.id}`,level:"warning",title:`Sesión sin seguimiento en ${n.title}`,description:`Hace ${sd} días · sin resumen o notas`,negId:n.id});
+        }
+      }
+    });
+    // stakeholders repetidos
+    const stkMap=new Map();
+    negotiations.forEach(n=>{
+      if(n.status!=="en_curso") return;
+      (n.stakeholders||[]).forEach(s=>{
+        const key=s.name.trim().toLowerCase();
+        if(!key) return;
+        if(!stkMap.has(key)) stkMap.set(key,{name:s.name,negs:new Set()});
+        stkMap.get(key).negs.add(n.id);
+      });
+    });
+    for(const [,v] of stkMap){
+      if(v.negs.size>=3){
+        const first = byId.get([...v.negs][0]);
+        out.push({id:`stk-${v.name}`,level:"info",title:`${v.name} aparece en ${v.negs.size} negociaciones activas`,description:"Persona clave en varios deals simultáneos",negId:first?.id});
+      }
+    }
+    const order={critical:0,warning:1,info:2};
+    return out.sort((a,b)=>order[a.level]-order[b.level]);
+  },[negotiations]);
   return(
     <div style={{maxWidth:1000,margin:"0 auto",padding:"30px 20px"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
@@ -3626,6 +3852,22 @@ function DealRoomView({negotiations,members,filter,onSetFilter,onCreate,onOpen,o
         </div>
         <button onClick={onCreate} style={{padding:"10px 18px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva negociación</button>
       </div>
+
+      {/* Panel de alertas */}
+      {alerts.length>0&&(
+        <div style={{marginBottom:18,padding:14,background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:12}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>⚠ Alertas ({alerts.length})</div>
+          {alerts.map(a=>{
+            const styles = a.level==="critical"?{bg:"#FEE2E2",bd:"#FCA5A5",icon:"🚨"}:a.level==="warning"?{bg:"#FEF3C7",bd:"#FCD34D",icon:"⚠️"}:{bg:"#DBEAFE",bd:"#93C5FD",icon:"💡"};
+            return(
+              <div key={a.id} onClick={()=>a.negId&&onOpen(a.negId)} style={{padding:"9px 12px",background:styles.bg,border:`1px solid ${styles.bd}`,borderRadius:8,marginBottom:6,cursor:a.negId?"pointer":"default",transition:"transform .15s"}} onMouseEnter={e=>a.negId&&(e.currentTarget.style.transform="translateY(-1px)")} onMouseLeave={e=>a.negId&&(e.currentTarget.style.transform="translateY(0)")}>
+                <div style={{fontSize:12.5,fontWeight:600,color:"#111827",marginBottom:2}}>{styles.icon} {a.title}</div>
+                <div style={{fontSize:11.5,color:"#4B5563"}}>{a.description}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div style={{display:"flex",gap:8,marginBottom:18,flexWrap:"wrap"}}>
         {[["all","Todas",null],...NEG_STATUSES.map(s=>[s.id,s.label,s.color])].map(([k,l,c])=>{
@@ -3646,11 +3888,22 @@ function DealRoomView({negotiations,members,filter,onSetFilter,onCreate,onOpen,o
               const owner=members.find(m=>m.id===n.ownerId);
               const mp2=MP[owner?.id]||MP[0];
               const lastSession = (n.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date))[0];
+              const blocksList     = (n.relationships||[]).filter(r=>r.type==="blocks").map(r=>negotiations.find(x=>x.id===r.negotiationId)).filter(Boolean);
+              const blockedByList  = negotiations.filter(x=>(x.relationships||[]).some(r=>r.negotiationId===n.id&&r.type==="blocks"));
+              const influencesList = (n.relationships||[]).filter(r=>r.type==="influences"||r.type==="depends_on").slice(0,2);
+              const daysSince = n.updatedAt ? Math.floor((Date.now()-new Date(n.updatedAt))/86400000) : 0;
+              const alertLevel = blockedByList.length>0 && daysSince>7 ? "critical" : blockedByList.length>0 && daysSince>3 ? "warning" : null;
+              const cardBg = alertLevel==="critical"?"#FEF2F2":alertLevel==="warning"?"#FFFBEB":"#fff";
+              const cardBorder = alertLevel==="critical"?"#FCA5A5":alertLevel==="warning"?"#FCD34D":"#E5E7EB";
               return(
-                <div key={n.id} onClick={()=>onOpen(n.id)} className="tf-lift" style={{background:"#fff",border:`2px solid #E5E7EB`,borderLeft:`4px solid ${st.color}`,borderRadius:12,padding:"16px 18px",cursor:"pointer"}}>
+                <div key={n.id} onClick={()=>onOpen(n.id)} className="tf-lift" style={{background:cardBg,border:`2px solid ${cardBorder}`,borderLeft:`4px solid ${st.color}`,borderRadius:12,padding:"16px 18px",cursor:"pointer"}}>
                   <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:6}}>
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:16,fontWeight:600,color:"#111827",marginBottom:2}}>{n.title}</div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2,flexWrap:"wrap"}}>
+                        <div style={{fontSize:16,fontWeight:600,color:"#111827"}}>{n.title}</div>
+                        {alertLevel==="critical"&&<span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:10,background:"#FEE2E2",border:"1px solid #FCA5A5",color:"#B91C1C"}}>🚨 Crítico</span>}
+                        {alertLevel==="warning"&&<span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:10,background:"#FEF3C7",border:"1px solid #FCD34D",color:"#92400E"}}>⚠️ Atención</span>}
+                      </div>
                       <div style={{fontSize:12,color:"#6b7280"}}>Contraparte: <b style={{color:"#374151"}}>{n.counterparty}</b>{n.value!=null&&<> · <b style={{color:"#059669"}}>{Number(n.value).toLocaleString("es-ES")} {n.currency||"EUR"}</b></>}</div>
                     </div>
                     <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
@@ -3659,7 +3912,49 @@ function DealRoomView({negotiations,members,filter,onSetFilter,onCreate,onOpen,o
                     </div>
                   </div>
                   {n.description&&<div style={{fontSize:13,color:"#4B5563",lineHeight:1.5,marginBottom:6}}>{n.description}</div>}
-                  <div style={{display:"flex",alignItems:"center",gap:12,fontSize:11,color:"#9ca3af",flexWrap:"wrap"}}>
+
+                  {/* Dependencias */}
+                  {blockedByList.length>0&&(
+                    <div style={{fontSize:11.5,padding:"7px 10px",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:8,marginTop:6}}>
+                      <div style={{fontWeight:600,color:"#991B1B"}}>🚫 Bloqueada por:</div>
+                      {blockedByList.map(b=><div key={b.id} style={{color:"#7F1D1D",marginTop:2}}>→ {b.title}</div>)}
+                      {daysSince>3&&<div style={{color:"#B91C1C",fontWeight:600,marginTop:4}}>⏱ Sin movimiento hace {daysSince}d</div>}
+                    </div>
+                  )}
+                  {blocksList.length>0&&(
+                    <div style={{fontSize:11.5,padding:"7px 10px",background:"#FEF3C7",border:"1px solid #FCD34D",borderRadius:8,marginTop:6}}>
+                      <div style={{fontWeight:600,color:"#92400E"}}>🔒 Bloquea:</div>
+                      {blocksList.slice(0,3).map(b=><div key={b.id} style={{color:"#78350F",marginTop:2}}>→ {b.title}</div>)}
+                    </div>
+                  )}
+                  {influencesList.length>0&&(
+                    <div style={{fontSize:11.5,padding:"7px 10px",background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:8,marginTop:6}}>
+                      <div style={{fontWeight:600,color:"#1E3A8A"}}>🔗 Relacionada con:</div>
+                      {influencesList.map(r=>{ const t=negotiations.find(x=>x.id===r.negotiationId); const rt=getRelType(r.type); return t?<div key={r.id} style={{color:"#1E40AF",marginTop:2}}>{rt.icon} {t.title}</div>:null; })}
+                    </div>
+                  )}
+
+                  {/* Proyectos relacionados (pills por prioridad) */}
+                  {(n.relatedProjects||[]).length>0&&(
+                    <div style={{marginTop:8}}>
+                      <div style={{fontSize:11,fontWeight:600,color:"#6B7280",marginBottom:4}}>📊 Proyectos ({n.relatedProjects.length}):</div>
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                        {n.relatedProjects.slice(0,5).map(rp=>{ const p=projects.find(x=>x.id===rp.projectId); const pri=PROJ_PRIORITY[rp.priority]||PROJ_PRIORITY.high; return(
+                          <span key={rp.projectId} title={`Rol: ${rp.role} · Prioridad: ${pri.label}`} style={{fontSize:10.5,fontWeight:500,padding:"3px 9px",borderRadius:12,background:pri.bg,border:`1px solid ${pri.border}`,color:pri.text}}>{p?.emoji||"📋"} {p?.name||"?"}</span>
+                        );})}
+                        {n.relatedProjects.length>5&&<span style={{fontSize:10.5,color:"#9CA3AF"}}>+{n.relatedProjects.length-5}</span>}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Stakeholders */}
+                  {(n.stakeholders||[]).length>0&&(
+                    <div style={{marginTop:8,fontSize:11.5,color:"#6B7280"}}>
+                      <b style={{color:"#374151"}}>👥 Stakeholders:</b> {(n.stakeholders).slice(0,2).map((s,i)=><span key={s.id}>{i>0?", ":""}{s.name} <span style={{color:"#9CA3AF"}}>({getStkRole(s.role)})</span></span>)}{n.stakeholders.length>2&&<span style={{color:"#9CA3AF"}}>, +{n.stakeholders.length-2}</span>}
+                    </div>
+                  )}
+
+                  <div style={{display:"flex",alignItems:"center",gap:12,fontSize:11,color:"#9ca3af",flexWrap:"wrap",marginTop:8,paddingTop:8,borderTop:"1px solid #F3F4F6"}}>
                     {owner&&<span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:16,height:16,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700}}>{owner.initials}</span>{owner.name.split(" ")[0]}</span>}
                     <span>💬 {(n.sessions||[]).length} sesion{(n.sessions||[]).length!==1?"es":""}</span>
                     {lastSession&&<span>· última {timeAgoIso(lastSession.date)}</span>}
@@ -3674,7 +3969,7 @@ function DealRoomView({negotiations,members,filter,onSetFilter,onCreate,onOpen,o
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessions=(negotiation.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
@@ -3695,23 +3990,75 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
         {negotiation.agentId&&<button onClick={()=>onRequestBriefing(negotiation,null)} style={{padding:"9px 16px",borderRadius:10,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>🎯 Pedir briefing</button>}
       </div>
 
-      {/* Cards relacionadas: proyecto, agente, tareas generadas */}
+      {/* Proyectos relacionados (múltiples) */}
+      {(negotiation.relatedProjects||[]).length>0&&(
+        <div style={{marginBottom:18}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>📊 Proyectos relacionados ({negotiation.relatedProjects.length})</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
+            {negotiation.relatedProjects.map(rp=>{ const p=projects.find(x=>x.id===rp.projectId); if(!p) return null; const ws=workspaces.find(w=>w.id===p.workspaceId); const pri=PROJ_PRIORITY[rp.priority]||PROJ_PRIORITY.high; return(
+              <div key={rp.projectId} onClick={()=>onGoProject(p.id)} className="tf-lift" style={{background:"#fff",border:`2px solid ${p.color}33`,borderLeft:`4px solid ${p.color}`,borderRadius:12,padding:"12px 14px",cursor:"pointer"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4,gap:8}}>
+                  <div style={{fontSize:13,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.emoji||"📋"} {p.name}</div>
+                  <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:10,background:pri.bg,border:`1px solid ${pri.border}`,color:pri.text,flexShrink:0}}>{pri.label}</span>
+                </div>
+                <div style={{fontSize:11,color:"#6B7280"}}>{ws?`${ws.emoji} ${ws.name} · `:""}Rol: {rp.role}</div>
+                <div style={{fontSize:10.5,color:p.color,fontWeight:600,marginTop:6}}>Abrir proyecto →</div>
+              </div>
+            );})}
+          </div>
+        </div>
+      )}
+
+      {/* Relaciones con otras negociaciones */}
+      {((negotiation.relationships||[]).length>0)&&(
+        <div style={{marginBottom:18}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>🔗 Relaciones ({negotiation.relationships.length})</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
+            {negotiation.relationships.map(r=>{ const target = (allNegotiations||[]).find(n=>n.id===r.negotiationId); const rt=getRelType(r.type); const bg = r.type==="blocks"?"#FEF2F2":r.type==="depends_on"?"#FEF2F2":r.type==="influences"?"#EFF6FF":"#F9FAFB"; const bd = r.type==="blocks"?"#FCA5A5":r.type==="depends_on"?"#FCA5A5":r.type==="influences"?"#BFDBFE":"#E5E7EB"; return(
+              <div key={r.id} onClick={()=>target&&onOpenRelatedNeg?.(r.negotiationId)} className="tf-lift" style={{background:bg,border:`2px solid ${bd}`,borderRadius:10,padding:"11px 13px",cursor:target?"pointer":"default"}}>
+                <div style={{fontSize:12.5,fontWeight:600,color:rt.color,marginBottom:3}}>{rt.icon} {rt.label} {r.critical&&<span style={{marginLeft:6,fontSize:10,padding:"1px 6px",background:"#FEE2E2",color:"#B91C1C",borderRadius:10}}>Crítica</span>}</div>
+                <div style={{fontSize:12.5,fontWeight:600,color:"#111827"}}>{target?.title||"(negociación borrada)"}</div>
+                {r.description&&<div style={{fontSize:11,color:"#4B5563",fontStyle:"italic",marginTop:4,lineHeight:1.5}}>{r.description}</div>}
+              </div>
+            );})}
+          </div>
+        </div>
+      )}
+
+      {/* Stakeholders */}
+      {((negotiation.stakeholders||[]).length>0)&&(
+        <div style={{marginBottom:18}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>👥 Stakeholders ({negotiation.stakeholders.length})</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
+            {negotiation.stakeholders.map(s=>(
+              <div key={s.id} style={{background:"#fff",border:"2px solid #E5E7EB",borderRadius:10,padding:"11px 13px"}}>
+                <div style={{fontSize:13,fontWeight:600,color:"#111827",marginBottom:3}}>👤 {s.name}</div>
+                <div style={{fontSize:11,color:"#6B7280",marginBottom:4}}>{s.company&&`${s.company} · `}{getStkRole(s.role)} · <b>{getStkInfluence(s.influence)}</b></div>
+                {(s.email||s.phone)&&<div style={{fontSize:11,color:"#9CA3AF",marginBottom:4}}>{s.email}{s.email&&s.phone&&" · "}{s.phone}</div>}
+                {s.notes&&<div style={{fontSize:11.5,color:"#4B5563",fontStyle:"italic",lineHeight:1.5,marginTop:4}}>{s.notes}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Agente + tareas vinculadas (via refs O relatedTaskIds) */}
       {(()=>{
-        const proj = negotiation.projectId ? projects.find(p=>p.id===negotiation.projectId) : null;
-        const ws   = proj && workspaces.find(w=>w.id===proj.workspaceId);
         const agent= negotiation.agentId ? agents.find(a=>a.id===negotiation.agentId) : null;
-        const relTaskIds = negotiation.relatedTaskIds||[];
-        if(!proj && !agent && relTaskIds.length===0) return null;
+        const relSet = new Set(negotiation.relatedTaskIds||[]);
+        const linkedTasks=[];
+        for(const pid in boards){
+          const cols=boards[pid]||[]; const p=projects.find(x=>x.id===Number(pid));
+          for(const col of cols){
+            for(const t of col.tasks){
+              const viaRefs = (t.refs||[]).some(r=>r.type==="negotiation"&&r.targetId===negotiation.id);
+              if(viaRefs || relSet.has(t.id)) linkedTasks.push({t,col,projId:Number(pid),projName:p?.name||"",projEmoji:p?.emoji||"📋"});
+            }
+          }
+        }
+        if(!agent && linkedTasks.length===0) return null;
         return(
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12,marginBottom:24}}>
-            {proj&&(
-              <div onClick={()=>onGoProject(proj.id)} className="tf-lift" style={{background:"#fff",border:`2px solid ${proj.color}33`,borderLeft:`4px solid ${proj.color}`,borderRadius:12,padding:"14px 16px",cursor:"pointer"}}>
-                <div style={{fontSize:10,fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>📁 Proyecto</div>
-                <div style={{fontSize:14,fontWeight:600,color:"#111827",marginBottom:2}}>{proj.emoji||"📋"} {proj.name}</div>
-                <div style={{fontSize:11,color:"#6B7280"}}>{ws?`${ws.emoji} ${ws.name} · `:""}{(boards[proj.id]||[]).reduce((s,c)=>s+c.tasks.length,0)} tareas · {relTaskIds.length} desde esta negociación</div>
-                <div style={{fontSize:11,color:proj.color,fontWeight:600,marginTop:6}}>Abrir proyecto →</div>
-              </div>
-            )}
             {agent&&(
               <div onClick={()=>onRequestBriefing(negotiation,null)} className="tf-lift" style={{background:"#fff",border:`2px solid ${(agent.color||"#7F77DD")}33`,borderLeft:`4px solid ${agent.color||"#7F77DD"}`,borderRadius:12,padding:"14px 16px",cursor:"pointer"}}>
                 <div style={{fontSize:10,fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>🤖 Agente asignado</div>
@@ -3720,28 +4067,16 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                 <div style={{fontSize:11,color:agent.color||"#7F77DD",fontWeight:600,marginTop:6}}>Pedir briefing →</div>
               </div>
             )}
-            {relTaskIds.length>0&&(
+            {linkedTasks.length>0&&(
               <div style={{background:"#F9FAFB",border:"2px solid #E5E7EB",borderRadius:12,padding:"14px 16px"}}>
-                <div style={{fontSize:10,fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>📋 Tareas generadas</div>
-                <div style={{fontSize:14,fontWeight:600,color:"#111827",marginBottom:8}}>{relTaskIds.length} tarea{relTaskIds.length!==1?"s":""} vinculada{relTaskIds.length!==1?"s":""}</div>
-                {(()=>{
-                  const found=[];
-                  for(const pid in boards){
-                    const cols=boards[pid]||[];
-                    for(const col of cols){
-                      for(const t of col.tasks){
-                        if(relTaskIds.includes(t.id)){ found.push({t,colName:col.name,projId:Number(pid)}); if(found.length>=3) break; }
-                      }
-                      if(found.length>=3) break;
-                    }
-                    if(found.length>=3) break;
-                  }
-                  return found.map(({t,colName,projId})=>(
-                    <div key={t.id} onClick={()=>onOpenTask(t.id,projId)} style={{fontSize:11.5,padding:"5px 8px",background:"#fff",borderRadius:6,marginBottom:4,cursor:"pointer",border:"1px solid #E5E7EB"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#3B82F6";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#E5E7EB";}}>
-                      📌 {t.title.length>40?t.title.slice(0,40)+"…":t.title} <span style={{color:"#9CA3AF"}}>· {colName}</span>
-                    </div>
-                  ));
-                })()}
+                <div style={{fontSize:10,fontWeight:700,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>📋 Tareas vinculadas</div>
+                <div style={{fontSize:14,fontWeight:600,color:"#111827",marginBottom:8}}>{linkedTasks.length} tarea{linkedTasks.length!==1?"s":""}</div>
+                {linkedTasks.slice(0,5).map(({t,col,projId,projName,projEmoji})=>(
+                  <div key={t.id} onClick={()=>onOpenTask(t.id,projId)} style={{fontSize:11.5,padding:"5px 8px",background:"#fff",borderRadius:6,marginBottom:4,cursor:"pointer",border:"1px solid #E5E7EB"}} onMouseEnter={e=>{e.currentTarget.style.borderColor="#3B82F6";}} onMouseLeave={e=>{e.currentTarget.style.borderColor="#E5E7EB";}}>
+                    📌 {t.title.length>36?t.title.slice(0,36)+"…":t.title} <span style={{color:"#9CA3AF"}}>· {projEmoji} {projName} · {col.name}</span>
+                  </div>
+                ))}
+                {linkedTasks.length>5&&<div style={{fontSize:11,color:"#9CA3AF",marginTop:4,fontStyle:"italic"}}>+{linkedTasks.length-5} más</div>}
               </div>
             )}
           </div>
@@ -3812,7 +4147,7 @@ function SessionDetailView({negotiation,session,agent,relatedProject,onBack,onEd
         <button onClick={()=>onEditSession(session)} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar sesión</button>
         <button onClick={autoSummary} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#3B82F6",border:"0.5px solid #3B82F6",fontSize:13,cursor:"pointer",fontWeight:500}}>✨ Generar resumen</button>
         {agent&&<button onClick={onRequestAdvice} style={{padding:"9px 16px",borderRadius:10,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>🤖 Pedir consejo a {agent.name.split(" ")[0]}</button>}
-        {relatedProject&&<button onClick={onGenerateTasks} style={{padding:"9px 16px",borderRadius:10,background:"#10B981",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>📋 Generar tareas en {relatedProject.emoji||"📋"} {relatedProject.name}</button>}
+        {relatedProject&&<button onClick={onGenerateTasks} style={{padding:"9px 16px",borderRadius:10,background:"#10B981",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>📋 Generar tareas</button>}
       </div>
 
       <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Notas ({entries.length})</div>
@@ -4035,8 +4370,12 @@ function detectCommitmentsInSession(session){
 }
 
 // Modal generar tareas en proyecto a partir de compromisos detectados.
-function GenerateTasksModal({negotiation,session,project,members,activeMember,onClose,onGenerate}){
-  const [tasks,setTasks] = useState(()=>detectCommitmentsInSession(session).map(title=>({id:_uid("gt"),title,assignee:activeMember,dueDate:"",priority:"media"})));
+function GenerateTasksModal({negotiation,session,availableProjects,members,activeMember,onClose,onGenerate}){
+  const defaultProjId = availableProjects[0]?.id;
+  const [tasks,setTasks] = useState(()=>{
+    const detected=detectCommitmentsInSession(session).map(title=>({id:_uid("gt"),title,projectId:defaultProjId,assignee:activeMember,dueDate:"",priority:"media"}));
+    return detected.length>0 ? detected : [{id:_uid("gt"),title:"",projectId:defaultProjId,assignee:activeMember,dueDate:"",priority:"media"}];
+  });
   const [pendingClose,setPendingClose] = useState(false);
   const [initialSnap]=useState(()=>JSON.stringify(tasks));
   const isDirty=JSON.stringify(tasks)!==initialSnap;
@@ -4044,32 +4383,38 @@ function GenerateTasksModal({negotiation,session,project,members,activeMember,on
   useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
   const update = (i,patch)=>setTasks(ts=>ts.map((t,idx)=>idx===i?{...t,...patch}:t));
   const remove = (i)=>setTasks(ts=>ts.filter((_,idx)=>idx!==i));
-  const add    = ()=>setTasks(ts=>[...ts,{id:_uid("gt"),title:"",assignee:activeMember,dueDate:"",priority:"media"}]);
-  const valid  = tasks.filter(t=>t.title.trim());
+  const add    = ()=>setTasks(ts=>[...ts,{id:_uid("gt"),title:"",projectId:defaultProjId,assignee:activeMember,dueDate:"",priority:"media"}]);
+  const valid  = tasks.filter(t=>t.title.trim()&&t.projectId);
   const generate = ()=>{ onGenerate(valid); onClose(); };
   return(
     <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
-      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:680,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:"4px solid #3B82F6",marginBottom:24}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:720,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:"4px solid #3B82F6",marginBottom:24}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div>
-            <div style={{fontWeight:600,fontSize:15}}>📋 Generar tareas en proyecto</div>
-            <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{project.emoji||"📋"} {project.name} · desde {getSessionTypeLabel(session.type)}</div>
+            <div style={{fontWeight:600,fontSize:15}}>📋 Generar tareas desde sesión</div>
+            <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{getSessionTypeLabel(session.type)} · {availableProjects.length} proyecto{availableProjects.length!==1?"s":""} disponibles desde esta negociación</div>
           </div>
           <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>×</button>
         </div>
         {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
         <div style={{padding:20,maxHeight:"70vh",overflowY:"auto"}}>
           <div style={{fontSize:12.5,color:"#4B5563",marginBottom:14,lineHeight:1.5}}>
-            {tasks.length===0
-              ? <>No se detectaron compromisos automáticamente en el resumen ni en las notas. Puedes añadir tareas manualmente abajo.</>
-              : <>Se detectaron <b style={{color:"#111827"}}>{tasks.length}</b> compromiso{tasks.length!==1?"s":""} en esta sesión. Revisa, edita o elimina antes de crear las tareas.</>}
+            {detectCommitmentsInSession(session).length===0
+              ? <>No se detectaron compromisos automáticamente en el resumen ni en las notas. Puedes añadir tareas manualmente abajo. Cada tarea puede ir a un proyecto distinto.</>
+              : <>Se detectaron <b style={{color:"#111827"}}>{detectCommitmentsInSession(session).length}</b> compromiso{detectCommitmentsInSession(session).length!==1?"s":""} en esta sesión. Revisa, edita y asigna el proyecto destino — cada tarea se creará con refs a la negociación y a esta sesión.</>}
           </div>
 
           {tasks.map((t,i)=>(
             <div key={t.id} style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:14,marginBottom:10}}>
               <FL c={`Tarea ${i+1}`}/>
               <FI value={t.title} onChange={v=>update(i,{title:v})} placeholder="Ej: Enviar presupuesto revisado"/>
-              <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:8,marginTop:8,alignItems:"flex-end"}}>
+              <div style={{display:"grid",gridTemplateColumns:"1.6fr 1fr 1fr 0.8fr auto",gap:8,marginTop:8,alignItems:"flex-end"}}>
+                <div><FL c="Proyecto *"/>
+                  <select value={t.projectId||""} onChange={e=>update(i,{projectId:Number(e.target.value)})} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`0.5px solid ${t.projectId?"#d1d5db":"#FCA5A5"}`,fontSize:12,fontFamily:"inherit",background:"#fff"}}>
+                    <option value="">— Seleccionar —</option>
+                    {availableProjects.map(p=><option key={p.id} value={p.id}>{p.emoji||"📋"} {p.name}</option>)}
+                  </select>
+                </div>
                 <div><FL c="Asignado a"/>
                   <select value={t.assignee} onChange={e=>update(i,{assignee:Number(e.target.value)})} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12,fontFamily:"inherit",background:"#fff"}}>
                     {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
@@ -4084,6 +4429,7 @@ function GenerateTasksModal({negotiation,session,project,members,activeMember,on
                 </div>
                 <button onClick={()=>remove(i)} title="Eliminar" style={{padding:"7px 10px",borderRadius:8,background:"#FEE2E2",color:"#B91C1C",border:"1px solid #FCA5A5",fontSize:12,cursor:"pointer"}}>✕</button>
               </div>
+              <div style={{fontSize:10.5,color:"#9CA3AF",marginTop:6,fontStyle:"italic"}}>🔗 Se creará con refs: negociación "{negotiation.title}" + sesión {getSessionTypeLabel(session.type)}</div>
             </div>
           ))}
           <button onClick={add} style={{width:"100%",padding:"9px 14px",background:"#fff",color:"#3B82F6",border:"1px dashed #3B82F6",borderRadius:8,fontSize:13,cursor:"pointer",fontWeight:500}}>+ Añadir tarea manual</button>
@@ -4447,25 +4793,27 @@ export default function TaskFlow(){
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:(n.sessions||[]).map(s=>s.id===sessId?{...s,agentConversations:[...(s.agentConversations||[]),conv],updatedAt:now}:s)}:n)}));
   },[]);
-  // Crea tareas en el proyecto vinculado a la negociación y las enlaza con
-  // relatedTaskIds + metadatos (negotiationId, sessionId) en cada tarea.
-  const generateTasksFromSession = useCallback((negId,sessId,projId,tasks)=>{
-    const priorityMap={alta:"alta",media:"media",baja:"baja"};
+  // Crea tareas en los proyectos elegidos (una tarea puede ir a un proyecto
+  // distinto de las demás). Cada tarea se crea con refs a la negociación y a
+  // la sesión; se actualiza relatedTaskIds de la negociación.
+  const generateTasksFromSession = useCallback((negId,sessId,tasks)=>{
     const newIds=[]; const now=new Date().toISOString();
     setData(prev=>{
-      const cols=prev.boards[projId]; if(!cols) return prev;
-      const targetCol = cols.find(c=>c.name==="Por hacer")||cols[0];
-      const newCols=cols.map(col=>{
-        if(col.id!==targetCol.id) return col;
-        const added=tasks.map(t=>{
-          const id=_uid("t");
-          newIds.push(id);
-          return {id,title:t.title.trim(),tags:[],assignees:[t.assignee],priority:priorityMap[t.priority]||"media",startDate:fmt(new Date()),dueDate:t.dueDate||"",estimatedHours:0,timeLogs:[],desc:`Generada desde negociación: ${(prev.negotiations||[]).find(n=>n.id===negId)?.title||""}`,comments:[],subtasks:[],links:[],agentIds:[],negotiationId:negId,sessionId:sessId};
-        });
-        return {...col,tasks:[...col.tasks,...added]};
-      });
+      const boardsOut={...prev.boards};
+      for(const t of tasks){
+        const projId = t.projectId;
+        const cols = boardsOut[projId]; if(!cols) continue;
+        const targetCol = cols.find(c=>c.name==="Por hacer")||cols[0];
+        const id=_uid("t"); newIds.push(id);
+        const refs=[
+          {id:_uid("rf"),type:"negotiation",targetId:negId,context:`Generada desde "${(prev.negotiations||[]).find(n=>n.id===negId)?.title||""}"`,createdAt:now},
+          {id:_uid("rf"),type:"session",targetId:sessId,negotiationId:negId,context:"Acordado en sesión",createdAt:now},
+        ];
+        const newTask={id,title:t.title.trim(),tags:[],assignees:[t.assignee],priority:t.priority||"media",startDate:fmt(new Date()),dueDate:t.dueDate||"",estimatedHours:0,timeLogs:[],desc:"",comments:[],subtasks:[],links:[],agentIds:[],refs,negotiationId:negId,sessionId:sessId};
+        boardsOut[projId] = cols.map(col=>col.id===targetCol.id?{...col,tasks:[...col.tasks,newTask]}:col);
+      }
       const newNegs=(prev.negotiations||[]).map(n=>n.id===negId?{...n,relatedTaskIds:[...(n.relatedTaskIds||[]),...newIds],updatedAt:now}:n);
-      return {...prev,boards:{...prev.boards,[projId]:newCols},negotiations:newNegs};
+      return {...prev,boards:boardsOut,negotiations:newNegs};
     });
     addToast(`✓ ${tasks.length} tarea${tasks.length!==1?"s":""} creada${tasks.length!==1?"s":""}`);
   },[addToast]);
@@ -4700,7 +5048,8 @@ export default function TaskFlow(){
             const activeNeg = activeNegId ? (data.negotiations||[]).find(n=>n.id===activeNegId) : null;
             const activeSess = activeNeg && activeSessId ? (activeNeg.sessions||[]).find(s=>s.id===activeSessId) : null;
             const negAgent = activeNeg?.agentId ? (data.agents||[]).find(a=>a.id===activeNeg.agentId) : null;
-            const negProject = activeNeg?.projectId ? data.projects.find(p=>p.id===activeNeg.projectId) : null;
+            const negPrimaryProjId = activeNeg?.relatedProjects?.[0]?.projectId ?? activeNeg?.projectId ?? null;
+            const negProject = negPrimaryProjId!=null ? data.projects.find(p=>p.id===negPrimaryProjId) : null;
             const openBriefing = (neg,sess,kind)=>{
               const agent = (data.agents||[]).find(a=>a.id===neg.agentId);
               if(!agent){ addToast("⚠ Asigna un agente IA a esta negociación primero","error"); return; }
@@ -4733,6 +5082,7 @@ export default function TaskFlow(){
                 negotiation={activeNeg} members={data.members}
                 projects={data.projects} workspaces={data.workspaces||[]}
                 agents={data.agents||[]} boards={data.boards}
+                allNegotiations={data.negotiations||[]}
                 onBack={()=>setActiveNegId(null)}
                 onEditNeg={n=>setNegModal(n)}
                 onCreateSession={()=>setSessModal("create")}
@@ -4741,10 +5091,12 @@ export default function TaskFlow(){
                 onRequestBriefing={(n)=>openBriefing(n,null,"briefing")}
                 onGoProject={pid=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); } }}
                 onOpenTask={(taskId,pid)=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); setPendingOpenTaskId(taskId); } }}
+                onOpenRelatedNeg={nid=>{ setActiveNegId(nid); setActiveSessId(null); }}
               />;
             }
             return <DealRoomView
               negotiations={data.negotiations||[]} members={data.members}
+              projects={data.projects} workspaces={data.workspaces||[]}
               filter={negFilter} onSetFilter={setNegFilter}
               onCreate={()=>setNegModal("create")}
               onOpen={id=>{setActiveNegId(id);setActiveSessId(null);}}
@@ -4786,8 +5138,8 @@ export default function TaskFlow(){
       {workspaceModal==="create"&&<WorkspaceModal onClose={()=>setWorkspaceModal(null)} onSave={createWorkspace}/>}
       {workspaceModal&&workspaceModal!=="create"&&<WorkspaceModal workspace={workspaceModal} onClose={()=>setWorkspaceModal(null)} onSave={d=>editWorkspace(workspaceModal.id,d)} onDelete={deleteWorkspace}/>}
 
-      {negModal==="create"&&<NegotiationModal members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} onClose={()=>setNegModal(null)} onSave={createNegotiation}/>}
-      {negModal&&negModal!=="create"&&<NegotiationModal negotiation={negModal} members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} onClose={()=>setNegModal(null)} onSave={p=>updateNegotiation(negModal.id,p)} onDelete={id=>{ deleteNegotiation(id); if(activeNegId===id){ setActiveNegId(null); setActiveSessId(null); } }}/>}
+      {negModal==="create"&&<NegotiationModal members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} allNegotiations={data.negotiations||[]} onClose={()=>setNegModal(null)} onSave={createNegotiation}/>}
+      {negModal&&negModal!=="create"&&<NegotiationModal negotiation={negModal} members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} allNegotiations={data.negotiations||[]} onClose={()=>setNegModal(null)} onSave={p=>updateNegotiation(negModal.id,p)} onDelete={id=>{ deleteNegotiation(id); if(activeNegId===id){ setActiveNegId(null); setActiveSessId(null); } }}/>}
       {attendeesModalOpen&&activeNegId&&activeSessId&&(()=>{
         const n=(data.negotiations||[]).find(x=>x.id===activeNegId); const s=n?.sessions.find(x=>x.id===activeSessId);
         if(!s) return null;
@@ -4795,10 +5147,12 @@ export default function TaskFlow(){
       })()}
       {genTasksOpen&&activeNegId&&activeSessId&&(()=>{
         const n=(data.negotiations||[]).find(x=>x.id===activeNegId); const s=n?.sessions.find(x=>x.id===activeSessId);
-        const project = n?.projectId ? data.projects.find(p=>p.id===n.projectId) : null;
-        if(!n||!s){ return null; }
-        if(!project){ setGenTasksOpen(false); addToast("⚠ Asigna un proyecto a la negociación primero","error"); return null; }
-        return <GenerateTasksModal negotiation={n} session={s} project={project} members={data.members} activeMember={activeMember} onClose={()=>setGenTasksOpen(false)} onGenerate={(tasks)=>generateTasksFromSession(activeNegId,activeSessId,project.id,tasks)}/>;
+        if(!n||!s) return null;
+        const ids = (n.relatedProjects||[]).map(rp=>rp.projectId);
+        if(ids.length===0 && n.projectId!=null) ids.push(n.projectId);
+        const availableProjects = ids.map(id=>data.projects.find(p=>p.id===id)).filter(Boolean);
+        if(availableProjects.length===0){ setGenTasksOpen(false); addToast("⚠ Asigna al menos un proyecto a la negociación primero","error"); return null; }
+        return <GenerateTasksModal negotiation={n} session={s} availableProjects={availableProjects} members={data.members} activeMember={activeMember} onClose={()=>setGenTasksOpen(false)} onGenerate={(tasks)=>generateTasksFromSession(activeNegId,activeSessId,tasks)}/>;
       })()}
       {briefingCtx&&<AgentBriefingModal
         agent={briefingCtx.agent} negotiation={briefingCtx.negotiation} session={briefingCtx.session}
