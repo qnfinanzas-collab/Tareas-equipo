@@ -4551,6 +4551,17 @@ export default function TaskFlow(){
   const [userMenuOpen,setUserMenuOpen]   = useState(false);
   const [showCommandPalette,setShowCommandPalette] = useState(false);
   const [pendingWorkspaceId,setPendingWorkspaceId] = useState(null);
+  const [sidebarCollapsed,setSidebarCollapsed] = useState(()=>{
+    try{ return localStorage.getItem("soulbaric.sidebar.collapsed")==="true"; }catch{ return false; }
+  });
+  const toggleSidebarCollapsed = useCallback(()=>{
+    setSidebarCollapsed(c=>{
+      const nc=!c; try{ localStorage.setItem("soulbaric.sidebar.collapsed",String(nc)); }catch{} return nc;
+    });
+  },[]);
+  const [nuevaOpen,setNuevaOpen]         = useState(false);
+  const [showShortcuts,setShowShortcuts] = useState(false);
+  const nuevaFirstBtnRef = useRef(null);
   const [overlayTaskId,setOverlayTaskId]           = useState(null);
   const [activeNegId,setActiveNegId]               = useState(null);
   const [activeSessId,setActiveSessId]             = useState(null);
@@ -4672,6 +4683,80 @@ export default function TaskFlow(){
     { id:"change-user", icon:"🔄", label:"Cambiar usuario",    shortcut:"",    run:()=>changeUser() },
     { id:"logout",      icon:"🚪", label:"Cerrar sesión",      shortcut:"",    run:()=>logoutTemp() },
   ],[proj.id,board,activeMember,addToast,changeUser,logoutTemp]);
+
+  // Handlers para el dropdown "Nueva ▾" del TopBar. Reusan flujos existentes.
+  const handleNuevaTarea = useCallback(()=>{
+    const colId=board[0]?.id; if(!colId){ addToast("⚠ Sin tablero activo","error"); return; }
+    const id=_uid("t");
+    setData(prev=>{
+      const nt={id,title:"Nueva tarea",tags:[],assignees:[activeMember],priority:"media",startDate:fmt(new Date()),dueDate:"",estimatedHours:0,timeLogs:[],desc:"",comments:[],subtasks:[],links:[],agentIds:[],refs:[]};
+      const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:[...col.tasks,nt]}:col);
+      return{...prev,boards:{...prev.boards,[proj.id]:cols}};
+    });
+    setOverlayTaskId(id);
+    addToast("✓ Tarea creada — edítala en el modal");
+  },[proj.id,board,activeMember,addToast]);
+  const handleNuevaStakeholder = useCallback(()=>{
+    if(!activeNegId){
+      setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null);
+      addToast("Abre primero una negociación y añade stakeholders desde su edición","info");
+      return;
+    }
+    const n=(data.negotiations||[]).find(x=>x.id===activeNegId); if(n) setNegModal(n);
+  },[activeNegId,data.negotiations,addToast]);
+
+  // Items recientes del sidebar: combina negociaciones, sesiones y tareas
+  // por fecha de actividad descendente. Máx 5.
+  const recentItems = React.useMemo(()=>{
+    const out=[];
+    (data.negotiations||[]).forEach(n=>{
+      if(n.updatedAt) out.push({kind:"neg",id:n.id,title:n.title,ts:n.updatedAt,emoji:"💼"});
+      (n.sessions||[]).forEach(s=>{
+        if(s.updatedAt||s.date) out.push({kind:"sess",id:s.id,negId:n.id,title:`${getSessionTypeIcon(s.type)} ${n.title}`,subtitle:getSessionTypeLabel(s.type),ts:s.updatedAt||s.date,emoji:"📅"});
+      });
+    });
+    Object.entries(data.boards||{}).forEach(([pid,cols])=>{
+      cols.forEach(col=>col.tasks.forEach(t=>{
+        const lastLog=(t.timeLogs||[]).slice(-1)[0];
+        const ts = lastLog?.date || t.startDate;
+        if(ts) out.push({kind:"task",id:t.id,projId:Number(pid),title:t.title,ts,emoji:"📌"});
+      }));
+    });
+    const score=ts=>new Date(ts).getTime()||0;
+    return out.sort((a,b)=>score(b.ts)-score(a.ts)).slice(0,5);
+  },[data.negotiations,data.boards]);
+
+  // Breadcrumb derivado del estado de navegación (activeTab + ids activos).
+  const TAB_LABELS = {
+    home:"Home", dashboard:"Dashboard", mytasks:"Mis tareas", briefings:"Briefings IA",
+    projects:"Proyectos", planner:"Planificador IA", workspaces:"Workspaces",
+    agents:"Agentes IA", users:"Usuarios", dealroom:"Deal Room",
+  };
+  const breadcrumb = (()=>{
+    const items=[];
+    const isBoardTab = ["board","eisenhower","reports","team"].includes(activeTab);
+    if(isBoardTab){
+      items.push({label:"Proyectos", onClick:()=>setActiveTab("projects")});
+      items.push({label:proj.name, onClick: activeTab==="board" ? null : ()=>setActiveTab("board")});
+      if(activeTab!=="board"){
+        const sub={eisenhower:"Matriz",reports:"Tiempos",team:"Equipo"}[activeTab];
+        if(sub) items.push({label:sub});
+      }
+    } else if(activeTab==="dealroom"){
+      items.push({label:"Deal Room", onClick: activeNegId ? ()=>{setActiveNegId(null);setActiveSessId(null);} : null});
+      if(activeNegId){
+        const neg=(data.negotiations||[]).find(n=>n.id===activeNegId);
+        items.push({label: neg?.title||"(borrada)", onClick: activeSessId ? ()=>setActiveSessId(null) : null});
+        if(activeSessId){
+          const sess=neg?.sessions?.find(s=>s.id===activeSessId);
+          if(sess) items.push({label: getSessionTypeLabel(sess.type)});
+        }
+      }
+    } else {
+      items.push({label: TAB_LABELS[activeTab]||activeTab});
+    }
+    return items;
+  })();
 
   // ── Member CRUD ──
   const updateMember = useCallback((updates, memberId)=>{
@@ -4942,6 +5027,15 @@ export default function TaskFlow(){
   return(
     <div style={{display:"flex",height:"100vh",fontFamily:"'Segoe UI',system-ui,sans-serif",background:"#f9fafb",color:"#111827"}}>
       {showUserModal&&<UserSelectionModal members={data.members} onSelectUser={selectUser}/>}
+      {showShortcuts&&(
+        <div onClick={()=>setShowShortcuts(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:14,width:420,maxWidth:"96vw",padding:22,border:"0.5px solid #e5e7eb"}}>
+            <div style={{fontSize:15,fontWeight:700,marginBottom:10}}>⌨️ Atajos — próximamente</div>
+            <div style={{fontSize:13,color:"#6B7280",marginBottom:14}}>La lista completa llega en el siguiente commit.</div>
+            <button onClick={()=>setShowShortcuts(false)} style={{padding:"8px 16px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Cerrar</button>
+          </div>
+        </div>
+      )}
       {overlayTaskId&&(()=>{
         for(const p of data.projects){
           const cols=data.boards[p.id]||[];
@@ -4975,104 +5069,166 @@ export default function TaskFlow(){
         onNavigateProject={p=>{ const i=data.projects.findIndex(x=>x.id===p.id); if(i>=0){ setAP(i); setActiveTab("board"); } }}
       />}
       {sidebarOpen && <div className="tf-backdrop" onClick={()=>setSidebarOpen(false)}/>}
-      {/* SIDEBAR */}
-      <div className={`tf-sidebar${sidebarOpen?" open":""}`} onClick={e=>{ if(e.target.tagName!=="BUTTON" && e.target.tagName!=="INPUT" && e.target.tagName!=="SELECT") setSidebarOpen(false); }} style={{width:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column"}}>
-        <div style={{padding:"16px 16px 12px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:30,height:30,background:"#7F77DD",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700}}>SB</div>
-          <span style={{fontWeight:600,fontSize:15}}>SoulBaric</span>
-          <span title={syncStatus==="connected"?"Sincronizado con Supabase":syncStatus==="connecting"?"Conectando…":syncStatus==="error"?"Error de sincronización":"Solo local (sin sync)"} style={{marginLeft:"auto",width:8,height:8,borderRadius:"50%",background:syncStatus==="connected"?"#10b981":syncStatus==="connecting"?"#f59e0b":syncStatus==="error"?"#ef4444":"#9ca3af"}}/>
-        </div>
-        <div style={{padding:"10px 12px",borderBottom:"0.5px solid #e5e7eb",background:"#fafafa",position:"relative"}}>
-          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Usuario activo</div>
-          {(()=>{ const m=data.members.find(x=>x.id===activeMember)||data.members[0]; const mp2=MP[m?.id]||MP[0]; return(
-            <button title="Cambiar de usuario activo" onClick={()=>setUserMenuOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"7px 9px",borderRadius:8,border:"0.5px solid #d1d5db",background:"#fff",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}}>
-              <div style={{width:26,height:26,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{m?.initials}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m?.name}</div>
-                <div style={{fontSize:10,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m?.email}</div>
-              </div>
-              <span style={{fontSize:10,color:"#9ca3af",flexShrink:0}}>{userMenuOpen?"▴":"▾"}</span>
+      {/* SIDEBAR — AppShell: 5 principales + Recientes + Footer Atajos */}
+      {(()=>{
+        const me=data.members.find(x=>x.id===activeMember)||data.members[0];
+        const mp2=MP[me?.id]||MP[0];
+        const PRIMARY=[
+          {id:"home",      icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}},
+          {id:"dealroom",  icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}},
+          {id:"mytasks",   icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}},
+          {id:"dashboard", icon:"📊", label:"Dashboard",    shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}},
+          {id:"briefings", icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}},
+        ];
+        return(
+        <div className={`tf-sidebar${sidebarOpen?" open":""}`} data-sb-no-close style={{width:sidebarCollapsed?60:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column",transition:"width .18s ease"}}>
+          {/* Header: logo + brand + collapse button */}
+          <div style={{padding:sidebarCollapsed?"14px 8px":"14px 14px 12px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:sidebarCollapsed?0:10,justifyContent:sidebarCollapsed?"center":"flex-start"}}>
+            <div title="SoulBaric" style={{width:30,height:30,background:"#7F77DD",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700,flexShrink:0}}>SB</div>
+            {!sidebarCollapsed&&<>
+              <span style={{fontWeight:600,fontSize:15,flex:1}}>SoulBaric</span>
+              <span title={syncStatus==="connected"?"Sincronizado con Supabase":syncStatus==="connecting"?"Conectando…":syncStatus==="error"?"Error de sincronización":"Solo local (sin sync)"} style={{width:8,height:8,borderRadius:"50%",background:syncStatus==="connected"?"#10b981":syncStatus==="connecting"?"#f59e0b":syncStatus==="error"?"#ef4444":"#9ca3af",flexShrink:0}}/>
+              <button onClick={toggleSidebarCollapsed} title="Colapsar sidebar (⌘\\)" style={{width:22,height:22,borderRadius:5,background:"transparent",border:"none",fontSize:12,cursor:"pointer",color:"#9CA3AF",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+            </>}
+          </div>
+
+          {/* User dropdown */}
+          <div style={{padding:sidebarCollapsed?"10px 8px":"10px 12px",borderBottom:"0.5px solid #e5e7eb",background:"#fafafa",position:"relative"}}>
+            {!sidebarCollapsed&&<div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:6}}>Usuario activo</div>}
+            <button title={sidebarCollapsed?`${me?.name} — cambiar usuario`:"Cambiar de usuario activo"} onClick={()=>setUserMenuOpen(o=>!o)} style={{width:"100%",display:"flex",alignItems:"center",gap:sidebarCollapsed?0:8,padding:sidebarCollapsed?4:"7px 9px",borderRadius:8,border:sidebarCollapsed?"none":"0.5px solid #d1d5db",background:sidebarCollapsed?"transparent":"#fff",cursor:"pointer",fontFamily:"inherit",textAlign:"left",justifyContent:sidebarCollapsed?"center":"flex-start"}}>
+              <div style={{width:sidebarCollapsed?32:26,height:sidebarCollapsed?32:26,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:sidebarCollapsed?11:10,fontWeight:700,flexShrink:0}}>{me?.initials}</div>
+              {!sidebarCollapsed&&<>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{me?.name}</div>
+                  <div style={{fontSize:10,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{me?.email}</div>
+                </div>
+                <span style={{fontSize:10,color:"#9ca3af",flexShrink:0}}>{userMenuOpen?"▴":"▾"}</span>
+              </>}
             </button>
-          );})()}
-          {userMenuOpen&&(
-            <>
-              <div onClick={()=>setUserMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:1600}}/>
-              <div style={{position:"absolute",top:"calc(100% - 2px)",left:12,right:12,background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:10,boxShadow:"0 10px 28px rgba(0,0,0,0.14)",zIndex:1700,overflow:"hidden",animation:"tf-slide-down .15s ease-out"}}>
-                <div onClick={()=>{setUserMenuOpen(false);setPM(data.members.find(x=>x.id===activeMember));}} className="tf-lift-item" style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>⚙ Mi perfil</div>
-                <div onClick={changeUser} className="tf-lift-item" style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🔄 Cambiar usuario</div>
-                <div onClick={logoutTemp} style={{padding:"9px 12px",fontSize:12,color:"#A32D2D",cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.background="#FEF2F2"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🚪 Cerrar sesión</div>
-              </div>
-            </>
-          )}
-        </div>
-        <div style={{padding:"6px 8px",borderBottom:"0.5px solid #e5e7eb"}}>
-          <div onClick={()=>setActiveTab("home")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="home"?"#EEEDFE":"transparent",color:activeTab==="home"?"#7F77DD":"#4b5563",fontWeight:activeTab==="home"?600:400}}>
-            <span style={{fontSize:14}}>🏠</span> Inicio
+            {userMenuOpen&&(
+              <>
+                <div onClick={()=>setUserMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:1600}}/>
+                <div style={{position:"absolute",top:"calc(100% - 2px)",left:sidebarCollapsed?4:12,right:sidebarCollapsed?"auto":12,minWidth:sidebarCollapsed?200:"auto",background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:10,boxShadow:"0 10px 28px rgba(0,0,0,0.14)",zIndex:1700,overflow:"hidden",animation:"tf-slide-down .15s ease-out"}}>
+                  <div onClick={()=>{setUserMenuOpen(false);setPM(data.members.find(x=>x.id===activeMember));}} style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>⚙ Mi perfil</div>
+                  <div onClick={changeUser} style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🔄 Cambiar usuario</div>
+                  <div onClick={logoutTemp} style={{padding:"9px 12px",fontSize:12,color:"#A32D2D",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#FEF2F2"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🚪 Cerrar sesión</div>
+                  <div onClick={()=>{ if(!window.confirm("¿Borrar todos los datos guardados y volver al estado inicial?"))return; setUserMenuOpen(false); localStorage.removeItem(LS_KEY); window.location.reload(); }} style={{padding:"9px 12px",fontSize:11,color:"#6B7280",cursor:"pointer",fontStyle:"italic"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🗑 Resetear datos (dev)</div>
+                </div>
+              </>
+            )}
           </div>
-          <div onClick={()=>setActiveTab("dashboard")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="dashboard"?"#EEEDFE":"transparent",color:activeTab==="dashboard"?"#7F77DD":"#4b5563",fontWeight:activeTab==="dashboard"?600:400}}>
-            <span style={{fontSize:14}}>📊</span> Dashboard
+
+          {/* Principales (5) */}
+          <div style={{padding:"8px 6px",borderBottom:"0.5px solid #e5e7eb"}}>
+            {PRIMARY.map(it=>{
+              const active = activeTab===it.id;
+              return(
+                <div key={it.id} onClick={it.onClick} title={sidebarCollapsed?`${it.label} · ${it.shortcut}`:it.shortcut} style={{display:"flex",alignItems:"center",gap:sidebarCollapsed?0:10,padding:sidebarCollapsed?"9px 0":"8px 10px",borderRadius:8,cursor:"pointer",fontSize:13,background:active?"#EEEDFE":"transparent",color:active?"#7F77DD":"#4b5563",fontWeight:active?600:500,justifyContent:sidebarCollapsed?"center":"flex-start",marginBottom:2}} onMouseEnter={e=>{if(!active) e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{if(!active) e.currentTarget.style.background="transparent";}}>
+                  <span style={{fontSize:16,flexShrink:0}}>{it.icon}</span>
+                  {!sidebarCollapsed&&<>
+                    <span style={{flex:1}}>{it.label}</span>
+                    <span style={{fontSize:10,color:active?"#7F77DD99":"#9CA3AF",fontFamily:"ui-monospace,monospace"}}>{it.shortcut}</span>
+                  </>}
+                </div>
+              );
+            })}
           </div>
-          <div onClick={()=>setActiveTab("projects")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="projects"?"#EEEDFE":"transparent",color:activeTab==="projects"?"#7F77DD":"#4b5563",fontWeight:activeTab==="projects"?600:400}}>
-            <span style={{fontSize:14}}>📋</span> Proyectos
-          </div>
-          <div onClick={()=>setActiveTab("planner")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="planner"?"#EEEDFE":"transparent",color:activeTab==="planner"?"#7F77DD":"#4b5563",fontWeight:activeTab==="planner"?600:400}}>
-            <span style={{fontSize:14}}>⚡</span> Planificador IA
-          </div>
-          <div onClick={()=>setActiveTab("users")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="users"?"#EEEDFE":"transparent",color:activeTab==="users"?"#7F77DD":"#4b5563",fontWeight:activeTab==="users"?600:400}}>
-            <span style={{fontSize:14}}>👥</span> Usuarios
-          </div>
-          <div onClick={()=>setActiveTab("workspaces")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="workspaces"?"#EEEDFE":"transparent",color:activeTab==="workspaces"?"#7F77DD":"#4b5563",fontWeight:activeTab==="workspaces"?600:400}}>
-            <span style={{fontSize:14}}>🏢</span> Workspaces
-          </div>
-          <div onClick={()=>setActiveTab("agents")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="agents"?"#EEEDFE":"transparent",color:activeTab==="agents"?"#7F77DD":"#4b5563",fontWeight:activeTab==="agents"?600:400}}>
-            <span style={{fontSize:14}}>🤖</span> Agentes IA
-          </div>
-          <div onClick={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="dealroom"?"#EEEDFE":"transparent",color:activeTab==="dealroom"?"#7F77DD":"#4b5563",fontWeight:activeTab==="dealroom"?600:400}}>
-            <span style={{fontSize:14}}>🤝</span> Deal Room
-          </div>
-        </div>
-        <div style={{padding:8,flex:1,overflowY:"auto"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px 2px"}}>
-            <span style={{fontSize:10,fontWeight:600,color:"#9ca3af",letterSpacing:"0.07em",textTransform:"uppercase"}}>Mis tableros</span>
-            <button onClick={()=>setProjModal("create")} style={{width:18,height:18,borderRadius:4,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>+</button>
-          </div>
-          {data.projects.map((p,i)=>(
-            <div key={p.id} onClick={()=>{setAP(i);setActiveTab("board");}} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 8px",borderRadius:8,cursor:"pointer",fontSize:12,background:i===activeProject&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"?"#f3f4f6":"transparent",color:i===activeProject&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"?"#111827":"#4b5563",fontWeight:i===activeProject&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"?500:400}}>
-              <span style={{fontSize:14,flexShrink:0}}>{p.emoji||"📋"}</span>
-              <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</span>
-              <div style={{width:7,height:7,borderRadius:"50%",background:p.color,flexShrink:0}}/>
+
+          {/* Recientes */}
+          {!sidebarCollapsed&&(
+            <div style={{padding:"8px 8px",flex:1,overflowY:"auto"}}>
+              <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",letterSpacing:"0.07em",textTransform:"uppercase",padding:"4px 8px 6px"}}>Recientes</div>
+              {recentItems.length===0
+                ? <div style={{fontSize:11,color:"#9CA3AF",padding:"6px 10px",fontStyle:"italic"}}>Sin actividad reciente</div>
+                : recentItems.map(it=>{
+                    const onClick=()=>{
+                      if(it.kind==="neg"){ setActiveTab("dealroom"); setActiveNegId(it.id); setActiveSessId(null); }
+                      else if(it.kind==="sess"){ setActiveTab("dealroom"); setActiveNegId(it.negId); setActiveSessId(it.id); }
+                      else if(it.kind==="task"){ setOverlayTaskId(it.id); }
+                    };
+                    return(
+                      <div key={`${it.kind}-${it.id}`} onClick={onClick} title={it.title} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 10px",borderRadius:7,cursor:"pointer",fontSize:12,color:"#4b5563",marginBottom:1}} onMouseEnter={e=>{e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
+                        <span style={{fontSize:12,flexShrink:0}}>{it.emoji}</span>
+                        <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.title}</span>
+                      </div>
+                    );
+                  })}
             </div>
-          ))}
+          )}
+          {sidebarCollapsed&&<div style={{flex:1}}/>}
+
+          {/* Footer: Atajos */}
+          <div style={{padding:sidebarCollapsed?"8px":"8px 12px",borderTop:"0.5px solid #e5e7eb"}}>
+            <button onClick={()=>setShowShortcuts(true)} title="Ver atajos de teclado (?)" style={{width:"100%",padding:sidebarCollapsed?"8px 0":"7px 10px",borderRadius:7,border:"0.5px solid #e5e7eb",background:"transparent",fontSize:11,color:"#6b7280",cursor:"pointer",display:"flex",alignItems:"center",gap:8,justifyContent:sidebarCollapsed?"center":"flex-start",fontFamily:"inherit"}} onMouseEnter={e=>{e.currentTarget.style.background="#F9FAFB";e.currentTarget.style.borderColor="#D1D5DB";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor="#e5e7eb";}}>
+              <span>⌨️</span>
+              {!sidebarCollapsed&&<><span style={{flex:1,textAlign:"left"}}>Atajos</span><kbd style={{fontSize:10,padding:"1px 6px",border:"0.5px solid #d1d5db",borderRadius:4,background:"#fff",color:"#6b7280",fontFamily:"ui-monospace,monospace"}}>?</kbd></>}
+            </button>
+            {!sidebarCollapsed&&(
+              <button onClick={toggleSidebarCollapsed} title="Colapsar sidebar (⌘\\)" style={{width:"100%",padding:"5px 0",borderRadius:6,border:"none",background:"transparent",fontSize:10,color:"#9ca3af",cursor:"pointer",marginTop:4,fontFamily:"inherit"}}>‹ Colapsar</button>
+            )}
+            {sidebarCollapsed&&(
+              <button onClick={toggleSidebarCollapsed} title="Expandir sidebar (⌘\\)" style={{width:"100%",padding:"6px 0",borderRadius:6,border:"none",background:"transparent",fontSize:14,color:"#9ca3af",cursor:"pointer",marginTop:4,fontFamily:"inherit"}}>›</button>
+            )}
+          </div>
         </div>
-        <div style={{padding:"10px 14px",borderTop:"0.5px solid #e5e7eb"}}>
-          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",letterSpacing:"0.07em",textTransform:"uppercase",marginBottom:7}}>Equipo · {proj.name}</div>
-          {proj.members.slice(0,5).map(mid=>{ const m=data.members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} style={{display:"flex",alignItems:"center",gap:7,padding:"3px 0"}}><div style={{width:24,height:24,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,flexShrink:0}}>{m?.initials}</div><span style={{fontSize:11,color:"#4b5563",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m?.name}</span></div>; })}
-        </div>
-        <div style={{padding:"8px 14px",borderTop:"0.5px solid #e5e7eb"}}>
-          <button onClick={()=>{ if(!window.confirm("¿Borrar todos los datos guardados y volver al estado inicial?"))return; localStorage.removeItem(LS_KEY); window.location.reload(); }} style={{width:"100%",padding:"5px 0",borderRadius:6,border:"0.5px solid #e5e7eb",background:"transparent",fontSize:10,color:"#9ca3af",cursor:"pointer"}}>Resetear datos</button>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* MAIN */}
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
-        {/* Top bar — siempre visible. Hamburger solo en móvil, título + botón de búsqueda en ambos. */}
+        {/* Top bar — siempre visible. Hamburger móvil + breadcrumb + buscar + Nueva ▾ + avatar. */}
         <div style={{display:"flex",background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"10px 14px",alignItems:"center",gap:10,flexShrink:0}}>
-          <button className="tf-only-mobile" onClick={()=>setSidebarOpen(true)} style={{width:38,height:38,borderRadius:8,background:"#f3f4f6",border:"none",fontSize:18,cursor:"pointer",alignItems:"center",justifyContent:"center"}}>☰</button>
-          <div style={{fontWeight:600,fontSize:14,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>SoulBaric · {activeTab==="board"?proj.name:activeTab==="home"?"Inicio":activeTab==="dealroom"?"Deal Room":activeTab}</div>
-          <button
-            title="Buscar (⌘K)"
-            onClick={()=>setShowCommandPalette(true)}
-            className="tf-search-btn"
-            style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderRadius:20,background:"#f3f4f6",color:"#4b5563",border:"0.5px solid #e5e7eb",fontSize:13,cursor:"pointer",fontFamily:"inherit",transition:"background .15s, color .15s, border-color .15s"}}
+          <button className="tf-only-mobile" onClick={()=>setSidebarOpen(true)} title="Abrir menú" style={{width:38,height:38,borderRadius:8,background:"#f3f4f6",border:"none",fontSize:18,cursor:"pointer",alignItems:"center",justifyContent:"center"}}>☰</button>
+
+          {/* Breadcrumb */}
+          <nav aria-label="Breadcrumb" style={{display:"flex",alignItems:"center",gap:6,flex:1,minWidth:0,overflow:"hidden"}}>
+            {breadcrumb.map((item,i)=>{
+              const isLast = i===breadcrumb.length-1;
+              return(
+                <React.Fragment key={i}>
+                  {i>0&&<span style={{color:"#D1D5DB",fontSize:13,flexShrink:0}}>›</span>}
+                  {!isLast && item.onClick
+                    ? <button onClick={item.onClick} style={{background:"none",border:"none",color:"#6B7280",cursor:"pointer",fontFamily:"inherit",fontSize:13,padding:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}} onMouseEnter={e=>e.currentTarget.style.color="#374151"} onMouseLeave={e=>e.currentTarget.style.color="#6B7280"}>{item.label}</button>
+                    : <span style={{color:isLast?"#111827":"#6B7280",fontWeight:isLast?600:400,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:260}}>{item.label}</span>
+                  }
+                </React.Fragment>
+              );
+            })}
+          </nav>
+
+          {/* Buscar (⌘K) */}
+          <button title="Buscar (⌘K)" onClick={()=>setShowCommandPalette(true)} className="tf-search-btn"
+            style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",borderRadius:20,background:"#f3f4f6",color:"#4b5563",border:"0.5px solid #e5e7eb",fontSize:13,cursor:"pointer",fontFamily:"inherit",transition:"background .15s, color .15s, border-color .15s",flexShrink:0}}
             onMouseEnter={e=>{e.currentTarget.style.background="#DBEAFE";e.currentTarget.style.color="#1E40AF";e.currentTarget.style.borderColor="#93C5FD";}}
-            onMouseLeave={e=>{e.currentTarget.style.background="#f3f4f6";e.currentTarget.style.color="#4b5563";e.currentTarget.style.borderColor="#e5e7eb";}}
-          >
+            onMouseLeave={e=>{e.currentTarget.style.background="#f3f4f6";e.currentTarget.style.color="#4b5563";e.currentTarget.style.borderColor="#e5e7eb";}}>
             <span style={{fontSize:14,lineHeight:1}}>🔍</span>
-            <span className="tf-search-label">Buscar tareas, acciones…</span>
-            <span className="tf-search-kbd" style={{fontSize:10,color:"#9ca3af",border:"0.5px solid #d1d5db",borderRadius:5,padding:"2px 6px",fontWeight:600,background:"#fff",marginLeft:4}}>⌘K</span>
+            <span className="tf-search-label">Buscar</span>
+            <span className="tf-search-kbd" style={{fontSize:10,color:"#9ca3af",border:"0.5px solid #d1d5db",borderRadius:5,padding:"2px 6px",fontWeight:600,background:"#fff"}}>⌘K</span>
           </button>
+
+          {/* Nueva ▾ */}
+          <div style={{position:"relative",flexShrink:0}}>
+            <button onClick={()=>setNuevaOpen(o=>!o)} title="Nueva (⌘⇧N)" style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600,fontFamily:"inherit"}}>
+              <span>Nueva</span><span style={{fontSize:10,marginLeft:2}}>▾</span>
+            </button>
+            {nuevaOpen&&(
+              <>
+                <div onClick={()=>setNuevaOpen(false)} style={{position:"fixed",inset:0,zIndex:1600}}/>
+                <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,minWidth:200,background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:10,boxShadow:"0 10px 28px rgba(0,0,0,0.14)",zIndex:1700,overflow:"hidden",animation:"tf-slide-down .15s ease-out"}}>
+                  <button ref={nuevaFirstBtnRef} onClick={()=>{setNuevaOpen(false);handleNuevaTarea();}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 14px",background:"transparent",border:"none",fontSize:13,color:"#374151",cursor:"pointer",fontFamily:"inherit",textAlign:"left",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#F9FAFB"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>📌 Tarea</button>
+                  <button onClick={()=>{setNuevaOpen(false);setNegModal("create");}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 14px",background:"transparent",border:"none",fontSize:13,color:"#374151",cursor:"pointer",fontFamily:"inherit",textAlign:"left",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#F9FAFB"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>💼 Negociación</button>
+                  <button onClick={()=>{setNuevaOpen(false);handleNuevaStakeholder();}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"10px 14px",background:"transparent",border:"none",fontSize:13,color:"#374151",cursor:"pointer",fontFamily:"inherit",textAlign:"left"}} onMouseEnter={e=>e.currentTarget.style.background="#F9FAFB"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>👤 Stakeholder</button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Avatar (abre dropdown de usuario en sidebar) */}
+          {(()=>{ const me=data.members.find(x=>x.id===activeMember)||data.members[0]; const mp=MP[me?.id]||MP[0]; return(
+            <button onClick={()=>{setSidebarOpen(true);setUserMenuOpen(o=>!o);}} title={me?.name||"Usuario"} style={{width:34,height:34,borderRadius:"50%",background:mp.solid,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{me?.initials}</button>
+          );})()}
         </div>
-        {activeTab!=="home"&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&(
+        {activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="briefings"&&(
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px",height:52,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
@@ -5091,7 +5247,7 @@ export default function TaskFlow(){
             </div>
           </div>
         )}
-        {activeTab!=="home"&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&(
+        {activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="briefings"&&(
           <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",background:"#fff",padding:"0 20px",flexShrink:0,overflowX:"auto"}}>
             {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #7F77DD":"2px solid transparent",color:activeTab===tab.key?"#7F77DD":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
           </div>
