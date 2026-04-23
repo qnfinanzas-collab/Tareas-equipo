@@ -12,7 +12,7 @@ import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply } from "./lib/agent.js";
-import { voiceSupported, speak, stopSpeaking, listen } from "./lib/voice.js";
+import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse } from "./lib/voice.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
 export const PLAN_HORIZON_DAYS = 14;
@@ -4032,6 +4032,9 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   const [listening,setListening] = useState(false);
   const listenStopRef = useRef(null);
   const sttSupported = voiceSupported().stt;
+  // Auto-TTS: solo cuando el usuario inició el turno por voz (mic).
+  const voiceInitiatedRef = useRef(false);
+  const [speakingMsgTs,setSpeakingMsgTs] = useState(null);
   useEffect(()=>{
     const el = chatScrollRef.current; if(!el) return;
     el.scrollTop = el.scrollHeight;
@@ -4370,25 +4373,40 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           };
           const handleSend = async(overrideText)=>{
             const txt = (overrideText ?? chatInput).trim(); if(!txt||chatLoading||!hector) return;
+            // Corta cualquier lectura en curso — respuesta previa O popover de tarea/proyecto.
+            stopSpeaking();
+            setSpeakingMsgTs(null);
+            setSpeakingKey(null); // limpia estado del popover TTS por coherencia visual
             setChatLoading(true);
             const now=new Date().toISOString();
             onAppendHectorMessage(negotiation.id,{role:"user",content:txt,timestamp:now});
             setChatInput("");
             try{
               const reply = await callAgent(txt);
-              onAppendHectorMessage(negotiation.id,{role:"assistant",content:reply||"(respuesta vacía)",timestamp:new Date().toISOString()});
+              const assistantTs = new Date().toISOString();
+              const content = reply||"(respuesta vacía)";
+              onAppendHectorMessage(negotiation.id,{role:"assistant",content,timestamp:assistantTs});
+              // Auto-TTS solo si el turno se inició por voz.
+              if(voiceInitiatedRef.current){
+                voiceInitiatedRef.current = false;
+                setSpeakingMsgTs(assistantTs);
+                speakAgentResponse(content,hector,{onEnd:()=>setSpeakingMsgTs(null)});
+              }
             }catch(e){
               onAppendHectorMessage(negotiation.id,{role:"assistant",content:`⚠ ${e.message||"Error"}`,timestamp:new Date().toISOString()});
+              voiceInitiatedRef.current = false; // no leer errores por voz
             }finally{ setChatLoading(false); }
           };
           const handleMic = ()=>{
             if(listening){ if(listenStopRef.current){ try{listenStopRef.current();}catch{} } return; }
             if(!sttSupported||!hector||chatLoading) return;
+            // Si estaba leyendo una respuesta previa, cortarla antes de grabar.
+            stopSpeaking(); setSpeakingMsgTs(null);
             listenStopRef.current = listen({
               onStart: ()=>setListening(true),
-              onInterim: (t)=>setChatInput(t),   // feedback en vivo mientras habla
-              onFinal:   (t)=>{ setChatInput(t); setListening(false); listenStopRef.current=null; handleSend(t); },
-              onError:   ()=>{ setListening(false); listenStopRef.current=null; }, // silencioso — user ve que el pulse paró
+              onInterim: (t)=>setChatInput(t),
+              onFinal:   (t)=>{ setChatInput(t); setListening(false); listenStopRef.current=null; voiceInitiatedRef.current=true; handleSend(t); },
+              onError:   ()=>{ setListening(false); listenStopRef.current=null; },
               onEnd:     ()=>{ setListening(false); listenStopRef.current=null; },
             });
           };
@@ -4496,9 +4514,13 @@ ${taskLines||"(ninguna)"}`;
                     </div>
                   : chatMsgs.map((m,i)=>{
                       const isUser=m.role==="user";
+                      const isSpeaking = !isUser && m.timestamp===speakingMsgTs;
                       return(
                         <div key={i} style={{display:"flex",justifyContent:isUser?"flex-end":"flex-start"}}>
-                          <div style={{maxWidth:"88%",padding:"9px 12px",borderRadius:10,background:isUser?"#EEEDFE":m.kind==="briefing"?"#F0F9F1":m.kind==="analysis"?"#EFF6FF":"#F9FAFB",border:`1px solid ${isUser?"#CFC9F3":m.kind==="briefing"?"#86EFAC":m.kind==="analysis"?"#BFDBFE":"#E5E7EB"}`,fontSize:12.5,color:"#1f2937",lineHeight:1.55,whiteSpace:"pre-wrap"}}>
+                          <div style={{maxWidth:"88%",padding:"9px 12px",borderRadius:10,background:isUser?"#EEEDFE":m.kind==="briefing"?"#F0F9F1":m.kind==="analysis"?"#EFF6FF":"#F9FAFB",border:`1px solid ${isSpeaking?"#10B981":isUser?"#CFC9F3":m.kind==="briefing"?"#86EFAC":m.kind==="analysis"?"#BFDBFE":"#E5E7EB"}`,fontSize:12.5,color:"#1f2937",lineHeight:1.55,whiteSpace:"pre-wrap",position:"relative",transition:"border-color .2s"}}>
+                            {isSpeaking&&(
+                              <button onClick={e=>{e.stopPropagation();stopSpeaking();setSpeakingMsgTs(null);}} title="Leyendo — click para detener" style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:10,background:"#10B981",color:"#fff",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginBottom:6,animation:"tf-speak-pulse 1.4s infinite"}}>🔊 Leyendo</button>
+                            )}
                             {m.kind==="briefing"&&<div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div>}
                             {m.kind==="analysis"&&<div style={{fontSize:10,fontWeight:700,color:"#1E40AF",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div>}
                             {m.content}

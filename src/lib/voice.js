@@ -52,6 +52,21 @@ export function speak(text, { rate = 1, pitch = 1, gender = "any", onEnd } = {})
   return u;
 }
 
+// Lee una respuesta de agente IA usando SU configuración de voz (agent.voice).
+// Pensado para auto-reproducir respuestas cuando la interacción se inició por
+// voz. Thin wrapper sobre speak() — respeta defaults seguros y el fallback
+// silencioso si speechSynthesis no está disponible.
+export function speakAgentResponse(text, agent, opts = {}){
+  if(!text) return null;
+  const cfg = agent?.voice || {};
+  return speak(text, {
+    gender: cfg.gender || "any",
+    rate:   cfg.rate   || 1.0,
+    pitch:  cfg.pitch  || 1.0,
+    onEnd:  opts.onEnd,
+  });
+}
+
 export function stopSpeaking(){
   if(typeof window === "undefined") return;
   window.speechSynthesis.cancel();
