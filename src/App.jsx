@@ -4061,6 +4061,29 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   const fpTask = (t)=>`${t.title}|${t.dueDate||""}|${t.colName||""}|${t.priority||""}`;
   const fpProj = (r)=>`${r.activeCount}|${r.overdueCount}`;
 
+  // Parser defensivo para respuestas del proxy /api/agent. El proxy SIEMPRE
+  // debería devolver JSON {text} o {error}, pero en timeouts/errores de
+  // infra (504 de Vercel, función matada por el runtime) el body llega
+  // vacío y r.json() explota con "Unexpected end of JSON input" sin
+  // exponer el error real. Leemos como texto primero, intentamos parsear,
+  // y si falla devolvemos el texto plano como mensaje de error.
+  const callAgentSafe = async(body)=>{
+    const r = await fetch("/api/agent",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+    const raw = await r.text();
+    let data = null;
+    if(raw){ try{ data = JSON.parse(raw); }catch{} }
+    if(!r.ok){
+      const errMsg = data?.error || raw || `HTTP ${r.status} (body vacío — posible timeout de la función)`;
+      throw new Error(errMsg);
+    }
+    if(!data){
+      // Respuesta OK pero body no-JSON (muy raro — probablemente infra
+      // devolvió texto plano). Tratar el raw como la respuesta.
+      return raw || "(respuesta vacía del servidor)";
+    }
+    return data.text || "";
+  };
+
   // TTS con voz de Héctor — reutiliza speak() de lib/voice.js. Toggle
   // "Escuchar/Detener" por item mediante speakingKey.
   const handleSpeak = (key,text)=>{
@@ -4089,10 +4112,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
         ? `Analiza SOLO esta tarea y nada más:\n[${item.id}] ${item.title} (proyecto: ${item.projName}, columna: ${item.colName}, fecha: ${item.dueDate||"sin fecha"}, prioridad: ${item.priority})\n\nDame 2-4 frases de análisis directo + máx 2 tags de esta lista cerrada: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".\n\nResponde EXCLUSIVAMENTE con JSON válido de esta forma exacta: {"text":"…","tags":["…"]}`
         : `Analiza SOLO este proyecto y nada más:\n[${item.p.id}] ${item.p.name} (rol en esta negociación: ${item.rp.role||"relacionado"}, ${item.activeCount} tareas activas, ${item.overdueCount} vencidas)\n\nDame 2-4 frases de análisis directo + máx 2 tags de esta lista cerrada: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".\n\nResponde EXCLUSIVAMENTE con JSON válido de esta forma exacta: {"text":"…","tags":["…"]}`;
       const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + contextStr + "\n\nIMPORTANTE: responde ÚNICAMENTE con JSON válido, sin markdown ni prosa.";
-      const r = await fetch("/api/agent",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({system,messages:[{role:"user",content:itemPrompt}],max_tokens:500})});
-      const data = await r.json();
-      if(!r.ok) throw new Error(data.error||"Error");
-      const txt = data.text||"";
+      const txt = await callAgentSafe({system,messages:[{role:"user",content:itemPrompt}],max_tokens:500});
       let parsed=null;
       try{ parsed=JSON.parse(txt); }
       catch{ const m=txt.match(/\{[\s\S]*\}/); if(m){ try{ parsed=JSON.parse(m[0]); }catch{} } }
@@ -4343,14 +4363,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + buildContext() + (opts.extraSystem?("\n\n"+opts.extraSystem):"");
             const history = (negotiation.hectorChat||[]).slice(-10).map(m=>({role:m.role==="user"?"user":"assistant",content:m.content}));
             history.push({role:"user",content:userMessage});
-            const r = await fetch("/api/agent",{
-              method:"POST",
-              headers:{"content-type":"application/json"},
-              body:JSON.stringify({system,messages:opts.isolatedHistory?[{role:"user",content:userMessage}]:history,max_tokens:opts.maxTokens||900}),
-            });
-            const data = await r.json();
-            if(!r.ok) throw new Error(data.error||`Error HTTP ${r.status}`);
-            return data.text||"";
+            return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:userMessage}]:history,max_tokens:opts.maxTokens||900});
           };
           const handleSend = async()=>{
             const txt = chatInput.trim(); if(!txt||chatLoading||!hector) return;
