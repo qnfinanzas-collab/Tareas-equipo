@@ -4010,7 +4010,7 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onSetAnalysis,onSaveBriefing,onOverlayTask}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onOverlayTask}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessionsAsc = (negotiation.sessions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -4020,7 +4020,13 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   const [chatInput,setChatInput] = useState("");
   const [chatLoading,setChatLoading] = useState(false);
   const chatScrollRef = useRef(null);
-  const [expandedHector,setExpandedHector] = useState(null); // "task:<id>" | "proj:<id>"
+  // Dos mecanismos de apertura: hover (desktop) o click/tap (desktop+móvil).
+  // hoverKey gana sobre pinnedKey — hovering otro row mueve el popover a ese row
+  // aunque haya uno pinned. Al salir del área hoverKey se limpia y pinnedKey
+  // reaparece.
+  const [hoverHector,setHoverHector] = useState(null);    // "task:<id>" | "proj:<id>"
+  const [pinnedHector,setPinnedHector] = useState(null);
+  const expandedHector = hoverHector || pinnedHector;
   const [speakingKey,setSpeakingKey] = useState(null);
   const [individualLoading,setIndividualLoading] = useState({}); // map key → true
   useEffect(()=>{
@@ -4133,9 +4139,8 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
     const chipTitle = !hasEntry ? "Sin análisis — click para generar" : isStale ? "Análisis desactualizado — click para regenerar" : "Análisis de Héctor — click para ver";
     const handleChipClick = (e)=>{
       e.stopPropagation();
-      // Si no hay entry, o está stale y el usuario cierra el popover, lanzar regen.
-      if(!hasEntry){ regenOne(kind,item); setExpandedHector(key); return; }
-      setExpandedHector(isExpanded?null:key);
+      if(!hasEntry){ regenOne(kind,item); setPinnedHector(key); return; }
+      setPinnedHector(pinnedHector===key?null:key);
     };
     return { key, entry, isStale, isExpanded, loading, hasEntry, chipBg, chipColor, chipTitle, handleChipClick };
   };
@@ -4153,7 +4158,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
           <div style={{width:22,height:22,borderRadius:"50%",background:"linear-gradient(135deg,#1D9E75,#0E7C5A)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>H</div>
           <div style={{fontSize:11,fontWeight:700,color:"#1D9E75",flex:1}}>Héctor opina{isStale&&<span style={{marginLeft:6,fontSize:10,padding:"1px 6px",background:"#FEF3C7",border:"0.5px solid #FCD34D",borderRadius:10,color:"#92400E",fontWeight:500}}>desactualizado</span>}</div>
-          <button onClick={e=>{e.stopPropagation();setExpandedHector(null);}} title="Cerrar" style={{background:"none",border:"none",fontSize:13,cursor:"pointer",color:"#9CA3AF"}}>×</button>
+          <button onClick={e=>{e.stopPropagation();setPinnedHector(null);setHoverHector(null);}} title="Cerrar" style={{background:"none",border:"none",fontSize:13,cursor:"pointer",color:"#9CA3AF"}}>×</button>
         </div>
         {(entry.tags||[]).length>0&&(
           <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:7}}>
@@ -4207,7 +4212,11 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                     const pri = PROJ_PRIORITY[rp.priority]||PROJ_PRIORITY.high;
                     const chip = renderHectorChip("proj",rItem,p.id);
                     return(
-                      <div key={p.id}>
+                      <div
+                        key={p.id}
+                        onMouseEnter={()=>{ if(chip.hasEntry) setHoverHector(chip.key); }}
+                        onMouseLeave={()=>setHoverHector(h=>h===chip.key?null:h)}
+                      >
                         <div onClick={()=>onGoProject(p.id)} className="tf-lift" style={{background:"#fff",border:"1.5px solid #E5E7EB",borderLeft:`4px solid ${p.color}`,borderRadius:10,padding:"10px 12px",cursor:"pointer"}}>
                           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                             <span style={{width:10,height:10,borderRadius:"50%",background:p.color,flexShrink:0}}/>
@@ -4245,7 +4254,11 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                     const dueColor = !t.dueDate ? "#9CA3AF" : days<0 ? "#E24B4A" : days===0 ? "#EF9F27" : days<=3 ? "#EF9F27" : "#6b7280";
                     const chip = renderHectorChip("task",t,t.id);
                     return(
-                      <div key={`${t.projId}-${t.id}`}>
+                      <div
+                        key={`${t.projId}-${t.id}`}
+                        onMouseEnter={()=>{ if(chip.hasEntry) setHoverHector(chip.key); }}
+                        onMouseLeave={()=>setHoverHector(h=>h===chip.key?null:h)}
+                      >
                         <div onClick={()=>onOpenTask(t.id,t.projId)} style={{background:"#fff",border:"1px solid #E5E7EB",borderLeft:`3px solid ${t.projColor}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,transition:"background .12s"}} onMouseEnter={e=>{e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{e.currentTarget.style.background="#fff";}}>
                           <input type="checkbox" readOnly checked={false} style={{flexShrink:0,cursor:"pointer",accentColor:t.projColor}} onClick={e=>e.stopPropagation()}/>
                           <div style={{flex:1,minWidth:0}}>
@@ -4433,7 +4446,13 @@ ${taskLines||"(ninguna)"}`;
                   <div style={{fontSize:14,fontWeight:700,color:"#111827"}}>Héctor</div>
                   <div style={{fontSize:11,color:"#6B7280"}}>Chief of Staff Estratégico</div>
                 </div>
-                {chatMsgs.length>0&&<button onClick={()=>{ if(window.confirm("¿Limpiar todo el chat con Héctor en esta negociación?")) onClearHectorChat(negotiation.id); }} title="Limpiar chat" style={{background:"none",border:"none",fontSize:14,cursor:"pointer",color:"#9CA3AF"}}>🗑</button>}
+                {(()=>{
+                  const hasErrors = (chatMsgs||[]).some(m=>m.role==="assistant"&&(m.content||"").startsWith("⚠"));
+                  return hasErrors ? (
+                    <button onClick={()=>onClearHectorErrors(negotiation.id)} title="Limpiar solo mensajes de error" style={{background:"#FEF2F2",border:"0.5px solid #FCA5A5",fontSize:10,cursor:"pointer",color:"#B91C1C",padding:"3px 8px",borderRadius:6,fontFamily:"inherit",fontWeight:600}}>🧹 errores</button>
+                  ) : null;
+                })()}
+                {chatMsgs.length>0&&<button onClick={()=>{ if(window.confirm("¿Limpiar todo el chat con Héctor en esta negociación?")) onClearHectorChat(negotiation.id); }} title="Limpiar todo el chat" style={{background:"none",border:"none",fontSize:14,cursor:"pointer",color:"#9CA3AF"}}>🗑</button>}
               </div>
               {/* Acciones */}
               <div style={{padding:"10px 16px",borderBottom:"1px solid #F3F4F6",display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -5560,6 +5579,14 @@ export default function TaskFlow(){
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,hectorChat:[],updatedAt:new Date().toISOString()}:n)}));
     addToast("Chat con Héctor limpiado","info");
   },[addToast]);
+  const clearHectorErrors = useCallback((negId)=>{
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>{
+      if(n.id!==negId) return n;
+      const filtered = (n.hectorChat||[]).filter(m=>!(m.role==="assistant" && (m.content||"").startsWith("⚠")));
+      return {...n,hectorChat:filtered,updatedAt:new Date().toISOString()};
+    })}));
+    addToast("Errores limpiados","info");
+  },[addToast]);
   const setNegHectorAnalysis = useCallback((negId,analysis)=>{
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,hectorAnalysis:analysis,updatedAt:new Date().toISOString()}:n)}));
     addToast("✓ Análisis de Héctor guardado");
@@ -5943,6 +5970,7 @@ export default function TaskFlow(){
                 onClearBriefing={nid=>clearNegBriefing(nid)}
                 onAppendHectorMessage={appendHectorMessage}
                 onClearHectorChat={clearHectorChat}
+                onClearHectorErrors={clearHectorErrors}
                 onSetAnalysis={setNegHectorAnalysis}
                 onSaveBriefing={(nid,briefing)=>setNegBriefing(nid,briefing)}
                 onOverlayTask={id=>setOverlayTaskId(id)}
