@@ -251,6 +251,7 @@ const INITIAL_DATA = {
 const LS_KEY = 'taskflow_v1';
 function _migrate(d){
   if(!d.workspaces) d.workspaces = [];
+  if(!d.negotiations) d.negotiations = [];
   // Dedup workspace ids: sync realtime entre clientes puede fusionar estados con
   // contadores independientes y provocar colisiones. Con ids duplicados,
   // workspaces.find(w=>w.id===x) devuelve siempre el primero → clicks abren el
@@ -1758,6 +1759,20 @@ function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onT
       ],
       stats: `Tienes ${agentsCount} agente${agentsCount!==1?"s":""} disponible${agentsCount!==1?"s":""} para consultar`,
       videoLabel:"Usar agentes IA para redactar propuestas (5 min)",
+    },
+    {
+      id:"dealroom", emoji:"🤝", title:"Deal Room", badge:"Nuevo",
+      tooltip:"Timeline de negociaciones con sesiones, notas y resúmenes",
+      tagline:"Gestiona negociaciones complejas con histórico completo por sesión",
+      description:"Cada negociación agrupa reuniones, llamadas y conversaciones informales en un timeline cronológico. Toma notas con hora exacta durante cada sesión y genera un resumen al cierre. Cambia el estado (en curso / pausado / cerrado ganado / cerrado perdido) y mantén visible el contexto completo sin perder detalles.",
+      features:[
+        `${(data.negotiations||[]).length} negociación${(data.negotiations||[]).length!==1?"es":""} registrada${(data.negotiations||[]).length!==1?"s":""}`,
+        "Sesiones con tipo, fecha, ubicación y duración",
+        "Notas cronológicas por sesión y resumen editable",
+        "Filtros por estado y responsable",
+      ],
+      stats: (data.negotiations||[]).length===0 ? "Aún no hay negociaciones — crea la primera para empezar" : `${(data.negotiations||[]).filter(n=>n.status==="en_curso").length} negociación${(data.negotiations||[]).filter(n=>n.status==="en_curso").length!==1?"es":""} activa${(data.negotiations||[]).filter(n=>n.status==="en_curso").length!==1?"s":""} · ${(data.negotiations||[]).reduce((s,n)=>s+(n.sessions||[]).length,0)} sesion${(data.negotiations||[]).reduce((s,n)=>s+(n.sessions||[]).length,0)!==1?"es":""} totales`,
+      videoLabel:"Registrar negociaciones paso a paso (4 min)",
     },
     {
       id:"reports", emoji:"⏱", title:"Tiempos",
@@ -3354,6 +3369,374 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
   );
 }
 
+// ── Deal Room (negociaciones con sesiones, notas y resumen) ──────────────────
+const NEG_STATUSES = [
+  { id:"en_curso",        label:"En curso",         color:"#10B981" },
+  { id:"pausado",         label:"Pausado",          color:"#F59E0B" },
+  { id:"cerrado_ganado",  label:"Cerrado ganado",   color:"#3B82F6" },
+  { id:"cerrado_perdido", label:"Cerrado perdido",  color:"#E24B4A" },
+];
+const SESSION_TYPES = [
+  { id:"meeting",  label:"Reunión presencial", icon:"🤝" },
+  { id:"call",     label:"Llamada",            icon:"📞" },
+  { id:"informal", label:"Conversación informal", icon:"💬" },
+];
+const getNegStatus     = s => NEG_STATUSES.find(x=>x.id===s)||NEG_STATUSES[0];
+const getSessionTypeLabel = t => SESSION_TYPES.find(x=>x.id===t)?.label||t;
+const getSessionTypeIcon  = t => SESSION_TYPES.find(x=>x.id===t)?.icon||"📅";
+function formatDateTimeES(iso){
+  if(!iso) return "";
+  try{ return new Date(iso).toLocaleDateString("es-ES",{weekday:"long",day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"}); }
+  catch{ return iso; }
+}
+function timeAgoIso(iso){
+  if(!iso) return "";
+  const s=Math.floor((new Date()-new Date(iso))/1000);
+  if(s<60) return "hace un momento";
+  if(s<3600) return `hace ${Math.floor(s/60)} min`;
+  if(s<86400) return `hace ${Math.floor(s/3600)}h`;
+  if(s<604800) return `hace ${Math.floor(s/86400)}d`;
+  if(s<2592000) return `hace ${Math.floor(s/604800)} sem`;
+  const m=Math.floor(s/2592000);
+  return `hace ${m} mes${m>1?"es":""}`;
+}
+
+// Modal crear/editar negociación.
+function NegotiationModal({negotiation,members,onClose,onSave,onDelete}){
+  const isEdit=!!negotiation;
+  const [title,setTitle]       = useState(negotiation?.title||"");
+  const [counterparty,setCP]   = useState(negotiation?.counterparty||"");
+  const [status,setStatus]     = useState(negotiation?.status||"en_curso");
+  const [value,setValue]       = useState(negotiation?.value??"");
+  const [currency,setCurrency] = useState(negotiation?.currency||"EUR");
+  const [description,setDesc]  = useState(negotiation?.description||"");
+  const [ownerId,setOwnerId]   = useState(negotiation?.ownerId??(members[0]?.id??0));
+  const [pendingDel,setPendingDel] = useState(false);
+  const [pendingClose,setPendingClose] = useState(false);
+  const [initialSnap]=useState(()=>JSON.stringify({title:negotiation?.title||"",counterparty:negotiation?.counterparty||"",status:negotiation?.status||"en_curso",value:negotiation?.value??"",currency:negotiation?.currency||"EUR",description:negotiation?.description||"",ownerId:negotiation?.ownerId??(members[0]?.id??0)}));
+  const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,ownerId})!==initialSnap;
+  const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
+  useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
+  const save=()=>{
+    if(!title.trim()||!counterparty.trim()) return;
+    onSave({title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId)});
+    onClose();
+  };
+  return(
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:560,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:"4px solid #3B82F6",marginBottom:24}}>
+        <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontWeight:600,fontSize:15}}>{isEdit?"Editar negociación":"Nueva negociación"}</div>
+          <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>x</button>
+        </div>
+        {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
+        <div style={{padding:20}}>
+          <FL c="Título *"/><FI value={title} onChange={setTitle} placeholder="Ej: Venta local Calle Mayor 23"/>
+          <FL c="Contraparte *"/><FI value={counterparty} onChange={setCP} placeholder="Ej: Inversores Madrid SL"/>
+          <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10}}>
+            <div><FL c="Valor (opcional)"/><FI type="number" value={value} onChange={setValue} placeholder="250000"/></div>
+            <div><FL c="Moneda"/>
+              <select value={currency} onChange={e=>setCurrency(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
+                <option value="EUR">EUR</option><option value="USD">USD</option><option value="GBP">GBP</option>
+              </select>
+            </div>
+          </div>
+          <FL c="Estado"/>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {NEG_STATUSES.map(s=>(
+              <button key={s.id} onClick={()=>setStatus(s.id)} style={{padding:"6px 12px",borderRadius:8,border:`1.5px solid ${status===s.id?s.color:"#e5e7eb"}`,background:status===s.id?s.color+"18":"#fff",color:status===s.id?s.color:"#6b7280",fontSize:12,cursor:"pointer",fontWeight:status===s.id?600:400}}>{s.label}</button>
+            ))}
+          </div>
+          <FL c="Responsable"/>
+          <select value={ownerId} onChange={e=>setOwnerId(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
+            {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+          <FL c="Descripción"/>
+          <textarea value={description} onChange={e=>setDesc(e.target.value)} rows={3} placeholder="Contexto, objetivo, contraparte, plazos…" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+          <div style={{display:"flex",gap:8,marginTop:20,justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              {isEdit&&onDelete&&(!pendingDel
+                ? <button onClick={()=>setPendingDel(true)} style={{padding:"8px 14px",borderRadius:8,background:"transparent",color:"#E24B4A",border:"1px solid #E24B4A55",fontSize:12,cursor:"pointer"}}>Eliminar</button>
+                : <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>{onDelete(negotiation.id);onClose();}} style={{padding:"8px 12px",borderRadius:8,background:"#E24B4A",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>Confirmar</button>
+                    <button onClick={()=>setPendingDel(false)} style={{padding:"8px 12px",borderRadius:8,background:"transparent",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>No</button>
+                  </div>)}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={save} disabled={!title.trim()||!counterparty.trim()} style={{padding:"8px 20px",borderRadius:8,background:(title.trim()&&counterparty.trim())?"#3B82F6":"#e5e7eb",color:(title.trim()&&counterparty.trim())?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:(title.trim()&&counterparty.trim())?"pointer":"default",fontWeight:600}}>{isEdit?"Guardar":"Crear"}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Modal crear/editar sesión.
+function SessionModal({session,onClose,onSave,onDelete}){
+  const isEdit=!!session;
+  const [type,setType]         = useState(session?.type||"meeting");
+  const [date,setDate]         = useState(session?.date?.slice(0,16)||new Date().toISOString().slice(0,16));
+  const [location,setLocation] = useState(session?.location||"");
+  const [duration,setDuration] = useState(session?.duration||60);
+  const [pendingDel,setPendingDel] = useState(false);
+  const [pendingClose,setPendingClose] = useState(false);
+  const [initialSnap]=useState(()=>JSON.stringify({type:session?.type||"meeting",date:session?.date?.slice(0,16)||"",location:session?.location||"",duration:session?.duration||60}));
+  const isDirty=JSON.stringify({type,date,location,duration})!==initialSnap;
+  const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
+  useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
+  const save=()=>{ onSave({type,date:new Date(date).toISOString(),location:location.trim(),duration:Number(duration)||0}); onClose(); };
+  return(
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:520,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:"4px solid #3B82F6",marginBottom:24}}>
+        <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontWeight:600,fontSize:15}}>{isEdit?"Editar sesión":"Nueva sesión"}</div>
+          <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>x</button>
+        </div>
+        {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
+        <div style={{padding:20}}>
+          <FL c="Tipo"/>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {SESSION_TYPES.map(s=>(
+              <button key={s.id} onClick={()=>setType(s.id)} style={{padding:"7px 12px",borderRadius:8,border:`1.5px solid ${type===s.id?"#3B82F6":"#e5e7eb"}`,background:type===s.id?"#EFF6FF":"#fff",color:type===s.id?"#1E40AF":"#6b7280",fontSize:12,cursor:"pointer",fontWeight:type===s.id?600:400}}>{s.icon} {s.label}</button>
+            ))}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10}}>
+            <div><FL c="Fecha y hora"/>
+              <input type="datetime-local" value={date} onChange={e=>setDate(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit"}}/></div>
+            <div><FL c="Duración (min)"/>
+              <input type="number" min={0} value={duration} onChange={e=>setDuration(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit"}}/></div>
+          </div>
+          <FL c="Ubicación (opcional)"/>
+          <FI value={location} onChange={setLocation} placeholder="Ej: Oficina Paseo de Gracia · Zoom · Café Central"/>
+          <div style={{display:"flex",gap:8,marginTop:20,justifyContent:"space-between"}}>
+            <div>
+              {isEdit&&onDelete&&(!pendingDel
+                ? <button onClick={()=>setPendingDel(true)} style={{padding:"8px 14px",borderRadius:8,background:"transparent",color:"#E24B4A",border:"1px solid #E24B4A55",fontSize:12,cursor:"pointer"}}>Eliminar</button>
+                : <div style={{display:"flex",gap:6}}>
+                    <button onClick={()=>{onDelete(session.id);onClose();}} style={{padding:"8px 12px",borderRadius:8,background:"#E24B4A",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>Confirmar</button>
+                    <button onClick={()=>setPendingDel(false)} style={{padding:"8px 12px",borderRadius:8,background:"transparent",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>No</button>
+                  </div>)}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={save} style={{padding:"8px 20px",borderRadius:8,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>{isEdit?"Guardar":"Crear"}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Modal añadir nota.
+function AddNoteModal({initialNote,onClose,onSave,onDelete}){
+  const isEdit=!!initialNote;
+  const [timestamp,setTs] = useState(initialNote?.timestamp||new Date().toTimeString().slice(0,5));
+  const [content,setContent] = useState(initialNote?.content||"");
+  const [pendingClose,setPendingClose] = useState(false);
+  const [initialSnap]=useState(()=>JSON.stringify({timestamp:initialNote?.timestamp||"",content:initialNote?.content||""}));
+  const isDirty=JSON.stringify({timestamp,content})!==initialSnap;
+  const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
+  useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
+  const save=()=>{ if(!content.trim()) return; onSave({timestamp,content:content.trim()}); onClose(); };
+  return(
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:60,overflowY:"auto"}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:480,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:"4px solid #3B82F6",marginBottom:24}}>
+        <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontWeight:600,fontSize:15}}>{isEdit?"Editar nota":"Nueva nota"}</div>
+          <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280"}}>x</button>
+        </div>
+        {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
+        <div style={{padding:20}}>
+          <FL c="Hora (HH:MM)"/>
+          <input type="time" value={timestamp} onChange={e=>setTs(e.target.value)} style={{width:140,padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit"}}/>
+          <FL c="Nota *"/>
+          <textarea autoFocus value={content} onChange={e=>setContent(e.target.value)} rows={6} placeholder="Ej: Emilio mencionó que el timeline es muy ajustado…" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+          <div style={{display:"flex",gap:8,marginTop:16,justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              {isEdit&&onDelete&&<button onClick={()=>{onDelete(initialNote.id);onClose();}} style={{padding:"8px 14px",borderRadius:8,background:"transparent",color:"#E24B4A",border:"1px solid #E24B4A55",fontSize:12,cursor:"pointer"}}>Eliminar</button>}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={save} disabled={!content.trim()} style={{padding:"8px 20px",borderRadius:8,background:content.trim()?"#3B82F6":"#e5e7eb",color:content.trim()?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:content.trim()?"pointer":"default",fontWeight:600}}>Guardar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Vista principal: lista de negociaciones con filtros.
+function DealRoomView({negotiations,members,filter,onSetFilter,onCreate,onOpen,onEdit}){
+  const filtered = filter==="all" ? negotiations : negotiations.filter(n=>n.status===filter);
+  const counts = NEG_STATUSES.reduce((o,s)=>{o[s.id]=negotiations.filter(n=>n.status===s.id).length;return o;},{all:negotiations.length});
+  return(
+    <div style={{maxWidth:1000,margin:"0 auto",padding:"30px 20px"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>🤝 Deal Room</div>
+          <div style={{fontSize:13,color:"#6b7280"}}>{negotiations.length} negociación{negotiations.length!==1?"es":""} · Timeline de sesiones, notas y resúmenes</div>
+        </div>
+        <button onClick={onCreate} style={{padding:"10px 18px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva negociación</button>
+      </div>
+
+      <div style={{display:"flex",gap:8,marginBottom:18,flexWrap:"wrap"}}>
+        {[["all","Todas",null],...NEG_STATUSES.map(s=>[s.id,s.label,s.color])].map(([k,l,c])=>{
+          const sel=filter===k;
+          return <button key={k} onClick={()=>onSetFilter(k)} style={{padding:"7px 14px",borderRadius:20,border:`1px solid ${sel?(c||"#3B82F6"):"#e5e7eb"}`,background:sel?(c||"#3B82F6"):"#fff",color:sel?"#fff":"#6b7280",fontSize:12,cursor:"pointer",fontWeight:sel?600:400,fontFamily:"inherit"}}>{l} ({counts[k]||0})</button>;
+        })}
+      </div>
+
+      {filtered.length===0
+        ? <div style={{textAlign:"center",padding:"60px 20px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:12}}>
+            <div style={{fontSize:32,marginBottom:10}}>🤝</div>
+            <div style={{fontSize:14,color:"#6b7280",marginBottom:14}}>{negotiations.length===0?"Aún no hay negociaciones. Crea la primera para empezar.":`Sin negociaciones ${getNegStatus(filter).label.toLowerCase()}.`}</div>
+            {negotiations.length===0&&<button onClick={onCreate} style={{padding:"9px 18px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva negociación</button>}
+          </div>
+        : <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            {filtered.map(n=>{
+              const st=getNegStatus(n.status);
+              const owner=members.find(m=>m.id===n.ownerId);
+              const mp2=MP[owner?.id]||MP[0];
+              const lastSession = (n.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date))[0];
+              return(
+                <div key={n.id} onClick={()=>onOpen(n.id)} className="tf-lift" style={{background:"#fff",border:`2px solid #E5E7EB`,borderLeft:`4px solid ${st.color}`,borderRadius:12,padding:"16px 18px",cursor:"pointer"}}>
+                  <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:6}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:16,fontWeight:600,color:"#111827",marginBottom:2}}>{n.title}</div>
+                      <div style={{fontSize:12,color:"#6b7280"}}>Contraparte: <b style={{color:"#374151"}}>{n.counterparty}</b>{n.value!=null&&<> · <b style={{color:"#059669"}}>{Number(n.value).toLocaleString("es-ES")} {n.currency||"EUR"}</b></>}</div>
+                    </div>
+                    <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+                      <span style={{fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:14,background:st.color+"18",color:st.color}}>{st.label}</span>
+                      <button onClick={e=>{e.stopPropagation();onEdit(n);}} title="Editar" style={{background:"none",border:"none",fontSize:13,cursor:"pointer",color:"#9ca3af"}}>✏️</button>
+                    </div>
+                  </div>
+                  {n.description&&<div style={{fontSize:13,color:"#4B5563",lineHeight:1.5,marginBottom:6}}>{n.description}</div>}
+                  <div style={{display:"flex",alignItems:"center",gap:12,fontSize:11,color:"#9ca3af",flexWrap:"wrap"}}>
+                    {owner&&<span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:16,height:16,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700}}>{owner.initials}</span>{owner.name.split(" ")[0]}</span>}
+                    <span>💬 {(n.sessions||[]).length} sesion{(n.sessions||[]).length!==1?"es":""}</span>
+                    {lastSession&&<span>· última {timeAgoIso(lastSession.date)}</span>}
+                    {n.updatedAt&&<span style={{marginLeft:"auto"}}>Actualizada {timeAgoIso(n.updatedAt)}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>}
+    </div>
+  );
+}
+
+// Detalle negociación: header, info, timeline sesiones.
+function NegotiationDetailView({negotiation,members,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession}){
+  const st=getNegStatus(negotiation.status);
+  const owner=members.find(m=>m.id===negotiation.ownerId);
+  const sessions=(negotiation.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
+  return(
+    <div style={{maxWidth:900,margin:"0 auto",padding:"30px 20px"}}>
+      <button onClick={onBack} style={{background:"none",border:"none",color:"#3B82F6",fontSize:13,cursor:"pointer",marginBottom:14,padding:0,fontFamily:"inherit"}}>← Deal Room</button>
+      <div style={{marginBottom:18}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
+          <div style={{fontSize:22,fontWeight:700,color:"#111827"}}>{negotiation.title}</div>
+          <span style={{fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:14,background:st.color+"18",color:st.color}}>{st.label}</span>
+        </div>
+        <div style={{fontSize:13,color:"#6b7280"}}>Contraparte: <b style={{color:"#374151"}}>{negotiation.counterparty}</b>{negotiation.value!=null&&<> · <b style={{color:"#059669"}}>{Number(negotiation.value).toLocaleString("es-ES")} {negotiation.currency||"EUR"}</b></>}{owner&&<> · Responsable: <b style={{color:"#374151"}}>{owner.name}</b></>}</div>
+      </div>
+      {negotiation.description&&<div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:18,fontSize:13,color:"#4B5563",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{negotiation.description}</div>}
+      <div style={{display:"flex",gap:10,marginBottom:24,flexWrap:"wrap"}}>
+        <button onClick={onCreateSession} style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva sesión</button>
+        <button onClick={()=>onEditNeg(negotiation)} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
+      </div>
+
+      <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12}}>Timeline de sesiones ({sessions.length})</div>
+      {sessions.length===0
+        ? <div style={{textAlign:"center",padding:"40px 20px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:10,fontSize:13,color:"#6b7280"}}>Sin sesiones aún. Registra la primera reunión, llamada o conversación.</div>
+        : sessions.map(s=>{
+            const notes=(s.entries||[]).length;
+            return(
+              <div key={s.id} onClick={()=>onOpenSession(s.id)} className="tf-lift" style={{background:"#fff",border:"2px solid #E5E7EB",borderRadius:12,padding:"14px 16px",marginBottom:12,cursor:"pointer"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:14}}>{getSessionTypeIcon(s.type)}</span>
+                    <span style={{fontSize:11,padding:"2px 8px",borderRadius:14,background:"#F3F4F6",color:"#4b5563",fontWeight:500}}>{getSessionTypeLabel(s.type)}</span>
+                  </div>
+                  <button onClick={e=>{e.stopPropagation();onEditSession(s);}} title="Editar sesión" style={{background:"none",border:"none",fontSize:13,cursor:"pointer",color:"#9ca3af"}}>✏️</button>
+                </div>
+                <div style={{fontSize:13,color:"#374151",fontWeight:500,marginBottom:3}}>{formatDateTimeES(s.date)}</div>
+                <div style={{fontSize:12,color:"#6b7280",marginBottom:6}}>{s.duration} min{s.location?` · ${s.location}`:""}</div>
+                {s.summary&&<div style={{fontSize:13,color:"#4B5563",lineHeight:1.5,marginBottom:6,whiteSpace:"pre-wrap"}}>{s.summary.length>160?s.summary.slice(0,160)+"…":s.summary}</div>}
+                <div style={{fontSize:11,color:"#9ca3af"}}>📝 {notes} nota{notes!==1?"s":""} · {timeAgoIso(s.date)}</div>
+              </div>
+            );
+          })}
+    </div>
+  );
+}
+
+// Detalle sesión: notas cronológicas + resumen editable.
+function SessionDetailView({negotiation,session,onBack,onEditSession,onAddNote,onEditNote,onUpdateSummary,onToast}){
+  const [summaryDraft,setSummaryDraft] = useState(session.summary||"");
+  const [editingSummary,setEditingSummary] = useState(false);
+  const entries = (session.entries||[]).slice().sort((a,b)=>(a.timestamp||"").localeCompare(b.timestamp||""));
+  const saveSummary=()=>{ onUpdateSummary(summaryDraft); setEditingSummary(false); onToast?.("✓ Resumen guardado"); };
+  const autoSummary=()=>{
+    if(entries.length===0){ onToast?.("Añade al menos una nota antes","error"); return; }
+    const joined = entries.map(e=>`[${e.timestamp}] ${e.content}`).join("\n");
+    const draft = `Sesión: ${getSessionTypeLabel(session.type)} · ${formatDateTimeES(session.date)}\n\nPuntos clave:\n${joined}\n\n(Resumen preliminar — edítalo para añadir conclusiones y próximos pasos.)`;
+    setSummaryDraft(draft); setEditingSummary(true);
+  };
+  return(
+    <div style={{maxWidth:820,margin:"0 auto",padding:"30px 20px"}}>
+      <button onClick={onBack} style={{background:"none",border:"none",color:"#3B82F6",fontSize:13,cursor:"pointer",marginBottom:14,padding:0,fontFamily:"inherit"}}>← {negotiation.title}</button>
+      <div style={{marginBottom:14}}>
+        <div style={{fontSize:20,fontWeight:700,color:"#111827",marginBottom:4}}>{getSessionTypeIcon(session.type)} {getSessionTypeLabel(session.type)}</div>
+        <div style={{fontSize:13,color:"#6b7280"}}>{formatDateTimeES(session.date)}{session.location?` · ${session.location}`:""} · {session.duration} min</div>
+      </div>
+      <div style={{display:"flex",gap:10,marginBottom:22,flexWrap:"wrap"}}>
+        <button onClick={onAddNote} style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Añadir nota</button>
+        <button onClick={()=>onEditSession(session)} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar sesión</button>
+        <button onClick={autoSummary} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#3B82F6",border:"0.5px solid #3B82F6",fontSize:13,cursor:"pointer",fontWeight:500}}>✨ Generar resumen</button>
+      </div>
+
+      <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Notas ({entries.length})</div>
+      {entries.length===0
+        ? <div style={{textAlign:"center",padding:30,background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:10,fontSize:13,color:"#6b7280",marginBottom:28}}>
+            <div style={{marginBottom:10}}>Aún no hay notas</div>
+            <button onClick={onAddNote} style={{padding:"7px 14px",borderRadius:8,background:"#3B82F6",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>+ Añadir primera nota</button>
+          </div>
+        : entries.map(e=>(
+            <div key={e.id} style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                <span style={{fontSize:11,fontWeight:700,color:"#6b7280",fontFamily:"ui-monospace,monospace"}}>{e.timestamp}</span>
+                <button onClick={()=>onEditNote(e)} style={{fontSize:11,color:"#3B82F6",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit"}}>Editar</button>
+              </div>
+              <div style={{fontSize:13,color:"#374151",lineHeight:1.55,whiteSpace:"pre-wrap"}}>{e.content}</div>
+            </div>
+          ))}
+
+      <div style={{marginTop:26,paddingTop:22,borderTop:"2px solid #E5E7EB"}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+          <div style={{fontSize:12,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em"}}>Resumen</div>
+          {!editingSummary&&<button onClick={()=>{setSummaryDraft(session.summary||"");setEditingSummary(true);}} style={{fontSize:12,color:"#3B82F6",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",fontWeight:500}}>{session.summary?"Editar":"Añadir"}</button>}
+        </div>
+        {editingSummary
+          ? <div>
+              <textarea value={summaryDraft} onChange={e=>setSummaryDraft(e.target.value)} rows={8} placeholder="Escribe un resumen de la sesión: temas, acuerdos, objeciones, próximos pasos…" style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit",lineHeight:1.55}}/>
+              <div style={{display:"flex",gap:8,marginTop:10}}>
+                <button onClick={saveSummary} style={{padding:"8px 16px",borderRadius:8,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Guardar</button>
+                <button onClick={()=>{setEditingSummary(false);setSummaryDraft(session.summary||"");}} style={{padding:"8px 16px",borderRadius:8,background:"transparent",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+              </div>
+            </div>
+          : session.summary
+            ? <div style={{fontSize:13,color:"#374151",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{session.summary}</div>
+            : <div style={{fontSize:13,color:"#9CA3AF",fontStyle:"italic"}}>Sin resumen aún.</div>}
+      </div>
+    </div>
+  );
+}
+
 // ── User selector (temporal, pre-auth) ────────────────────────────────────────
 const USER_KEY = "taskflow_current_user";
 const readStoredUser = () => { try{ const s=localStorage.getItem(USER_KEY); return s?JSON.parse(s):null; }catch{ return null; } };
@@ -3418,6 +3801,12 @@ export default function TaskFlow(){
   const [showCommandPalette,setShowCommandPalette] = useState(false);
   const [pendingWorkspaceId,setPendingWorkspaceId] = useState(null);
   const [overlayTaskId,setOverlayTaskId]           = useState(null);
+  const [activeNegId,setActiveNegId]               = useState(null);
+  const [activeSessId,setActiveSessId]             = useState(null);
+  const [negFilter,setNegFilter]                   = useState("all");
+  const [negModal,setNegModal]                     = useState(null); // null | "create" | neg object
+  const [sessModal,setSessModal]                   = useState(null); // null | "create" | session object
+  const [noteModal,setNoteModal]                   = useState(null); // null | "create" | note object
   const [showAlerts,setShowAlerts] = useState(false);
   const [emailQueue,setEQ]         = useState([]);
   const [profileMember,setPM]      = useState(null);
@@ -3524,6 +3913,7 @@ export default function TaskFlow(){
     { id:"projects",    icon:"📁", label:"Ir a Proyectos",    shortcut:"",    run:()=>setActiveTab("projects") },
     { id:"planner",     icon:"⚡", label:"Abrir Planificador IA", shortcut:"", run:()=>setActiveTab("planner") },
     { id:"workspaces",  icon:"🏢", label:"Ver Workspaces",     shortcut:"",    run:()=>setActiveTab("workspaces") },
+    { id:"dealroom",    icon:"🤝", label:"Ir a Deal Room",     shortcut:"",    run:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);} },
     { id:"alerts",      icon:"🔔", label:"Ver alertas",        shortcut:"",    run:()=>setShowAlerts(true) },
     { id:"change-user", icon:"🔄", label:"Cambiar usuario",    shortcut:"",    run:()=>changeUser() },
     { id:"logout",      icon:"🚪", label:"Cerrar sesión",      shortcut:"",    run:()=>logoutTemp() },
@@ -3641,6 +4031,50 @@ export default function TaskFlow(){
     }));
     addToast("✓ Perfil guardado");
   },[addToast]);
+
+  // ── Deal Room mutations ──
+  const createNegotiation = useCallback((payload)=>{
+    const id=_uid("neg"); const now=new Date().toISOString();
+    setData(prev=>({...prev,negotiations:[...(prev.negotiations||[]),{id,...payload,sessions:[],createdAt:now,updatedAt:now}]}));
+    addToast("✓ Negociación creada");
+  },[addToast]);
+  const updateNegotiation = useCallback((negId,patch)=>{
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,...patch,updatedAt:new Date().toISOString()}:n)}));
+    addToast("✓ Negociación actualizada");
+  },[addToast]);
+  const deleteNegotiation = useCallback((negId)=>{
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).filter(n=>n.id!==negId)}));
+    addToast("Negociación eliminada","info");
+  },[addToast]);
+  const addSession = useCallback((negId,payload)=>{
+    const id=_uid("sess"); const now=new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,sessions:[...(n.sessions||[]),{id,...payload,entries:[],summary:"",createdAt:now,updatedAt:now}],updatedAt:now}:n)}));
+    addToast("✓ Sesión añadida");
+  },[addToast]);
+  const updateSession = useCallback((negId,sessId,patch)=>{
+    const now=new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,sessions:n.sessions.map(s=>s.id===sessId?{...s,...patch,updatedAt:now}:s),updatedAt:now}:n)}));
+  },[]);
+  const deleteSession = useCallback((negId,sessId)=>{
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,sessions:n.sessions.filter(s=>s.id!==sessId),updatedAt:new Date().toISOString()}:n)}));
+    addToast("Sesión eliminada","info");
+  },[addToast]);
+  const addNote = useCallback((negId,sessId,payload)=>{
+    const id=_uid("ent"); const now=new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,entries:[...(s.entries||[]),{id,type:"manual_note",authorId:activeMember,createdAt:now,...payload}],updatedAt:now}:s)}:n)}));
+  },[activeMember]);
+  const updateNote = useCallback((negId,sessId,noteId,patch)=>{
+    const now=new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,entries:s.entries.map(e=>e.id===noteId?{...e,...patch}:e),updatedAt:now}:s)}:n)}));
+  },[]);
+  const deleteNote = useCallback((negId,sessId,noteId)=>{
+    const now=new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,entries:s.entries.filter(e=>e.id!==noteId),updatedAt:now}:s)}:n)}));
+  },[]);
+  const updateSummary = useCallback((negId,sessId,summary)=>{
+    const now=new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,summary,updatedAt:now}:s)}:n)}));
+  },[]);
 
   const createProject = useCallback(({name,desc,color,emoji,members:mems,columns,workspaceId})=>{
     const id=nextProjId++;
@@ -3796,6 +4230,9 @@ export default function TaskFlow(){
           <div onClick={()=>setActiveTab("agents")} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="agents"?"#EEEDFE":"transparent",color:activeTab==="agents"?"#7F77DD":"#4b5563",fontWeight:activeTab==="agents"?600:400}}>
             <span style={{fontSize:14}}>🤖</span> Agentes IA
           </div>
+          <div onClick={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 8px",borderRadius:8,cursor:"pointer",fontSize:13,background:activeTab==="dealroom"?"#EEEDFE":"transparent",color:activeTab==="dealroom"?"#7F77DD":"#4b5563",fontWeight:activeTab==="dealroom"?600:400}}>
+            <span style={{fontSize:14}}>🤝</span> Deal Room
+          </div>
         </div>
         <div style={{padding:8,flex:1,overflowY:"auto"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 8px 2px"}}>
@@ -3824,7 +4261,7 @@ export default function TaskFlow(){
         {/* Top bar — siempre visible. Hamburger solo en móvil, título + botón de búsqueda en ambos. */}
         <div style={{display:"flex",background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"10px 14px",alignItems:"center",gap:10,flexShrink:0}}>
           <button className="tf-only-mobile" onClick={()=>setSidebarOpen(true)} style={{width:38,height:38,borderRadius:8,background:"#f3f4f6",border:"none",fontSize:18,cursor:"pointer",alignItems:"center",justifyContent:"center"}}>☰</button>
-          <div style={{fontWeight:600,fontSize:14,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>SoulBaric · {activeTab==="board"?proj.name:activeTab==="home"?"Inicio":activeTab}</div>
+          <div style={{fontWeight:600,fontSize:14,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>SoulBaric · {activeTab==="board"?proj.name:activeTab==="home"?"Inicio":activeTab==="dealroom"?"Deal Room":activeTab}</div>
           <button
             title="Buscar (⌘K)"
             onClick={()=>setShowCommandPalette(true)}
@@ -3838,7 +4275,7 @@ export default function TaskFlow(){
             <span className="tf-search-kbd" style={{fontSize:10,color:"#9ca3af",border:"0.5px solid #d1d5db",borderRadius:5,padding:"2px 6px",fontWeight:600,background:"#fff",marginLeft:4}}>⌘K</span>
           </button>
         </div>
-        {activeTab!=="home"&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&(
+        {activeTab!=="home"&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&(
           <div style={{background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px",height:52,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
@@ -3854,14 +4291,46 @@ export default function TaskFlow(){
             </div>
           </div>
         )}
-        {activeTab!=="home"&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&(
+        {activeTab!=="home"&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&(
           <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",background:"#fff",padding:"0 20px",flexShrink:0,overflowX:"auto"}}>
             {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #7F77DD":"2px solid transparent",color:activeTab===tab.key?"#7F77DD":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
           </div>
         )}
         {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember}/>}
         <div style={{flex:1,overflow:"auto"}}>
-          {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>setActiveTab(id)} onToast={addToast} onOpenTask={id=>setOverlayTaskId(id)}/>}
+          {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onToast={addToast} onOpenTask={id=>setOverlayTaskId(id)}/>}
+          {activeTab==="dealroom"&&(()=>{
+            const activeNeg = activeNegId ? (data.negotiations||[]).find(n=>n.id===activeNegId) : null;
+            const activeSess = activeNeg && activeSessId ? (activeNeg.sessions||[]).find(s=>s.id===activeSessId) : null;
+            if(activeNeg && activeSess){
+              return <SessionDetailView
+                negotiation={activeNeg} session={activeSess}
+                onBack={()=>setActiveSessId(null)}
+                onEditSession={s=>setSessModal(s)}
+                onAddNote={()=>setNoteModal("create")}
+                onEditNote={n=>setNoteModal(n)}
+                onUpdateSummary={summary=>updateSummary(activeNeg.id,activeSess.id,summary)}
+                onToast={addToast}
+              />;
+            }
+            if(activeNeg){
+              return <NegotiationDetailView
+                negotiation={activeNeg} members={data.members}
+                onBack={()=>setActiveNegId(null)}
+                onEditNeg={n=>setNegModal(n)}
+                onCreateSession={()=>setSessModal("create")}
+                onOpenSession={sid=>setActiveSessId(sid)}
+                onEditSession={s=>setSessModal(s)}
+              />;
+            }
+            return <DealRoomView
+              negotiations={data.negotiations||[]} members={data.members}
+              filter={negFilter} onSetFilter={setNegFilter}
+              onCreate={()=>setNegModal("create")}
+              onOpen={id=>{setActiveNegId(id);setActiveSessId(null);}}
+              onEdit={n=>setNegModal(n)}
+            />;
+          })()}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
@@ -3896,6 +4365,13 @@ export default function TaskFlow(){
       {agentModal&&agentModal!=="create"&&<AgentEditModal agent={agentModal} onClose={()=>setAgentModal(null)} onSave={d=>editAgent(agentModal.id,d)} onDelete={deleteAgent}/>}
       {workspaceModal==="create"&&<WorkspaceModal onClose={()=>setWorkspaceModal(null)} onSave={createWorkspace}/>}
       {workspaceModal&&workspaceModal!=="create"&&<WorkspaceModal workspace={workspaceModal} onClose={()=>setWorkspaceModal(null)} onSave={d=>editWorkspace(workspaceModal.id,d)} onDelete={deleteWorkspace}/>}
+
+      {negModal==="create"&&<NegotiationModal members={data.members} onClose={()=>setNegModal(null)} onSave={createNegotiation}/>}
+      {negModal&&negModal!=="create"&&<NegotiationModal negotiation={negModal} members={data.members} onClose={()=>setNegModal(null)} onSave={p=>updateNegotiation(negModal.id,p)} onDelete={id=>{ deleteNegotiation(id); if(activeNegId===id){ setActiveNegId(null); setActiveSessId(null); } }}/>}
+      {activeNegId&&sessModal==="create"&&<SessionModal onClose={()=>setSessModal(null)} onSave={p=>addSession(activeNegId,p)}/>}
+      {activeNegId&&sessModal&&sessModal!=="create"&&<SessionModal session={sessModal} onClose={()=>setSessModal(null)} onSave={p=>updateSession(activeNegId,sessModal.id,p)} onDelete={sid=>{ deleteSession(activeNegId,sid); if(activeSessId===sid) setActiveSessId(null); }}/>}
+      {activeNegId&&activeSessId&&noteModal==="create"&&<AddNoteModal onClose={()=>setNoteModal(null)} onSave={p=>addNote(activeNegId,activeSessId,p)}/>}
+      {activeNegId&&activeSessId&&noteModal&&noteModal!=="create"&&<AddNoteModal initialNote={noteModal} onClose={()=>setNoteModal(null)} onSave={p=>updateNote(activeNegId,activeSessId,noteModal.id,p)} onDelete={nid=>deleteNote(activeNegId,activeSessId,nid)}/>}
 
       {/* Botón flotante global del asesor — siempre visible */}
       <button className="tf-fab" onClick={()=>setScopeAvatar(activeTab||"global")} title="Asesor IA — habla sobre lo que estás viendo" style={{position:"fixed",bottom:24,right:24,zIndex:1500,width:60,height:60,borderRadius:"50%",background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 8px 24px rgba(127,119,221,0.4)",display:"flex",alignItems:"center",justifyContent:"center"}}>🎙️</button>
