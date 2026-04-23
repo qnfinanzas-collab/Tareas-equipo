@@ -1131,3 +1131,56 @@ export async function llmAgentReply(userText, task, agent, members, history){
   }
   return stripMarkdown(data.text || "") || "(respuesta vacía del modelo)";
 }
+
+// Análisis de documento adjunto por un agente IA.
+// attachment = { kind:"pdf"|"image"|"text", media_type?, data?, text?, name? }
+// contextLabel = "la negociación X" / "la tarea Y" para situar al modelo.
+// Devuelve { summary, details, recommendations } tal como los pidió el prompt.
+export async function analyzeDocument(attachment, agent, contextLabel){
+  const systemPrompt = [
+    agent.promptBase || `Eres ${agent.name}, ${agent.role||"analista profesional"}.`,
+    "",
+    "ESTILO DE RESPUESTA:",
+    "- Responde en español, tono profesional y preciso.",
+    "- Estructura en tres bloques claros separados por líneas en blanco:",
+    "  RESUMEN EJECUTIVO: ...",
+    "  RIESGOS Y OPORTUNIDADES: ...",
+    "  RECOMENDACIONES CONCRETAS: ...",
+    PLAIN_TEXT_RULE,
+  ].join("\n");
+  const prompt = `Analiza este documento en el contexto de ${contextLabel||"el caso actual"}. Da un resumen ejecutivo, identifica riesgos y oportunidades, y lista recomendaciones concretas.`;
+  const body = {
+    system: systemPrompt,
+    messages: [{ role:"user", content: prompt }],
+    attachments: [attachment],
+    max_tokens: 4000,
+  };
+  const res = await fetch("/api/agent", {
+    method:"POST",
+    headers:{ "content-type":"application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  const text = stripMarkdown(data.text || "") || "(sin respuesta)";
+  return parseAnalysisReport(text);
+}
+
+function parseAnalysisReport(text){
+  const sections = { summary:"", details:"", recommendations:"" };
+  const blocks = text.split(/\n(?=[A-ZÁÉÍÓÚÑ ]{3,}:)/);
+  blocks.forEach(b=>{
+    const m = b.match(/^([A-ZÁÉÍÓÚÑ ]+):\s*([\s\S]*)$/);
+    if(!m) return;
+    const label = m[1].trim();
+    const content = m[2].trim();
+    if(/RESUMEN/i.test(label)) sections.summary = content;
+    else if(/RIESGO|OPORTUNIDAD/i.test(label)) sections.details = content;
+    else if(/RECOMEND/i.test(label)) sections.recommendations = content;
+  });
+  // Si el LLM no cumplió el formato, mete todo en summary.
+  if(!sections.summary && !sections.details && !sections.recommendations){
+    sections.summary = text;
+  }
+  return sections;
+}

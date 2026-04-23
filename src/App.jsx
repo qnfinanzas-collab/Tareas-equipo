@@ -11,8 +11,8 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
-import { storageEnabled, uploadDocument, getSignedUrl, deleteDocument as storageDeleteDocument, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, PLAIN_TEXT_RULE } from "./lib/agent.js";
+import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, PLAIN_TEXT_RULE } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown } from "./lib/voice.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
@@ -486,10 +486,13 @@ function VoiceMicButton({onStart,onInterim,onFinal,onError,disabled,color="#1D9E
 // ownerKey = identificador del contenedor ("neg-<id>" o "task-<id>") que se
 // usa como prefijo del path en el bucket. documents se persiste en el estado
 // (negotiation.documents o task.documents) vía onChange.
-function DocumentUploader({ownerKey, documents = [], onChange}){
+function DocumentUploader({ownerKey, documents = [], onChange, agents = [], contextLabel}){
   const [busy,setBusy]    = useState(false);
   const [error,setError]  = useState(null);
   const [dragOver,setDragOver] = useState(false);
+  const [agentId,setAgentId]   = useState("none");
+  const [analyzing,setAnalyzing] = useState(null);
+  const [expanded,setExpanded]   = useState(null);
   const fileInputRef      = useRef(null);
 
   if(!storageEnabled()){
@@ -498,18 +501,55 @@ function DocumentUploader({ownerKey, documents = [], onChange}){
     </div>;
   }
 
-  const handleFiles = async (fileList)=>{
+  // El análisis por Anthropic soporta PDF (document block) e imágenes PNG/JPG
+  // (image block). DOCX no es soportado natively por la API. TXT va como texto.
+  const canAnalyze = (type)=> type==="application/pdf" || type==="image/png" || type==="image/jpeg" || type==="text/plain";
+
+  const buildAttachment = async (doc)=>{
+    const blob = await downloadDocumentBlob(doc.storagePath);
+    if(doc.type==="text/plain"){
+      const text = await blob.text();
+      return { kind:"text", name:doc.name, text: text.slice(0,50000) };
+    }
+    const data = await blobToBase64(blob);
+    if(doc.type==="application/pdf") return { kind:"pdf", media_type:"application/pdf", data };
+    if(doc.type==="image/png" || doc.type==="image/jpeg") return { kind:"image", media_type:doc.type, data };
+    throw new Error("Tipo no soportado para análisis");
+  };
+
+  const runAnalyze = async (doc)=>{
+    const agent = agents.find(a=>String(a.id)===String(agentId));
+    if(!agent) return;
+    if(!canAnalyze(doc.type)){ setError(`${doc.type||"Tipo desconocido"} no soporta análisis automático`); return; }
+    setError(null);
+    setAnalyzing(doc.id);
+    try {
+      const att = await buildAttachment(doc);
+      const report = await analyzeDocument(att, agent, contextLabel||"el caso actual");
+      const now = new Date().toISOString();
+      const next = documents.map(d=>d.id===doc.id ? {...d, analyzedBy: agent.name, analyzedAt: now, report} : d);
+      onChange?.(next);
+      setExpanded(doc.id);
+    } catch(e){
+      setError(e.message||"Error al analizar");
+    } finally {
+      setAnalyzing(null);
+    }
+  };
+
+  const handleFiles = async (fileList, {analyze=false}={})=>{
     const files = Array.from(fileList||[]);
     if(files.length===0) return;
     setError(null);
     setBusy(true);
     try {
       const next = [...documents];
+      const uploadedDocs = [];
       for(const file of files){
         const v = validateFile(file);
         if(v){ setError(v); continue; }
         const meta = await uploadDocument(file, ownerKey);
-        next.push({
+        const doc = {
           id: "doc_"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
           name: meta.name,
           type: meta.type,
@@ -519,9 +559,16 @@ function DocumentUploader({ownerKey, documents = [], onChange}){
           analyzedBy: null,
           analyzedAt: null,
           report: null,
-        });
+        };
+        next.push(doc);
+        uploadedDocs.push(doc);
       }
       onChange?.(next);
+      if(analyze){
+        for(const doc of uploadedDocs){
+          if(canAnalyze(doc.type)) await runAnalyze(doc);
+        }
+      }
     } catch(e){
       setError(e.message||"Error al subir");
     } finally {
@@ -556,6 +603,9 @@ function DocumentUploader({ownerKey, documents = [], onChange}){
     return "📄";
   };
 
+  const hasAgents = agents && agents.length>0;
+  const agentSelected = agentId!=="none";
+
   return(
     <div style={{display:"flex",flexDirection:"column",gap:10}}>
       <div
@@ -583,27 +633,53 @@ function DocumentUploader({ownerKey, documents = [], onChange}){
           accept={ALLOWED_MIME.join(",")}
           multiple
           disabled={busy}
-          onChange={e=>handleFiles(e.target.files)}
+          onChange={e=>handleFiles(e.target.files,{analyze:agentSelected})}
           style={{display:"none"}}
         />
       </div>
+      {hasAgents&&(
+        <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11.5,color:"#6b7280"}}>
+          <label style={{fontWeight:600}}>Analizar con:</label>
+          <select value={agentId} onChange={e=>setAgentId(e.target.value)} style={{flex:1,padding:"6px 10px",borderRadius:6,border:"1px solid #D1D5DB",fontSize:12,fontFamily:"inherit",outline:"none",background:"#fff"}}>
+            <option value="none">Solo guardar</option>
+            {agents.map(a=><option key={a.id} value={a.id}>{a.name}{a.role?` — ${a.role}`:""}</option>)}
+          </select>
+        </div>
+      )}
       {error&&<div style={{fontSize:11.5,color:"#B91C1C",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:6,padding:"6px 10px"}}>{error}</div>}
       {documents.length>0 && (
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
-          {documents.map(doc=>(
-            <div key={doc.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:"#fff",border:"1px solid #E5E7EB",borderRadius:8}}>
-              <span style={{fontSize:16,flexShrink:0}}>{iconFor(doc.type)}</span>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:12.5,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</div>
-                <div style={{fontSize:10.5,color:"#9CA3AF"}}>
-                  {fmtFileSize(doc.size)} · {new Date(doc.uploadedAt).toLocaleDateString("es-ES")}
-                  {doc.analyzedBy && <> · <span style={{color:"#0E7C5A",fontWeight:600}}>analizado por {doc.analyzedBy}</span></>}
+          {documents.map(doc=>{
+            const isExpanded = expanded===doc.id && doc.report;
+            const isAnalyzing = analyzing===doc.id;
+            return(
+              <div key={doc.id} style={{display:"flex",flexDirection:"column",background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,overflow:"hidden"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px"}}>
+                  <span style={{fontSize:16,flexShrink:0}}>{iconFor(doc.type)}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:12.5,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</div>
+                    <div style={{fontSize:10.5,color:"#9CA3AF"}}>
+                      {fmtFileSize(doc.size)} · {new Date(doc.uploadedAt).toLocaleDateString("es-ES")}
+                      {doc.analyzedBy && <> · <span style={{color:"#0E7C5A",fontWeight:600}}>analizado por {doc.analyzedBy}</span></>}
+                    </div>
+                  </div>
+                  {doc.report && <button onClick={()=>setExpanded(e=>e===doc.id?null:doc.id)} title={isExpanded?"Ocultar informe":"Ver informe"} style={{padding:"4px 10px",borderRadius:6,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",cursor:"pointer",fontSize:11,fontWeight:600}}>{isExpanded?"Ocultar":"Ver informe"}</button>}
+                  {!doc.report && hasAgents && agentSelected && canAnalyze(doc.type) && (
+                    <button onClick={()=>runAnalyze(doc)} disabled={isAnalyzing} title="Analizar con el agente seleccionado" style={{padding:"4px 10px",borderRadius:6,background:isAnalyzing?"#FEF3C7":"#F0F9F1",color:isAnalyzing?"#92400E":"#0E7C5A",border:`1px solid ${isAnalyzing?"#FCD34D":"#86EFAC"}`,cursor:isAnalyzing?"wait":"pointer",fontSize:11,fontWeight:600}}>{isAnalyzing?"Analizando…":"Analizar"}</button>
+                  )}
+                  <button onClick={()=>openDoc(doc)} title="Abrir" style={{width:28,height:28,borderRadius:6,background:"#F3F4F6",border:"none",cursor:"pointer",fontSize:13}}>↗</button>
+                  <button onClick={()=>removeDoc(doc)} title="Eliminar" style={{width:28,height:28,borderRadius:6,background:"#FEF2F2",border:"none",cursor:"pointer",fontSize:13,color:"#B91C1C"}}>✕</button>
                 </div>
+                {isExpanded && (
+                  <div style={{borderTop:"1px solid #E5E7EB",padding:"10px 12px",background:"#FAFBFF",fontSize:12,color:"#374151",display:"flex",flexDirection:"column",gap:10}}>
+                    {doc.report.summary && <div><div style={{fontSize:10,fontWeight:700,color:"#1E40AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Resumen ejecutivo</div><div style={{lineHeight:1.5,whiteSpace:"pre-wrap"}}>{doc.report.summary}</div></div>}
+                    {doc.report.details && <div><div style={{fontSize:10,fontWeight:700,color:"#B45309",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Riesgos y oportunidades</div><div style={{lineHeight:1.5,whiteSpace:"pre-wrap"}}>{doc.report.details}</div></div>}
+                    {doc.report.recommendations && <div><div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Recomendaciones</div><div style={{lineHeight:1.5,whiteSpace:"pre-wrap"}}>{doc.report.recommendations}</div></div>}
+                  </div>
+                )}
               </div>
-              <button onClick={()=>openDoc(doc)} title="Abrir" style={{width:28,height:28,borderRadius:6,background:"#F3F4F6",border:"none",cursor:"pointer",fontSize:13}}>↗</button>
-              <button onClick={()=>removeDoc(doc)} title="Eliminar" style={{width:28,height:28,borderRadius:6,background:"#FEF2F2",border:"none",cursor:"pointer",fontSize:13,color:"#B91C1C"}}>✕</button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -1405,6 +1481,8 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
               ownerKey={`task-${task.id}`}
               documents={task.documents||[]}
               onChange={docs=>onUpdate(task.id,colId,{...task,documents:docs})}
+              agents={agents||[]}
+              contextLabel={`la tarea "${task.title}"`}
             />
           )}
         </div>
@@ -4571,6 +4649,8 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               ownerKey={`neg-${negotiation.id}`}
               documents={negotiation.documents||[]}
               onChange={docs=>onUpdateDocuments?.(negotiation.id,docs)}
+              agents={agents||[]}
+              contextLabel={`la negociación "${negotiation.title}" con ${negotiation.counterparty}`}
             />
           </section>
         </div>
