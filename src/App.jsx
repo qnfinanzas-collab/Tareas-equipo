@@ -614,8 +614,11 @@ function VoiceDebugBanner(){
     return <div style={{fontSize:10,background:"#1a1a2e",color:"#aaa",padding:"4px 8px",borderRadius:4,margin:"4px 12px 8px",wordBreak:"break-all"}}>🔊 (aún sin voz seleccionada — habla para disparar)</div>;
   }
   return(
-    <div style={{fontSize:10,background:"#1a1a2e",color:"#aaa",padding:"4px 8px",borderRadius:4,margin:"4px 12px 8px",wordBreak:"break-all"}}>
-      🔊 {dbg.name||"(null)"} | método: {dbg.method} | voces ES: {dbg.count}{dbg.total?` / ${dbg.total}`:""}
+    <div style={{fontSize:10,background:"#1a1a2e",color:"#aaa",padding:"4px 8px",borderRadius:4,margin:"4px 12px 8px",wordBreak:"break-all",lineHeight:1.4}}>
+      <div>🔊 {dbg.name||"(null)"} | método: {dbg.method} | voces ES: {dbg.count}{dbg.total?` / ${dbg.total}`:""}</div>
+      {Array.isArray(dbg.esList) && dbg.esList.length>0 && (
+        <div style={{color:"#6B7280",marginTop:2,fontSize:9.5}}>ES: {dbg.esList.join(" · ")}</div>
+      )}
     </div>
   );
 }

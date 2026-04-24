@@ -105,20 +105,32 @@ export function pickVoice(preferredGender = "any"){
   console.log("[voice] available voices:", voices.map(v=>v.name).join(", ") || "(ninguna aún)");
 
   const esVoices = voices.filter(v => /^es[-_]?/i.test(v.lang));
+  console.log("[voice] voces ES completas:", esVoices.map(v => `${v.name} | ${v.lang}`));
   if(esVoices.length === 0){
     const picked = voices[0] || null;
     console.log("[voice] selected:", picked?.name, "| method: no-es-fallback");
     return picked;
   }
 
+  // nameHas: match parcial case-insensitive. Crítico en iOS donde el
+  // name puede ser "Jorge", "Jorge (mejorada)", "Jorge (Premium)" o
+  // incluso el identificador "com.apple.voice.compact.es-ES.Jorge".
+  // Todos deben casar con "jorge" de la lista.
   const nameHas = (v, list)=>{
     const n = (v.name||"").toLowerCase();
     return list.some(x => n.includes(x));
   };
+  // Cuando hay varias voces que casan (ej: "Jorge" + "Jorge (mejorada)"),
+  // preferimos la variante mejorada/premium/neural/enhanced.
+  const preferEnhanced = (matches)=>{
+    if(matches.length <= 1) return matches[0] || null;
+    return matches.find(v => /mejorada|enhanced|premium|neural|plus|\(mejorada\)|\(premium\)/i.test(v.name))
+        || matches[0];
+  };
   const qualityPick = (pool)=>{
     // Orden explícito: neural > premium > enhanced > google
     return pool.find(v => /neural/i.test(v.name))
-        || pool.find(v => /premium/i.test(v.name))
+        || pool.find(v => /premium|mejorada/i.test(v.name))
         || pool.find(v => /enhanced/i.test(v.name))
         || pool.find(v => /google/i.test(v.name))
         || null;
@@ -133,6 +145,7 @@ export function pickVoice(preferredGender = "any"){
         method,
         count: esVoices.length,
         total: voices.length,
+        esList: esVoices.map(x => `${x.name} (${x.lang})`),
         platform: (navigator?.userAgent||"").slice(0, 60),
       };
       window.__voiceDebug = dbg;
@@ -142,8 +155,12 @@ export function pickVoice(preferredGender = "any"){
   };
 
   if(preferredGender === "male"){
-    // 1) name-match
-    const explicit = esVoices.find(v => nameHas(v, MALE_ES_NAMES));
+    // 1) name-match — recoge TODAS las voces que casan y elige la
+    //    variante mejorada/premium si hay más de una (iOS: "Jorge" y
+    //    "Jorge (mejorada)" conviven; nos quedamos con la mejorada).
+    const allMale = esVoices.filter(v => nameHas(v, MALE_ES_NAMES));
+    console.log("[voice] candidatos masculinos:", allMale.map(v=>v.name));
+    const explicit = preferEnhanced(allMale);
     if(explicit) return logPick(explicit, "name-match");
 
     // Pool tras excluir femeninas conocidas
@@ -162,7 +179,8 @@ export function pickVoice(preferredGender = "any"){
   }
 
   if(preferredGender === "female"){
-    const explicit = esVoices.find(v => nameHas(v, FEMALE_ES_NAMES));
+    const allFemale = esVoices.filter(v => nameHas(v, FEMALE_ES_NAMES));
+    const explicit = preferEnhanced(allFemale);
     if(explicit) return logPick(explicit, "name-match");
   }
 
