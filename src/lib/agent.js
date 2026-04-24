@@ -1073,6 +1073,8 @@ export function executeScopedCommand(cmd, { scope, data, activeProjectId, active
 // LLM corre a través del proxy /api/agent (Vercel function con ANTHROPIC_API_KEY).
 // El usuario no ve ni configura ninguna key.
 
+import { formatCeoMemoryForPrompt } from "./memory.js";
+
 function buildTaskContext(task, members){
   const q = getQ(task);
   const d = daysUntil(task.dueDate);
@@ -1099,7 +1101,8 @@ function buildTaskContext(task, members){
   ].filter(Boolean).join("\n");
 }
 
-export async function llmAgentReply(userText, task, agent, members, history){
+export async function llmAgentReply(userText, task, agent, members, history, ceoMemory){
+  const memBlock = formatCeoMemoryForPrompt(ceoMemory);
   const systemPrompt = [
     agent.promptBase || `Eres ${agent.name}, ${agent.role||"asesor profesional"}.`,
     "",
@@ -1109,10 +1112,11 @@ export async function llmAgentReply(userText, task, agent, members, history){
     "- Si la pregunta es ambigua, pide la aclaración mínima imprescindible.",
     "- Cita normativa/artículos cuando aplique.",
     PLAIN_TEXT_RULE,
+    memBlock ? "\n---\n" + memBlock : null,
     "",
     "CONTEXTO DE LA TAREA ACTUAL:",
     buildTaskContext(task, members),
-  ].join("\n");
+  ].filter(x=>x!==null).join("\n");
 
   const messages = [];
   (history||[]).slice(-8).forEach(m=>{
@@ -1136,7 +1140,8 @@ export async function llmAgentReply(userText, task, agent, members, history){
 // attachment = { kind:"pdf"|"image"|"text", media_type?, data?, text?, name? }
 // contextLabel = "la negociación X" / "la tarea Y" para situar al modelo.
 // Devuelve { summary, details, recommendations } tal como los pidió el prompt.
-export async function analyzeDocument(attachment, agent, contextLabel){
+export async function analyzeDocument(attachment, agent, contextLabel, ceoMemory){
+  const memBlock = formatCeoMemoryForPrompt(ceoMemory);
   const systemPrompt = [
     agent.promptBase || `Eres ${agent.name}, ${agent.role||"analista profesional"}.`,
     "",
@@ -1147,7 +1152,8 @@ export async function analyzeDocument(attachment, agent, contextLabel){
     "  RIESGOS Y OPORTUNIDADES: ...",
     "  RECOMENDACIONES CONCRETAS: ...",
     PLAIN_TEXT_RULE,
-  ].join("\n");
+    memBlock ? "\n---\n" + memBlock : null,
+  ].filter(x=>x!==null).join("\n");
   const prompt = `Analiza este documento en el contexto de ${contextLabel||"el caso actual"}. Da un resumen ejecutivo, identifica riesgos y oportunidades, y lista recomendaciones concretas.`;
   const body = {
     system: systemPrompt,

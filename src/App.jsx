@@ -16,6 +16,7 @@ import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, del
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, PLAIN_TEXT_RULE } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown } from "./lib/voice.js";
+import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
 export const PLAN_HORIZON_DAYS = 14;
@@ -393,7 +394,24 @@ function _migrate(d){
   d.projects = (d.projects||[]).map(p=>({...p, workspaceId: p.workspaceId ?? null}));
   d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[]}))}))]));
   // Backfill documents[] en negociaciones (upload + informes de análisis).
-  d.negotiations = d.negotiations.map(n=>({...n, documents: n.documents||[]}));
+  d.negotiations = d.negotiations.map(n=>({
+    ...n,
+    documents: n.documents||[],
+    memory: n.memory ? {
+      keyFacts:   Array.isArray(n.memory.keyFacts)   ? n.memory.keyFacts   : [],
+      agreements: Array.isArray(n.memory.agreements) ? n.memory.agreements : [],
+      redFlags:   Array.isArray(n.memory.redFlags)   ? n.memory.redFlags   : [],
+      updatedAt:  n.memory.updatedAt || null,
+    } : emptyNegMemory(),
+  }));
+  // Memoria global del CEO (nivel app).
+  d.ceoMemory = d.ceoMemory ? {
+    preferences: Array.isArray(d.ceoMemory.preferences) ? d.ceoMemory.preferences : [],
+    keyFacts:    Array.isArray(d.ceoMemory.keyFacts)    ? d.ceoMemory.keyFacts    : [],
+    decisions:   Array.isArray(d.ceoMemory.decisions)   ? d.ceoMemory.decisions   : [],
+    lessons:     Array.isArray(d.ceoMemory.lessons)     ? d.ceoMemory.lessons     : [],
+    updatedAt:   d.ceoMemory.updatedAt || null,
+  } : emptyCeoMemory();
   return d;
 }
 function _loadData(){
@@ -570,7 +588,7 @@ function PortalDropdown({getAnchor, open, onClose, children, minWidth = 170}){
 // ownerKey = identificador del contenedor ("neg-<id>" o "task-<id>") que se
 // usa como prefijo del path en el bucket. documents se persiste en el estado
 // (negotiation.documents o task.documents) vía onChange.
-function DocumentUploader({ownerKey, documents = [], onChange, agents = [], contextLabel, onPostChatMessage}){
+function DocumentUploader({ownerKey, documents = [], onChange, agents = [], contextLabel, onPostChatMessage, ceoMemory}){
   const [busy,setBusy]    = useState(false);
   const [error,setError]  = useState(null);
   const [dragOver,setDragOver] = useState(false);
@@ -618,7 +636,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
     setAnalyzing(doc.id);
     try {
       const att = await buildAttachment(doc);
-      const report = await analyzeDocument(att, agent, contextLabel||"el caso actual");
+      const report = await analyzeDocument(att, agent, contextLabel||"el caso actual", ceoMemory);
       const now = new Date().toISOString();
       const next = documents.map(d=>d.id===doc.id ? {...d, analyzedBy: agent.name, analyzedAt: now, report} : d);
       onChange?.(next);
@@ -728,7 +746,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
           setAnalyzing(doc.id);
           try {
             const att = { kind:"text", name:doc.name, text: doc.text.slice(0,50000) };
-            const report = await analyzeDocument(att, agent, contextLabel||"el caso actual");
+            const report = await analyzeDocument(att, agent, contextLabel||"el caso actual", ceoMemory);
             const updated = next.map(d=>d.id===doc.id ? {...d, analyzedBy: agent.name, analyzedAt: new Date().toISOString(), report} : d);
             onChange?.(updated);
             setExpanded(doc.id);
@@ -1635,13 +1653,13 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
       )}
 
       {profileMember&&<ProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onSave={avail=>{saveMemberProfile?.(profileMember.id,avail);delete ICS_CACHE[profileMember.id];setResult(null);}}/>}
-      {editingTask&&<TaskModal task={editingTask.task} colId={editingTask.colId} cols={editingTask.cols} members={data.members} activeMemberId={0} workspaceLinks={[]} agents={data.agents||[]} onClose={()=>setEditingTask(null)} onUpdate={(id,cid,upd)=>{onUpdateTask?.(id,upd);setEditingTask(prev=>prev?{...prev,task:upd}:null);}} onMove={()=>setEditingTask(null)}/>}
+      {editingTask&&<TaskModal task={editingTask.task} colId={editingTask.colId} cols={editingTask.cols} members={data.members} activeMemberId={0} workspaceLinks={[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} onClose={()=>setEditingTask(null)} onUpdate={(id,cid,upd)=>{onUpdateTask?.(id,upd);setEditingTask(prev=>prev?{...prev,task:upd}:null);}} onMove={()=>setEditingTask(null)}/>}
     </div>
   );
 }
 
 // ── Task Modal ────────────────────────────────────────────────────────────────
-function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,onClose,onUpdate,onMove}){
+function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,ceoMemory,onClose,onUpdate,onMove}){
   const [editing,setEditing]=useState(false);
   const [draft,setDraft]=useState({...task});
   const [comment,setComment]=useState("");
@@ -1727,7 +1745,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
           </div>
         </div>
         {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
-        {avatarOpen&&<AvatarModal task={task} members={members} connectedAgents={(agents||[]).filter(a=>(task.agentIds||[]).includes(a.id))} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})} onMutateTask={newTask=>onUpdate(task.id,colId,newTask)}/>}
+        {avatarOpen&&<AvatarModal task={task} members={members} connectedAgents={(agents||[]).filter(a=>(task.agentIds||[]).includes(a.id))} ceoMemory={ceoMemory} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})} onMutateTask={newTask=>onUpdate(task.id,colId,newTask)}/>}
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
           {[["detail","Detalle"],["subtasks","Subtareas"],["links","Enlaces"],["time","Tiempo"],["comments","Comentarios"],["documents","Documentos"]].map(([k,l])=>(
@@ -1959,6 +1977,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
               onChange={docs=>onUpdate(task.id,colId,{...task,documents:docs})}
               agents={agents||[]}
               contextLabel={`la tarea "${task.title}"`}
+              ceoMemory={ceoMemory}
             />
           )}
         </div>
@@ -1968,7 +1987,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
 }
 
 // ── Asesor IA (voz del navegador) ─────────────────────────────────────────────
-function AvatarModal({task,members,connectedAgents,onClose,onSetCategory,onMutateTask}){
+function AvatarModal({task,members,connectedAgents,ceoMemory,onClose,onSetCategory,onMutateTask}){
   const support = voiceSupported();
   const customAgents = connectedAgents||[];
   const hasCustom = customAgents.length>0;
@@ -2016,7 +2035,7 @@ function AvatarModal({task,members,connectedAgents,onClose,onSetCategory,onMutat
     // 2) Si hay agente custom → LLM real vía /api/agent
     if(activeAgent){
       try {
-        const reply = await llmAgentReply(text, task, activeAgent, members, messagesRef.current);
+        const reply = await llmAgentReply(text, task, activeAgent, members, messagesRef.current, ceoMemory);
         say(reply,"avatar");
         return;
       } catch(e){
@@ -2263,7 +2282,7 @@ function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
 }
 
 // ── Board View ────────────────────────────────────────────────────────────────
-function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask}){
+function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,ceoMemory,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask}){
   const [openTaskId,setOpenTaskId]=useState(null);
   useEffect(()=>{
     if(externalOpenTaskId){
@@ -2295,7 +2314,7 @@ function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,wor
           </div>
         ))}
       </div>
-      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} agents={agents||[]} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}}/>}
+      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} agents={agents||[]} ceoMemory={ceoMemory} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}}/>}
     </>
   );
 }
@@ -4806,7 +4825,7 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessionsAsc = (negotiation.sessions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -5130,6 +5149,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               agents={agents||[]}
               contextLabel={`la negociación "${negotiation.title}" con ${negotiation.counterparty}`}
               onPostChatMessage={msg=>onAppendHectorMessage(negotiation.id,msg)}
+              ceoMemory={ceoMemory}
             />
           </section>
         </div>
@@ -5213,7 +5233,15 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           const callAgent = async(userMessage, opts={})=>{
             if(!hector){ onAppendHectorMessage(negotiation.id,{role:"assistant",content:"⚠ No hay agente Héctor configurado. Añádelo desde Agentes IA.",timestamp:new Date().toISOString()}); return null; }
             const coherenceRule = "Mantén coherencia con toda la conversación. Si el usuario dice 'como te decía' o 'lo que te expliqué antes', busca en el historial anterior y conecta.";
-            const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + buildContext() + "\n\n" + coherenceRule + "\n\n" + PLAIN_TEXT_RULE + (opts.extraSystem?("\n\n"+opts.extraSystem):"");
+            const ceoBlock = formatCeoMemoryForPrompt(ceoMemory);
+            const negBlock = formatNegMemoryForPrompt(negotiation.memory);
+            const memoryBlock = [ceoBlock, negBlock].filter(Boolean).join("\n\n");
+            const system = (hector.promptBase||"")
+              + (memoryBlock?("\n\n---\n"+memoryBlock):"")
+              + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + buildContext()
+              + "\n\n" + coherenceRule
+              + "\n\n" + PLAIN_TEXT_RULE
+              + (opts.extraSystem?("\n\n"+opts.extraSystem):"");
             // Ventana de contexto: ≤30 mensajes se envían enteros. Por encima,
             // primeros 5 (semilla del hilo) + últimos 25 (continuidad reciente).
             const all = negotiation.hectorChat||[];
@@ -6648,6 +6676,7 @@ export default function TaskFlow(){
                 task={t} colId={col.id} cols={cols}
                 members={data.members} activeMemberId={activeMember}
                 workspaceLinks={ws?.links||[]} agents={data.agents||[]}
+                ceoMemory={data.ceoMemory}
                 onClose={()=>setOverlayTaskId(null)}
                 onUpdate={(id,_cid,upd)=>updateTaskAnywhere(id,upd)}
                 onMove={(id,from,to)=>{moveTaskAnywhere(id,from,to);setOverlayTaskId(null);}}
@@ -6916,6 +6945,7 @@ export default function TaskFlow(){
                 onSetAnalysis={setNegHectorAnalysis}
                 onSaveBriefing={(nid,briefing)=>setNegBriefing(nid,briefing)}
                 onUpdateDocuments={setNegDocuments}
+                ceoMemory={data.ceoMemory}
                 onOverlayTask={id=>setOverlayTaskId(id)}
               />;
             }
@@ -6933,7 +6963,7 @@ export default function TaskFlow(){
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
-          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
+          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
           {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile} onUpdateTask={updateTaskAnywhere}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
