@@ -5301,10 +5301,11 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                 setSpeakingMsgTs(assistantTs);
                 speakAgentResponse(content,hector,{onEnd:()=>setSpeakingMsgTs(null)});
               }
-              // Auto-aprendizaje silencioso (fire-and-forget, no bloquea).
+              // Auto-aprendizaje fire-and-forget (no bloquea el chat).
               // Envía últimos 4 msgs al LLM con prompt de extracción y añade
               // items deduplicados a ceoMemory / negotiation.memory.
               (async()=>{
+                console.log("[memory] auto-learn triggered · neg:", negotiation.title, "· hasHandlers:", {ceo: !!onAddCeoMemory, neg: !!onAddNegMemory, toast: !!onMemorized});
                 try {
                   const recent = [
                     ...((negotiation.hectorChat||[]).slice(-3)),
@@ -5329,8 +5330,11 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                     }, "auto");
                   }
                   const total = addedCeo + addedNeg;
+                  console.log("[memory] auto-learn done · addedCeo:", addedCeo, "· addedNeg:", addedNeg, "· total:", total);
                   if(total>0) onMemorized?.({count:total, agentName: hector?.name||"Agente"});
-                } catch {}
+                } catch(err){
+                  console.warn("[memory] auto-learn failed:", err);
+                }
               })();
             }catch(e){
               onAppendHectorMessage(negotiation.id,{role:"assistant",content:`⚠ ${e.message||"Error"}`,timestamp:new Date().toISOString()});
@@ -6336,6 +6340,12 @@ function UserSelectionModal({members,onSelectUser}){
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function TaskFlow(){
   const [data,setData]             = useState(_saved);
+  // Espejo de `data` en ref para leer estado actual desde callbacks sin
+  // depender del timing de setState (útil en flujos async como auto-learn
+  // de memoria, donde queremos devolver el nº de items añadidos al caller
+  // sincrónicamente).
+  const dataRef = useRef(_saved);
+  useEffect(()=>{ dataRef.current = data; },[data]);
   const isRemoteUpdate             = useRef(false);
   const [syncReady,setSyncReady]   = useState(!syncEnabled);
   const [syncStatus,setSyncStatus] = useState(syncEnabled?"connecting":"off");
@@ -6746,47 +6756,56 @@ export default function TaskFlow(){
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,documents,updatedAt:now}:n)}));
   },[]);
   // Memoria: añade items deduplicados. sections = {preferences?, keyFacts?,
-  // decisions?, lessons?}. Cada valor es array de strings. Devuelve nº añadidos.
+  // decisions?, lessons?}. Cada valor es array de strings. Devuelve nº
+  // añadidos sincrónicamente (computado contra dataRef, no dependiendo
+  // del updater de setState que con batching async puede diferirse).
   const addCeoMemoryItems = useCallback((sections, source="auto")=>{
+    const cur = dataRef.current?.ceoMemory || emptyCeoMemory();
+    const next = {...cur};
     let added = 0;
-    setData(prev=>{
-      const cur = prev.ceoMemory || emptyCeoMemory();
-      const next = {...cur};
-      for(const key of CEO_MEMORY_KEYS){
-        const list = Array.isArray(sections?.[key]) ? sections[key] : [];
-        let arr = next[key]||[];
-        for(const text of list){
-          const res = addUnique(arr, text, source);
-          arr = res.list; if(res.added) added++;
-        }
-        next[key] = arr;
+    for(const key of CEO_MEMORY_KEYS){
+      const list = Array.isArray(sections?.[key]) ? sections[key] : [];
+      let arr = next[key]||[];
+      for(const text of list){
+        const res = addUnique(arr, text, source);
+        arr = res.list; if(res.added) added++;
       }
-      next.updatedAt = new Date().toISOString();
-      return {...prev, ceoMemory: next};
-    });
+      next[key] = arr;
+    }
+    next.updatedAt = new Date().toISOString();
+    console.log("[memory] addCeoMemoryItems · input:", Object.fromEntries(Object.entries(sections||{}).map(([k,v])=>[k,(v||[]).length])), "· added:", added);
+    if(added>0){
+      // Actualiza ref en el acto para que llamadas sucesivas vean los cambios
+      // antes de que React flushe el re-render.
+      dataRef.current = {...dataRef.current, ceoMemory: next};
+      setData(prev=>({...prev, ceoMemory: next}));
+    }
     return added;
   },[]);
   const addNegMemoryItems = useCallback((negId, sections, source="auto")=>{
+    const neg = (dataRef.current?.negotiations||[]).find(n=>n.id===negId);
+    if(!neg){ console.warn("[memory] addNegMemoryItems · neg not found:", negId); return 0; }
+    const cur = neg.memory || emptyNegMemory();
+    const next = {...cur};
     let added = 0;
-    setData(prev=>({
-      ...prev,
-      negotiations: (prev.negotiations||[]).map(n=>{
-        if(n.id!==negId) return n;
-        const cur = n.memory || emptyNegMemory();
-        const next = {...cur};
-        for(const key of NEG_MEMORY_KEYS){
-          const list = Array.isArray(sections?.[key]) ? sections[key] : [];
-          let arr = next[key]||[];
-          for(const text of list){
-            const res = addUnique(arr, text, source);
-            arr = res.list; if(res.added) added++;
-          }
-          next[key] = arr;
-        }
-        next.updatedAt = new Date().toISOString();
-        return {...n, memory: next};
-      }),
-    }));
+    for(const key of NEG_MEMORY_KEYS){
+      const list = Array.isArray(sections?.[key]) ? sections[key] : [];
+      let arr = next[key]||[];
+      for(const text of list){
+        const res = addUnique(arr, text, source);
+        arr = res.list; if(res.added) added++;
+      }
+      next[key] = arr;
+    }
+    next.updatedAt = new Date().toISOString();
+    console.log("[memory] addNegMemoryItems · neg:", negId, "· input:", Object.fromEntries(Object.entries(sections||{}).map(([k,v])=>[k,(v||[]).length])), "· added:", added);
+    if(added>0){
+      dataRef.current = {
+        ...dataRef.current,
+        negotiations: dataRef.current.negotiations.map(n=>n.id===negId?{...n, memory: next}:n),
+      };
+      setData(prev=>({...prev, negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n, memory: next}:n)}));
+    }
     return added;
   },[]);
   const removeCeoMemoryItem = useCallback((category, itemId)=>{

@@ -1179,21 +1179,25 @@ export async function analyzeDocument(attachment, agent, contextLabel, ceoMemory
 //   negKeyFacts:[], negAgreements:[], negRedFlags:[] } con strings cortas.
 // Silencioso: si falla el parse, devuelve arrays vacíos; nunca lanza.
 export async function extractMemoryFromChat(recentMessages, negTitle){
+  console.log("[memory] extractMemoryFromChat called · msgs:", (recentMessages||[]).length, "· neg:", negTitle||"(none)");
   const system = [
     "Eres un extractor de memoria silencioso. Analizas conversaciones y",
     "extraes datos objetivos y estables que conviene recordar a futuro.",
     "",
     "Reglas estrictas:",
-    "- Solo extrae información duradera: preferencias del usuario, hechos",
-    "  factuales, decisiones tomadas, lecciones aprendidas, acuerdos,",
-    "  red flags. NUNCA: estados emocionales pasajeros, saludos, opiniones",
-    "  triviales, cortesías.",
+    "- Extrae información duradera: preferencias del usuario, hechos",
+    "  factuales mencionados, decisiones tomadas, lecciones aprendidas,",
+    "  acuerdos alcanzados, red flags o alertas.",
+    "- NO extraigas: estados emocionales pasajeros, saludos, cortesías,",
+    "  opiniones triviales sin sustancia.",
     "- Cada item: frase breve (<15 palabras), tono neutro, en español,",
     "  sin markdown, sin comillas, sin puntos finales.",
+    "- Si algo relevante aparece, extráelo aunque sea solo 1 item.",
     "- Si nada es digno de recordar, devuelve todos los arrays vacíos.",
-    "- Responde ÚNICAMENTE con JSON válido, sin prosa, sin markdown.",
+    "- Responde ÚNICAMENTE con JSON válido, sin prosa, sin markdown,",
+    "  sin bloques ```json. Empieza con { y termina con }.",
     "",
-    "Formato exacto:",
+    "Formato exacto (mismas claves, mismo orden):",
     `{"ceoPreferences":[],"keyFacts":[],"decisions":[],"lessons":[],"negKeyFacts":[],"negAgreements":[],"negRedFlags":[]}`,
   ].join("\n");
   const convo = (recentMessages||[]).slice(-4).map(m=>{
@@ -1202,7 +1206,7 @@ export async function extractMemoryFromChat(recentMessages, negTitle){
   }).join("\n\n");
   const userPrompt = (negTitle ? `Negociación en curso: ${negTitle}\n\n` : "")
     + "Conversación reciente:\n\n" + convo
-    + "\n\nExtrae solo lo que realmente merezca recordarse. Si no hay nada nuevo, devuelve todos los arrays vacíos.";
+    + "\n\nExtrae lo que merezca recordarse. Devuelve el JSON ahora.";
   const empty = { ceoPreferences:[], keyFacts:[], decisions:[], lessons:[], negKeyFacts:[], negAgreements:[], negRedFlags:[] };
   try {
     const res = await fetch("/api/agent", {
@@ -1210,20 +1214,38 @@ export async function extractMemoryFromChat(recentMessages, negTitle){
       headers:{ "content-type":"application/json" },
       body: JSON.stringify({ system, messages:[{role:"user",content:userPrompt}], max_tokens:500 }),
     });
-    const data = await res.json().catch(()=>({}));
-    if(!res.ok) return empty;
+    const data = await res.json().catch(e=>{ console.warn("[memory] res.json() failed:", e); return {}; });
+    if(!res.ok){
+      console.warn("[memory] /api/agent not ok · status:", res.status, "· error:", data.error);
+      return empty;
+    }
     const text = data.text || "";
+    console.log("[memory] LLM raw text (first 400):", text.slice(0,400));
     const m = text.match(/\{[\s\S]*\}/);
-    if(!m) return empty;
-    const parsed = JSON.parse(m[0]);
+    if(!m){
+      console.warn("[memory] no JSON braces found in response");
+      return empty;
+    }
+    let parsed;
+    try { parsed = JSON.parse(m[0]); }
+    catch(e){
+      console.warn("[memory] JSON.parse failed:", e.message, "· raw match:", m[0].slice(0,300));
+      return empty;
+    }
+    console.log("[memory] parsed keys:", Object.keys(parsed||{}));
     // Normaliza: fuerza arrays de strings no vacías.
     const clean = {};
+    let totalIn = 0, totalOut = 0;
     for(const k of Object.keys(empty)){
       const arr = Array.isArray(parsed[k]) ? parsed[k] : [];
+      totalIn += arr.length;
       clean[k] = arr.map(s=>String(s||"").trim()).filter(s=>s.length>=3 && s.length<=200);
+      totalOut += clean[k].length;
     }
+    console.log("[memory] extracted items: in=", totalIn, "· after filter=", totalOut, "· counts:", Object.fromEntries(Object.entries(clean).map(([k,v])=>[k,v.length])));
     return clean;
-  } catch {
+  } catch(e){
+    console.warn("[memory] extractMemoryFromChat threw:", e);
     return empty;
   }
 }
