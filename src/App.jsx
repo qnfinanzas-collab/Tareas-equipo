@@ -14,7 +14,7 @@ import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import jsPDF from "jspdf";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, PLAIN_TEXT_RULE } from "./lib/agent.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, PLAIN_TEXT_RULE } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
@@ -398,11 +398,12 @@ function _migrate(d){
     ...n,
     documents: n.documents||[],
     memory: n.memory ? {
-      keyFacts:   Array.isArray(n.memory.keyFacts)   ? n.memory.keyFacts   : [],
-      agreements: Array.isArray(n.memory.agreements) ? n.memory.agreements : [],
-      redFlags:   Array.isArray(n.memory.redFlags)   ? n.memory.redFlags   : [],
-      updatedAt:  n.memory.updatedAt || null,
-    } : emptyNegMemory(),
+      keyFacts:      Array.isArray(n.memory.keyFacts)      ? n.memory.keyFacts      : [],
+      agreements:    Array.isArray(n.memory.agreements)    ? n.memory.agreements    : [],
+      redFlags:      Array.isArray(n.memory.redFlags)      ? n.memory.redFlags      : [],
+      chatSummaries: Array.isArray(n.memory.chatSummaries) ? n.memory.chatSummaries : [],
+      updatedAt:     n.memory.updatedAt || null,
+    } : {...emptyNegMemory(), chatSummaries:[]},
   }));
   // Memoria global del CEO (nivel app).
   d.ceoMemory = d.ceoMemory ? {
@@ -4829,7 +4830,7 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onSummarizeAndClearChat,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessionsAsc = (negotiation.sessions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -5235,6 +5236,18 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               lines.push(`\nCOMENTARIOS DE TAREAS VINCULADAS (${Math.min(20,taskComments.length)}/${taskComments.length}):`);
               taskComments.slice(0,20).forEach(c=>lines.push(`- ${c}`));
             }
+            // Resúmenes de chats anteriores con Héctor (auto-generados al
+            // pulsar "Limpiar chat"). Dan continuidad entre hilos pasados
+            // y actuales sin arrastrar el histórico completo.
+            const summaries = negotiation.memory?.chatSummaries || [];
+            if(summaries.length>0){
+              lines.push(`\nRESÚMENES DE CONVERSACIONES ANTERIORES (${summaries.length}):`);
+              summaries.slice(-5).forEach(s=>{
+                lines.push(`---`);
+                lines.push(s.summary);
+                if((s.keyPoints||[]).length) lines.push(`Puntos clave: ${s.keyPoints.join(", ")}`);
+              });
+            }
             // Documentos adjuntos a la negociación. Para los que ya tienen
             // informe de análisis previo, incluimos resumen + riesgos +
             // recomendaciones para que Héctor pueda referirse a ellos. Los
@@ -5437,7 +5450,7 @@ ${taskLines||"(ninguna)"}`;
                     <button onClick={()=>onClearHectorErrors(negotiation.id)} title="Limpiar solo mensajes de error" style={{background:"#FEF2F2",border:"0.5px solid #FCA5A5",fontSize:10,cursor:"pointer",color:"#B91C1C",padding:"3px 8px",borderRadius:6,fontFamily:"inherit",fontWeight:600}}>🧹 errores</button>
                   ) : null;
                 })()}
-                {chatMsgs.length>0&&<button onClick={()=>{ if(window.confirm("¿Limpiar todo el chat con Héctor en esta negociación?")) onClearHectorChat(negotiation.id); }} title="Limpiar todo el chat" style={{background:"none",border:"none",fontSize:14,cursor:"pointer",color:"#9CA3AF"}}>🗑</button>}
+                {chatMsgs.length>0&&<button onClick={()=>{ if(window.confirm("¿Limpiar el chat con Héctor? Antes se resumirá y guardará en memoria.")) onSummarizeAndClearChat?.(negotiation.id); }} title="Limpiar todo el chat" style={{background:"none",border:"none",fontSize:14,cursor:"pointer",color:"#9CA3AF"}}>🗑</button>}
               </div>
               {/* Acciones */}
               <div style={{padding:"10px 16px",borderBottom:"1px solid #F3F4F6",display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -5518,7 +5531,7 @@ ${taskLines||"(ninguna)"}`;
                         label="Exportar PDF"
                       />
                       <button
-                        onClick={()=>{ if(window.confirm("¿Limpiar todo el chat con Héctor en esta negociación?")) onClearHectorChat(negotiation.id); }}
+                        onClick={()=>{ if(window.confirm("¿Limpiar el chat con Héctor? Antes se resumirá y guardará en memoria.")) onSummarizeAndClearChat?.(negotiation.id); }}
                         style={{padding:"5px 10px",borderRadius:6,background:"#fff",color:"#B91C1C",border:"1px solid #FCA5A5",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}
                       >Limpiar chat</button>
                       {!isRed && (
@@ -6893,6 +6906,57 @@ export default function TaskFlow(){
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,hectorChat:[],updatedAt:new Date().toISOString()}:n)}));
     addToast("Chat con Héctor limpiado","info");
   },[addToast]);
+  // Resume el chat con el LLM, persiste el resumen + keyPoints en la
+  // memoria de la negociación, y SOLO después limpia hectorChat. Así
+  // al usuario no se le pierde el contexto ni tiene que exportar+
+  // reimportar el PDF: Héctor recordará los puntos clave en el próximo
+  // turno vía buildContext().
+  const summarizeAndClearHectorChat = useCallback(async (negId)=>{
+    const neg = (dataRef.current?.negotiations||[]).find(n=>n.id===negId);
+    if(!neg){ console.warn("[memory] summarize: neg not found", negId); return; }
+    const msgs = neg.hectorChat||[];
+    if(msgs.length===0){ clearHectorChat(negId); return; }
+    addToast("⏳ Resumiendo el chat antes de limpiar…","info",{ttl:4000});
+    try {
+      const { summary, keyPoints } = await summarizeChat(msgs, neg.title);
+      const summaryItem = {
+        id: "sum_"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+        summary,
+        keyPoints,
+        messageCount: msgs.length,
+        createdAt: new Date().toISOString(),
+      };
+      // Persiste resumen + keyPoints en memoria (source="auto-summary")
+      // y LUEGO limpia el chat. Todo en un solo setData para atomicidad.
+      setData(prev=>({
+        ...prev,
+        negotiations:(prev.negotiations||[]).map(n=>{
+          if(n.id!==negId) return n;
+          const mem = n.memory || emptyNegMemory();
+          let keyFacts = mem.keyFacts||[];
+          for(const kp of keyPoints){
+            const res = addUnique(keyFacts, kp, "auto-summary");
+            keyFacts = res.list;
+          }
+          return {
+            ...n,
+            hectorChat: [],
+            memory: {
+              ...mem,
+              chatSummaries: [...(mem.chatSummaries||[]), summaryItem],
+              keyFacts,
+              updatedAt: new Date().toISOString(),
+            },
+            updatedAt: new Date().toISOString(),
+          };
+        }),
+      }));
+      addToast(`🧠 Chat resumido y guardado en memoria. Héctor recordará los puntos clave.`,"success",{ttl:5000, onClick:()=>setActiveTab("memory")});
+    } catch(e){
+      console.warn("[memory] summarizeAndClear threw, clearing anyway:", e);
+      clearHectorChat(negId);
+    }
+  },[addToast, clearHectorChat]);
   const clearHectorErrors = useCallback((negId)=>{
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>{
       if(n.id!==negId) return n;
@@ -7295,6 +7359,7 @@ export default function TaskFlow(){
                 onAddCeoMemory={addCeoMemoryItems}
                 onAddNegMemory={addNegMemoryItems}
                 onRemoveNegMemory={removeNegMemoryItem}
+                onSummarizeAndClearChat={summarizeAndClearHectorChat}
                 onMemorized={({count,agentName})=>addToast(`🧠 ${agentName} ha memorizado ${count} dato${count!==1?"s":""} nuevo${count!==1?"s":""}`,"info",{ttl:5000,onClick:()=>setActiveTab("memory")})}
                 onOverlayTask={id=>setOverlayTaskId(id)}
               />;

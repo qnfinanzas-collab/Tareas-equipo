@@ -10,7 +10,7 @@ export function emptyCeoMemory(){
   return { preferences:[], keyFacts:[], decisions:[], lessons:[], updatedAt:null };
 }
 export function emptyNegMemory(){
-  return { keyFacts:[], agreements:[], redFlags:[], updatedAt:null };
+  return { keyFacts:[], agreements:[], redFlags:[], chatSummaries:[], updatedAt:null };
 }
 
 export function createMemoryItem(text, source = "manual"){

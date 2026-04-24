@@ -1250,6 +1250,61 @@ export async function extractMemoryFromChat(recentMessages, negTitle){
   }
 }
 
+// Resumen de un hilo completo del chat antes de limpiarlo. Devuelve
+// {summary, keyPoints} estructurado (2-3 frases + máx 10 bullets).
+// Silencioso: nunca lanza. Si el LLM falla, devuelve resumen mínimo
+// sintético para no perder trazabilidad.
+export async function summarizeChat(messages, negTitle){
+  console.log("[memory] summarizeChat called · msgs:", (messages||[]).length, "· neg:", negTitle||"(none)");
+  const transcript = (messages||[]).map(m=>{
+    const who = m.role==="user" ? "Usuario" : "Agente";
+    return `${who}: ${m.content||""}`;
+  }).join("\n\n");
+  const system = [
+    "Eres un archivista. Resumes una conversación completa para que",
+    "pueda recordarse en el futuro sin el detalle turno a turno.",
+    "",
+    "Reglas:",
+    "- Extrae decisiones tomadas, datos importantes, acuerdos,",
+    "  compromisos y hechos que valga la pena recordar.",
+    "- Cada keyPoint: frase breve (<15 palabras), neutro, sin markdown.",
+    "- summary: 2-3 frases factuales que describan el contenido.",
+    "- Máximo 10 keyPoints. Si la conversación es corta o trivial,",
+    "  menos (incluso 0).",
+    "- Responde ÚNICAMENTE con JSON válido, sin prosa, sin ```json.",
+    "",
+    "Formato exacto:",
+    `{"summary":"...","keyPoints":["..."]}`,
+  ].join("\n");
+  const prompt = (negTitle?`Negociación: ${negTitle}\n\n`:"") + "Conversación completa:\n\n" + transcript + "\n\nResume ahora.";
+  const fallback = { summary: `Conversación archivada (${(messages||[]).length} mensajes)`, keyPoints: [] };
+  try {
+    const res = await fetch("/api/agent", {
+      method:"POST",
+      headers:{ "content-type":"application/json" },
+      body: JSON.stringify({ system, messages:[{role:"user",content:prompt}], max_tokens:1200 }),
+    });
+    const data = await res.json().catch(e=>{ console.warn("[memory] summarize res.json() failed:", e); return {}; });
+    if(!res.ok){ console.warn("[memory] summarize status", res.status, data.error); return fallback; }
+    const text = data.text || "";
+    console.log("[memory] summarize raw (first 300):", text.slice(0,300));
+    const m = text.match(/\{[\s\S]*\}/);
+    if(!m){ console.warn("[memory] summarize no JSON braces"); return fallback; }
+    let parsed;
+    try { parsed = JSON.parse(m[0]); }
+    catch(e){ console.warn("[memory] summarize JSON.parse failed:", e.message); return fallback; }
+    const summary = typeof parsed.summary === "string" ? parsed.summary.trim() : "";
+    const keyPoints = Array.isArray(parsed.keyPoints)
+      ? parsed.keyPoints.map(s=>String(s||"").trim()).filter(s=>s.length>=3 && s.length<=200).slice(0,10)
+      : [];
+    console.log("[memory] summarize done · summary chars:", summary.length, "· keyPoints:", keyPoints.length);
+    return { summary: summary || fallback.summary, keyPoints };
+  } catch(e){
+    console.warn("[memory] summarizeChat threw:", e);
+    return fallback;
+  }
+}
+
 function parseAnalysisReport(text){
   const sections = { summary:"", details:"", recommendations:"" };
   const blocks = text.split(/\n(?=[A-ZÁÉÍÓÚÑ ]{3,}:)/);
