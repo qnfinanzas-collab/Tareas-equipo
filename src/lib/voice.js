@@ -39,33 +39,70 @@ export function getVoices(){
 }
 
 // Elige voz española priorizando por nombre propio. Las voces del SO no
-// suelen incluir "male"/"female" en el name, así que comparamos con la
-// lista de nombres comunes por género.
-const MALE_ES_NAMES   = ["jorge","diego","pablo","enrique","miguel","andrés","andres","carlos","juan"];
-const FEMALE_ES_NAMES = ["mónica","monica","paulina","rosa","elena","conchita","lucía","lucia","carmen","isabel","marisol"];
+// suelen incluir "male"/"female" en el name, así que comparamos con lista
+// de nombres y, en móviles donde los nombres varían (Google TTS, Android,
+// iOS sin voces extra instaladas), EXCLUIMOS las voces femeninas conocidas
+// y devolvemos la primera restante — nunca caemos al primer elemento
+// genérico (suele ser Mónica en iOS → fallo silencioso del género).
+const MALE_ES_NAMES = [
+  // Desktop / iOS si el usuario las ha instalado
+  "jorge","diego","pablo","enrique","miguel","andrés","andres","carlos","juan",
+  // Android / Google TTS — códigos comunes de voces masculinas
+  "eee","eef","eed",
+  // Etiquetas genéricas que a veces aparecen
+  "male","hombre","masculino",
+];
+const FEMALE_ES_NAMES = [
+  "mónica","monica","paulina","rosa","elena","conchita","lucía","lucia",
+  "carmen","isabel","marisol","esperanza","sofia","sofía","laura","marta",
+  "female","mujer","femenino",
+];
 
 export function pickVoice(preferredGender = "any"){
   const voices = getVoices();
+  console.log("[voice] voces disponibles:", voices.map(v=>`${v.name} | ${v.lang}${v.default?" (default)":""}`));
   const esVoices = voices.filter(v => /^es[-_]?/i.test(v.lang));
-  if(esVoices.length === 0) return voices[0] || null;
+  if(esVoices.length === 0){
+    console.warn("[voice] sin voces es-*, fallback a voices[0]:", voices[0]?.name);
+    return voices[0] || null;
+  }
 
-  const matchByNames = (names)=> esVoices.find(v=>{
+  const nameHas = (v, list)=>{
     const n = (v.name||"").toLowerCase();
-    return names.some(x => n.includes(x));
-  });
+    return list.some(x => n.includes(x));
+  };
 
   if(preferredGender === "male"){
-    const m = matchByNames(MALE_ES_NAMES);
-    if(m) return m;
+    // 1) Nombre masculino explícito
+    const explicit = esVoices.find(v => nameHas(v, MALE_ES_NAMES));
+    if(explicit){
+      console.log("[voice] male match (nombre explícito):", explicit.name, "|", explicit.lang);
+      return explicit;
+    }
+    // 2) Excluir voces femeninas conocidas → primera restante
+    const nonFemale = esVoices.filter(v => !nameHas(v, FEMALE_ES_NAMES));
+    if(nonFemale.length > 0){
+      console.log("[voice] male fallback (excluyendo femeninas):", nonFemale[0].name, "|", nonFemale[0].lang);
+      return nonFemale[0];
+    }
+    // 3) Todas las voces es-* parecen femeninas. Mejor Mónica que nada.
+    console.warn("[voice] ninguna voz masculina disponible, todas las es-* parecen femeninas:", esVoices.map(v=>v.name));
+    return esVoices[0];
   }
+
   if(preferredGender === "female"){
-    const f = matchByNames(FEMALE_ES_NAMES);
-    if(f) return f;
+    const explicit = esVoices.find(v => nameHas(v, FEMALE_ES_NAMES));
+    if(explicit){
+      console.log("[voice] female match:", explicit.name);
+      return explicit;
+    }
   }
-  // Fallback: preferimos voces marcadas como neural/premium/enhanced
-  // (mejor calidad) antes que la primera cualquiera.
+
+  // "any" — preferimos voces marcadas como neural/premium/enhanced
   const neural = esVoices.find(v => /neural|premium|enhanced|google/i.test(v.name));
-  return neural || esVoices[0];
+  const picked = neural || esVoices[0];
+  console.log("[voice] any match:", picked?.name, "|", picked?.lang);
+  return picked;
 }
 
 // Limpia sintaxis markdown del texto antes de pasarlo a un TTS o de
@@ -90,6 +127,7 @@ export function speak(text, { rate = 1, pitch = 1, gender = "any", onEnd } = {})
   stopSpeaking();
   const u = new SpeechSynthesisUtterance(stripMarkdown(text));
   const v = pickVoice(gender);
+  console.log("[voice] speak() · gender solicitado:", gender, "· voz final:", v?.name||"(ninguna)", "· lang:", v?.lang);
   if(v) u.voice = v;
   u.lang = v?.lang || "es-ES";
   u.rate = rate;
