@@ -107,9 +107,9 @@ export function pickVoice(preferredGender = "any"){
   const esVoices = voices.filter(v => /^es[-_]?/i.test(v.lang));
   console.log("[voice] voces ES completas:", esVoices.map(v => `${v.name} | ${v.lang}`));
   if(esVoices.length === 0){
-    const picked = voices[0] || null;
-    console.log("[voice] selected:", picked?.name, "| method: no-es-fallback");
-    return picked;
+    return (voices[0]
+      ? { voice: voices[0], method: "no-es-fallback" }
+      : { voice: null, method: "none" });
   }
 
   // nameHas: match parcial case-insensitive. Crítico en iOS donde el
@@ -135,23 +135,12 @@ export function pickVoice(preferredGender = "any"){
         || pool.find(v => /google/i.test(v.name))
         || null;
   };
+  // Devuelve { voice, method } para que speak() pueda decidir si aplicar
+  // el pitch compensatorio (cuando method="fallback" + gender="male" y
+  // solo hay voces femeninas — típico Safari iOS que no expone Jorge).
   const logPick = (v, method)=>{
     console.log("[voice] selected:", v?.name, "| method:", method, "| lang:", v?.lang);
-    // Publica debug para el banner visual en móvil (donde no hay consola).
-    if(typeof window !== "undefined"){
-      const dbg = {
-        name: v?.name || null,
-        lang: v?.lang || null,
-        method,
-        count: esVoices.length,
-        total: voices.length,
-        esList: esVoices.map(x => `${x.name} (${x.lang})`),
-        platform: (navigator?.userAgent||"").slice(0, 60),
-      };
-      window.__voiceDebug = dbg;
-      try { window.dispatchEvent(new CustomEvent("voicedebug", { detail: dbg })); } catch {}
-    }
-    return v;
+    return { voice: v, method };
   };
 
   if(preferredGender === "male"){
@@ -212,16 +201,20 @@ export async function speak(text, { rate = 1, pitch = 1, gender = "any", onEnd }
   stopSpeaking();
   // En iOS la primera vez getVoices() devuelve [] hasta que el motor
   // dispara voiceschanged. Esperar evita que speak() elija una voz
-  // por defecto equivocada (Mónica) antes de que aparezca Jorge o la
-  // neural masculina.
+  // por defecto equivocada antes de que aparezca la neural masculina.
   await getVoicesReady();
   const u = new SpeechSynthesisUtterance(stripMarkdown(text));
-  const v = pickVoice(gender);
-  console.log("[voice] speak() · gender solicitado:", gender, "· voz final:", v?.name||"(ninguna)", "· lang:", v?.lang);
+  const { voice: v, method } = pickVoice(gender);
+  // Compensación para voces masculinas no disponibles: si method==="fallback"
+  // y pedimos "male", el SO solo ofrece voces femeninas (típico Safari iOS
+  // que no expone Jorge al Web Speech API). Forzamos pitch=0.5 para que
+  // Mónica/Paulina suenen más graves y menos claramente femeninas.
+  const finalPitch = (gender === "male" && method === "fallback") ? 0.5 : pitch;
+  console.log("[voice] speak() · gender:", gender, "· voz:", v?.name||"(ninguna)", "· method:", method, "· pitch:", finalPitch);
   if(v) u.voice = v;
   u.lang = v?.lang || "es-ES";
   u.rate = rate;
-  u.pitch = pitch;
+  u.pitch = finalPitch;
   u.onend = () => { if(currentUtterance === u) currentUtterance = null; onEnd?.(); };
   u.onerror = () => { if(currentUtterance === u) currentUtterance = null; onEnd?.(); };
   currentUtterance = u;
