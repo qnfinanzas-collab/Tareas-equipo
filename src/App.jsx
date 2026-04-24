@@ -457,40 +457,49 @@ function DiscardBanner({onKeep,onDiscard}){
 // accumRef y emite texto combinado (acumulado + interim) por onInterim
 // / onFinal. Inicializa con initialText para que la dictación continúe
 // desde lo que el usuario ya tenía escrito en el input.
-function VoiceMicButton({onStart,onInterim,onFinal,onError,disabled,color="#1D9E75",title,size="md",initialText=""}){
+const VoiceMicButton = React.forwardRef(function VoiceMicButton({onStart,onInterim,onFinal,onError,disabled,color="#1D9E75",title,size="md",initialText=""}, ref){
   const [listening,setListening] = useState(false);
-  const stopRef  = useRef(null);
-  const accumRef = useRef("");
+  const stopRef    = useRef(null);
+  const accumRef   = useRef("");
+  const stoppedRef = useRef(false); // gate contra callbacks post-stop
   useEffect(()=>()=>{ if(stopRef.current){ try{stopRef.current();}catch{} } },[]);
-  // Si el padre vacía el input mientras estamos grabando (típico tras
-  // "enviar mensaje" en un chat), resetear el acumulador. Sin esto la
-  // siguiente onInterim reinyectaría el texto viejo en el input.
-  useEffect(()=>{
-    if(listening && !(initialText||"").trim()) accumRef.current = "";
-  },[initialText, listening]);
+
+  const doStop = ()=>{
+    // Marca stop ANTES de llamar r.stop(): cualquier onInterim/onFinal
+    // que llegue en el flush buffer se ignora. También vacía accum y
+    // baja listening inmediatamente (sin esperar a onEnd), para que el
+    // icono responda y el useEffect del padre no vea estado viejo.
+    stoppedRef.current = true;
+    accumRef.current = "";
+    if(stopRef.current){ try{stopRef.current();}catch{} stopRef.current = null; }
+    setListening(false);
+  };
+
+  // API imperativa: el padre puede forzar el stop (p.ej. al enviar un
+  // mensaje, para que el mic no siga transcribiendo ni capture la voz
+  // del TTS del agente).
+  React.useImperativeHandle(ref, ()=>({ stop: doStop }), []);
+
   const supported = voiceSupported().stt;
   if(!supported) return null;
+
   const handleClick = (e)=>{
     e.stopPropagation();
-    if(listening){
-      // Stop explícito: corta el reconocimiento y deja el texto en el input.
-      if(stopRef.current){ try{stopRef.current();}catch{} }
-      return;
-    }
+    if(listening){ doStop(); return; }
     if(disabled) return;
+    stoppedRef.current = false;
     accumRef.current = (initialText||"").trim();
     onStart?.();
     stopRef.current = listen({
       continuous: true,
       onStart:   ()=>setListening(true),
       onInterim: (t)=>{
+        if(stoppedRef.current) return;
         const combined = accumRef.current ? `${accumRef.current} ${t}`.trim() : t;
         onInterim?.(combined);
       },
       onFinal:   (t)=>{
-        // Cada utterance finalizada se concatena al acumulador.
-        // NO detenemos el reconocimiento — sigue escuchando hasta que
-        // el usuario haga click de nuevo.
+        if(stoppedRef.current) return;
         accumRef.current = accumRef.current ? `${accumRef.current} ${t}`.trim() : t;
         onFinal?.(accumRef.current);
       },
@@ -508,7 +517,7 @@ function VoiceMicButton({onStart,onInterim,onFinal,onError,disabled,color="#1D9E
       style={{width:dim,height:dim,borderRadius:8,background:listening?"#E24B4A":"#fff",color:listening?"#fff":color,border:listening?"none":`1px solid ${color}`,fontSize:size==="sm"?12:15,cursor:(disabled&&!listening)?"not-allowed":"pointer",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:(disabled&&!listening)?0.5:1,animation:listening?"tf-mic-pulse 1.2s infinite":"none",padding:0}}
     >{listening?"⏹":"🎤"}</button>
   );
-}
+});
 
 // Adjuntos de documentos con upload a Supabase Storage.
 // ownerKey = identificador del contenedor ("neg-<id>" o "task-<id>") que se
@@ -4710,6 +4719,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   const [individualLoading,setIndividualLoading] = useState({}); // map key → true
   // Auto-TTS: solo cuando el usuario inició el turno por voz (mic).
   const voiceInitiatedRef = useRef(false);
+  const chatMicRef = useRef(null); // handle al VoiceMicButton del chat para stop imperativo
   const [speakingMsgTs,setSpeakingMsgTs] = useState(null);
   useEffect(()=>{
     const el = chatScrollRef.current; if(!el) return;
@@ -5086,6 +5096,10 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             stopSpeaking();
             setSpeakingMsgTs(null);
             setSpeakingKey(null); // limpia estado del popover TTS por coherencia visual
+            // Para el mic ANTES de limpiar el input: evita que un interim
+            // rezagado repueble el campo, y evita que luego el mic transcriba
+            // la voz del TTS de Héctor y la meta de vuelta en el input.
+            chatMicRef.current?.stop();
             setChatLoading(true);
             const now=new Date().toISOString();
             onAppendHectorMessage(negotiation.id,{role:"user",content:txt,timestamp:now});
@@ -5243,6 +5257,7 @@ ${taskLines||"(ninguna)"}`;
               {/* Input */}
               <div style={{padding:"10px 12px",borderTop:"1px solid #F3F4F6",background:"#FAFAFA",display:"flex",gap:6,alignItems:"center"}}>
                 <VoiceMicButton
+                  ref={chatMicRef}
                   disabled={!hector||chatLoading}
                   color="#1D9E75"
                   title="Dictar mensaje para Héctor (click para parar)"
