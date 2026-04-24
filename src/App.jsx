@@ -523,13 +523,14 @@ const VoiceMicButton = React.forwardRef(function VoiceMicButton({onStart,onInter
 // ownerKey = identificador del contenedor ("neg-<id>" o "task-<id>") que se
 // usa como prefijo del path en el bucket. documents se persiste en el estado
 // (negotiation.documents o task.documents) vía onChange.
-function DocumentUploader({ownerKey, documents = [], onChange, agents = [], contextLabel}){
+function DocumentUploader({ownerKey, documents = [], onChange, agents = [], contextLabel, onPostChatMessage}){
   const [busy,setBusy]    = useState(false);
   const [error,setError]  = useState(null);
   const [dragOver,setDragOver] = useState(false);
   const [agentId,setAgentId]   = useState("none");
   const [analyzing,setAnalyzing] = useState(null);
   const [expanded,setExpanded]   = useState(null);
+  const [agentMenuDocId,setAgentMenuDocId] = useState(null); // doc.id cuyo dropdown de agentes está abierto
   const [urlInput,setUrlInput]   = useState("");
   const [urlBusy,setUrlBusy]     = useState(false);
   const fileInputRef      = useRef(null);
@@ -562,8 +563,8 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
     throw new Error("Tipo no soportado para análisis");
   };
 
-  const runAnalyze = async (doc)=>{
-    const agent = agents.find(a=>String(a.id)===String(agentId));
+  const runAnalyze = async (doc, explicitAgent)=>{
+    const agent = explicitAgent || agents.find(a=>String(a.id)===String(agentId));
     if(!agent) return;
     if(!canAnalyze(doc)){ setError(`${doc.type||"Tipo desconocido"} no soporta análisis automático`); return; }
     setError(null);
@@ -575,6 +576,21 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
       const next = documents.map(d=>d.id===doc.id ? {...d, analyzedBy: agent.name, analyzedAt: now, report} : d);
       onChange?.(next);
       setExpanded(doc.id);
+      // Publica el informe en el chat del agente (p.ej. chat de Héctor)
+      // si el consumidor ha provisto el hook. Formato de texto plano que
+      // mantiene coherencia con chatBody() del export PDF.
+      if(onPostChatMessage){
+        const parts = [`📎 Análisis de "${doc.name}" por ${agent.name}:`];
+        if(report.summary)         parts.push(`\nRESUMEN EJECUTIVO:\n${report.summary}`);
+        if(report.details)         parts.push(`\nRIESGOS Y OPORTUNIDADES:\n${report.details}`);
+        if(report.recommendations) parts.push(`\nRECOMENDACIONES:\n${report.recommendations}`);
+        onPostChatMessage({
+          role: "assistant",
+          content: parts.join("\n"),
+          timestamp: now,
+          kind: "document_analysis",
+        });
+      }
     } catch(e){
       setError(e.message||"Error al analizar");
     } finally {
@@ -779,11 +795,75 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
                       {doc.analyzedBy && <> · <span style={{color:"#0E7C5A",fontWeight:600}}>analizado por {doc.analyzedBy}</span></>}
                     </div>
                   </div>
-                  {doc.report && <button onClick={()=>setExpanded(e=>e===doc.id?null:doc.id)} title={isExpanded?"Ocultar informe":"Ver informe"} style={{padding:"4px 10px",borderRadius:6,background:"#EFF6FF",color:"#1E40AF",border:"1px solid #BFDBFE",cursor:"pointer",fontSize:11,fontWeight:600}}>{isExpanded?"Ocultar":"Ver informe"}</button>}
-                  {!doc.report && hasAgents && agentSelected && canAnalyze(doc) && (
-                    <button onClick={()=>runAnalyze(doc)} disabled={isAnalyzing} title="Analizar con el agente seleccionado" style={{padding:"4px 10px",borderRadius:6,background:isAnalyzing?"#FEF3C7":"#F0F9F1",color:isAnalyzing?"#92400E":"#0E7C5A",border:`1px solid ${isAnalyzing?"#FCD34D":"#86EFAC"}`,cursor:isAnalyzing?"wait":"pointer",fontSize:11,fontWeight:600}}>{isAnalyzing?"Analizando…":"Analizar"}</button>
-                  )}
                   <button onClick={()=>openDoc(doc)} title="Abrir" style={{width:28,height:28,borderRadius:6,background:"#F3F4F6",border:"none",cursor:"pointer",fontSize:13}}>↗</button>
+                  {/* Tercer botón: Analizar (verde) si no hay informe; Ver informe (azul) + Re-analizar (gris) si lo hay */}
+                  {hasAgents && canAnalyze(doc) && !doc.report && (
+                    <div style={{position:"relative",display:"inline-flex"}}>
+                      <button
+                        onClick={()=>setAgentMenuDocId(v=>v===doc.id?null:doc.id)}
+                        disabled={isAnalyzing}
+                        title="Analizar con un agente IA"
+                        style={{padding:"4px 12px",borderRadius:6,background:isAnalyzing?"#A7F3D0":"#1D9E75",color:"#fff",border:"none",cursor:isAnalyzing?"wait":"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}
+                      >{isAnalyzing?"⋯ Analizando…":"Analizar"}</button>
+                      {agentMenuDocId===doc.id && !isAnalyzing && (
+                        <div style={{position:"absolute",top:"100%",right:0,marginTop:4,minWidth:160,background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,0.12)",zIndex:50,padding:4}}>
+                          {agents.map(a=>(
+                            <button
+                              key={a.id}
+                              onClick={()=>{ setAgentMenuDocId(null); runAnalyze(doc, a); }}
+                              style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"7px 10px",border:"none",background:"transparent",cursor:"pointer",fontSize:12,fontFamily:"inherit",textAlign:"left",borderRadius:6,color:"#111827"}}
+                              onMouseEnter={e=>e.currentTarget.style.background="#F3F4F6"}
+                              onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                            >
+                              <span>{a.emoji||"🤖"}</span>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontWeight:600}}>{a.name}</div>
+                                {a.role && <div style={{fontSize:10,color:"#6B7280"}}>{a.role}</div>}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {doc.report && (
+                    <>
+                      <button
+                        onClick={()=>setExpanded(e=>e===doc.id?null:doc.id)}
+                        title={isExpanded?"Ocultar informe":"Ver informe"}
+                        style={{padding:"4px 12px",borderRadius:6,background:"#378ADD",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit"}}
+                      >{isExpanded?"Ocultar":"Ver informe"}</button>
+                      {hasAgents && canAnalyze(doc) && (
+                        <div style={{position:"relative",display:"inline-flex"}}>
+                          <button
+                            onClick={()=>setAgentMenuDocId(v=>v===doc.id?null:doc.id)}
+                            disabled={isAnalyzing}
+                            title="Re-analizar con otro agente"
+                            style={{padding:"4px 10px",borderRadius:6,background:isAnalyzing?"#E5E7EB":"#F3F4F6",color:"#374151",border:"1px solid #D1D5DB",cursor:isAnalyzing?"wait":"pointer",fontSize:11,fontWeight:600,fontFamily:"inherit"}}
+                          >{isAnalyzing?"⋯":"Re-analizar"}</button>
+                          {agentMenuDocId===doc.id && !isAnalyzing && (
+                            <div style={{position:"absolute",top:"100%",right:0,marginTop:4,minWidth:160,background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,0.12)",zIndex:50,padding:4}}>
+                              {agents.map(a=>(
+                                <button
+                                  key={a.id}
+                                  onClick={()=>{ setAgentMenuDocId(null); runAnalyze(doc, a); }}
+                                  style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"7px 10px",border:"none",background:"transparent",cursor:"pointer",fontSize:12,fontFamily:"inherit",textAlign:"left",borderRadius:6,color:"#111827"}}
+                                  onMouseEnter={e=>e.currentTarget.style.background="#F3F4F6"}
+                                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                                >
+                                  <span>{a.emoji||"🤖"}</span>
+                                  <div style={{flex:1,minWidth:0}}>
+                                    <div style={{fontWeight:600}}>{a.name}</div>
+                                    {a.role && <div style={{fontSize:10,color:"#6B7280"}}>{a.role}</div>}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
                   <button onClick={()=>removeDoc(doc)} title="Eliminar" style={{width:28,height:28,borderRadius:6,background:"#FEF2F2",border:"none",cursor:"pointer",fontSize:13,color:"#B91C1C"}}>✕</button>
                 </div>
                 {isExpanded && (
@@ -5021,6 +5101,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               onChange={docs=>onUpdateDocuments?.(negotiation.id,docs)}
               agents={agents||[]}
               contextLabel={`la negociación "${negotiation.title}" con ${negotiation.counterparty}`}
+              onPostChatMessage={msg=>onAppendHectorMessage(negotiation.id,msg)}
             />
           </section>
         </div>
