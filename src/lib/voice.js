@@ -38,6 +38,34 @@ export function getVoices(){
   return [];
 }
 
+// Espera a que el motor TTS termine de cargar el catálogo. En iOS la
+// primera llamada a getVoices() suele devolver []. Sin esperar, speak()
+// caía al fallback porque no veía las voces españolas. Timeout de 1.5s
+// para no bloquear indefinidamente si el evento nunca llega.
+export function getVoicesReady(){
+  return new Promise(resolve => {
+    if(typeof window === "undefined"){ resolve([]); return; }
+    const immediate = window.speechSynthesis.getVoices();
+    if(immediate && immediate.length > 0){ cachedVoices = immediate; resolve(immediate); return; }
+    let done = false;
+    const onChange = ()=>{
+      if(done) return; done = true;
+      window.speechSynthesis.removeEventListener("voiceschanged", onChange);
+      const v = window.speechSynthesis.getVoices() || [];
+      if(v.length) cachedVoices = v;
+      resolve(v);
+    };
+    window.speechSynthesis.addEventListener("voiceschanged", onChange);
+    setTimeout(()=>{
+      if(done) return; done = true;
+      window.speechSynthesis.removeEventListener("voiceschanged", onChange);
+      const v = window.speechSynthesis.getVoices() || [];
+      if(v.length) cachedVoices = v;
+      resolve(v);
+    }, 1500);
+  });
+}
+
 // Elige voz española priorizando por nombre propio. Las voces del SO no
 // suelen incluir "male"/"female" en el name, así que comparamos con lista
 // de nombres y, en móviles donde los nombres varían (Google TTS, Android,
@@ -97,6 +125,19 @@ export function pickVoice(preferredGender = "any"){
   };
   const logPick = (v, method)=>{
     console.log("[voice] selected:", v?.name, "| method:", method, "| lang:", v?.lang);
+    // Publica debug para el banner visual en móvil (donde no hay consola).
+    if(typeof window !== "undefined"){
+      const dbg = {
+        name: v?.name || null,
+        lang: v?.lang || null,
+        method,
+        count: esVoices.length,
+        total: voices.length,
+        platform: (navigator?.userAgent||"").slice(0, 60),
+      };
+      window.__voiceDebug = dbg;
+      try { window.dispatchEvent(new CustomEvent("voicedebug", { detail: dbg })); } catch {}
+    }
     return v;
   };
 
@@ -148,9 +189,14 @@ export function stripMarkdown(text){
 
 let currentUtterance = null;
 
-export function speak(text, { rate = 1, pitch = 1, gender = "any", onEnd } = {}){
+export async function speak(text, { rate = 1, pitch = 1, gender = "any", onEnd } = {}){
   if(!("speechSynthesis" in window)){ onEnd?.(); return null; }
   stopSpeaking();
+  // En iOS la primera vez getVoices() devuelve [] hasta que el motor
+  // dispara voiceschanged. Esperar evita que speak() elija una voz
+  // por defecto equivocada (Mónica) antes de que aparezca Jorge o la
+  // neural masculina.
+  await getVoicesReady();
   const u = new SpeechSynthesisUtterance(stripMarkdown(text));
   const v = pickVoice(gender);
   console.log("[voice] speak() · gender solicitado:", gender, "· voz final:", v?.name||"(ninguna)", "· lang:", v?.lang);

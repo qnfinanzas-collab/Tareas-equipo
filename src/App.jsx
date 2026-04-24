@@ -588,6 +588,38 @@ function PortalDropdown({getAnchor, open, onClose, children, minWidth = 170}){
   );
 }
 
+// Banner temporal para depurar selección de voz en móvil, donde no hay
+// consola a mano. Escucha el evento custom 'voicedebug' que pickVoice()
+// dispara en cada selección, y solo se renderiza en ≤768px.
+function VoiceDebugBanner(){
+  const [mobile,setMobile] = useState(()=>{
+    if(typeof window==="undefined") return false;
+    return window.matchMedia?.("(max-width: 768px)").matches || false;
+  });
+  const [dbg,setDbg] = useState(()=> (typeof window!=="undefined") ? (window.__voiceDebug||null) : null);
+  useEffect(()=>{
+    if(typeof window==="undefined") return;
+    const mq = window.matchMedia("(max-width: 768px)");
+    const onMq = ()=> setMobile(mq.matches);
+    const onDbg = (e)=> setDbg(e.detail || window.__voiceDebug);
+    mq.addEventListener?.("change", onMq);
+    window.addEventListener("voicedebug", onDbg);
+    return ()=>{
+      mq.removeEventListener?.("change", onMq);
+      window.removeEventListener("voicedebug", onDbg);
+    };
+  },[]);
+  if(!mobile) return null;
+  if(!dbg){
+    return <div style={{fontSize:10,background:"#1a1a2e",color:"#aaa",padding:"4px 8px",borderRadius:4,margin:"4px 12px 8px",wordBreak:"break-all"}}>🔊 (aún sin voz seleccionada — habla para disparar)</div>;
+  }
+  return(
+    <div style={{fontSize:10,background:"#1a1a2e",color:"#aaa",padding:"4px 8px",borderRadius:4,margin:"4px 12px 8px",wordBreak:"break-all"}}>
+      🔊 {dbg.name||"(null)"} | método: {dbg.method} | voces ES: {dbg.count}{dbg.total?` / ${dbg.total}`:""}
+    </div>
+  );
+}
+
 // Adjuntos de documentos con upload a Supabase Storage.
 // ownerKey = identificador del contenedor ("neg-<id>" o "task-<id>") que se
 // usa como prefijo del path en el bucket. documents se persiste en el estado
@@ -5555,6 +5587,8 @@ ${taskLines||"(ninguna)"}`;
                 />
                 <button onClick={()=>handleSend()} disabled={!hector||chatLoading||!chatInput.trim()} style={{padding:"8px 14px",borderRadius:8,background:hector&&!chatLoading&&chatInput.trim()?"#1D9E75":"#E5E7EB",color:hector&&!chatLoading&&chatInput.trim()?"#fff":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading&&chatInput.trim()?"pointer":"not-allowed",fontWeight:600,flexShrink:0,fontFamily:"inherit"}}>Enviar</button>
               </div>
+              {/* Banner temporal para depurar selección de voz en móvil. */}
+              <VoiceDebugBanner/>
             </div>
           );
         })()}
