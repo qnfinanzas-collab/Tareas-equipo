@@ -14,7 +14,7 @@ import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import jsPDF from "jspdf";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, PLAIN_TEXT_RULE } from "./lib/agent.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, PLAIN_TEXT_RULE } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
@@ -4825,7 +4825,7 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,onAddCeoMemory,onAddNegMemory,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessionsAsc = (negotiation.sessions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -5275,6 +5275,37 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                 setSpeakingMsgTs(assistantTs);
                 speakAgentResponse(content,hector,{onEnd:()=>setSpeakingMsgTs(null)});
               }
+              // Auto-aprendizaje silencioso (fire-and-forget, no bloquea).
+              // Envía últimos 4 msgs al LLM con prompt de extracción y añade
+              // items deduplicados a ceoMemory / negotiation.memory.
+              (async()=>{
+                try {
+                  const recent = [
+                    ...((negotiation.hectorChat||[]).slice(-3)),
+                    {role:"user",content:txt,timestamp:now},
+                    {role:"assistant",content,timestamp:assistantTs},
+                  ];
+                  const extracted = await extractMemoryFromChat(recent, negotiation.title);
+                  let addedCeo = 0, addedNeg = 0;
+                  if(onAddCeoMemory){
+                    addedCeo = onAddCeoMemory({
+                      preferences: extracted.ceoPreferences,
+                      keyFacts:    extracted.keyFacts,
+                      decisions:   extracted.decisions,
+                      lessons:     extracted.lessons,
+                    }, "auto");
+                  }
+                  if(onAddNegMemory){
+                    addedNeg = onAddNegMemory(negotiation.id, {
+                      keyFacts:   extracted.negKeyFacts,
+                      agreements: extracted.negAgreements,
+                      redFlags:   extracted.negRedFlags,
+                    }, "auto");
+                  }
+                  const total = addedCeo + addedNeg;
+                  if(total>0) onMemorized?.({count:total, agentName: hector?.name||"Agente"});
+                } catch {}
+              })();
             }catch(e){
               onAppendHectorMessage(negotiation.id,{role:"assistant",content:`⚠ ${e.message||"Error"}`,timestamp:new Date().toISOString()});
               voiceInitiatedRef.current = false; // no leer errores por voz
@@ -6536,6 +6567,66 @@ export default function TaskFlow(){
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,documents,updatedAt:now}:n)}));
   },[]);
+  // Memoria: añade items deduplicados. sections = {preferences?, keyFacts?,
+  // decisions?, lessons?}. Cada valor es array de strings. Devuelve nº añadidos.
+  const addCeoMemoryItems = useCallback((sections, source="auto")=>{
+    let added = 0;
+    setData(prev=>{
+      const cur = prev.ceoMemory || emptyCeoMemory();
+      const next = {...cur};
+      for(const key of CEO_MEMORY_KEYS){
+        const list = Array.isArray(sections?.[key]) ? sections[key] : [];
+        let arr = next[key]||[];
+        for(const text of list){
+          const res = addUnique(arr, text, source);
+          arr = res.list; if(res.added) added++;
+        }
+        next[key] = arr;
+      }
+      next.updatedAt = new Date().toISOString();
+      return {...prev, ceoMemory: next};
+    });
+    return added;
+  },[]);
+  const addNegMemoryItems = useCallback((negId, sections, source="auto")=>{
+    let added = 0;
+    setData(prev=>({
+      ...prev,
+      negotiations: (prev.negotiations||[]).map(n=>{
+        if(n.id!==negId) return n;
+        const cur = n.memory || emptyNegMemory();
+        const next = {...cur};
+        for(const key of NEG_MEMORY_KEYS){
+          const list = Array.isArray(sections?.[key]) ? sections[key] : [];
+          let arr = next[key]||[];
+          for(const text of list){
+            const res = addUnique(arr, text, source);
+            arr = res.list; if(res.added) added++;
+          }
+          next[key] = arr;
+        }
+        next.updatedAt = new Date().toISOString();
+        return {...n, memory: next};
+      }),
+    }));
+    return added;
+  },[]);
+  const removeCeoMemoryItem = useCallback((category, itemId)=>{
+    if(!CEO_MEMORY_KEYS.includes(category)) return;
+    setData(prev=>({...prev, ceoMemory: {
+      ...(prev.ceoMemory||emptyCeoMemory()),
+      [category]: ((prev.ceoMemory||{})[category]||[]).filter(x=>x.id!==itemId),
+      updatedAt: new Date().toISOString(),
+    }}));
+  },[]);
+  const removeNegMemoryItem = useCallback((negId, category, itemId)=>{
+    if(!NEG_MEMORY_KEYS.includes(category)) return;
+    setData(prev=>({...prev, negotiations:(prev.negotiations||[]).map(n=>{
+      if(n.id!==negId) return n;
+      const mem = n.memory||emptyNegMemory();
+      return {...n, memory:{...mem, [category]: (mem[category]||[]).filter(x=>x.id!==itemId), updatedAt: new Date().toISOString()}};
+    })}));
+  },[]);
   const clearNegBriefing = useCallback((negId)=>{
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,briefing:null,updatedAt:now}:n)}));
@@ -6946,6 +7037,8 @@ export default function TaskFlow(){
                 onSaveBriefing={(nid,briefing)=>setNegBriefing(nid,briefing)}
                 onUpdateDocuments={setNegDocuments}
                 ceoMemory={data.ceoMemory}
+                onAddCeoMemory={addCeoMemoryItems}
+                onAddNegMemory={addNegMemoryItems}
                 onOverlayTask={id=>setOverlayTaskId(id)}
               />;
             }

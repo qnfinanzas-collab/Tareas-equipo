@@ -1172,6 +1172,62 @@ export async function analyzeDocument(attachment, agent, contextLabel, ceoMemory
   return parseAnalysisReport(text);
 }
 
+// Auto-aprendizaje silencioso: segunda llamada al LLM tras una respuesta
+// del agente para extraer datos que valga la pena recordar permanentemente.
+// recentMessages = últimos 4-6 mensajes del chat ([{role, content}]).
+// Devuelve { ceoPreferences:[], keyFacts:[], decisions:[], lessons:[],
+//   negKeyFacts:[], negAgreements:[], negRedFlags:[] } con strings cortas.
+// Silencioso: si falla el parse, devuelve arrays vacíos; nunca lanza.
+export async function extractMemoryFromChat(recentMessages, negTitle){
+  const system = [
+    "Eres un extractor de memoria silencioso. Analizas conversaciones y",
+    "extraes datos objetivos y estables que conviene recordar a futuro.",
+    "",
+    "Reglas estrictas:",
+    "- Solo extrae información duradera: preferencias del usuario, hechos",
+    "  factuales, decisiones tomadas, lecciones aprendidas, acuerdos,",
+    "  red flags. NUNCA: estados emocionales pasajeros, saludos, opiniones",
+    "  triviales, cortesías.",
+    "- Cada item: frase breve (<15 palabras), tono neutro, en español,",
+    "  sin markdown, sin comillas, sin puntos finales.",
+    "- Si nada es digno de recordar, devuelve todos los arrays vacíos.",
+    "- Responde ÚNICAMENTE con JSON válido, sin prosa, sin markdown.",
+    "",
+    "Formato exacto:",
+    `{"ceoPreferences":[],"keyFacts":[],"decisions":[],"lessons":[],"negKeyFacts":[],"negAgreements":[],"negRedFlags":[]}`,
+  ].join("\n");
+  const convo = (recentMessages||[]).slice(-4).map(m=>{
+    const who = m.role==="user" ? "Usuario" : "Agente";
+    return `${who}: ${m.content||""}`;
+  }).join("\n\n");
+  const userPrompt = (negTitle ? `Negociación en curso: ${negTitle}\n\n` : "")
+    + "Conversación reciente:\n\n" + convo
+    + "\n\nExtrae solo lo que realmente merezca recordarse. Si no hay nada nuevo, devuelve todos los arrays vacíos.";
+  const empty = { ceoPreferences:[], keyFacts:[], decisions:[], lessons:[], negKeyFacts:[], negAgreements:[], negRedFlags:[] };
+  try {
+    const res = await fetch("/api/agent", {
+      method:"POST",
+      headers:{ "content-type":"application/json" },
+      body: JSON.stringify({ system, messages:[{role:"user",content:userPrompt}], max_tokens:500 }),
+    });
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok) return empty;
+    const text = data.text || "";
+    const m = text.match(/\{[\s\S]*\}/);
+    if(!m) return empty;
+    const parsed = JSON.parse(m[0]);
+    // Normaliza: fuerza arrays de strings no vacías.
+    const clean = {};
+    for(const k of Object.keys(empty)){
+      const arr = Array.isArray(parsed[k]) ? parsed[k] : [];
+      clean[k] = arr.map(s=>String(s||"").trim()).filter(s=>s.length>=3 && s.length<=200);
+    }
+    return clean;
+  } catch {
+    return empty;
+  }
+}
+
 function parseAnalysisReport(text){
   const sections = { summary:"", details:"", recommendations:"" };
   const blocks = text.split(/\n(?=[A-ZÁÉÍÓÚÑ ]{3,}:)/);
