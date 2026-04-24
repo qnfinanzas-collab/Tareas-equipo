@@ -4852,6 +4852,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   const voiceInitiatedRef = useRef(false);
   const chatMicRef = useRef(null); // handle al VoiceMicButton del chat para stop imperativo
   const [negMemOpen,setNegMemOpen] = useState(null); // qué sección de memoria de la negociación está abierta
+  const [banner20Ignored,setBanner20Ignored] = useState(false); // el aviso amarillo (20-29 msgs) solo se ignora hasta el rojo (30+)
   const [speakingMsgTs,setSpeakingMsgTs] = useState(null);
   useEffect(()=>{
     const el = chatScrollRef.current; if(!el) return;
@@ -5492,6 +5493,44 @@ ${taskLines||"(ninguna)"}`;
                   </div>
                 )}
               </div>
+              {/* Aviso: chat demasiado largo. Amarillo 20-29 (ignorable),
+                  rojo 30+ (no ignorable). Al superar 30 se re-muestra aunque
+                  se hubiera ignorado el amarillo. */}
+              {(()=>{
+                const N = chatMsgs.length;
+                const isRed = N >= 30;
+                const isYellow = !isRed && N >= 20 && !banner20Ignored;
+                if(!isRed && !isYellow) return null;
+                const bg     = isRed?"#FFEBEE":"#FFF8E1";
+                const border = isRed?"#E24B4A":"#EF9F27";
+                const msg = isRed
+                  ? `El chat tiene ${N} mensajes. Las respuestas de Héctor pueden ser imprecisas. Exporta y limpia ahora.`
+                  : `El chat tiene ${N} mensajes. Héctor puede perder foco. Te recomiendo exportar a PDF y limpiar el chat. La memoria (🧠) conservará los datos clave.`;
+                return(
+                  <div style={{margin:"0 12px 8px",padding:"8px 12px",background:bg,border:`1px solid ${border}`,borderRadius:8,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                    <span style={{fontSize:14,flexShrink:0}}>⚠️</span>
+                    <div style={{flex:1,minWidth:0,fontSize:11.5,color:"#1F2937",lineHeight:1.4}}>{msg}</div>
+                    <div style={{display:"flex",gap:6,flexShrink:0}}>
+                      <ExportPDFButton
+                        title={`Chat con Héctor — ${negotiation.title}`}
+                        filename={`chat-hector-${negotiation.title.slice(0,40)}`}
+                        render={(doc,y)=>renderChat(doc,y,chatMsgs,{userLabel:"Usuario",assistantLabel:"Héctor"})}
+                        label="Exportar PDF"
+                      />
+                      <button
+                        onClick={()=>{ if(window.confirm("¿Limpiar todo el chat con Héctor en esta negociación?")) onClearHectorChat(negotiation.id); }}
+                        style={{padding:"5px 10px",borderRadius:6,background:"#fff",color:"#B91C1C",border:"1px solid #FCA5A5",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}
+                      >Limpiar chat</button>
+                      {!isRed && (
+                        <button
+                          onClick={()=>setBanner20Ignored(true)}
+                          style={{padding:"5px 10px",borderRadius:6,background:"transparent",color:"#6B7280",border:"1px solid #D1D5DB",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}
+                        >Ignorar</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
               {/* Input */}
               <div style={{padding:"10px 12px",borderTop:"1px solid #F3F4F6",background:"#FAFAFA",display:"flex",gap:6,alignItems:"center"}}>
                 <VoiceMicButton
