@@ -3534,9 +3534,10 @@ function Toast({toasts}){
   };
   return(
     <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",zIndex:4000,display:"flex",flexDirection:"column",gap:8,alignItems:"center",pointerEvents:"none"}}>
-      {toasts.map(t=>{ const s=S[t.type]||S.success; return(
-        <div key={t.id} style={{background:s.bg,border:`1px solid ${s.border}`,borderRadius:10,padding:"10px 22px",fontSize:13,fontWeight:600,color:s.text,display:"flex",alignItems:"center",gap:8,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",whiteSpace:"nowrap",animation:"fadeInUp .18s ease"}}>
+      {toasts.map(t=>{ const s=S[t.type]||S.success; const clickable = typeof t.onClick === "function"; return(
+        <div key={t.id} onClick={clickable?t.onClick:undefined} style={{background:s.bg,border:`1px solid ${s.border}`,borderRadius:10,padding:"10px 22px",fontSize:13,fontWeight:600,color:s.text,display:"flex",alignItems:"center",gap:8,boxShadow:"0 4px 16px rgba(0,0,0,0.12)",whiteSpace:"nowrap",animation:"fadeInUp .18s ease",pointerEvents:clickable?"auto":"none",cursor:clickable?"pointer":"default"}}>
           <span style={{fontSize:15}}>{s.icon}</span><span>{t.msg}</span>
+          {clickable && <span style={{fontSize:11,opacity:0.7,marginLeft:6}}>→ ver</span>}
         </div>
       );})}
     </div>
@@ -4825,7 +4826,7 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,onAddCeoMemory,onAddNegMemory,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessionsAsc = (negotiation.sessions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -4847,6 +4848,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   // Auto-TTS: solo cuando el usuario inició el turno por voz (mic).
   const voiceInitiatedRef = useRef(false);
   const chatMicRef = useRef(null); // handle al VoiceMicButton del chat para stop imperativo
+  const [negMemOpen,setNegMemOpen] = useState(null); // qué sección de memoria de la negociación está abierta
   const [speakingMsgTs,setSpeakingMsgTs] = useState(null);
   useEffect(()=>{
     const el = chatScrollRef.current; if(!el) return;
@@ -5151,6 +5153,30 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               onPostChatMessage={msg=>onAppendHectorMessage(negotiation.id,msg)}
               ceoMemory={ceoMemory}
             />
+          </section>
+
+          {/* Memoria de la negociación */}
+          <section>
+            <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span>🧠 Memoria de esta negociación</span>
+              <span style={{fontSize:10,color:"#9CA3AF"}}>{(negotiation.memory?.keyFacts?.length||0)+(negotiation.memory?.agreements?.length||0)+(negotiation.memory?.redFlags?.length||0)}</span>
+            </div>
+            {[
+              {key:"keyFacts",  label:"📍 Hechos",    items: negotiation.memory?.keyFacts   || []},
+              {key:"agreements",label:"🤝 Acuerdos",  items: negotiation.memory?.agreements || []},
+              {key:"redFlags",  label:"🚩 Red flags", items: negotiation.memory?.redFlags   || []},
+            ].map(s=>(
+              <MemorySection
+                key={s.key}
+                label={s.label}
+                category={s.key}
+                items={s.items}
+                open={negMemOpen===s.key}
+                onToggle={()=>setNegMemOpen(v=>v===s.key?null:s.key)}
+                onAdd={(cat,text)=>onAddNegMemory?.(negotiation.id,{[cat]:[text]},"manual")}
+                onRemove={(cat,id)=>onRemoveNegMemory?.(negotiation.id,cat,id)}
+              />
+            ))}
           </section>
         </div>
 
@@ -5973,6 +5999,154 @@ function MyTasksView({data,activeMember,onOpenTask,onNavigate}){
 }
 
 // ── Briefings IA (vista global) ──────────────────────────────────────────────
+// ── Memoria: panel visible con secciones colapsables ────────────────────────
+// Reutilizable. sections = [{ key, label, items, emptyMsg }].
+// Modo "global" (ceoMemory, sin neg) y modo "neg" (ceoMemory + negMemory).
+function MemorySection({label, category, items, onAdd, onRemove, open, onToggle}){
+  const [newText,setNewText] = useState("");
+  const submit = ()=>{ const t=newText.trim(); if(!t) return; onAdd?.(category, t); setNewText(""); };
+  return(
+    <section style={{border:"1px solid #E5E7EB",borderRadius:10,overflow:"hidden",marginBottom:10,background:"#fff"}}>
+      <button onClick={onToggle} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:open?"#F5F3FF":"#fff",border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600,color:"#111827",textAlign:"left",transition:"background .12s"}}>
+        <span style={{fontSize:11,color:"#9CA3AF"}}>{open?"▼":"▶"}</span>
+        <span style={{flex:1}}>{label}</span>
+        <span style={{fontSize:11,color:"#6B7280",background:"#F3F4F6",padding:"2px 8px",borderRadius:10,fontWeight:500}}>{items.length}</span>
+      </button>
+      {open && (
+        <div style={{padding:"6px 14px 12px"}}>
+          {items.length===0 && <div style={{fontSize:12,color:"#9CA3AF",fontStyle:"italic",padding:"6px 0"}}>Aún sin entradas. Añade una manualmente o espera a que el agente aprenda.</div>}
+          {items.length>0 && (
+            <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+              {items.slice().reverse().map(item=>(
+                <div key={item.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",background:"#F9FAFB",borderRadius:8,borderLeft:`3px solid ${item.source==="auto"?"#378ADD":"#7F77DD"}`}}>
+                  <div style={{flex:1,minWidth:0,fontSize:12.5,lineHeight:1.5,color:"#1F2937"}}>{item.text}</div>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,flexShrink:0}}>
+                    <span style={{fontSize:10,color:item.source==="auto"?"#1E40AF":"#6D28D9",background:item.source==="auto"?"#DBEAFE":"#EDE9FE",padding:"1px 6px",borderRadius:4,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.04em"}}>{item.source==="auto"?"auto":"manual"}</span>
+                    <span style={{fontSize:10,color:"#9CA3AF"}}>{new Date(item.createdAt).toLocaleDateString("es-ES")}</span>
+                  </div>
+                  <button onClick={()=>onRemove?.(category,item.id)} title="Eliminar" style={{width:22,height:22,borderRadius:5,background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"#B91C1C",padding:0,flexShrink:0}}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{display:"flex",gap:6}}>
+            <input
+              value={newText}
+              onChange={e=>setNewText(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); submit(); } }}
+              placeholder="Añadir entrada manual…"
+              style={{flex:1,padding:"6px 10px",borderRadius:6,border:"1px solid #D1D5DB",fontSize:12,fontFamily:"inherit",outline:"none"}}
+            />
+            <button onClick={submit} disabled={!newText.trim()} style={{padding:"6px 12px",borderRadius:6,background:newText.trim()?"#7F77DD":"#E5E7EB",color:newText.trim()?"#fff":"#9CA3AF",border:"none",fontSize:12,fontWeight:600,cursor:newText.trim()?"pointer":"default",fontFamily:"inherit"}}>+ Añadir</button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MemoryPanel({ceoMemory, negotiation, onAddCeo, onRemoveCeo, onAddNeg, onRemoveNeg}){
+  const [openKey,setOpenKey] = useState("preferences");
+  const toggle = (k)=> setOpenKey(v=>v===k?null:k);
+
+  const ceoSections = [
+    { key:"preferences", label:"🎯 Preferencias del CEO", items: ceoMemory?.preferences||[] },
+    { key:"keyFacts",    label:"📌 Hechos clave",         items: ceoMemory?.keyFacts||[] },
+    { key:"decisions",   label:"⚖️ Decisiones anteriores",items: ceoMemory?.decisions||[] },
+    { key:"lessons",     label:"💡 Lecciones aprendidas", items: ceoMemory?.lessons||[] },
+  ];
+  const negSections = negotiation ? [
+    { key:"keyFacts",   label:"📍 Hechos de la negociación", items: negotiation.memory?.keyFacts||[] },
+    { key:"agreements", label:"🤝 Acuerdos alcanzados",      items: negotiation.memory?.agreements||[] },
+    { key:"redFlags",   label:"🚩 Red flags detectadas",     items: negotiation.memory?.redFlags||[] },
+  ] : [];
+
+  const totalCeo = ceoSections.reduce((s,x)=>s+x.items.length,0);
+  const totalNeg = negSections.reduce((s,x)=>s+x.items.length,0);
+
+  const renderPDF = (pdfDoc, y)=>{
+    const title = negotiation ? `Memoria — ${negotiation.title}` : "Memoria global del CEO";
+    pdfDoc.setFont("helvetica","bold"); pdfDoc.setFontSize(11);
+    pdfDoc.setTextColor(127,119,221);
+    pdfDoc.text("MEMORIA GLOBAL DEL CEO", PDF_MARGIN_L, y); y += 6;
+    pdfDoc.setDrawColor(127,119,221); pdfDoc.setLineWidth(0.3);
+    pdfDoc.line(PDF_MARGIN_L, y, PDF_MARGIN_L+PDF_CONTENT_W, y); y += 5;
+    for(const s of ceoSections){
+      if(s.items.length===0) continue;
+      y = renderSection(pdfDoc, y, s.label.replace(/[^\w ]/g,"").trim(),
+        s.items.map(i=>`• ${i.text}`).join("\n"), [127,119,221]);
+    }
+    if(negotiation){
+      y += 4;
+      y = pdfCheckPageBreak(pdfDoc, y, 10);
+      pdfDoc.setFont("helvetica","bold"); pdfDoc.setFontSize(11);
+      pdfDoc.setTextColor(29,158,117);
+      pdfDoc.text(`MEMORIA DE LA NEGOCIACIÓN: ${negotiation.title}`, PDF_MARGIN_L, y); y += 6;
+      pdfDoc.setDrawColor(29,158,117);
+      pdfDoc.line(PDF_MARGIN_L, y, PDF_MARGIN_L+PDF_CONTENT_W, y); y += 5;
+      for(const s of negSections){
+        if(s.items.length===0) continue;
+        y = renderSection(pdfDoc, y, s.label.replace(/[^\w ]/g,"").trim(),
+          s.items.map(i=>`• ${i.text}`).join("\n"), [29,158,117]);
+      }
+    }
+    return y;
+  };
+
+  return(
+    <div style={{maxWidth:860,margin:"0 auto",padding:"30px 20px"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,marginBottom:20,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,marginBottom:4,display:"flex",alignItems:"center",gap:8}}>🧠 Memoria</div>
+          <div style={{fontSize:13,color:"#6b7280"}}>
+            {negotiation ? <>Memoria global ({totalCeo}) + memoria de "{negotiation.title}" ({totalNeg})</>
+                          : <>Memoria permanente del CEO — {totalCeo} entradas en {ceoSections.length} categorías</>}
+          </div>
+        </div>
+        <ExportPDFButton
+          title={negotiation?`Memoria — ${negotiation.title}`:"Memoria global del CEO"}
+          filename={negotiation?`memoria-${negotiation.title.slice(0,40)}`:"memoria-ceo"}
+          render={renderPDF}
+          size="md"
+          label="Exportar memoria"
+        />
+      </div>
+
+      <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>Memoria global</div>
+      {ceoSections.map(s=>(
+        <MemorySection
+          key={s.key}
+          label={s.label}
+          category={s.key}
+          items={s.items}
+          open={openKey===`ceo-${s.key}`}
+          onToggle={()=>toggle(`ceo-${s.key}`)}
+          onAdd={(cat,text)=>onAddCeo?.({[cat]:[text]}, "manual")}
+          onRemove={(cat,id)=>onRemoveCeo?.(cat,id)}
+        />
+      ))}
+
+      {negotiation && (
+        <>
+          <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",margin:"18px 0 10px"}}>Memoria de esta negociación</div>
+          {negSections.map(s=>(
+            <MemorySection
+              key={s.key}
+              label={s.label}
+              category={s.key}
+              items={s.items}
+              open={openKey===`neg-${s.key}`}
+              onToggle={()=>toggle(`neg-${s.key}`)}
+              onAdd={(cat,text)=>onAddNeg?.(negotiation.id,{[cat]:[text]}, "manual")}
+              onRemove={(cat,id)=>onRemoveNeg?.(negotiation.id,cat,id)}
+            />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
 function BriefingsView({data,onOpenNeg,onOpenSession}){
   const briefings=[]; const conversations=[];
   (data.negotiations||[]).forEach(n=>{
@@ -6061,6 +6235,7 @@ function ShortcutsModal({onClose}){
       [["⌘","⇧","W"], "Ir a Workspaces"],
       [["⌘","⇧","A"], "Ir a Dashboard"],
       [["⌘","⇧","B"], "Ir a Briefings IA"],
+      [["⌘","⇧","M"], "Ir a Memoria"],
     ]},
     { title:"Acciones", items:[
       [["⌘","K"],     "Abrir buscador / Command Palette"],
@@ -6238,10 +6413,12 @@ export default function TaskFlow(){
   },[]);
 
   const toastIdRef=useRef(0);
-  const addToast=useCallback((msg,type="success")=>{
+  const addToast=useCallback((msg,type="success",opts={})=>{
     const id=++toastIdRef.current;
-    setToasts(prev=>[...prev,{id,msg,type}]);
-    setTimeout(()=>setToasts(prev=>prev.filter(t=>t.id!==id)),3000);
+    const onClick = opts.onClick ? ()=>{ opts.onClick(); setToasts(prev=>prev.filter(t=>t.id!==id)); } : null;
+    const ttl = opts.ttl || 3000;
+    setToasts(prev=>[...prev,{id,msg,type,onClick}]);
+    setTimeout(()=>setToasts(prev=>prev.filter(t=>t.id!==id)),ttl);
   },[]);
 
   // Handlers del selector de usuario temporal (pre-auth).
@@ -6286,6 +6463,7 @@ export default function TaskFlow(){
         if(key==="w"){ e.preventDefault(); setActiveTab("workspaces"); return; }
         if(key==="a"){ e.preventDefault(); setActiveTab("dashboard"); return; }
         if(key==="b"){ e.preventDefault(); setActiveTab("briefings"); return; }
+        if(key==="m"){ e.preventDefault(); setActiveTab("memory"); return; }
         if(key==="n"){ e.preventDefault(); setNuevaOpen(true); setTimeout(()=>nuevaFirstBtnRef.current?.focus(),40); return; }
       }
 
@@ -6372,7 +6550,7 @@ export default function TaskFlow(){
 
   // Breadcrumb derivado del estado de navegación (activeTab + ids activos).
   const TAB_LABELS = {
-    home:"Home", dashboard:"Dashboard", mytasks:"Mis tareas", briefings:"Briefings IA",
+    home:"Home", dashboard:"Dashboard", mytasks:"Mis tareas", briefings:"Briefings IA", memory:"Memoria",
     projects:"Proyectos", planner:"Planificador IA", workspaces:"Workspaces",
     agents:"Agentes IA", users:"Usuarios", dealroom:"Deal Room",
   };
@@ -6802,6 +6980,7 @@ export default function TaskFlow(){
           {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}},
           {id:"dashboard",  icon:"📊", label:"Dashboard",    shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}},
           {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}},
+          {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}},
         ];
         return(
         <div className={`tf-sidebar${sidebarOpen?" open":""}`} data-sb-no-close style={{width:sidebarCollapsed?60:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column",transition:"width .18s ease"}}>
@@ -6980,6 +7159,7 @@ export default function TaskFlow(){
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onToast={addToast} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)}/>}
           {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
+          {activeTab==="memory"    &&<MemoryPanel ceoMemory={data.ceoMemory} onAddCeo={addCeoMemoryItems} onRemoveCeo={removeCeoMemoryItem} onAddNeg={addNegMemoryItems} onRemoveNeg={removeNegMemoryItem}/>}
           {activeTab==="dealroom"&&(()=>{
             const activeNeg = activeNegId ? (data.negotiations||[]).find(n=>n.id===activeNegId) : null;
             const activeSess = activeNeg && activeSessId ? (activeNeg.sessions||[]).find(s=>s.id===activeSessId) : null;
@@ -7039,6 +7219,8 @@ export default function TaskFlow(){
                 ceoMemory={data.ceoMemory}
                 onAddCeoMemory={addCeoMemoryItems}
                 onAddNegMemory={addNegMemoryItems}
+                onRemoveNegMemory={removeNegMemoryItem}
+                onMemorized={({count,agentName})=>addToast(`🧠 ${agentName} ha memorizado ${count} dato${count!==1?"s":""} nuevo${count!==1?"s":""}`,"info",{ttl:5000,onClick:()=>setActiveTab("memory")})}
                 onOverlayTask={id=>setOverlayTaskId(id)}
               />;
             }
