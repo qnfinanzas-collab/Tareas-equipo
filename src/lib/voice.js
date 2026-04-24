@@ -1,6 +1,15 @@
 // Browser-native voice: zero cost, no API keys.
 // Usa Web Speech API: speechSynthesis (TTS) + webkitSpeechRecognition (STT).
 
+export const isIOS = typeof navigator !== "undefined"
+  && /iPad|iPhone|iPod/.test(navigator.userAgent)
+  && !window.MSStream;
+
+// En iOS, SpeechRecognition con continuous:true no emite interims
+// estables y puede cortarse; además speechSynthesis.speak() solo
+// funciona dentro de un gesture de usuario (click/touch). Quien
+// consuma el módulo debe adaptar UX en consecuencia.
+
 export const voiceSupported = () => {
   const synth = typeof window !== "undefined" && "speechSynthesis" in window;
   const rec = typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
@@ -8,30 +17,55 @@ export const voiceSupported = () => {
 };
 
 let cachedVoices = null;
+let voicesReadyListenerAttached = false;
 export function getVoices(){
   if(typeof window === "undefined") return [];
   if(cachedVoices && cachedVoices.length) return cachedVoices;
-  cachedVoices = window.speechSynthesis.getVoices();
-  return cachedVoices;
+  const v = window.speechSynthesis.getVoices();
+  if(v && v.length){
+    cachedVoices = v;
+    return v;
+  }
+  // getVoices() devuelve [] hasta que el motor TTS carga el catálogo.
+  // Registramos el listener una sola vez para refrescar la cache cuando
+  // el navegador dispare voiceschanged.
+  if(!voicesReadyListenerAttached && "addEventListener" in window.speechSynthesis){
+    voicesReadyListenerAttached = true;
+    window.speechSynthesis.addEventListener("voiceschanged", ()=>{
+      cachedVoices = window.speechSynthesis.getVoices();
+    });
+  }
+  return [];
 }
 
-// Pick the best Spanish voice for an avatar (prefers higher quality / female/male match)
+// Elige voz española priorizando por nombre propio. Las voces del SO no
+// suelen incluir "male"/"female" en el name, así que comparamos con la
+// lista de nombres comunes por género.
+const MALE_ES_NAMES   = ["jorge","diego","pablo","enrique","miguel","andrés","andres","carlos","juan"];
+const FEMALE_ES_NAMES = ["mónica","monica","paulina","rosa","elena","conchita","lucía","lucia","carmen","isabel","marisol"];
+
 export function pickVoice(preferredGender = "any"){
   const voices = getVoices();
-  const spanish = voices.filter(v => /es[-_]/i.test(v.lang));
-  if(spanish.length === 0) return null;
-  // Prefer local / neural voices
-  const neural = spanish.filter(v => /neural|premium|enhanced|google/i.test(v.name));
-  const pool = neural.length ? neural : spanish;
-  if(preferredGender === "female"){
-    const f = pool.find(v => /female|mujer|monica|elena|lucia|paulina|marisol/i.test(v.name));
-    if(f) return f;
-  }
+  const esVoices = voices.filter(v => /^es[-_]?/i.test(v.lang));
+  if(esVoices.length === 0) return voices[0] || null;
+
+  const matchByNames = (names)=> esVoices.find(v=>{
+    const n = (v.name||"").toLowerCase();
+    return names.some(x => n.includes(x));
+  });
+
   if(preferredGender === "male"){
-    const m = pool.find(v => /male|hombre|diego|jorge|pablo|enrique|miguel/i.test(v.name));
+    const m = matchByNames(MALE_ES_NAMES);
     if(m) return m;
   }
-  return pool[0];
+  if(preferredGender === "female"){
+    const f = matchByNames(FEMALE_ES_NAMES);
+    if(f) return f;
+  }
+  // Fallback: preferimos voces marcadas como neural/premium/enhanced
+  // (mejor calidad) antes que la primera cualquiera.
+  const neural = esVoices.find(v => /neural|premium|enhanced|google/i.test(v.name));
+  return neural || esVoices[0];
 }
 
 // Limpia sintaxis markdown del texto antes de pasarlo a un TTS o de

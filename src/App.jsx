@@ -15,7 +15,7 @@ import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.j
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, PLAIN_TEXT_RULE } from "./lib/agent.js";
-import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown } from "./lib/voice.js";
+import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
 // ── AI Planner ────────────────────────────────────────────────────────────────
@@ -509,8 +509,11 @@ const VoiceMicButton = React.forwardRef(function VoiceMicButton({onStart,onInter
     stoppedRef.current = false;
     accumRef.current = (initialText||"").trim();
     onStart?.();
+    // iOS: continuous:true es inestable (no emite interims o corta).
+    // Usamos one-shot y el usuario pulsa el botón cada vez que quiere
+    // dictar otro fragmento — el accum se preserva entre ciclos.
     stopRef.current = listen({
-      continuous: true,
+      continuous: !isIOS,
       onStart:   ()=>setListening(true),
       onInterim: (t)=>{
         if(stoppedRef.current) return;
@@ -532,7 +535,7 @@ const VoiceMicButton = React.forwardRef(function VoiceMicButton({onStart,onInter
       type="button"
       onClick={handleClick}
       disabled={disabled&&!listening}
-      title={listening?"Parar dictado":(title||"Dictar por voz (continuo)")}
+      title={listening?"Parar dictado":(title|| (isIOS?"Pulsa para dictar una frase":"Dictar por voz (continuo)"))}
       style={{width:dim,height:dim,borderRadius:8,background:listening?"#E24B4A":"#fff",color:listening?"#fff":color,border:listening?"none":`1px solid ${color}`,fontSize:size==="sm"?12:15,cursor:(disabled&&!listening)?"not-allowed":"pointer",fontFamily:"inherit",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",opacity:(disabled&&!listening)?0.5:1,animation:listening?"tf-mic-pulse 1.2s infinite":"none",padding:0}}
     >{listening?"⏹":"🎤"}</button>
   );
@@ -5295,11 +5298,16 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               const assistantTs = new Date().toISOString();
               const content = reply||"(respuesta vacía)";
               onAppendHectorMessage(negotiation.id,{role:"assistant",content,timestamp:assistantTs});
-              // Auto-TTS solo si el turno se inició por voz.
+              // Auto-TTS solo si el turno se inició por voz Y no estamos
+              // en iOS. iOS bloquea speechSynthesis fuera de un gesto de
+              // usuario, así que en lugar de auto-reproducir mostramos el
+              // botón "🔊 Escuchar" junto al mensaje y el usuario lo pulsa.
               if(voiceInitiatedRef.current){
                 voiceInitiatedRef.current = false;
-                setSpeakingMsgTs(assistantTs);
-                speakAgentResponse(content,hector,{onEnd:()=>setSpeakingMsgTs(null)});
+                if(!isIOS){
+                  setSpeakingMsgTs(assistantTs);
+                  speakAgentResponse(content,hector,{onEnd:()=>setSpeakingMsgTs(null)});
+                }
               }
               // Auto-aprendizaje fire-and-forget (no bloquea el chat).
               // Envía últimos 4 msgs al LLM con prompt de extracción y añade
@@ -5464,7 +5472,16 @@ ${taskLines||"(ninguna)"}`;
                             {m.kind==="briefing"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div><ExportPDFButton title={`Briefing — ${negotiation.title}`} filename={`briefing-${negotiation.title.slice(0,40)}`} render={(doc,y)=>renderSection(doc,y,"Briefing estratégico",m.content,[14,124,90])}/></div>}
                             {m.kind==="analysis"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#1E40AF",textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div><ExportPDFButton title={`Análisis batch — ${negotiation.title}`} filename={`analisis-${negotiation.title.slice(0,40)}`} render={(doc,y)=>renderAnalysis(doc,y,negotiation.hectorAnalysis,criticalTasks,relProjs)}/></div>}
                             {m.content}
-                            <div style={{fontSize:10,color:"#9CA3AF",marginTop:4,opacity:0.8}}>{m.timestamp?new Date(m.timestamp).toLocaleString("es-ES",{hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"}):""}</div>
+                            <div style={{fontSize:10,color:"#9CA3AF",marginTop:4,opacity:0.8,display:"flex",alignItems:"center",gap:8}}>
+                              <span style={{flex:1}}>{m.timestamp?new Date(m.timestamp).toLocaleString("es-ES",{hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"}):""}</span>
+                              {!isUser && !isSpeaking && voiceSupported().tts && (
+                                <button
+                                  onClick={e=>{ e.stopPropagation(); setSpeakingMsgTs(m.timestamp); speakAgentResponse(m.content,hector,{onEnd:()=>setSpeakingMsgTs(null)}); }}
+                                  title="Escuchar esta respuesta"
+                                  style={{padding:"2px 8px",borderRadius:10,background:"#fff",color:"#1D9E75",border:"1px solid #86EFAC",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}
+                                >🔊 Escuchar</button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
