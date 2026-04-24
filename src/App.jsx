@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   MP, TAG_COLORS, QM, PROJECT_COLORS, PROJECT_EMOJIS, DOW, palOf,
 } from "./lib/constants.js";
@@ -519,6 +520,52 @@ const VoiceMicButton = React.forwardRef(function VoiceMicButton({onStart,onInter
   );
 });
 
+// Dropdown portalizado al body. El trigger vive dentro de un card con
+// overflow:hidden (para respetar borderRadius del informe expandido),
+// así que posicionar el menú via position:absolute lo clippa. Portal
+// fuera de cualquier ancestro con overflow se resuelve calculando
+// coordenadas desde getBoundingClientRect del trigger.
+function PortalDropdown({getAnchor, open, onClose, children, minWidth = 170}){
+  const [pos,setPos] = useState(null);
+  useEffect(()=>{
+    if(!open){ setPos(null); return; }
+    const compute = ()=>{
+      const el = getAnchor?.();
+      if(!el) return;
+      const r = el.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: Math.max(8, r.right - minWidth), width: minWidth });
+    };
+    compute();
+    window.addEventListener("scroll", compute, true);
+    window.addEventListener("resize", compute);
+    return ()=>{
+      window.removeEventListener("scroll", compute, true);
+      window.removeEventListener("resize", compute);
+    };
+  },[open, minWidth, getAnchor]);
+  useEffect(()=>{
+    if(!open) return;
+    const onDoc = (e)=>{
+      const el = getAnchor?.();
+      if(el && el.contains(e.target)) return;
+      // Permitir clicks dentro del propio dropdown (detectado por data-role)
+      if(e.target.closest && e.target.closest("[data-portal-dropdown='1']")) return;
+      onClose?.();
+    };
+    const onKey = (e)=>{ if(e.key==="Escape") onClose?.(); };
+    // defer para no pillar el click que lo abrió
+    const t = setTimeout(()=>{ document.addEventListener("mousedown", onDoc); document.addEventListener("keydown", onKey); }, 0);
+    return ()=>{ clearTimeout(t); document.removeEventListener("mousedown", onDoc); document.removeEventListener("keydown", onKey); };
+  },[open, onClose, getAnchor]);
+  if(!open || !pos) return null;
+  return createPortal(
+    <div data-portal-dropdown="1" style={{position:"fixed", top:pos.top, left:pos.left, minWidth:pos.width, background:"#fff", border:"1px solid #E5E7EB", borderRadius:8, boxShadow:"0 6px 20px rgba(0,0,0,0.18)", zIndex:10000, padding:4}}>
+      {children}
+    </div>,
+    document.body
+  );
+}
+
 // Adjuntos de documentos con upload a Supabase Storage.
 // ownerKey = identificador del contenedor ("neg-<id>" o "task-<id>") que se
 // usa como prefijo del path en el bucket. documents se persiste en el estado
@@ -798,33 +845,13 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
                   <button onClick={()=>openDoc(doc)} title="Abrir" style={{width:28,height:28,borderRadius:6,background:"#F3F4F6",border:"none",cursor:"pointer",fontSize:13}}>↗</button>
                   {/* Tercer botón: Analizar (verde) si no hay informe; Ver informe (azul) + Re-analizar (gris) si lo hay */}
                   {hasAgents && canAnalyze(doc) && !doc.report && (
-                    <div style={{position:"relative",display:"inline-flex"}}>
-                      <button
-                        onClick={()=>setAgentMenuDocId(v=>v===doc.id?null:doc.id)}
-                        disabled={isAnalyzing}
-                        title="Analizar con un agente IA"
-                        style={{padding:"4px 12px",borderRadius:6,background:isAnalyzing?"#A7F3D0":"#1D9E75",color:"#fff",border:"none",cursor:isAnalyzing?"wait":"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}
-                      >{isAnalyzing?"⋯ Analizando…":"Analizar"}</button>
-                      {agentMenuDocId===doc.id && !isAnalyzing && (
-                        <div style={{position:"absolute",top:"100%",right:0,marginTop:4,minWidth:160,background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,0.12)",zIndex:50,padding:4}}>
-                          {agents.map(a=>(
-                            <button
-                              key={a.id}
-                              onClick={()=>{ setAgentMenuDocId(null); runAnalyze(doc, a); }}
-                              style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"7px 10px",border:"none",background:"transparent",cursor:"pointer",fontSize:12,fontFamily:"inherit",textAlign:"left",borderRadius:6,color:"#111827"}}
-                              onMouseEnter={e=>e.currentTarget.style.background="#F3F4F6"}
-                              onMouseLeave={e=>e.currentTarget.style.background="transparent"}
-                            >
-                              <span>{a.emoji||"🤖"}</span>
-                              <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontWeight:600}}>{a.name}</div>
-                                {a.role && <div style={{fontSize:10,color:"#6B7280"}}>{a.role}</div>}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <button
+                      data-doc-anchor={`analyze-${doc.id}`}
+                      onClick={()=>setAgentMenuDocId(v=>v===doc.id?null:doc.id)}
+                      disabled={isAnalyzing}
+                      title="Analizar con un agente IA"
+                      style={{padding:"4px 12px",borderRadius:6,background:isAnalyzing?"#A7F3D0":"#1D9E75",color:"#fff",border:"none",cursor:isAnalyzing?"wait":"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}
+                    >{isAnalyzing?"⋯ Analizando…":"Analizar"}</button>
                   )}
                   {doc.report && (
                     <>
@@ -834,36 +861,37 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
                         style={{padding:"4px 12px",borderRadius:6,background:"#378ADD",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit"}}
                       >{isExpanded?"Ocultar":"Ver informe"}</button>
                       {hasAgents && canAnalyze(doc) && (
-                        <div style={{position:"relative",display:"inline-flex"}}>
-                          <button
-                            onClick={()=>setAgentMenuDocId(v=>v===doc.id?null:doc.id)}
-                            disabled={isAnalyzing}
-                            title="Re-analizar con otro agente"
-                            style={{padding:"4px 10px",borderRadius:6,background:isAnalyzing?"#E5E7EB":"#F3F4F6",color:"#374151",border:"1px solid #D1D5DB",cursor:isAnalyzing?"wait":"pointer",fontSize:11,fontWeight:600,fontFamily:"inherit"}}
-                          >{isAnalyzing?"⋯":"Re-analizar"}</button>
-                          {agentMenuDocId===doc.id && !isAnalyzing && (
-                            <div style={{position:"absolute",top:"100%",right:0,marginTop:4,minWidth:160,background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,0.12)",zIndex:50,padding:4}}>
-                              {agents.map(a=>(
-                                <button
-                                  key={a.id}
-                                  onClick={()=>{ setAgentMenuDocId(null); runAnalyze(doc, a); }}
-                                  style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"7px 10px",border:"none",background:"transparent",cursor:"pointer",fontSize:12,fontFamily:"inherit",textAlign:"left",borderRadius:6,color:"#111827"}}
-                                  onMouseEnter={e=>e.currentTarget.style.background="#F3F4F6"}
-                                  onMouseLeave={e=>e.currentTarget.style.background="transparent"}
-                                >
-                                  <span>{a.emoji||"🤖"}</span>
-                                  <div style={{flex:1,minWidth:0}}>
-                                    <div style={{fontWeight:600}}>{a.name}</div>
-                                    {a.role && <div style={{fontSize:10,color:"#6B7280"}}>{a.role}</div>}
-                                  </div>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                        <button
+                          data-doc-anchor={`analyze-${doc.id}`}
+                          onClick={()=>setAgentMenuDocId(v=>v===doc.id?null:doc.id)}
+                          disabled={isAnalyzing}
+                          title="Re-analizar con otro agente"
+                          style={{padding:"4px 10px",borderRadius:6,background:isAnalyzing?"#E5E7EB":"#F3F4F6",color:"#374151",border:"1px solid #D1D5DB",cursor:isAnalyzing?"wait":"pointer",fontSize:11,fontWeight:600,fontFamily:"inherit"}}
+                        >{isAnalyzing?"⋯":"Re-analizar"}</button>
                       )}
                     </>
                   )}
+                  <PortalDropdown
+                    open={agentMenuDocId===doc.id && !isAnalyzing}
+                    onClose={()=>setAgentMenuDocId(null)}
+                    getAnchor={()=>document.querySelector(`[data-doc-anchor="analyze-${doc.id}"]`)}
+                  >
+                    {agents.map(a=>(
+                      <button
+                        key={a.id}
+                        onClick={()=>{ setAgentMenuDocId(null); runAnalyze(doc, a); }}
+                        style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"7px 10px",border:"none",background:"transparent",cursor:"pointer",fontSize:12,fontFamily:"inherit",textAlign:"left",borderRadius:6,color:"#111827"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="#F3F4F6"}
+                        onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                      >
+                        <span>{a.emoji||"🤖"}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:600}}>{a.name}</div>
+                          {a.role && <div style={{fontSize:10,color:"#6B7280"}}>{a.role}</div>}
+                        </div>
+                      </button>
+                    ))}
+                  </PortalDropdown>
                   <button onClick={()=>removeDoc(doc)} title="Eliminar" style={{width:28,height:28,borderRadius:6,background:"#FEF2F2",border:"none",cursor:"pointer",fontSize:13,color:"#B91C1C"}}>✕</button>
                 </div>
                 {isExpanded && (
