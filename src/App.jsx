@@ -462,6 +462,12 @@ function VoiceMicButton({onStart,onInterim,onFinal,onError,disabled,color="#1D9E
   const stopRef  = useRef(null);
   const accumRef = useRef("");
   useEffect(()=>()=>{ if(stopRef.current){ try{stopRef.current();}catch{} } },[]);
+  // Si el padre vacía el input mientras estamos grabando (típico tras
+  // "enviar mensaje" en un chat), resetear el acumulador. Sin esto la
+  // siguiente onInterim reinyectaría el texto viejo en el input.
+  useEffect(()=>{
+    if(listening && !(initialText||"").trim()) accumRef.current = "";
+  },[initialText, listening]);
   const supported = voiceSupported().stt;
   if(!supported) return null;
   const handleClick = (e)=>{
