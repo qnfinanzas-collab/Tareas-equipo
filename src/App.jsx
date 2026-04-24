@@ -830,7 +830,12 @@ function chatBody(messages, {userLabel="Usuario", assistantLabel="Héctor"}={}){
               : "";
     const bg   = isUser ? "#F5F3FF" : "#F9FAFB";
     const accent = isUser ? "#7F77DD" : "#1D9E75";
-    return `<div style="margin-bottom:10px;padding:9px 12px;background:${bg};border-left:3px solid ${accent};border-radius:6px;page-break-inside:avoid;">
+    // Sin page-break-inside:avoid: con html2pdf + márgenes reservados para
+    // header/footer, una burbuja larga marcada como unbreakable empujaba
+    // todo el contenido a páginas siguientes y las dejaba vacías (solo
+    // se veía el header dibujado por jsPDF). Dejamos que el contenido
+    // fluya y se parta entre páginas si hace falta.
+    return `<div style="margin-bottom:10px;padding:9px 12px;background:${bg};border-left:3px solid ${accent};border-radius:6px;">
       <div style="font-size:10.5px;color:#6B7280;margin-bottom:4px;"><b style="color:${accent};">${escapeHtml(who)}</b>${tag} · ${escapeHtml(date)}</div>
       <div style="font-size:11.5px;line-height:1.55;color:#1F2937;white-space:pre-wrap;">${escapeHtml(m.content||"")}</div>
     </div>`;
@@ -844,7 +849,7 @@ function analysisBody(analysis, criticalTasks, relProjs){
   const rowCell = (id, meta, title, subtitle)=>{
     const text = escapeHtml(meta?.text||"(sin análisis)");
     const tags = (meta?.tags||[]).map(t=>`<span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#EEF2FF;color:#3730A3;font-size:9.5px;font-weight:600;margin-right:4px;">${escapeHtml(t)}</span>`).join("");
-    return `<tr style="page-break-inside:avoid;">
+    return `<tr>
       <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;vertical-align:top;width:38%;">
         <div style="font-size:11px;font-weight:600;color:#111827;">${escapeHtml(title)}</div>
         <div style="font-size:10px;color:#6B7280;margin-top:2px;">${escapeHtml(subtitle||"")}</div>
