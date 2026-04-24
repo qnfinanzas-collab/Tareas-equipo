@@ -54,55 +54,81 @@ const MALE_ES_NAMES = [
 ];
 const FEMALE_ES_NAMES = [
   "mónica","monica","paulina","rosa","elena","conchita","lucía","lucia",
-  "carmen","isabel","marisol","esperanza","sofia","sofía","laura","marta",
+  "carmen","isabel","marisol","francisca","angelica","angélica","grandma",
+  "esperanza","sofia","sofía","laura","marta",
   "female","mujer","femenino",
 ];
 
+// Cascada para "male":
+//   name-match       → match explícito por nombre propio masculino
+//   quality-filter   → entre las no-femeninas, primera neural/premium/
+//                      enhanced/google (en ese orden de preferencia)
+//   first-non-female → primera voz es-* que no contenga nombre femenino
+//   fallback         → primera voz es-* cualquiera (warn: todas parecen
+//                      femeninas y no hay mejor opción que mostrar la
+//                      aplicación muda)
+//
+// La exclusión de femeninas se hace ANTES del quality-filter para que
+// una "Monica Premium" no gane a "Google español" cuando pedimos male.
 export function pickVoice(preferredGender = "any"){
   const voices = getVoices();
-  console.log("[voice] voces disponibles:", voices.map(v=>`${v.name} | ${v.lang}${v.default?" (default)":""}`));
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  console.log("[voice] platform:", ua.slice(0, 80));
+  console.log("[voice] available voices:", voices.map(v=>v.name).join(", ") || "(ninguna aún)");
+
   const esVoices = voices.filter(v => /^es[-_]?/i.test(v.lang));
   if(esVoices.length === 0){
-    console.warn("[voice] sin voces es-*, fallback a voices[0]:", voices[0]?.name);
-    return voices[0] || null;
+    const picked = voices[0] || null;
+    console.log("[voice] selected:", picked?.name, "| method: no-es-fallback");
+    return picked;
   }
 
   const nameHas = (v, list)=>{
     const n = (v.name||"").toLowerCase();
     return list.some(x => n.includes(x));
   };
+  const qualityPick = (pool)=>{
+    // Orden explícito: neural > premium > enhanced > google
+    return pool.find(v => /neural/i.test(v.name))
+        || pool.find(v => /premium/i.test(v.name))
+        || pool.find(v => /enhanced/i.test(v.name))
+        || pool.find(v => /google/i.test(v.name))
+        || null;
+  };
+  const logPick = (v, method)=>{
+    console.log("[voice] selected:", v?.name, "| method:", method, "| lang:", v?.lang);
+    return v;
+  };
 
   if(preferredGender === "male"){
-    // 1) Nombre masculino explícito
+    // 1) name-match
     const explicit = esVoices.find(v => nameHas(v, MALE_ES_NAMES));
-    if(explicit){
-      console.log("[voice] male match (nombre explícito):", explicit.name, "|", explicit.lang);
-      return explicit;
-    }
-    // 2) Excluir voces femeninas conocidas → primera restante
+    if(explicit) return logPick(explicit, "name-match");
+
+    // Pool tras excluir femeninas conocidas
     const nonFemale = esVoices.filter(v => !nameHas(v, FEMALE_ES_NAMES));
     if(nonFemale.length > 0){
-      console.log("[voice] male fallback (excluyendo femeninas):", nonFemale[0].name, "|", nonFemale[0].lang);
-      return nonFemale[0];
+      // 2) quality-filter dentro del pool no-femenino
+      const quality = qualityPick(nonFemale);
+      if(quality) return logPick(quality, "quality-filter");
+      // 3) primera no-femenina
+      return logPick(nonFemale[0], "first-non-female");
     }
-    // 3) Todas las voces es-* parecen femeninas. Mejor Mónica que nada.
-    console.warn("[voice] ninguna voz masculina disponible, todas las es-* parecen femeninas:", esVoices.map(v=>v.name));
-    return esVoices[0];
+
+    // 4) fallback — todas las es-* parecen femeninas
+    console.warn("[voice] todas las es-* parecen femeninas:", esVoices.map(v=>v.name));
+    return logPick(esVoices[0], "fallback");
   }
 
   if(preferredGender === "female"){
     const explicit = esVoices.find(v => nameHas(v, FEMALE_ES_NAMES));
-    if(explicit){
-      console.log("[voice] female match:", explicit.name);
-      return explicit;
-    }
+    if(explicit) return logPick(explicit, "name-match");
   }
 
-  // "any" — preferimos voces marcadas como neural/premium/enhanced
-  const neural = esVoices.find(v => /neural|premium|enhanced|google/i.test(v.name));
-  const picked = neural || esVoices[0];
-  console.log("[voice] any match:", picked?.name, "|", picked?.lang);
-  return picked;
+  // "any" — calidad primero, si no la primera es-*
+  const quality = qualityPick(esVoices);
+  if(quality) return logPick(quality, "quality-filter");
+  return logPick(esVoices[0], "fallback");
 }
 
 // Limpia sintaxis markdown del texto antes de pasarlo a un TTS o de
