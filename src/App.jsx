@@ -4830,7 +4830,7 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onSummarizeAndClearChat,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onSummarizeAndClearChat,onRouteAutoLearn,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessionsAsc = (negotiation.sessions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -5324,10 +5324,10 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                 }
               }
               // Auto-aprendizaje fire-and-forget (no bloquea el chat).
-              // Envía últimos 4 msgs al LLM con prompt de extracción y añade
-              // items deduplicados a ceoMemory / negotiation.memory.
+              // Envía últimos 4 msgs al LLM con el extractor tipado y
+              // rutea cada item según type (preference | keyFact | decision).
               (async()=>{
-                console.log("[memory] auto-learn triggered · neg:", negotiation.title, "· hasHandlers:", {ceo: !!onAddCeoMemory, neg: !!onAddNegMemory, toast: !!onMemorized});
+                console.log("[memory] auto-learn triggered · neg:", negotiation.title, "· hasRouter:", !!onRouteAutoLearn);
                 try {
                   const recent = [
                     ...((negotiation.hectorChat||[]).slice(-3)),
@@ -5335,25 +5335,14 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                     {role:"assistant",content,timestamp:assistantTs},
                   ];
                   const extracted = await extractMemoryFromChat(recent, negotiation.title);
-                  let addedCeo = 0, addedNeg = 0;
-                  if(onAddCeoMemory){
-                    addedCeo = onAddCeoMemory({
-                      preferences: extracted.ceoPreferences,
-                      keyFacts:    extracted.keyFacts,
-                      decisions:   extracted.decisions,
-                      lessons:     extracted.lessons,
-                    }, "auto");
+                  const items = extracted.items || [];
+                  if(items.length === 0){
+                    console.log("[memory] auto-learn: no items to route");
+                    return;
                   }
-                  if(onAddNegMemory){
-                    addedNeg = onAddNegMemory(negotiation.id, {
-                      keyFacts:   extracted.negKeyFacts,
-                      agreements: extracted.negAgreements,
-                      redFlags:   extracted.negRedFlags,
-                    }, "auto");
-                  }
-                  const total = addedCeo + addedNeg;
-                  console.log("[memory] auto-learn done · addedCeo:", addedCeo, "· addedNeg:", addedNeg, "· total:", total);
-                  if(total>0) onMemorized?.({count:total, agentName: hector?.name||"Agente"});
+                  const added = onRouteAutoLearn ? onRouteAutoLearn(items, negotiation.id, negotiation.title) : 0;
+                  console.log("[memory] auto-learn done · routed added:", added);
+                  if(added>0) onMemorized?.({count: added, agentName: hector?.name||"Agente"});
                 } catch(err){
                   console.warn("[memory] auto-learn failed:", err);
                 }
@@ -6091,10 +6080,13 @@ function MemorySection({label, category, items, onAdd, onRemove, open, onToggle}
           {items.length>0 && (
             <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
               {items.slice().reverse().map(item=>(
-                <div key={item.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",background:"#F9FAFB",borderRadius:8,borderLeft:`3px solid ${item.source==="auto"?"#378ADD":"#7F77DD"}`}}>
-                  <div style={{flex:1,minWidth:0,fontSize:12.5,lineHeight:1.5,color:"#1F2937"}}>{item.text}</div>
+                <div key={item.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",background:"#F9FAFB",borderRadius:8,borderLeft:`3px solid ${item.source&&item.source!=="manual"?"#378ADD":"#7F77DD"}`}}>
+                  <div style={{flex:1,minWidth:0,fontSize:12.5,lineHeight:1.5,color:"#1F2937"}}>
+                    {item.text}
+                    {item.negotiationTitle && <div style={{fontSize:10,color:"#9CA3AF",marginTop:2,fontStyle:"italic"}}>↳ de "{item.negotiationTitle}"</div>}
+                  </div>
                   <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,flexShrink:0}}>
-                    <span style={{fontSize:10,color:item.source==="auto"?"#1E40AF":"#6D28D9",background:item.source==="auto"?"#DBEAFE":"#EDE9FE",padding:"1px 6px",borderRadius:4,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.04em"}}>{item.source==="auto"?"auto":"manual"}</span>
+                    <span style={{fontSize:10,color:item.source&&item.source!=="manual"?"#1E40AF":"#6D28D9",background:item.source&&item.source!=="manual"?"#DBEAFE":"#EDE9FE",padding:"1px 6px",borderRadius:4,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.04em"}}>{item.source&&item.source!=="manual"?(item.source==="auto-summary"?"resumen":"auto"):"manual"}</span>
                     <span style={{fontSize:10,color:"#9CA3AF"}}>{new Date(item.createdAt).toLocaleDateString("es-ES")}</span>
                   </div>
                   <button onClick={()=>onRemove?.(category,item.id)} title="Eliminar" style={{width:22,height:22,borderRadius:5,background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"#B91C1C",padding:0,flexShrink:0}}>✕</button>
@@ -6877,6 +6869,65 @@ export default function TaskFlow(){
     }
     return added;
   },[]);
+  // Añade UN item a ceoMemory.<category> con metadata opcional
+  // (negotiationId, negotiationTitle) — usado por el router de auto-learn
+  // para decisiones donde queremos conservar el origen. Deduplica con
+  // addUnique (includes bidireccional + Jaccard ≥ 0.8). Devuelve bool.
+  const addCeoMemorySingle = useCallback((category, text, source, meta)=>{
+    if(!CEO_MEMORY_KEYS.includes(category)) return false;
+    const cur = dataRef.current?.ceoMemory || emptyCeoMemory();
+    const list = cur[category] || [];
+    const res = addUnique(list, text, source, meta);
+    if(!res.added) return false;
+    const next = {...cur, [category]: res.list, updatedAt: new Date().toISOString()};
+    dataRef.current = {...dataRef.current, ceoMemory: next};
+    setData(prev=>({...prev, ceoMemory: next}));
+    return true;
+  },[]);
+  const addNegMemorySingle = useCallback((negId, category, text, source)=>{
+    if(!NEG_MEMORY_KEYS.includes(category)) return false;
+    const neg = (dataRef.current?.negotiations||[]).find(n=>n.id===negId);
+    if(!neg) return false;
+    const cur = neg.memory || emptyNegMemory();
+    const list = cur[category] || [];
+    const res = addUnique(list, text, source);
+    if(!res.added) return false;
+    const next = {...cur, [category]: res.list, updatedAt: new Date().toISOString()};
+    dataRef.current = {
+      ...dataRef.current,
+      negotiations: dataRef.current.negotiations.map(n=>n.id===negId?{...n, memory: next}:n),
+    };
+    setData(prev=>({...prev, negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n, memory: next}:n)}));
+    return true;
+  },[]);
+  // Router del auto-learn. Recibe items tipados del extractor y los
+  // coloca según la semántica pedida:
+  //   preference → ceoMemory.preferences
+  //   keyFact    → ceoMemory.keyFacts  +  negMemory.keyFacts (duplicado)
+  //   decision   → ceoMemory.decisions (con negotiationId/Title)  +
+  //                negMemory.keyFacts
+  const routeAutoLearnItems = useCallback((items, negId, negTitle)=>{
+    let added = 0;
+    for(const it of (items||[])){
+      const { type, content } = it;
+      if(type === "preference"){
+        if(addCeoMemorySingle("preferences", content, "auto-learn")) added++;
+      } else if(type === "keyFact"){
+        // Cuenta como 1 si al menos una de las dos inserciones tiene éxito.
+        const a = addCeoMemorySingle("keyFacts", content, "auto-learn");
+        const b = negId ? addNegMemorySingle(negId, "keyFacts", content, "auto-learn") : false;
+        if(a || b) added++;
+      } else if(type === "decision"){
+        const meta = negId ? { negotiationId: negId, negotiationTitle: negTitle } : null;
+        const a = addCeoMemorySingle("decisions", content, "auto-learn", meta);
+        const b = negId ? addNegMemorySingle(negId, "keyFacts", content, "auto-learn") : false;
+        if(a || b) added++;
+      }
+    }
+    console.log("[memory] routeAutoLearnItems · total added:", added, "· from items:", (items||[]).length);
+    return added;
+  },[addCeoMemorySingle, addNegMemorySingle]);
+
   const removeCeoMemoryItem = useCallback((category, itemId)=>{
     if(!CEO_MEMORY_KEYS.includes(category)) return;
     setData(prev=>({...prev, ceoMemory: {
@@ -7360,6 +7411,7 @@ export default function TaskFlow(){
                 onAddNegMemory={addNegMemoryItems}
                 onRemoveNegMemory={removeNegMemoryItem}
                 onSummarizeAndClearChat={summarizeAndClearHectorChat}
+                onRouteAutoLearn={routeAutoLearnItems}
                 onMemorized={({count,agentName})=>addToast(`🧠 ${agentName} ha memorizado ${count} dato${count!==1?"s":""} nuevo${count!==1?"s":""}`,"info",{ttl:5000,onClick:()=>setActiveTab("memory")})}
                 onOverlayTask={id=>setOverlayTaskId(id)}
               />;

@@ -13,18 +13,24 @@ export function emptyNegMemory(){
   return { keyFacts:[], agreements:[], redFlags:[], chatSummaries:[], updatedAt:null };
 }
 
-export function createMemoryItem(text, source = "manual"){
-  return {
+export function createMemoryItem(text, source = "manual", meta = null){
+  const base = {
     id: "mem_"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
     text: String(text||"").trim(),
     source,
     createdAt: new Date().toISOString(),
   };
+  // Metadata opcional (usado por decisiones auto-learn: negotiationId +
+  // negotiationTitle para poder navegar de vuelta al contexto origen).
+  if(meta && typeof meta === "object"){
+    if(meta.negotiationId)    base.negotiationId    = meta.negotiationId;
+    if(meta.negotiationTitle) base.negotiationTitle = meta.negotiationTitle;
+  }
+  return base;
 }
 
 // Normaliza texto para deduplicación: minúsculas, sin acentos, sin
-// puntuación, espacios colapsados. No busca match exacto — usa includes
-// bidireccional: si uno contiene al otro, se considera duplicado.
+// puntuación, espacios colapsados.
 function normalize(s){
   return String(s||"")
     .toLowerCase()
@@ -33,23 +39,45 @@ function normalize(s){
     .replace(/\s+/g," ")
     .trim();
 }
-export function findSimilar(list, text){
+
+// Similitud Jaccard sobre conjuntos de palabras: |A∩B| / |A∪B|.
+// 1.0 = idénticas; 0.8 = 80% de solapamiento. Pensado para frases cortas.
+export function jaccardSimilarity(a, b){
+  const wa = new Set(normalize(a).split(/\s+/).filter(w=>w.length>=3));
+  const wb = new Set(normalize(b).split(/\s+/).filter(w=>w.length>=3));
+  if(wa.size === 0 || wb.size === 0) return 0;
+  let inter = 0;
+  wa.forEach(w => { if(wb.has(w)) inter++; });
+  const union = wa.size + wb.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+// Detecta duplicados con doble criterio:
+// (a) Includes bidireccional sobre strings normalizadas (pilla
+//     "preferí JV" vs "preferí JV contractual" — uno contiene al otro).
+// (b) Jaccard ≥ 0.8 (pilla reformulaciones con 80%+ de palabras en
+//     común aunque ninguna contenga a la otra literalmente).
+export function findSimilar(list, text, threshold = 0.8){
   const n = normalize(text);
   if(!n || n.length<4) return null;
   return (list||[]).find(item=>{
     const ni = normalize(item.text);
     if(!ni) return false;
-    return ni===n || (ni.length>=8 && n.includes(ni)) || (n.length>=8 && ni.includes(n));
+    if(ni===n) return true;
+    if(ni.length>=8 && n.includes(ni)) return true;
+    if(n.length>=8 && ni.includes(n)) return true;
+    return jaccardSimilarity(item.text, text) >= threshold;
   }) || null;
 }
 
 // Devuelve {list, added} — added=true si el texto se añadió (no era dup).
-export function addUnique(list, text, source = "manual"){
+// meta: metadata opcional que se añade al item creado (negotiationId, etc.).
+export function addUnique(list, text, source = "manual", meta = null){
   const trimmed = String(text||"").trim();
   if(!trimmed) return { list: list||[], added: false };
   const dup = findSimilar(list, trimmed);
   if(dup) return { list: list||[], added: false };
-  return { list: [...(list||[]), createMemoryItem(trimmed, source)], added: true };
+  return { list: [...(list||[]), createMemoryItem(trimmed, source, meta)], added: true };
 }
 
 // Formatea la memoria del CEO como bloque para inyectar en system prompt.

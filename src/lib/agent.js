@@ -1178,27 +1178,38 @@ export async function analyzeDocument(attachment, agent, contextLabel, ceoMemory
 // Devuelve { ceoPreferences:[], keyFacts:[], decisions:[], lessons:[],
 //   negKeyFacts:[], negAgreements:[], negRedFlags:[] } con strings cortas.
 // Silencioso: si falla el parse, devuelve arrays vacíos; nunca lanza.
+// Nuevo formato tipado: devuelve { items: [{type, content}] } con tres
+// tipos posibles — preference | keyFact | decision. El caller rutea cada
+// item según tipo (ver routeAutoLearnItems en App.jsx). Cambio respecto
+// a la versión anterior (7 arrays planos): simplifica el prompt, alinea
+// la semántica con las 3 categorías de destino, y facilita añadir tipos.
+const AUTO_LEARN_TYPES = ["preference","keyFact","decision"];
+
 export async function extractMemoryFromChat(recentMessages, negTitle){
   console.log("[memory] extractMemoryFromChat called · msgs:", (recentMessages||[]).length, "· neg:", negTitle||"(none)");
   const system = [
     "Eres un extractor de memoria silencioso. Analizas conversaciones y",
-    "extraes datos objetivos y estables que conviene recordar a futuro.",
+    "extraes datos objetivos y estables que conviene recordar.",
     "",
-    "Reglas estrictas:",
-    "- Extrae información duradera: preferencias del usuario, hechos",
-    "  factuales mencionados, decisiones tomadas, lecciones aprendidas,",
-    "  acuerdos alcanzados, red flags o alertas.",
-    "- NO extraigas: estados emocionales pasajeros, saludos, cortesías,",
-    "  opiniones triviales sin sustancia.",
-    "- Cada item: frase breve (<15 palabras), tono neutro, en español,",
-    "  sin markdown, sin comillas, sin puntos finales.",
-    "- Si algo relevante aparece, extráelo aunque sea solo 1 item.",
-    "- Si nada es digno de recordar, devuelve todos los arrays vacíos.",
-    "- Responde ÚNICAMENTE con JSON válido, sin prosa, sin markdown,",
-    "  sin bloques ```json. Empieza con { y termina con }.",
+    "Clasifica cada dato en UNO de estos tipos:",
+    "- preference: preferencia personal del CEO (ej: 'prefiere JV",
+    "  contractual', 'no le gustan respuestas largas').",
+    "- keyFact: hecho factual relevante mencionado (ej: 'SoulBaric",
+    "  fabrica cámaras hiperbáricas', 'socio principal: Emilio Calvo').",
+    "- decision: decisión tomada por el CEO en esta conversación (ej:",
+    "  'decidió canon irrevocable 25k para el Showroom').",
     "",
-    "Formato exacto (mismas claves, mismo orden):",
-    `{"ceoPreferences":[],"keyFacts":[],"decisions":[],"lessons":[],"negKeyFacts":[],"negAgreements":[],"negRedFlags":[]}`,
+    "Reglas:",
+    "- NO extraigas: emociones pasajeras, saludos, cortesías, opiniones",
+    "  triviales sin sustancia.",
+    "- content: frase breve (<15 palabras), neutro, español, sin",
+    "  markdown, sin comillas, sin puntos finales.",
+    "- Si algo relevante aparece, extráelo aunque sea 1 solo item.",
+    "- Si nada merece recordarse, devuelve items: [].",
+    "- Responde ÚNICAMENTE con JSON válido, sin prosa, sin ```json.",
+    "",
+    "Formato exacto:",
+    `{"items":[{"type":"preference|keyFact|decision","content":"..."}]}`,
   ].join("\n");
   const convo = (recentMessages||[]).slice(-4).map(m=>{
     const who = m.role==="user" ? "Usuario" : "Agente";
@@ -1206,8 +1217,8 @@ export async function extractMemoryFromChat(recentMessages, negTitle){
   }).join("\n\n");
   const userPrompt = (negTitle ? `Negociación en curso: ${negTitle}\n\n` : "")
     + "Conversación reciente:\n\n" + convo
-    + "\n\nExtrae lo que merezca recordarse. Devuelve el JSON ahora.";
-  const empty = { ceoPreferences:[], keyFacts:[], decisions:[], lessons:[], negKeyFacts:[], negAgreements:[], negRedFlags:[] };
+    + "\n\nDevuelve el JSON ahora.";
+  const empty = { items: [] };
   try {
     const res = await fetch("/api/agent", {
       method:"POST",
@@ -1222,28 +1233,19 @@ export async function extractMemoryFromChat(recentMessages, negTitle){
     const text = data.text || "";
     console.log("[memory] LLM raw text (first 400):", text.slice(0,400));
     const m = text.match(/\{[\s\S]*\}/);
-    if(!m){
-      console.warn("[memory] no JSON braces found in response");
-      return empty;
-    }
+    if(!m){ console.warn("[memory] no JSON braces found"); return empty; }
     let parsed;
     try { parsed = JSON.parse(m[0]); }
-    catch(e){
-      console.warn("[memory] JSON.parse failed:", e.message, "· raw match:", m[0].slice(0,300));
-      return empty;
-    }
-    console.log("[memory] parsed keys:", Object.keys(parsed||{}));
-    // Normaliza: fuerza arrays de strings no vacías.
-    const clean = {};
-    let totalIn = 0, totalOut = 0;
-    for(const k of Object.keys(empty)){
-      const arr = Array.isArray(parsed[k]) ? parsed[k] : [];
-      totalIn += arr.length;
-      clean[k] = arr.map(s=>String(s||"").trim()).filter(s=>s.length>=3 && s.length<=200);
-      totalOut += clean[k].length;
-    }
-    console.log("[memory] extracted items: in=", totalIn, "· after filter=", totalOut, "· counts:", Object.fromEntries(Object.entries(clean).map(([k,v])=>[k,v.length])));
-    return clean;
+    catch(e){ console.warn("[memory] JSON.parse failed:", e.message); return empty; }
+    const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
+    const items = rawItems
+      .map(it=>({
+        type: String(it?.type||"").trim(),
+        content: String(it?.content||"").trim(),
+      }))
+      .filter(it => AUTO_LEARN_TYPES.includes(it.type) && it.content.length>=3 && it.content.length<=200);
+    console.log("[memory] extracted items · raw=", rawItems.length, "· valid=", items.length, "· by type:", items.reduce((acc,it)=>({...acc,[it.type]:(acc[it.type]||0)+1}),{}));
+    return { items };
   } catch(e){
     console.warn("[memory] extractMemoryFromChat threw:", e);
     return empty;
