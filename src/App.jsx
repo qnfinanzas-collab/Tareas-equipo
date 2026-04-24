@@ -5076,6 +5076,29 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               lines.push(`\nCOMENTARIOS DE TAREAS VINCULADAS (${Math.min(20,taskComments.length)}/${taskComments.length}):`);
               taskComments.slice(0,20).forEach(c=>lines.push(`- ${c}`));
             }
+            // Documentos adjuntos a la negociación. Para los que ya tienen
+            // informe de análisis previo, incluimos resumen + riesgos +
+            // recomendaciones para que Héctor pueda referirse a ellos. Los
+            // que no están analizados se listan igualmente para que sepa
+            // que existen y pueda sugerir analizarlos.
+            const docs = negotiation.documents||[];
+            if(docs.length>0){
+              lines.push(`\nDOCUMENTOS ADJUNTOS A ESTA NEGOCIACIÓN (${docs.length}):`);
+              docs.forEach(d=>{
+                const uploaded = d.uploadedAt ? new Date(d.uploadedAt).toLocaleDateString("es-ES") : "fecha desconocida";
+                const typeLabel = d.url ? "URL web" : (d.type||"archivo");
+                lines.push(`- ${d.name} (${typeLabel}, subido ${uploaded})`);
+                if(d.report){
+                  const by = d.analyzedBy ? ` por ${d.analyzedBy}` : "";
+                  lines.push(`  Análisis previo${by}:`);
+                  if(d.report.summary)         lines.push(`    • Resumen: ${d.report.summary}`);
+                  if(d.report.details)         lines.push(`    • Riesgos/oportunidades: ${d.report.details}`);
+                  if(d.report.recommendations) lines.push(`    • Recomendaciones: ${d.report.recommendations}`);
+                } else {
+                  lines.push(`  (Sin analizar — puedes sugerir analizarlo si es relevante)`);
+                }
+              });
+            }
             return lines.join("\n");
           };
           const callAgent = async(userMessage, opts={})=>{
