@@ -780,14 +780,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
                       <ExportPDFButton
                         title={`Informe — ${doc.name}`}
                         filename={`informe-${doc.name.slice(0,40)}`}
-                        getHTML={()=>{
-                          const r = doc.report;
-                          const sec = (title, body, color)=> body ? `<div style="margin-bottom:12px;"><div style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">${escapeHtml(title)}</div><div style="line-height:1.55;white-space:pre-wrap;">${escapeHtml(body)}</div></div>` : "";
-                          return `<div style="font-size:11px;color:#6B7280;margin-bottom:10px;">Documento: ${escapeHtml(doc.name)} · Analizado por ${escapeHtml(doc.analyzedBy||"")}</div>` +
-                            sec("Resumen ejecutivo", r.summary, "#1E40AF") +
-                            sec("Riesgos y oportunidades", r.details, "#B45309") +
-                            sec("Recomendaciones", r.recommendations, "#0E7C5A");
-                        }}
+                        getBody={()=>documentReportBody(doc.report, doc.name, doc.analyzedBy)}
                       />
                     </div>
                   </div>
@@ -801,53 +794,172 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
   );
 }
 
-// Renderiza un bloque HTML con header + content + footer de SoulBaric
-// y lo convierte a PDF con html2pdf. Uso:
-//   <ExportPDFButton title="..." getContent={()=>"texto plano"} />
-//   <ExportPDFButton title="..." getHTML={()=>"<div>...</div>"} />
-function buildExportHTML(title, inner){
-  const today = new Date().toLocaleDateString("es-ES", { year:"numeric", month:"long", day:"numeric" });
-  return `
-    <div style="font-family:-apple-system,'Segoe UI',sans-serif;color:#111827;padding:0;">
-      <div style="border-bottom:2px solid #7F77DD;padding-bottom:12px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:flex-end;">
-        <div>
-          <div style="font-size:22px;font-weight:700;color:#7F77DD;letter-spacing:0.02em;">SoulBaric</div>
-          <div style="font-size:13px;color:#6B7280;margin-top:2px;">${title||""}</div>
-        </div>
-        <div style="font-size:11px;color:#9CA3AF;">${today}</div>
-      </div>
-      <div style="font-size:12px;line-height:1.55;color:#1F2937;">${inner}</div>
-      <div style="margin-top:24px;padding-top:10px;border-top:1px solid #E5E7EB;font-size:10px;color:#9CA3AF;text-align:center;">
-        Generado por SoulBaric · Confidencial
-      </div>
-    </div>
-  `;
-}
+// Generación de PDF data-driven: el body HTML se construye desde objetos
+// (nunca captura del DOM visible). Header y footer se dibujan por jsPDF
+// DESPUÉS del render de html2pdf, iterando páginas — así se repiten en
+// TODAS las páginas sin tener que replicar CSS running headers (mal
+// soportados por html2canvas).
 
 function escapeHtml(s){
   return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
 
-function ExportPDFButton({title, filename, getContent, getHTML, size="sm", label="PDF"}){
+// Cuerpos estructurados reutilizables. Todos devuelven HTML listo para
+// html2pdf. Sin header/footer — esos los pinta jsPDF página a página.
+
+function plainTextBody(text){
+  return `<div style="font-size:11.5px;line-height:1.6;color:#1F2937;white-space:pre-wrap;">${escapeHtml(text||"")}</div>`;
+}
+
+function sectionBlock(label, body, color){
+  if(!body) return "";
+  return `<div style="margin-bottom:14px;">
+    <div style="font-size:10.5px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;border-bottom:1px solid ${color}33;padding-bottom:3px;">${escapeHtml(label)}</div>
+    <div style="font-size:11.5px;line-height:1.6;color:#1F2937;white-space:pre-wrap;">${escapeHtml(body)}</div>
+  </div>`;
+}
+
+// Chat Héctor / modal briefing: lista de mensajes tipo transcript.
+function chatBody(messages, {userLabel="Usuario", assistantLabel="Héctor"}={}){
+  const rows = (messages||[]).map(m=>{
+    const isUser = m.role==="user";
+    const who = isUser ? userLabel : assistantLabel;
+    const date = m.timestamp ? new Date(m.timestamp).toLocaleString("es-ES",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) : "";
+    const tag = m.kind==="briefing" ? ' <span style="font-size:9px;color:#0E7C5A;background:#DCFCE7;padding:1px 5px;border-radius:4px;font-weight:600;">BRIEFING</span>'
+              : m.kind==="analysis" ? ' <span style="font-size:9px;color:#1E40AF;background:#DBEAFE;padding:1px 5px;border-radius:4px;font-weight:600;">ANÁLISIS</span>'
+              : "";
+    const bg   = isUser ? "#F5F3FF" : "#F9FAFB";
+    const accent = isUser ? "#7F77DD" : "#1D9E75";
+    return `<div style="margin-bottom:10px;padding:9px 12px;background:${bg};border-left:3px solid ${accent};border-radius:6px;page-break-inside:avoid;">
+      <div style="font-size:10.5px;color:#6B7280;margin-bottom:4px;"><b style="color:${accent};">${escapeHtml(who)}</b>${tag} · ${escapeHtml(date)}</div>
+      <div style="font-size:11.5px;line-height:1.55;color:#1F2937;white-space:pre-wrap;">${escapeHtml(m.content||"")}</div>
+    </div>`;
+  }).join("");
+  return rows || `<div style="font-size:11px;color:#9CA3AF;font-style:italic;">(Sin mensajes)</div>`;
+}
+
+// Análisis batch: tabla con cada tarea/proyecto + texto + tags.
+function analysisBody(analysis, criticalTasks, relProjs){
+  if(!analysis) return `<div style="font-size:11px;color:#9CA3AF;font-style:italic;">(Sin análisis)</div>`;
+  const rowCell = (id, meta, title, subtitle)=>{
+    const text = escapeHtml(meta?.text||"(sin análisis)");
+    const tags = (meta?.tags||[]).map(t=>`<span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#EEF2FF;color:#3730A3;font-size:9.5px;font-weight:600;margin-right:4px;">${escapeHtml(t)}</span>`).join("");
+    return `<tr style="page-break-inside:avoid;">
+      <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;vertical-align:top;width:38%;">
+        <div style="font-size:11px;font-weight:600;color:#111827;">${escapeHtml(title)}</div>
+        <div style="font-size:10px;color:#6B7280;margin-top:2px;">${escapeHtml(subtitle||"")}</div>
+      </td>
+      <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;vertical-align:top;">
+        <div style="font-size:11px;line-height:1.5;color:#1F2937;">${text}</div>
+        ${tags?`<div style="margin-top:5px;">${tags}</div>`:""}
+      </td>
+    </tr>`;
+  };
+  let html = "";
+  const taskIds = Object.keys(analysis.tasks||{});
+  if(taskIds.length){
+    html += `<div style="font-size:11px;font-weight:700;color:#1E40AF;text-transform:uppercase;letter-spacing:0.08em;margin:4px 0 8px;">Tareas (${taskIds.length})</div>`;
+    html += `<table style="width:100%;border-collapse:collapse;margin-bottom:14px;">`;
+    taskIds.forEach(id=>{
+      const t = (criticalTasks||[]).find(x=>String(x.id)===String(id));
+      html += rowCell(id, analysis.tasks[id], t?.title||`Tarea ${id}`, t?`${t.projName} · ${t.colName}`:"");
+    });
+    html += `</table>`;
+  }
+  const projIds = Object.keys(analysis.projects||{});
+  if(projIds.length){
+    html += `<div style="font-size:11px;font-weight:700;color:#1E40AF;text-transform:uppercase;letter-spacing:0.08em;margin:4px 0 8px;">Proyectos (${projIds.length})</div>`;
+    html += `<table style="width:100%;border-collapse:collapse;">`;
+    projIds.forEach(id=>{
+      const r = (relProjs||[]).find(x=>String(x.p.id)===String(id));
+      const p = r?.p;
+      html += rowCell(id, analysis.projects[id], p?.name||`Proyecto ${id}`, r?`${r.activeCount} activas · ${r.overdueCount} vencidas`:"");
+    });
+    html += `</table>`;
+  }
+  if(analysis.generatedAt){
+    html += `<div style="margin-top:12px;font-size:10px;color:#9CA3AF;">Generado ${new Date(analysis.generatedAt).toLocaleString("es-ES")}</div>`;
+  }
+  return html || `<div style="font-size:11px;color:#9CA3AF;font-style:italic;">(Análisis vacío)</div>`;
+}
+
+// Informe de documento: tres secciones.
+function documentReportBody(report, docName, analyzedBy){
+  const meta = `<div style="font-size:10.5px;color:#6B7280;margin-bottom:14px;padding:6px 10px;background:#F9FAFB;border-left:3px solid #7F77DD;border-radius:4px;">Documento: <b>${escapeHtml(docName||"")}</b>${analyzedBy?` · Analizado por <b>${escapeHtml(analyzedBy)}</b>`:""}</div>`;
+  return meta +
+    sectionBlock("Resumen ejecutivo", report?.summary, "#1E40AF") +
+    sectionBlock("Riesgos y oportunidades", report?.details, "#B45309") +
+    sectionBlock("Recomendaciones", report?.recommendations, "#0E7C5A");
+}
+
+async function generatePDF({title, bodyHTML, filename}){
+  const fname = (filename || title || "documento").replace(/[^\w.-]+/g,"_") + ".pdf";
+  const today = new Date().toLocaleDateString("es-ES", { year:"numeric", month:"long", day:"numeric" });
+
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:-9999px;top:0;width:180mm;background:#fff;font-family:-apple-system,'Segoe UI',sans-serif;color:#1F2937;";
+  host.innerHTML = bodyHTML;
+  document.body.appendChild(host);
+
+  try {
+    const worker = html2pdf().set({
+      margin: [25, 15, 20, 15], // top left bottom right (mm) — reserva para header/footer
+      filename: fname,
+      image: { type:"jpeg", quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+      jsPDF: { unit:"mm", format:"a4", orientation:"portrait" },
+      pagebreak: { mode: ["css","legacy"] },
+    }).from(host);
+
+    const pdf = await worker.toPdf().get("pdf");
+    const pageCount = pdf.internal.getNumberOfPages();
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+
+    for(let i = 1; i <= pageCount; i++){
+      pdf.setPage(i);
+      // ── HEADER ──
+      pdf.setFont("helvetica","bold");
+      pdf.setFontSize(13);
+      pdf.setTextColor(127,119,221); // SoulBaric purple
+      pdf.text("SoulBaric", 15, 12);
+      pdf.setFont("helvetica","normal");
+      pdf.setFontSize(9.5);
+      pdf.setTextColor(55,65,81);
+      const titleStr = (title||"").slice(0,80);
+      pdf.text(titleStr, 38, 12);
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(156,163,175);
+      pdf.text(today, pageW - 15, 12, { align:"right" });
+      pdf.setDrawColor(127,119,221);
+      pdf.setLineWidth(0.4);
+      pdf.line(15, 15, pageW - 15, 15);
+      // ── FOOTER ──
+      pdf.setFontSize(8);
+      pdf.setTextColor(156,163,175);
+      const footerY = pageH - 10;
+      pdf.setDrawColor(229,231,235);
+      pdf.setLineWidth(0.2);
+      pdf.line(15, footerY - 4, pageW - 15, footerY - 4);
+      pdf.text("Generado por SoulBaric · Confidencial", 15, footerY);
+      pdf.text(`Página ${i} de ${pageCount}`, pageW - 15, footerY, { align:"right" });
+    }
+
+    await worker.save();
+  } finally {
+    document.body.removeChild(host);
+  }
+}
+
+// API: pasa `getBody` (HTML estructurado) o `getContent` (texto plano).
+// `getHTML` se mantiene como alias de `getBody` para call sites antiguos.
+function ExportPDFButton({title, filename, getBody, getHTML, getContent, size="sm", label="PDF"}){
   const [busy,setBusy] = useState(false);
   const run = async ()=>{
     setBusy(true);
     try {
-      const inner = getHTML ? getHTML() : escapeHtml(getContent?.()||"").replace(/\n/g,"<br/>");
-      const html = buildExportHTML(title, inner);
-      const host = document.createElement("div");
-      host.style.cssText = "position:fixed;left:-9999px;top:0;width:210mm;padding:20mm;background:#fff;";
-      host.innerHTML = html;
-      document.body.appendChild(host);
-      const fname = (filename || title || "documento").replace(/[^\w.-]+/g,"_") + ".pdf";
-      await html2pdf().set({
-        margin: 0,
-        filename: fname,
-        image: { type:"jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit:"mm", format:"a4", orientation:"portrait" },
-      }).from(host).save();
-      document.body.removeChild(host);
+      const body = getBody ? getBody() : getHTML ? getHTML() : plainTextBody(getContent?.()||"");
+      await generatePDF({ title, bodyHTML: body, filename });
     } catch(e){
       console.warn("[pdf]", e);
     } finally {
@@ -5033,11 +5145,7 @@ ${taskLines||"(ninguna)"}`;
                     <ExportPDFButton
                       title={`Chat con Héctor — ${negotiation.title}`}
                       filename={`chat-hector-${negotiation.title.slice(0,40)}`}
-                      getContent={()=>chatMsgs.map(m=>{
-                        const who = m.role==="user"?"Usuario":"Héctor";
-                        const tag = m.kind==="briefing"?" [BRIEFING]":m.kind==="analysis"?" [ANÁLISIS]":"";
-                        return `${who}${tag}: ${m.content}`;
-                      }).join("\n\n")}
+                      getBody={()=>chatBody(chatMsgs,{userLabel:"Usuario",assistantLabel:"Héctor"})}
                     />
                   </div>
                 )}
@@ -5058,8 +5166,8 @@ ${taskLines||"(ninguna)"}`;
                             {isSpeaking&&(
                               <button onClick={e=>{e.stopPropagation();stopSpeaking();setSpeakingMsgTs(null);}} title="Leyendo — click para detener" style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:10,background:"#10B981",color:"#fff",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginBottom:6,animation:"tf-speak-pulse 1.4s infinite"}}>🔊 Leyendo</button>
                             )}
-                            {m.kind==="briefing"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div><ExportPDFButton title={`Briefing — ${negotiation.title}`} filename={`briefing-${negotiation.title.slice(0,40)}`} getContent={()=>m.content}/></div>}
-                            {m.kind==="analysis"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#1E40AF",textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div><ExportPDFButton title={`Análisis batch — ${negotiation.title}`} filename={`analisis-${negotiation.title.slice(0,40)}`} getContent={()=>m.content}/></div>}
+                            {m.kind==="briefing"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div><ExportPDFButton title={`Briefing — ${negotiation.title}`} filename={`briefing-${negotiation.title.slice(0,40)}`} getBody={()=>sectionBlock("Briefing estratégico", m.content, "#0E7C5A")}/></div>}
+                            {m.kind==="analysis"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#1E40AF",textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div><ExportPDFButton title={`Análisis batch — ${negotiation.title}`} filename={`analisis-${negotiation.title.slice(0,40)}`} getBody={()=>analysisBody(negotiation.hectorAnalysis, criticalTasks, relProjs)}/></div>}
                             {m.content}
                             <div style={{fontSize:10,color:"#9CA3AF",marginTop:4,opacity:0.8}}>{m.timestamp?new Date(m.timestamp).toLocaleString("es-ES",{hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"}):""}</div>
                           </div>
@@ -5407,7 +5515,10 @@ function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialRespon
               <ExportPDFButton
                 title={`${kind==="briefing"?"Briefing":"Consejo"} — ${agent.name}${negotiation?` — ${negotiation.title}`:""}`}
                 filename={`${kind==="briefing"?"briefing":"consejo"}-${(negotiation?.title||agent.name||"soulbaric").slice(0,40)}`}
-                getContent={()=>response.trim()}
+                getBody={()=>chatBody([
+                  {role:"user",content:(prompt||""),timestamp:new Date().toISOString()},
+                  {role:"assistant",content:response.trim(),timestamp:new Date().toISOString(),kind:kind==="briefing"?"briefing":null},
+                ],{userLabel:"Pregunta",assistantLabel:agent.name})}
               />
               <PrintButton/>
             </>
@@ -5640,7 +5751,7 @@ function BriefingsView({data,onOpenNeg,onOpenSession}){
                     <ExportPDFButton
                       title={`Briefing — ${neg.title}`}
                       filename={`briefing-${neg.title.slice(0,40)}`}
-                      getContent={()=>briefing.content}
+                      getBody={()=>sectionBlock("Briefing estratégico", briefing.content, "#0E7C5A")}
                     />
                   </div>
                 </div>
