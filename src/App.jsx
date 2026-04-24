@@ -12,7 +12,7 @@ import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
-import html2pdf from "html2pdf.js";
+import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, PLAIN_TEXT_RULE } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown } from "./lib/voice.js";
 
@@ -786,7 +786,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
                       <ExportPDFButton
                         title={`Informe — ${doc.name}`}
                         filename={`informe-${doc.name.slice(0,40)}`}
-                        getBody={()=>documentReportBody(doc.report, doc.name, doc.analyzedBy)}
+                        render={(pdfDoc,y)=>renderDocumentReport(pdfDoc, y, doc.report, doc.name, doc.analyzedBy)}
                       />
                     </div>
                   </div>
@@ -800,177 +800,226 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
   );
 }
 
-// Generación de PDF data-driven: el body HTML se construye desde objetos
-// (nunca captura del DOM visible). Header y footer se dibujan por jsPDF
-// DESPUÉS del render de html2pdf, iterando páginas — así se repiten en
-// TODAS las páginas sin tener que replicar CSS running headers (mal
-// soportados por html2canvas).
+// Generación de PDF: jsPDF directo, sin html2canvas. Cada renderer toma
+// (doc, y) y devuelve la nueva y tras pintar. generatePDF se encarga del
+// marco: header per-página, footer per-página, saltos de página automáticos.
+//
+// Layout A4 (210 × 297mm):
+//   margen izquierdo/derecho: 14mm   → ancho útil 182mm
+//   header en y=14 (brand+título+fecha), línea separadora en y=18
+//   contenido arranca en y=26, tope inferior en y=275
+//   footer línea en y=280, texto en y=286
 
-function escapeHtml(s){
-  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const PDF_MARGIN_L = 14;
+const PDF_MARGIN_R = 14;
+const PDF_CONTENT_W = 182;          // 210 − 14 − 14
+const PDF_TOP_CONTENT_Y = 26;
+const PDF_BOTTOM_LIMIT = 275;
+
+// Si el cursor sobrepasa el tope inferior, añade página y devuelve nueva y.
+function pdfCheckPageBreak(doc, y, need = 6){
+  if(y + need > PDF_BOTTOM_LIMIT){
+    doc.addPage();
+    return PDF_TOP_CONTENT_Y;
+  }
+  return y;
 }
 
-// Cuerpos estructurados reutilizables. Todos devuelven HTML listo para
-// html2pdf. Sin header/footer — esos los pinta jsPDF página a página.
-
-function plainTextBody(text){
-  return `<div style="font-size:11.5px;line-height:1.6;color:#1F2937;white-space:pre-wrap;">${escapeHtml(text||"")}</div>`;
+function pdfWriteWrapped(doc, text, x, y, {maxWidth = PDF_CONTENT_W, lineH = 5}={}){
+  const lines = doc.splitTextToSize(String(text||""), maxWidth);
+  for(const line of lines){
+    y = pdfCheckPageBreak(doc, y, lineH);
+    doc.text(line, x, y);
+    y += lineH;
+  }
+  return y;
 }
 
-function sectionBlock(label, body, color){
-  if(!body) return "";
-  return `<div style="margin-bottom:14px;">
-    <div style="font-size:10.5px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;border-bottom:1px solid ${color}33;padding-bottom:3px;">${escapeHtml(label)}</div>
-    <div style="font-size:11.5px;line-height:1.6;color:#1F2937;white-space:pre-wrap;">${escapeHtml(body)}</div>
-  </div>`;
-}
-
-// Chat Héctor / modal briefing: lista de mensajes tipo transcript.
-function chatBody(messages, {userLabel="Usuario", assistantLabel="Héctor"}={}){
-  const rows = (messages||[]).map(m=>{
-    const isUser = m.role==="user";
+// Mensajes tipo transcript para chat de Héctor / AgentBriefingModal.
+function renderChat(doc, y, messages, {userLabel = "Usuario", assistantLabel = "Héctor"} = {}){
+  if(!messages || messages.length === 0){
+    doc.setFont("helvetica","italic"); doc.setFontSize(10); doc.setTextColor(156,163,175);
+    doc.text("(Sin mensajes)", PDF_MARGIN_L, y);
+    return y + 6;
+  }
+  for(const m of messages){
+    const isUser = m.role === "user";
     const who = isUser ? userLabel : assistantLabel;
     const date = m.timestamp ? new Date(m.timestamp).toLocaleString("es-ES",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) : "";
-    const tag = m.kind==="briefing" ? ' <span style="font-size:9px;color:#0E7C5A;background:#DCFCE7;padding:1px 5px;border-radius:4px;font-weight:600;">BRIEFING</span>'
-              : m.kind==="analysis" ? ' <span style="font-size:9px;color:#1E40AF;background:#DBEAFE;padding:1px 5px;border-radius:4px;font-weight:600;">ANÁLISIS</span>'
-              : "";
-    const bg   = isUser ? "#F5F3FF" : "#F9FAFB";
-    const accent = isUser ? "#7F77DD" : "#1D9E75";
-    // Sin page-break-inside:avoid: con html2pdf + márgenes reservados para
-    // header/footer, una burbuja larga marcada como unbreakable empujaba
-    // todo el contenido a páginas siguientes y las dejaba vacías (solo
-    // se veía el header dibujado por jsPDF). Dejamos que el contenido
-    // fluya y se parta entre páginas si hace falta.
-    return `<div style="margin-bottom:10px;padding:9px 12px;background:${bg};border-left:3px solid ${accent};border-radius:6px;">
-      <div style="font-size:10.5px;color:#6B7280;margin-bottom:4px;"><b style="color:${accent};">${escapeHtml(who)}</b>${tag} · ${escapeHtml(date)}</div>
-      <div style="font-size:11.5px;line-height:1.55;color:#1F2937;white-space:pre-wrap;">${escapeHtml(m.content||"")}</div>
-    </div>`;
-  }).join("");
-  return rows || `<div style="font-size:11px;color:#9CA3AF;font-style:italic;">(Sin mensajes)</div>`;
+    const tag = m.kind === "briefing" ? "  [BRIEFING]" : m.kind === "analysis" ? "  [ANÁLISIS]" : "";
+    const accent = isUser ? [127,119,221] : [29,158,117]; // purple user / green Héctor
+
+    y = pdfCheckPageBreak(doc, y, 12);
+    // Línea accent vertical a la izquierda
+    doc.setDrawColor(accent[0],accent[1],accent[2]);
+    doc.setLineWidth(0.8);
+    doc.line(PDF_MARGIN_L, y - 3, PDF_MARGIN_L, y + 3);
+
+    // Autor + timestamp + tag
+    doc.setFont("helvetica","bold"); doc.setFontSize(10);
+    doc.setTextColor(accent[0],accent[1],accent[2]);
+    doc.text(who + tag, PDF_MARGIN_L + 3, y);
+    doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+    doc.setTextColor(120,120,130);
+    doc.text(date, PDF_MARGIN_L + PDF_CONTENT_W, y, { align:"right" });
+    y += 5;
+
+    // Contenido del mensaje
+    doc.setFont("helvetica","normal"); doc.setFontSize(10);
+    doc.setTextColor(31,41,55);
+    y = pdfWriteWrapped(doc, m.content || "", PDF_MARGIN_L + 3, y, {maxWidth: PDF_CONTENT_W - 3});
+    y += 4; // gap entre mensajes
+  }
+  return y;
 }
 
-// Análisis batch: tabla con cada tarea/proyecto + texto + tags.
-function analysisBody(analysis, criticalTasks, relProjs){
-  if(!analysis) return `<div style="font-size:11px;color:#9CA3AF;font-style:italic;">(Sin análisis)</div>`;
-  const rowCell = (id, meta, title, subtitle)=>{
-    const text = escapeHtml(meta?.text||"(sin análisis)");
-    const tags = (meta?.tags||[]).map(t=>`<span style="display:inline-block;padding:1px 6px;border-radius:4px;background:#EEF2FF;color:#3730A3;font-size:9.5px;font-weight:600;margin-right:4px;">${escapeHtml(t)}</span>`).join("");
-    return `<tr>
-      <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;vertical-align:top;width:38%;">
-        <div style="font-size:11px;font-weight:600;color:#111827;">${escapeHtml(title)}</div>
-        <div style="font-size:10px;color:#6B7280;margin-top:2px;">${escapeHtml(subtitle||"")}</div>
-      </td>
-      <td style="padding:8px 10px;border-bottom:1px solid #E5E7EB;vertical-align:top;">
-        <div style="font-size:11px;line-height:1.5;color:#1F2937;">${text}</div>
-        ${tags?`<div style="margin-top:5px;">${tags}</div>`:""}
-      </td>
-    </tr>`;
-  };
-  let html = "";
-  const taskIds = Object.keys(analysis.tasks||{});
-  if(taskIds.length){
-    html += `<div style="font-size:11px;font-weight:700;color:#1E40AF;text-transform:uppercase;letter-spacing:0.08em;margin:4px 0 8px;">Tareas (${taskIds.length})</div>`;
-    html += `<table style="width:100%;border-collapse:collapse;margin-bottom:14px;">`;
-    taskIds.forEach(id=>{
-      const t = (criticalTasks||[]).find(x=>String(x.id)===String(id));
-      html += rowCell(id, analysis.tasks[id], t?.title||`Tarea ${id}`, t?`${t.projName} · ${t.colName}`:"");
-    });
-    html += `</table>`;
+// Sección con label en color + cuerpo (para briefings, consejos, etc).
+function renderSection(doc, y, label, body, color = [14,124,90]){
+  if(!body) return y;
+  y = pdfCheckPageBreak(doc, y, 10);
+  doc.setFont("helvetica","bold"); doc.setFontSize(9);
+  doc.setTextColor(color[0],color[1],color[2]);
+  doc.text(String(label||"").toUpperCase(), PDF_MARGIN_L, y);
+  y += 2;
+  doc.setDrawColor(color[0],color[1],color[2]);
+  doc.setLineWidth(0.3);
+  doc.line(PDF_MARGIN_L, y, PDF_MARGIN_L + PDF_CONTENT_W, y);
+  y += 5;
+  doc.setFont("helvetica","normal"); doc.setFontSize(10);
+  doc.setTextColor(31,41,55);
+  y = pdfWriteWrapped(doc, body, PDF_MARGIN_L, y);
+  return y + 5;
+}
+
+// Análisis batch: tarea/proyecto + texto + tags, en formato lista.
+function renderAnalysis(doc, y, analysis, criticalTasks, relProjs){
+  if(!analysis){
+    doc.setFont("helvetica","italic"); doc.setFontSize(10); doc.setTextColor(156,163,175);
+    doc.text("(Sin análisis)", PDF_MARGIN_L, y);
+    return y + 6;
   }
-  const projIds = Object.keys(analysis.projects||{});
+  const renderRow = (title, subtitle, meta)=>{
+    y = pdfCheckPageBreak(doc, y, 16);
+    doc.setFont("helvetica","bold"); doc.setFontSize(10.5);
+    doc.setTextColor(17,24,39);
+    y = pdfWriteWrapped(doc, title, PDF_MARGIN_L, y, {lineH: 5});
+    if(subtitle){
+      doc.setFont("helvetica","normal"); doc.setFontSize(9);
+      doc.setTextColor(107,114,128);
+      doc.text(subtitle, PDF_MARGIN_L, y);
+      y += 5;
+    }
+    doc.setFont("helvetica","normal"); doc.setFontSize(10);
+    doc.setTextColor(31,41,55);
+    y = pdfWriteWrapped(doc, meta?.text || "(sin análisis)", PDF_MARGIN_L + 4, y, {maxWidth: PDF_CONTENT_W - 4, lineH: 4.8});
+    const tags = (meta?.tags || []).filter(Boolean);
+    if(tags.length){
+      y = pdfCheckPageBreak(doc, y, 6);
+      doc.setFont("helvetica","bold"); doc.setFontSize(8.5);
+      doc.setTextColor(55,48,163);
+      doc.text(tags.map(t=>`[${t}]`).join("  "), PDF_MARGIN_L + 4, y);
+      y += 5;
+    }
+    y += 3;
+  };
+  const sectionHeader = (label)=>{
+    y = pdfCheckPageBreak(doc, y, 10);
+    doc.setFont("helvetica","bold"); doc.setFontSize(11);
+    doc.setTextColor(30,64,175);
+    doc.text(label, PDF_MARGIN_L, y);
+    y += 2;
+    doc.setDrawColor(30,64,175); doc.setLineWidth(0.3);
+    doc.line(PDF_MARGIN_L, y, PDF_MARGIN_L + PDF_CONTENT_W, y);
+    y += 5;
+  };
+  const taskIds = Object.keys(analysis.tasks || {});
+  if(taskIds.length){
+    sectionHeader(`TAREAS (${taskIds.length})`);
+    for(const id of taskIds){
+      const t = (criticalTasks || []).find(x => String(x.id) === String(id));
+      renderRow(t?.title || `Tarea ${id}`, t ? `${t.projName} · ${t.colName}` : "", analysis.tasks[id]);
+    }
+    y += 3;
+  }
+  const projIds = Object.keys(analysis.projects || {});
   if(projIds.length){
-    html += `<div style="font-size:11px;font-weight:700;color:#1E40AF;text-transform:uppercase;letter-spacing:0.08em;margin:4px 0 8px;">Proyectos (${projIds.length})</div>`;
-    html += `<table style="width:100%;border-collapse:collapse;">`;
-    projIds.forEach(id=>{
-      const r = (relProjs||[]).find(x=>String(x.p.id)===String(id));
+    sectionHeader(`PROYECTOS (${projIds.length})`);
+    for(const id of projIds){
+      const r = (relProjs || []).find(x => String(x.p.id) === String(id));
       const p = r?.p;
-      html += rowCell(id, analysis.projects[id], p?.name||`Proyecto ${id}`, r?`${r.activeCount} activas · ${r.overdueCount} vencidas`:"");
-    });
-    html += `</table>`;
+      renderRow(p?.name || `Proyecto ${id}`, r ? `${r.activeCount} activas · ${r.overdueCount} vencidas` : "", analysis.projects[id]);
+    }
   }
   if(analysis.generatedAt){
-    html += `<div style="margin-top:12px;font-size:10px;color:#9CA3AF;">Generado ${new Date(analysis.generatedAt).toLocaleString("es-ES")}</div>`;
+    y = pdfCheckPageBreak(doc, y, 6);
+    doc.setFont("helvetica","italic"); doc.setFontSize(8.5);
+    doc.setTextColor(156,163,175);
+    doc.text(`Generado ${new Date(analysis.generatedAt).toLocaleString("es-ES")}`, PDF_MARGIN_L, y);
+    y += 5;
   }
-  return html || `<div style="font-size:11px;color:#9CA3AF;font-style:italic;">(Análisis vacío)</div>`;
+  return y;
 }
 
-// Informe de documento: tres secciones.
-function documentReportBody(report, docName, analyzedBy){
-  const meta = `<div style="font-size:10.5px;color:#6B7280;margin-bottom:14px;padding:6px 10px;background:#F9FAFB;border-left:3px solid #7F77DD;border-radius:4px;">Documento: <b>${escapeHtml(docName||"")}</b>${analyzedBy?` · Analizado por <b>${escapeHtml(analyzedBy)}</b>`:""}</div>`;
-  return meta +
-    sectionBlock("Resumen ejecutivo", report?.summary, "#1E40AF") +
-    sectionBlock("Riesgos y oportunidades", report?.details, "#B45309") +
-    sectionBlock("Recomendaciones", report?.recommendations, "#0E7C5A");
+// Informe de documento: tres secciones (resumen/riesgos/recomendaciones).
+function renderDocumentReport(doc, y, report, docName, analyzedBy){
+  y = pdfCheckPageBreak(doc, y, 10);
+  doc.setFont("helvetica","bold"); doc.setFontSize(9);
+  doc.setTextColor(107,114,128);
+  const meta = `Documento: ${docName || ""}` + (analyzedBy ? ` · Analizado por ${analyzedBy}` : "");
+  y = pdfWriteWrapped(doc, meta, PDF_MARGIN_L, y, {lineH: 4.5});
+  y += 4;
+  y = renderSection(doc, y, "Resumen ejecutivo",       report?.summary,         [30,64,175]);
+  y = renderSection(doc, y, "Riesgos y oportunidades", report?.details,         [180,83,9]);
+  y = renderSection(doc, y, "Recomendaciones",         report?.recommendations, [14,124,90]);
+  return y;
 }
 
-async function generatePDF({title, bodyHTML, filename}){
-  const fname = (filename || title || "documento").replace(/[^\w.-]+/g,"_") + ".pdf";
+function generatePDF({title, render, filename}){
+  const doc = new jsPDF({ unit:"mm", format:"a4", orientation:"portrait" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
   const today = new Date().toLocaleDateString("es-ES", { year:"numeric", month:"long", day:"numeric" });
 
-  const host = document.createElement("div");
-  host.style.cssText = "position:fixed;left:-9999px;top:0;width:180mm;background:#fff;font-family:-apple-system,'Segoe UI',sans-serif;color:#1F2937;";
-  host.innerHTML = bodyHTML;
-  document.body.appendChild(host);
+  // Renderiza el cuerpo — el renderer se encarga de los saltos de página.
+  render(doc, PDF_TOP_CONTENT_Y);
 
-  try {
-    const worker = html2pdf().set({
-      margin: [25, 15, 20, 15], // top left bottom right (mm) — reserva para header/footer
-      filename: fname,
-      image: { type:"jpeg", quality: 0.98 },
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
-      jsPDF: { unit:"mm", format:"a4", orientation:"portrait" },
-      pagebreak: { mode: ["css","legacy"] },
-    }).from(host);
-
-    const pdf = await worker.toPdf().get("pdf");
-    const pageCount = pdf.internal.getNumberOfPages();
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-
-    for(let i = 1; i <= pageCount; i++){
-      pdf.setPage(i);
-      // ── HEADER ──
-      pdf.setFont("helvetica","bold");
-      pdf.setFontSize(13);
-      pdf.setTextColor(127,119,221); // SoulBaric purple
-      pdf.text("SoulBaric", 15, 12);
-      pdf.setFont("helvetica","normal");
-      pdf.setFontSize(9.5);
-      pdf.setTextColor(55,65,81);
-      const titleStr = (title||"").slice(0,80);
-      pdf.text(titleStr, 38, 12);
-      pdf.setFontSize(8.5);
-      pdf.setTextColor(156,163,175);
-      pdf.text(today, pageW - 15, 12, { align:"right" });
-      pdf.setDrawColor(127,119,221);
-      pdf.setLineWidth(0.4);
-      pdf.line(15, 15, pageW - 15, 15);
-      // ── FOOTER ──
-      pdf.setFontSize(8);
-      pdf.setTextColor(156,163,175);
-      const footerY = pageH - 10;
-      pdf.setDrawColor(229,231,235);
-      pdf.setLineWidth(0.2);
-      pdf.line(15, footerY - 4, pageW - 15, footerY - 4);
-      pdf.text("Generado por SoulBaric · Confidencial", 15, footerY);
-      pdf.text(`Página ${i} de ${pageCount}`, pageW - 15, footerY, { align:"right" });
-    }
-
-    await worker.save();
-  } finally {
-    document.body.removeChild(host);
+  // Header + footer en TODAS las páginas (post-proceso).
+  const pageCount = doc.internal.getNumberOfPages();
+  for(let i = 1; i <= pageCount; i++){
+    doc.setPage(i);
+    // HEADER
+    doc.setFont("helvetica","bold"); doc.setFontSize(13);
+    doc.setTextColor(127,119,221);
+    doc.text("SoulBaric", PDF_MARGIN_L, 14);
+    doc.setFont("helvetica","normal"); doc.setFontSize(10);
+    doc.setTextColor(55,65,81);
+    doc.text(String(title||"").slice(0,70), PDF_MARGIN_L + 36, 14);
+    doc.setFontSize(8.5); doc.setTextColor(156,163,175);
+    doc.text(today, pageW - PDF_MARGIN_R, 14, { align:"right" });
+    doc.setDrawColor(127,119,221); doc.setLineWidth(0.4);
+    doc.line(PDF_MARGIN_L, 18, pageW - PDF_MARGIN_R, 18);
+    // FOOTER
+    doc.setDrawColor(229,231,235); doc.setLineWidth(0.2);
+    doc.line(PDF_MARGIN_L, 280, pageW - PDF_MARGIN_R, 280);
+    doc.setFont("helvetica","normal"); doc.setFontSize(8);
+    doc.setTextColor(156,163,175);
+    doc.text("Generado por SoulBaric · Confidencial", PDF_MARGIN_L, 286);
+    doc.text(`Página ${i} de ${pageCount}`, pageW - PDF_MARGIN_R, 286, { align:"right" });
   }
+
+  const fname = (filename || title || "documento").replace(/[^\w.-]+/g,"_") + ".pdf";
+  doc.save(fname);
 }
 
-// API: pasa `getBody` (HTML estructurado) o `getContent` (texto plano).
-// `getHTML` se mantiene como alias de `getBody` para call sites antiguos.
-function ExportPDFButton({title, filename, getBody, getHTML, getContent, size="sm", label="PDF"}){
+// API: pasa `render(doc, y) => newY` para rendering estructurado, o
+// `plainText` (string) para caso simple.
+function ExportPDFButton({title, filename, render, plainText, size="sm", label="PDF"}){
   const [busy,setBusy] = useState(false);
-  const run = async ()=>{
+  const run = ()=>{
     setBusy(true);
     try {
-      const body = getBody ? getBody() : getHTML ? getHTML() : plainTextBody(getContent?.()||"");
-      await generatePDF({ title, bodyHTML: body, filename });
+      const renderFn = render || ((doc, y) => pdfWriteWrapped(doc, plainText || "", PDF_MARGIN_L, y));
+      generatePDF({ title, render: renderFn, filename });
     } catch(e){
       console.warn("[pdf]", e);
     } finally {
@@ -5156,7 +5205,7 @@ ${taskLines||"(ninguna)"}`;
                     <ExportPDFButton
                       title={`Chat con Héctor — ${negotiation.title}`}
                       filename={`chat-hector-${negotiation.title.slice(0,40)}`}
-                      getBody={()=>chatBody(chatMsgs,{userLabel:"Usuario",assistantLabel:"Héctor"})}
+                      render={(doc,y)=>renderChat(doc,y,chatMsgs,{userLabel:"Usuario",assistantLabel:"Héctor"})}
                     />
                   </div>
                 )}
@@ -5177,8 +5226,8 @@ ${taskLines||"(ninguna)"}`;
                             {isSpeaking&&(
                               <button onClick={e=>{e.stopPropagation();stopSpeaking();setSpeakingMsgTs(null);}} title="Leyendo — click para detener" style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:10,background:"#10B981",color:"#fff",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginBottom:6,animation:"tf-speak-pulse 1.4s infinite"}}>🔊 Leyendo</button>
                             )}
-                            {m.kind==="briefing"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div><ExportPDFButton title={`Briefing — ${negotiation.title}`} filename={`briefing-${negotiation.title.slice(0,40)}`} getBody={()=>sectionBlock("Briefing estratégico", m.content, "#0E7C5A")}/></div>}
-                            {m.kind==="analysis"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#1E40AF",textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div><ExportPDFButton title={`Análisis batch — ${negotiation.title}`} filename={`analisis-${negotiation.title.slice(0,40)}`} getBody={()=>analysisBody(negotiation.hectorAnalysis, criticalTasks, relProjs)}/></div>}
+                            {m.kind==="briefing"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div><ExportPDFButton title={`Briefing — ${negotiation.title}`} filename={`briefing-${negotiation.title.slice(0,40)}`} render={(doc,y)=>renderSection(doc,y,"Briefing estratégico",m.content,[14,124,90])}/></div>}
+                            {m.kind==="analysis"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#1E40AF",textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div><ExportPDFButton title={`Análisis batch — ${negotiation.title}`} filename={`analisis-${negotiation.title.slice(0,40)}`} render={(doc,y)=>renderAnalysis(doc,y,negotiation.hectorAnalysis,criticalTasks,relProjs)}/></div>}
                             {m.content}
                             <div style={{fontSize:10,color:"#9CA3AF",marginTop:4,opacity:0.8}}>{m.timestamp?new Date(m.timestamp).toLocaleString("es-ES",{hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"}):""}</div>
                           </div>
@@ -5526,7 +5575,7 @@ function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialRespon
               <ExportPDFButton
                 title={`${kind==="briefing"?"Briefing":"Consejo"} — ${agent.name}${negotiation?` — ${negotiation.title}`:""}`}
                 filename={`${kind==="briefing"?"briefing":"consejo"}-${(negotiation?.title||agent.name||"soulbaric").slice(0,40)}`}
-                getBody={()=>chatBody([
+                render={(doc,y)=>renderChat(doc,y,[
                   {role:"user",content:(prompt||""),timestamp:new Date().toISOString()},
                   {role:"assistant",content:response.trim(),timestamp:new Date().toISOString(),kind:kind==="briefing"?"briefing":null},
                 ],{userLabel:"Pregunta",assistantLabel:agent.name})}
@@ -5762,7 +5811,7 @@ function BriefingsView({data,onOpenNeg,onOpenSession}){
                     <ExportPDFButton
                       title={`Briefing — ${neg.title}`}
                       filename={`briefing-${neg.title.slice(0,40)}`}
-                      getBody={()=>sectionBlock("Briefing estratégico", briefing.content, "#0E7C5A")}
+                      render={(doc,y)=>renderSection(doc,y,"Briefing estratégico",briefing.content,[14,124,90])}
                     />
                   </div>
                 </div>
