@@ -1755,7 +1755,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
 }
 
 // ── Task Modal ────────────────────────────────────────────────────────────────
-function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,ceoMemory,onClose,onUpdate,onMove}){
+function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,ceoMemory,canDelete,onClose,onUpdate,onMove,onDelete}){
   const [editing,setEditing]=useState(false);
   const [draft,setDraft]=useState({...task});
   const [comment,setComment]=useState("");
@@ -1770,6 +1770,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
   const [newLink,setNewLink]=useState({label:"",url:"",icon:"🔗"});
   const [avatarOpen,setAvatarOpen]=useState(false);
   const [pendingClose,setPendingClose]=useState(false);
+  const [confirmDelete,setConfirmDelete]=useState(false);
   const intRef=useRef(null);
   const p2=palOf(task.assignees); const q=getQ(task);
 
@@ -2077,6 +2078,21 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
             />
           )}
         </div>
+        {/* Footer: solo aparece cuando hay onDelete y permiso (canDelete).
+            Confirmación inline en dos pasos para evitar borrados por error. */}
+        {onDelete && canDelete && (
+          <div style={{padding:"10px 20px",borderTop:"0.5px solid #e5e7eb",display:"flex",justifyContent:"space-between",alignItems:"center",background:"#fafafa",borderBottomLeftRadius:16,borderBottomRightRadius:16}}>
+            {confirmDelete
+              ? <div style={{display:"flex",alignItems:"center",gap:10,fontSize:12,color:"#B91C1C"}}>
+                  <span>¿Eliminar esta tarea? Esta acción no se puede deshacer.</span>
+                  <button onClick={()=>{ onDelete(task.id, colId); onClose(); }} style={{padding:"5px 12px",borderRadius:6,background:"#E24B4A",color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Sí, eliminar</button>
+                  <button onClick={()=>setConfirmDelete(false)} style={{padding:"5px 10px",borderRadius:6,background:"transparent",color:"#374151",border:"0.5px solid #D1D5DB",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+                </div>
+              : <button onClick={()=>setConfirmDelete(true)} title="Eliminar tarea" style={{padding:"6px 12px",borderRadius:6,background:"transparent",color:"#B91C1C",border:"0.5px solid #FCA5A5",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}>🗑️ Eliminar tarea</button>
+            }
+            <span style={{fontSize:11,color:"#9CA3AF"}}>{task.id}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2378,7 +2394,7 @@ function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
 }
 
 // ── Board View ────────────────────────────────────────────────────────────────
-function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,ceoMemory,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask}){
+function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,ceoMemory,canDelete,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask,onDeleteTask}){
   const [openTaskId,setOpenTaskId]=useState(null);
   useEffect(()=>{
     if(externalOpenTaskId){
@@ -2410,7 +2426,7 @@ function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,wor
           </div>
         ))}
       </div>
-      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} agents={agents||[]} ceoMemory={ceoMemory} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}}/>}
+      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} agents={agents||[]} ceoMemory={ceoMemory} canDelete={canDelete || (openModal.t.assignees||[]).length===0} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}} onDelete={onDeleteTask}/>}
     </>
   );
 }
@@ -6523,6 +6539,12 @@ export default function TaskFlow(){
   const [activeProject,setAP]      = useState(0);
   const [activeTab,setActiveTab]   = useState("home");
   const [activeMember,setAM]       = useState(()=>{ const u=readStoredUser(); return typeof u?.id==="number"?u.id:5; });
+  // Role gating temporal pre-auth: Antonio (id=6) es admin con permisos
+  // completos (eliminar, ver todos los proyectos). Los demás miembros
+  // tienen permisos restringidos. En Fix 3 esto pasará a usar Supabase
+  // Auth + email allowlist, pero la prop downstream (`canDelete`,
+  // `isAdmin`) no cambia.
+  const isAdmin = activeMember === 6;
   const [showUserModal,setShowUserModal] = useState(()=>!readStoredUser());
   const [userMenuOpen,setUserMenuOpen]   = useState(false);
   const [showCommandPalette,setShowCommandPalette] = useState(false);
@@ -6857,9 +6879,28 @@ export default function TaskFlow(){
     addToast(`📅 Pospuesta hasta ${label||newDate}`,"info");
   },[addToast]);
   const addTask = useCallback((colId,title)=>{
-    setData(prev=>{ const nt={id:"t"+nextId++,title,tags:[],assignees:[activeMember],priority:"media",startDate:fmt(new Date()),dueDate:"",estimatedHours:0,timeLogs:[],desc:"",comments:[]}; const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:[...col.tasks,nt]}:col); return{...prev,boards:{...prev.boards,[proj.id]:cols}}; });
+    setData(prev=>{ const nt={id:"t"+nextId++,title,tags:[],assignees:[activeMember],priority:"media",startDate:fmt(new Date()),dueDate:"",dueTime:"",estimatedHours:0,timeLogs:[],desc:"",comments:[]}; const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:[...col.tasks,nt]}:col); return{...prev,boards:{...prev.boards,[proj.id]:cols}}; });
     addToast("✓ Tarea creada");
   },[proj.id,activeMember,addToast]);
+  const deleteTask = useCallback((taskId,colId)=>{
+    setData(prev=>{
+      const cols = prev.boards[proj.id].map(col => col.id===colId
+        ? {...col, tasks: col.tasks.filter(t => t.id!==taskId)}
+        : col);
+      return {...prev, boards:{...prev.boards, [proj.id]: cols}};
+    });
+    addToast("Tarea eliminada","info");
+  },[proj.id,addToast]);
+  const deleteTaskAnywhere = useCallback((taskId)=>{
+    setData(prev=>{
+      const newBoards = {};
+      for(const pid in prev.boards){
+        newBoards[pid] = prev.boards[pid].map(col => ({...col, tasks: col.tasks.filter(t => t.id!==taskId)}));
+      }
+      return {...prev, boards: newBoards};
+    });
+    addToast("Tarea eliminada","info");
+  },[addToast]);
   const applySchedule = useCallback((schedule)=>{
     setData(prev=>({...prev,aiSchedule:schedule}));
     addToast("✓ Plan aplicado");
@@ -7540,7 +7581,7 @@ export default function TaskFlow(){
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
-          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask}/>}
+          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask} onDeleteTask={deleteTask}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
           {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile} onUpdateTask={updateTaskAnywhere}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
