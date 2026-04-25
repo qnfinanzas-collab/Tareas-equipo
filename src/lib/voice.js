@@ -104,12 +104,20 @@ export function pickVoice(preferredGender = "any"){
   console.log("[voice] platform:", ua.slice(0, 80));
   console.log("[voice] available voices:", voices.map(v=>v.name).join(", ") || "(ninguna aún)");
 
-  const esVoices = voices.filter(v => /^es[-_]?/i.test(v.lang));
+  // Filtro estricto BCP 47: lang debe ser "es" exacto, "es-XX" o "es_XX".
+  // El regex anterior /^es[-_]?/ también colaba accidentalmente cualquier
+  // lang que empezase por "es" sin separador (esperanto, español...).
+  // Más importante: este filtro es la ÚNICA puerta — ninguna rama posterior
+  // puede traer una voz que no esté en esVoices.
+  const esVoices = voices.filter(v => /^es($|[-_])/i.test(v.lang||""));
   console.log("[voice] voces ES completas:", esVoices.map(v => `${v.name} | ${v.lang}`));
   if(esVoices.length === 0){
-    return (voices[0]
-      ? { voice: voices[0], method: "no-es-fallback" }
-      : { voice: null, method: "none" });
+    // NUNCA caemos a una voz en otro idioma — preferimos voice:null y
+    // dejamos que el navegador use su default para u.lang="es-ES".
+    // Caer a "Microsoft David - English" haría que Héctor leyera el
+    // español con acento inglés (bug crítico que reportó el usuario).
+    console.warn("[voice] sin voces es-* disponibles; devolviendo null para que el navegador use su default es-ES");
+    return { voice: null, method: "no-es-available" };
   }
 
   // nameHas: match parcial case-insensitive. Crítico en iOS donde el
@@ -210,9 +218,19 @@ export async function speak(text, { rate = 1, pitch = 1, gender = "any", onEnd }
   // que no expone Jorge al Web Speech API). Forzamos pitch=0.5 para que
   // Mónica/Paulina suenen más graves y menos claramente femeninas.
   const finalPitch = (gender === "male" && method === "fallback") ? 0.5 : pitch;
-  console.log("[voice] speak() · gender:", gender, "· voz:", v?.name||"(ninguna)", "· method:", method, "· pitch:", finalPitch);
-  if(v) u.voice = v;
-  u.lang = v?.lang || "es-ES";
+  // Guard duro: si el voice elegido (por error de pickVoice) no es es-*,
+  // lo descartamos antes de pasarlo al motor. NUNCA queremos que Héctor
+  // hable con acento inglés. Dejar voice sin asignar hace que el motor
+  // use su default para u.lang="es-ES" — al menos respeta el idioma.
+  const voiceIsEs = v && /^es($|[-_])/i.test(v.lang||"");
+  if(v && !voiceIsEs){
+    console.warn("[voice] descartando voz no-es:", v.name, "|", v.lang);
+  }
+  console.log("[voice] speak() · gender:", gender, "· voz:", voiceIsEs?v.name:"(ninguna)", "· method:", method, "· pitch:", finalPitch);
+  if(voiceIsEs) u.voice = v;
+  // u.lang fijado a es-ES siempre — independientemente de la voz — para
+  // que el motor no infiera el idioma del default del sistema.
+  u.lang = voiceIsEs ? v.lang : "es-ES";
   u.rate = rate;
   u.pitch = finalPitch;
   u.onend = () => { if(currentUtterance === u) currentUtterance = null; onEnd?.(); };
