@@ -12,6 +12,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
+import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, PLAIN_TEXT_RULE } from "./lib/agent.js";
@@ -206,7 +207,7 @@ const INITIAL_DATA = {
         {days:[2],      start:"19:00",end:"20:00",label:"Ingles martes"},
       ],
     }},
-    {id:6,name:"Antonio Díaz", initials:"AD",role:"Editor", email:"antonio@empresa.com",avail:{...BASE_AVAIL,whatsapp:"",hoursPerDay:8}},
+    {id:6,name:"Antonio Díaz", initials:"AD",role:"Editor", email:"qn.finanzas@gmail.com",accountRole:"admin",avail:{...BASE_AVAIL,whatsapp:"",hoursPerDay:8}},
     {id:7,name:"Albert Díaz",  initials:"AL",role:"Editor", email:"albert@empresa.com", avail:{...BASE_AVAIL,whatsapp:"",hoursPerDay:8}},
   ],
   projects:[
@@ -466,6 +467,16 @@ function _migrate(d){
     return a;
   });
   d.projects = (d.projects||[]).map(p=>({...p, workspaceId: p.workspaceId ?? null}));
+  // Auth: backfill email + accountRole en members. Antonio (id=6) pasa
+  // a email real qn.finanzas@gmail.com y accountRole "admin"; el resto
+  // queda como "member" salvo si ya tenía un accountRole explícito.
+  d.members = (d.members||[]).map(m=>{
+    let email = m.email || "";
+    if(m.id === 6 && email === "antonio@empresa.com") email = "qn.finanzas@gmail.com";
+    let accountRole = m.accountRole;
+    if(!accountRole) accountRole = (m.id === 6 ? "admin" : "member");
+    return {...m, email, accountRole};
+  });
   d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[], dueTime: t.dueTime||""}))}))]));
   // Backfill documents[] en negociaciones (upload + informes de análisis).
   d.negotiations = d.negotiations.map(n=>({
@@ -659,6 +670,58 @@ function PortalDropdown({getAnchor, open, onClose, children, minWidth = 170}){
       {children}
     </div>,
     document.body
+  );
+}
+
+// Pantalla de login (Supabase Auth). Se monta cuando authEnabled() y no
+// hay sesión activa. Soporta sign-in y sign-up — el sign-up SOLO funciona
+// si el email ya está registrado en data.members (caso contrario, error).
+// Tras autenticarse, App resuelve el miembro por email y setea
+// activeMember; si el email no está autorizado, muestra "no autorizado".
+function LoginScreen({onAuthed, onLegacySkip}){
+  const [mode,setMode]   = useState("signin"); // signin | signup
+  const [email,setEmail] = useState("");
+  const [pwd,setPwd]     = useState("");
+  const [busy,setBusy]   = useState(false);
+  const [err,setErr]     = useState(null);
+  const submit = async (e)=>{
+    e.preventDefault();
+    setErr(null); setBusy(true);
+    try {
+      const session = mode==="signup"
+        ? await signUp(email.trim(), pwd)
+        : await signIn(email.trim(), pwd);
+      onAuthed(session);
+    } catch(e2){
+      setErr(e2.message || "Error de autenticación");
+    } finally { setBusy(false); }
+  };
+  return(
+    <div style={{position:"fixed",inset:0,background:"linear-gradient(135deg,#7F77DD22,#E76AA122)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,zIndex:5000}}>
+      <div style={{background:"#fff",borderRadius:16,padding:"28px 28px 22px",width:380,maxWidth:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.18)",border:"0.5px solid #E5E7EB"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+          <div style={{width:38,height:38,background:"#7F77DD",borderRadius:10,color:"#fff",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>SB</div>
+          <div>
+            <div style={{fontWeight:700,fontSize:16,color:"#111827"}}>SoulBaric</div>
+            <div style={{fontSize:11,color:"#6B7280"}}>{mode==="signup"?"Crear cuenta":"Iniciar sesión"}</div>
+          </div>
+        </div>
+        <form onSubmit={submit}>
+          <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Email</label>
+          <input type="email" autoFocus required value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@email.com" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:12}}/>
+          <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Contraseña</label>
+          <input type="password" required minLength={6} value={pwd} onChange={e=>setPwd(e.target.value)} placeholder="••••••••" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:14}}/>
+          {err && <div style={{fontSize:11.5,color:"#B91C1C",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:6,padding:"7px 10px",marginBottom:12}}>{err}</div>}
+          <button type="submit" disabled={busy||!email.trim()||pwd.length<6} style={{width:"100%",padding:"10px 14px",borderRadius:8,background:busy?"#A7B0F5":"#7F77DD",color:"#fff",border:"none",fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit"}}>
+            {busy?"Procesando…":(mode==="signup"?"Crear cuenta":"Entrar")}
+          </button>
+        </form>
+        <div style={{display:"flex",justifyContent:"space-between",marginTop:12,fontSize:11.5}}>
+          <button onClick={()=>{setMode(mode==="signup"?"signin":"signup");setErr(null);}} style={{background:"none",border:"none",color:"#7F77DD",cursor:"pointer",fontFamily:"inherit",padding:0}}>{mode==="signup"?"Ya tengo cuenta":"Crear cuenta nueva"}</button>
+          {onLegacySkip && <button onClick={onLegacySkip} style={{background:"none",border:"none",color:"#9CA3AF",cursor:"pointer",fontFamily:"inherit",padding:0}}>Modo demo</button>}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -6551,12 +6614,52 @@ export default function TaskFlow(){
   const [activeProject,setAP]      = useState(0);
   const [activeTab,setActiveTab]   = useState("home");
   const [activeMember,setAM]       = useState(()=>{ const u=readStoredUser(); return typeof u?.id==="number"?u.id:5; });
-  // Role gating temporal pre-auth: Antonio (id=6) es admin con permisos
-  // completos (eliminar, ver todos los proyectos). Los demás miembros
-  // tienen permisos restringidos. En Fix 3 esto pasará a usar Supabase
-  // Auth + email allowlist, pero la prop downstream (`canDelete`,
-  // `isAdmin`) no cambia.
-  const isAdmin = activeMember === 6;
+  // isAdmin: lee accountRole del miembro activo. Cuando hay sesión
+  // Supabase Auth, activeMember se resuelve por email tras login. Sin
+  // sesión y con user picker legacy, se sigue usando para gate de
+  // permisos. Default seguro a "member" si el miembro no existe.
+  const isAdmin = (data.members||[]).find(m=>m.id===activeMember)?.accountRole === "admin";
+  // Sesión Supabase Auth (Fix 3). authReady: false hasta que se haya
+  // resuelto el getSession inicial, evita parpadeos del LoginScreen.
+  // legacyMode: true si el usuario ha optado por "Modo demo" (ignora
+  // auth y usa el user picker localStorage).
+  const [authSession,setAuthSession] = useState(null);
+  const [authReady,setAuthReady]     = useState(!authEnabled());
+  const [legacyMode,setLegacyMode]   = useState(()=>{
+    try { return localStorage.getItem("soulbaric.legacyMode") === "1"; } catch { return false; }
+  });
+  useEffect(()=>{
+    if(!authEnabled()) return;
+    let alive = true;
+    getSession().then(s=>{ if(alive){ setAuthSession(s); setAuthReady(true); } });
+    const unsub = onAuthStateChange(({session})=>{ setAuthSession(session); });
+    return ()=>{ alive = false; unsub(); };
+  },[]);
+  // Resuelve el miembro a partir del email del session.user.
+  const authMemberInfo = authSession ? resolveSessionMember(authSession, data.members) : null;
+  // Cuando llega session válida con member match, fijamos activeMember
+  // automáticamente (sin pasar por user picker).
+  useEffect(()=>{
+    if(authMemberInfo?.member) setAM(authMemberInfo.member.id);
+  },[authMemberInfo?.member?.id]);
+  const handleSignOut = async ()=>{
+    await signOut();
+    setAuthSession(null);
+    try { localStorage.removeItem("taskflow_current_user"); } catch {}
+  };
+  // Si no eres admin y estás en un tab admin-only, te redirigimos a "mytasks".
+  // Evita que un member acceda a vistas restringidas con la URL/atajos.
+  const ADMIN_ONLY_TABS = new Set(["dealroom","projects","workspaces","dashboard","briefings","memory","board","planner","team","reports","eisenhower","users"]);
+  useEffect(()=>{
+    if(authReady && authSession && authMemberInfo?.member && !isAdmin){
+      if(ADMIN_ONLY_TABS.has(activeTab)) setActiveTab("mytasks");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[isAdmin, activeTab, authReady, authSession]);
+  const enableLegacyMode = ()=>{
+    setLegacyMode(true);
+    try { localStorage.setItem("soulbaric.legacyMode","1"); } catch {}
+  };
   const [showUserModal,setShowUserModal] = useState(()=>!readStoredUser());
   const [userMenuOpen,setUserMenuOpen]   = useState(false);
   const [showCommandPalette,setShowCommandPalette] = useState(false);
@@ -7283,9 +7386,30 @@ export default function TaskFlow(){
   const doneTasks =board.filter(c=>c.name==="Hecho").reduce((s,c)=>s+c.tasks.length,0);
   const TABS=[{key:"board",l:"Tablero"},{key:"eisenhower",l:"Matriz"},{key:"reports",l:"Tiempos"},{key:"team",l:"Equipo"}];
 
+  // Auth gate: cuando Supabase Auth está disponible y el usuario no está
+  // en modo demo, mostramos LoginScreen hasta que tenga sesión válida con
+  // email que case con un member. Si la sesión existe pero el email no
+  // está autorizado, mostramos panel "no autorizado" con opción de salir.
+  if(authEnabled() && !legacyMode){
+    if(!authReady){
+      return <div style={{position:"fixed",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#6B7280"}}>Cargando…</div>;
+    }
+    if(!authSession){
+      return <LoginScreen onAuthed={s=>setAuthSession(s)} onLegacySkip={enableLegacyMode}/>;
+    }
+    if(!authMemberInfo?.member){
+      return <div style={{position:"fixed",inset:0,background:"linear-gradient(135deg,#7F77DD22,#E76AA122)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,zIndex:5000}}>
+        <div style={{background:"#fff",borderRadius:16,padding:"28px",width:380,maxWidth:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.18)"}}>
+          <div style={{fontSize:15,fontWeight:700,color:"#B91C1C",marginBottom:8}}>Email no autorizado</div>
+          <div style={{fontSize:12.5,color:"#374151",lineHeight:1.5,marginBottom:14}}>El email <b>{authSession.user?.email}</b> no está vinculado a ningún miembro del equipo. Pide al administrador que lo añada al campo email del miembro correspondiente.</div>
+          <button onClick={handleSignOut} style={{padding:"8px 14px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cerrar sesión</button>
+        </div>
+      </div>;
+    }
+  }
   return(
     <div style={{display:"flex",height:"100vh",fontFamily:"'Segoe UI',system-ui,sans-serif",background:"#f9fafb",color:"#111827"}}>
-      {showUserModal&&<UserSelectionModal members={data.members} onSelectUser={selectUser}/>}
+      {showUserModal&&!authSession&&<UserSelectionModal members={data.members} onSelectUser={selectUser}/>}
       {showShortcuts&&<ShortcutsModal onClose={()=>setShowShortcuts(false)}/>}
       {overlayTaskId&&(()=>{
         for(const p of data.projects){
@@ -7325,16 +7449,20 @@ export default function TaskFlow(){
       {(()=>{
         const me=data.members.find(x=>x.id===activeMember)||data.members[0];
         const mp2=MP[me?.id]||MP[0];
-        const PRIMARY=[
-          {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}},
-          {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}},
-          {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}},
-          {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}},
-          {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}},
-          {id:"dashboard",  icon:"📊", label:"Dashboard",    shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}},
-          {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}},
-          {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}},
+        // Items del sidebar. Para no-admin, filtramos a Home + Mis tareas
+        // (no acceden a Board, Proyectos, Deal Room, Dashboard, Briefings,
+        // Memoria — solo ven sus propias tareas asignadas).
+        const ALL_PRIMARY=[
+          {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}, adminOnly:false},
+          {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:true},
+          {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false},
+          {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:true},
+          {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}, adminOnly:true},
+          {id:"dashboard",  icon:"📊", label:"Dashboard",    shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:true},
+          {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:true},
+          {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:true},
         ];
+        const PRIMARY = isAdmin ? ALL_PRIMARY : ALL_PRIMARY.filter(it=>!it.adminOnly);
         return(
         <div className={`tf-sidebar${sidebarOpen?" open":""}`} data-sb-no-close style={{width:sidebarCollapsed?60:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column",transition:"width .18s ease"}}>
           {/* Header: logo + brand + collapse button */}
@@ -7366,7 +7494,7 @@ export default function TaskFlow(){
                 <div style={{position:"absolute",top:"calc(100% - 2px)",left:sidebarCollapsed?4:12,right:sidebarCollapsed?"auto":12,minWidth:sidebarCollapsed?200:"auto",background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:10,boxShadow:"0 10px 28px rgba(0,0,0,0.14)",zIndex:1700,overflow:"hidden",animation:"tf-slide-down .15s ease-out"}}>
                   <div onClick={()=>{setUserMenuOpen(false);setPM(data.members.find(x=>x.id===activeMember));}} style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>⚙ Mi perfil</div>
                   <div onClick={changeUser} style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🔄 Cambiar usuario</div>
-                  <div onClick={logoutTemp} style={{padding:"9px 12px",fontSize:12,color:"#A32D2D",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#FEF2F2"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🚪 Cerrar sesión</div>
+                  <div onClick={()=>{ setUserMenuOpen(false); if(authSession) handleSignOut(); else logoutTemp(); }} style={{padding:"9px 12px",fontSize:12,color:"#A32D2D",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#FEF2F2"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🚪 Cerrar sesión</div>
                   <div onClick={()=>{ if(!window.confirm("¿Borrar todos los datos guardados y volver al estado inicial?"))return; setUserMenuOpen(false); localStorage.removeItem(LS_KEY); window.location.reload(); }} style={{padding:"9px 12px",fontSize:11,color:"#6B7280",cursor:"pointer",fontStyle:"italic"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🗑 Resetear datos (dev)</div>
                 </div>
               </>
