@@ -41,15 +41,21 @@ export function onAuthStateChange(handler){
   return ()=>{ try { data?.subscription?.unsubscribe?.(); } catch {} };
 }
 
-// Resuelve la sesión a un miembro del equipo por email. Devuelve
-// { member, role } donde role = "admin" | "member" | null si el email
-// no está autorizado.
+// Resuelve la sesión a un miembro del equipo. Match prioritario por
+// supabaseUid (el id estable de auth.users — sobrevive a renames de
+// email); fallback por email lowercased. Devuelve {member, role} con
+// role = "admin" | "member" | null si no está autorizado.
 export function resolveSessionMember(session, members){
-  if(!session?.user?.email) return { member: null, role: null };
-  const email = session.user.email.toLowerCase().trim();
-  const member = (members||[]).find(m =>
-    typeof m.email === "string" && m.email.toLowerCase().trim() === email
-  );
-  if(!member) return { member: null, role: null };
-  return { member, role: member.role || "member" };
+  const user = session?.user;
+  if(!user) return { member: null, role: null };
+  const list = members||[];
+  // 1) Match por supabaseUid — fuente estable de identidad.
+  const byUid = user.id ? list.find(m => m.supabaseUid && m.supabaseUid === user.id) : null;
+  if(byUid) return { member: byUid, role: byUid.accountRole || "member" };
+  // 2) Fallback por email — útil mientras se hace el binding inicial.
+  const email = (user.email||"").toLowerCase().trim();
+  if(!email) return { member: null, role: null };
+  const byEmail = list.find(m => typeof m.email === "string" && m.email.toLowerCase().trim() === email);
+  if(!byEmail) return { member: null, role: null };
+  return { member: byEmail, role: byEmail.accountRole || "member" };
 }

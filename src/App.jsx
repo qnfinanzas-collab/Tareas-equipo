@@ -191,7 +191,7 @@ const INITIAL_DATA = {
     {id:2,name:"Sara Martín",  initials:"SM",role:"Editor", email:"sara@empresa.com",   avail:{...BASE_AVAIL,whatsapp:"+34600000003",workDays:[1,2,3,4],hoursPerDay:6}},
     {id:3,name:"Javi Ruiz",    initials:"JR",role:"Viewer", email:"javi@empresa.com",   avail:{...BASE_AVAIL,whatsapp:"+34600000004",hoursPerDay:4,exceptions:[{date:D(1),type:"off",note:"Médico"}]}},
     {id:4,name:"Marta Gil",    initials:"MG",role:"Editor", email:"marta@empresa.com",  avail:{...BASE_AVAIL,whatsapp:"+34600000005"}},
-    {id:5,name:"Marc Díaz",    initials:"MD",role:"Manager",email:"mdiaz.holding@gmail.com", avail:{
+    {id:5,name:"Marc Díaz",    initials:"MD",role:"Manager",email:"mdiaz.holding@gmail.com",supabaseUid:"089678db-5f31-4ef3-b185-cd8ad3afab78", avail:{
       workDays:[1,2,3,4,5],
       morningStart:"08:00", morningEnd:"13:00",
       afternoonStart:"14:30", afternoonEnd:"17:00",
@@ -207,8 +207,8 @@ const INITIAL_DATA = {
         {days:[2],      start:"19:00",end:"20:00",label:"Ingles martes"},
       ],
     }},
-    {id:6,name:"Antonio Díaz", initials:"AD",role:"Editor", email:"qn.finanzas@gmail.com",accountRole:"admin",avail:{...BASE_AVAIL,whatsapp:"",hoursPerDay:8}},
-    {id:7,name:"Albert Díaz",  initials:"AL",role:"Editor", email:"albert@empresa.com", avail:{...BASE_AVAIL,whatsapp:"",hoursPerDay:8}},
+    {id:6,name:"Antonio Díaz", initials:"AD",role:"Editor", email:"qn.finanzas@gmail.com",supabaseUid:"2d958a69-9484-4306-b015-6b0a6356fbd1",accountRole:"admin",avail:{...BASE_AVAIL,whatsapp:"",hoursPerDay:8}},
+    {id:7,name:"Albert Díaz",  initials:"AL",role:"Editor", email:"albertquicknex@gmail.com",supabaseUid:"61cfb1d3-1751-4a76-a54a-e26e5ac77d57", avail:{...BASE_AVAIL,whatsapp:"",hoursPerDay:8}},
   ],
   projects:[
     {id:1,name:"App móvil",    color:"#7F77DD",members:[0,1,2],desc:"App móvil principal",emoji:"📱"},
@@ -467,15 +467,30 @@ function _migrate(d){
     return a;
   });
   d.projects = (d.projects||[]).map(p=>({...p, workspaceId: p.workspaceId ?? null}));
-  // Auth: backfill email + accountRole en members. Antonio (id=6) pasa
-  // a email real qn.finanzas@gmail.com y accountRole "admin"; el resto
-  // queda como "member" salvo si ya tenía un accountRole explícito.
+  // Auth: backfill email + accountRole + supabaseUid en members. Mapping
+  // estricto por email para vincular con cuentas de Supabase Auth ya
+  // creadas. Si en un estado persistido viejo Albert seguía con
+  // "albert@empresa.com", se actualiza a su email real "albertquicknex".
+  // Idempotente — al segundo pase los uids ya están y no se sobreescriben.
+  const AUTH_BINDINGS = [
+    { match: m=> m.id===6 || m.email==="qn.finanzas@gmail.com" || m.email==="antonio@empresa.com",
+      email:"qn.finanzas@gmail.com", supabaseUid:"2d958a69-9484-4306-b015-6b0a6356fbd1", accountRole:"admin" },
+    { match: m=> m.id===5 || m.email==="mdiaz.holding@gmail.com",
+      email:"mdiaz.holding@gmail.com", supabaseUid:"089678db-5f31-4ef3-b185-cd8ad3afab78", accountRole:"member" },
+    { match: m=> m.id===7 || m.email==="albertquicknex@gmail.com" || m.email==="albert@empresa.com",
+      email:"albertquicknex@gmail.com", supabaseUid:"61cfb1d3-1751-4a76-a54a-e26e5ac77d57", accountRole:"member" },
+  ];
   d.members = (d.members||[]).map(m=>{
-    let email = m.email || "";
-    if(m.id === 6 && email === "antonio@empresa.com") email = "qn.finanzas@gmail.com";
-    let accountRole = m.accountRole;
-    if(!accountRole) accountRole = (m.id === 6 ? "admin" : "member");
-    return {...m, email, accountRole};
+    const binding = AUTH_BINDINGS.find(b => b.match(m));
+    if(binding){
+      return {
+        ...m,
+        email: binding.email,
+        supabaseUid: m.supabaseUid || binding.supabaseUid,
+        accountRole: m.accountRole || binding.accountRole,
+      };
+    }
+    return { ...m, email: m.email || "", accountRole: m.accountRole || "member" };
   });
   d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[], dueTime: t.dueTime||""}))}))]));
   // Backfill documents[] en negociaciones (upload + informes de análisis).
@@ -673,13 +688,11 @@ function PortalDropdown({getAnchor, open, onClose, children, minWidth = 170}){
   );
 }
 
-// Pantalla de login (Supabase Auth). Se monta cuando authEnabled() y no
-// hay sesión activa. Soporta sign-in y sign-up — el sign-up SOLO funciona
-// si el email ya está registrado en data.members (caso contrario, error).
-// Tras autenticarse, App resuelve el miembro por email y setea
-// activeMember; si el email no está autorizado, muestra "no autorizado".
+// Pantalla de login (Supabase Auth). SIN registro público — las cuentas
+// se crean manualmente en Supabase Dashboard y se vinculan por
+// supabaseUid en data.members. Esto evita que cualquier desconocido
+// pueda darse de alta.
 function LoginScreen({onAuthed, onLegacySkip}){
-  const [mode,setMode]   = useState("signin"); // signin | signup
   const [email,setEmail] = useState("");
   const [pwd,setPwd]     = useState("");
   const [busy,setBusy]   = useState(false);
@@ -688,9 +701,7 @@ function LoginScreen({onAuthed, onLegacySkip}){
     e.preventDefault();
     setErr(null); setBusy(true);
     try {
-      const session = mode==="signup"
-        ? await signUp(email.trim(), pwd)
-        : await signIn(email.trim(), pwd);
+      const session = await signIn(email.trim(), pwd);
       onAuthed(session);
     } catch(e2){
       setErr(e2.message || "Error de autenticación");
@@ -703,22 +714,22 @@ function LoginScreen({onAuthed, onLegacySkip}){
           <div style={{width:38,height:38,background:"#7F77DD",borderRadius:10,color:"#fff",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>SB</div>
           <div>
             <div style={{fontWeight:700,fontSize:16,color:"#111827"}}>SoulBaric</div>
-            <div style={{fontSize:11,color:"#6B7280"}}>{mode==="signup"?"Crear cuenta":"Iniciar sesión"}</div>
+            <div style={{fontSize:11,color:"#6B7280"}}>Iniciar sesión</div>
           </div>
         </div>
         <form onSubmit={submit}>
           <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Email</label>
           <input type="email" autoFocus required value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@email.com" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:12}}/>
           <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Contraseña</label>
-          <input type="password" required minLength={6} value={pwd} onChange={e=>setPwd(e.target.value)} placeholder="••••••••" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:14}}/>
+          <input type="password" required value={pwd} onChange={e=>setPwd(e.target.value)} placeholder="••••••••" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:14}}/>
           {err && <div style={{fontSize:11.5,color:"#B91C1C",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:6,padding:"7px 10px",marginBottom:12}}>{err}</div>}
-          <button type="submit" disabled={busy||!email.trim()||pwd.length<6} style={{width:"100%",padding:"10px 14px",borderRadius:8,background:busy?"#A7B0F5":"#7F77DD",color:"#fff",border:"none",fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit"}}>
-            {busy?"Procesando…":(mode==="signup"?"Crear cuenta":"Entrar")}
+          <button type="submit" disabled={busy||!email.trim()||!pwd} style={{width:"100%",padding:"10px 14px",borderRadius:8,background:busy?"#A7B0F5":"#7F77DD",color:"#fff",border:"none",fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit"}}>
+            {busy?"Entrando…":"Entrar"}
           </button>
         </form>
-        <div style={{display:"flex",justifyContent:"space-between",marginTop:12,fontSize:11.5}}>
-          <button onClick={()=>{setMode(mode==="signup"?"signin":"signup");setErr(null);}} style={{background:"none",border:"none",color:"#7F77DD",cursor:"pointer",fontFamily:"inherit",padding:0}}>{mode==="signup"?"Ya tengo cuenta":"Crear cuenta nueva"}</button>
-          {onLegacySkip && <button onClick={onLegacySkip} style={{background:"none",border:"none",color:"#9CA3AF",cursor:"pointer",fontFamily:"inherit",padding:0}}>Modo demo</button>}
+        <div style={{marginTop:12,fontSize:11,color:"#9CA3AF",textAlign:"center"}}>
+          Acceso restringido al equipo. Si no tienes cuenta, contacta con el administrador.
+          {onLegacySkip && <> · <button onClick={onLegacySkip} style={{background:"none",border:"none",color:"#9CA3AF",cursor:"pointer",fontFamily:"inherit",padding:0,fontSize:11,textDecoration:"underline"}}>Modo demo</button></>}
         </div>
       </div>
     </div>
@@ -6635,13 +6646,21 @@ export default function TaskFlow(){
     const unsub = onAuthStateChange(({session})=>{ setAuthSession(session); });
     return ()=>{ alive = false; unsub(); };
   },[]);
-  // Resuelve el miembro a partir del email del session.user.
+  // Resuelve el miembro a partir del session.user (uid → fallback email).
   const authMemberInfo = authSession ? resolveSessionMember(authSession, data.members) : null;
-  // Cuando llega session válida con member match, fijamos activeMember
-  // automáticamente (sin pasar por user picker).
+  // Tras login, fijamos activeMember automáticamente y redirigimos:
+  // admin → "dashboard", member → "mytasks". Ref evita re-disparar el
+  // redirect cuando authMemberInfo cambia por re-render normal.
+  const postLoginAppliedRef = useRef(false);
   useEffect(()=>{
-    if(authMemberInfo?.member) setAM(authMemberInfo.member.id);
-  },[authMemberInfo?.member?.id]);
+    if(!authMemberInfo?.member){ postLoginAppliedRef.current = false; return; }
+    setAM(authMemberInfo.member.id);
+    if(!postLoginAppliedRef.current){
+      postLoginAppliedRef.current = true;
+      const isAdminNow = authMemberInfo.member.accountRole === "admin";
+      setActiveTab(isAdminNow ? "dashboard" : "mytasks");
+    }
+  },[authMemberInfo?.member?.id, authMemberInfo?.member?.accountRole]);
   const handleSignOut = async ()=>{
     await signOut();
     setAuthSession(null);
@@ -7588,6 +7607,17 @@ export default function TaskFlow(){
             <span className="tf-search-label">Buscar</span>
             <span className="tf-search-kbd" style={{fontSize:10,color:"#9ca3af",border:"0.5px solid #d1d5db",borderRadius:5,padding:"2px 6px",fontWeight:600,background:"#fff"}}>⌘K</span>
           </button>
+
+          {/* Cerrar sesión (solo cuando hay sesión Supabase activa) */}
+          {authSession && (
+            <button onClick={handleSignOut} title="Cerrar sesión" className="tf-no-print"
+              style={{display:"flex",alignItems:"center",gap:6,padding:"7px 12px",borderRadius:20,background:"#fff",color:"#B91C1C",border:"0.5px solid #FCA5A5",fontSize:13,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}
+              onMouseEnter={e=>e.currentTarget.style.background="#FEF2F2"}
+              onMouseLeave={e=>e.currentTarget.style.background="#fff"}>
+              <span style={{fontSize:13}}>🚪</span>
+              <span className="tf-search-label">Salir</span>
+            </button>
+          )}
 
           {/* Nueva ▾ */}
           <div style={{position:"relative",flexShrink:0}}>
