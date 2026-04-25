@@ -66,125 +66,52 @@ export function getVoicesReady(){
   });
 }
 
-// Elige voz española priorizando por nombre propio. Las voces del SO no
-// suelen incluir "male"/"female" en el name, así que comparamos con lista
-// de nombres y, en móviles donde los nombres varían (Google TTS, Android,
-// iOS sin voces extra instaladas), EXCLUIMOS las voces femeninas conocidas
-// y devolvemos la primera restante — nunca caemos al primer elemento
-// genérico (suele ser Mónica en iOS → fallo silencioso del género).
-const MALE_ES_NAMES = [
-  // Desktop / iOS si el usuario las ha instalado
-  "jorge","diego","pablo","enrique","miguel","andrés","andres","carlos","juan",
-  // Android / Google TTS — códigos comunes de voces masculinas
-  "eee","eef","eed",
-  // Etiquetas genéricas que a veces aparecen
-  "male","hombre","masculino",
-];
-const FEMALE_ES_NAMES = [
-  "mónica","monica","paulina","rosa","elena","conchita","lucía","lucia",
-  "carmen","isabel","marisol","francisca","angelica","angélica","grandma",
-  "esperanza","sofia","sofía","laura","marta",
-  "female","mujer","femenino",
-];
 
-// Cascada para "male":
-//   name-match       → match explícito por nombre propio masculino
-//   quality-filter   → entre las no-femeninas, primera neural/premium/
-//                      enhanced/google (en ese orden de preferencia)
-//   first-non-female → primera voz es-* que no contenga nombre femenino
-//   fallback         → primera voz es-* cualquiera (warn: todas parecen
-//                      femeninas y no hay mejor opción que mostrar la
-//                      aplicación muda)
-//
-// La exclusión de femeninas se hace ANTES del quality-filter para que
-// una "Monica Premium" no gane a "Google español" cuando pedimos male.
-export function pickVoice(preferredGender = "any"){
-  const voices = getVoices();
-  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-  console.log("[voice] platform:", ua.slice(0, 80));
-  console.log("[voice] available voices:", voices.map(v=>v.name).join(", ") || "(ninguna aún)");
+// pickVoice: garantiza que la voz devuelta SIEMPRE tenga lang es-*.
+// PASO 1 (obligatorio): filtrar voces es-*. Sin excepciones, sin escapes.
+// PASO 2 (solo si gender="male"): match por nombre masculino → exclusión
+// de femeninas → quality-filter dentro del pool restante.
+// PASO 3 (siempre): fallback a la primera voz es-*.
+// Si no hay NINGUNA voz es-*, devolvemos voices[0] como rescate último,
+// pero speak() compensa forzando u.lang="es-ES" para que el motor TTS
+// no infiera el idioma del default del sistema.
+export function pickVoice(gender = "male"){
+  const all = speechSynthesis.getVoices();
 
-  // Filtro estricto BCP 47: lang debe ser "es" exacto, "es-XX" o "es_XX".
-  // El regex anterior /^es[-_]?/ también colaba accidentalmente cualquier
-  // lang que empezase por "es" sin separador (esperanto, español...).
-  // Más importante: este filtro es la ÚNICA puerta — ninguna rama posterior
-  // puede traer una voz que no esté en esVoices.
-  const esVoices = voices.filter(v => /^es($|[-_])/i.test(v.lang||""));
-  console.log("[voice] voces ES completas:", esVoices.map(v => `${v.name} | ${v.lang}`));
+  // PASO 1: Solo voces en español. Sin excepciones.
+  const esVoices = all.filter(v => v.lang.toLowerCase().startsWith("es"));
+
+  console.log("[voice] voces ES disponibles:", esVoices.map(v => v.name + "|" + v.lang));
+
   if(esVoices.length === 0){
-    // NUNCA caemos a una voz en otro idioma — preferimos voice:null y
-    // dejamos que el navegador use su default para u.lang="es-ES".
-    // Caer a "Microsoft David - English" haría que Héctor leyera el
-    // español con acento inglés (bug crítico que reportó el usuario).
-    console.warn("[voice] sin voces es-* disponibles; devolviendo null para que el navegador use su default es-ES");
-    return { voice: null, method: "no-es-available" };
+    console.warn("[voice] ninguna voz ES disponible, usando primera del sistema");
+    return { voice: all[0], method: "no-es-fallback" };
   }
 
-  // nameHas: match parcial case-insensitive. Crítico en iOS donde el
-  // name puede ser "Jorge", "Jorge (mejorada)", "Jorge (Premium)" o
-  // incluso el identificador "com.apple.voice.compact.es-ES.Jorge".
-  // Todos deben casar con "jorge" de la lista.
-  const nameHas = (v, list)=>{
-    const n = (v.name||"").toLowerCase();
-    return list.some(x => n.includes(x));
-  };
-  // Cuando hay varias voces que casan (ej: "Jorge" + "Jorge (mejorada)"),
-  // preferimos la variante mejorada/premium/neural/enhanced.
-  const preferEnhanced = (matches)=>{
-    if(matches.length <= 1) return matches[0] || null;
-    return matches.find(v => /mejorada|enhanced|premium|neural|plus|\(mejorada\)|\(premium\)/i.test(v.name))
-        || matches[0];
-  };
-  const qualityPick = (pool)=>{
-    // Orden explícito: neural > premium > enhanced > google
-    return pool.find(v => /neural/i.test(v.name))
-        || pool.find(v => /premium|mejorada/i.test(v.name))
-        || pool.find(v => /enhanced/i.test(v.name))
-        || pool.find(v => /google/i.test(v.name))
-        || null;
-  };
-  // Devuelve { voice, method } para que speak() pueda decidir si aplicar
-  // el pitch compensatorio (cuando method="fallback" + gender="male" y
-  // solo hay voces femeninas — típico Safari iOS que no expone Jorge).
-  const logPick = (v, method)=>{
-    console.log("[voice] selected:", v?.name, "| method:", method, "| lang:", v?.lang);
-    return { voice: v, method };
-  };
+  if(gender === "male"){
+    const maleNames = ["jorge","diego","juan","pablo","carlos","miguel","enrique","andrés","andres"];
+    const femaleNames = ["mónica","monica","marisol","paulina","rosa","elena","carmen","isabel","conchita","lucía","lucia","francisca","angélica","angelica"];
 
-  if(preferredGender === "male"){
-    // 1) name-match — recoge TODAS las voces que casan y elige la
-    //    variante mejorada/premium si hay más de una (iOS: "Jorge" y
-    //    "Jorge (mejorada)" conviven; nos quedamos con la mejorada).
-    const allMale = esVoices.filter(v => nameHas(v, MALE_ES_NAMES));
-    console.log("[voice] candidatos masculinos:", allMale.map(v=>v.name));
-    const explicit = preferEnhanced(allMale);
-    if(explicit) return logPick(explicit, "name-match");
-
-    // Pool tras excluir femeninas conocidas
-    const nonFemale = esVoices.filter(v => !nameHas(v, FEMALE_ES_NAMES));
-    if(nonFemale.length > 0){
-      // 2) quality-filter dentro del pool no-femenino
-      const quality = qualityPick(nonFemale);
-      if(quality) return logPick(quality, "quality-filter");
-      // 3) primera no-femenina
-      return logPick(nonFemale[0], "first-non-female");
+    // Buscar por nombre masculino dentro de esVoices SOLO
+    const byName = esVoices.find(v => maleNames.some(n => v.name.toLowerCase().includes(n)));
+    if(byName){
+      console.log("[voice] selected:", byName.name, "| method: name-match");
+      return { voice: byName, method: "name-match" };
     }
 
-    // 4) fallback — todas las es-* parecen femeninas
-    console.warn("[voice] todas las es-* parecen femeninas:", esVoices.map(v=>v.name));
-    return logPick(esVoices[0], "fallback");
+    // Excluir femeninas y quedarse con las restantes
+    const nonFemale = esVoices.filter(v => !femaleNames.some(n => v.name.toLowerCase().includes(n)));
+
+    if(nonFemale.length > 0){
+      const quality = nonFemale.find(v => /neural|premium|enhanced|google/i.test(v.name)) || nonFemale[0];
+      console.log("[voice] selected:", quality.name, "| method: non-female");
+      return { voice: quality, method: "non-female" };
+    }
   }
 
-  if(preferredGender === "female"){
-    const allFemale = esVoices.filter(v => nameHas(v, FEMALE_ES_NAMES));
-    const explicit = preferEnhanced(allFemale);
-    if(explicit) return logPick(explicit, "name-match");
-  }
-
-  // "any" — calidad primero, si no la primera es-*
-  const quality = qualityPick(esVoices);
-  if(quality) return logPick(quality, "quality-filter");
-  return logPick(esVoices[0], "fallback");
+  // Fallback final: primera voz ES (Mónica en iOS, etc.)
+  console.log("[voice] selected:", esVoices[0].name, "| method: fallback");
+  return { voice: esVoices[0], method: "fallback" };
 }
 
 // Limpia sintaxis markdown del texto antes de pasarlo a un TTS o de
