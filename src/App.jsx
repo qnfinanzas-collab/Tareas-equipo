@@ -1844,7 +1844,6 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
   const [newLink,setNewLink]=useState({label:"",url:"",icon:"🔗"});
   const [avatarOpen,setAvatarOpen]=useState(false);
   const [pendingClose,setPendingClose]=useState(false);
-  const [confirmDelete,setConfirmDelete]=useState(false);
   const intRef=useRef(null);
   const p2=palOf(task.assignees); const q=getQ(task);
 
@@ -2165,17 +2164,19 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
           )}
         </div>
         {/* Footer: solo aparece cuando hay onDelete y permiso (canDelete).
-            Confirmación inline en dos pasos para evitar borrados por error. */}
+            window.confirm() nativo para evitar borrados por error. */}
         {onDelete && canDelete && (
           <div style={{padding:"10px 20px",borderTop:"0.5px solid #e5e7eb",display:"flex",justifyContent:"space-between",alignItems:"center",background:"#fafafa",borderBottomLeftRadius:16,borderBottomRightRadius:16}}>
-            {confirmDelete
-              ? <div style={{display:"flex",alignItems:"center",gap:10,fontSize:12,color:"#B91C1C"}}>
-                  <span>¿Eliminar esta tarea? Esta acción no se puede deshacer.</span>
-                  <button onClick={()=>{ onDelete(task.id, colId); onClose(); }} style={{padding:"5px 12px",borderRadius:6,background:"#E24B4A",color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Sí, eliminar</button>
-                  <button onClick={()=>setConfirmDelete(false)} style={{padding:"5px 10px",borderRadius:6,background:"transparent",color:"#374151",border:"0.5px solid #D1D5DB",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
-                </div>
-              : <button onClick={()=>setConfirmDelete(true)} title="Eliminar tarea" style={{padding:"6px 12px",borderRadius:6,background:"transparent",color:"#B91C1C",border:"0.5px solid #FCA5A5",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}>🗑️ Eliminar tarea</button>
-            }
+            <button
+              onClick={()=>{
+                if(window.confirm("¿Eliminar esta tarea? Esta acción no se puede deshacer.")){
+                  onDelete(task.id, colId);
+                  onClose();
+                }
+              }}
+              title="Eliminar tarea"
+              style={{padding:"6px 12px",borderRadius:6,background:"transparent",color:"#B91C1C",border:"0.5px solid #FCA5A5",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}
+            >🗑️ Eliminar tarea</button>
             <span style={{fontSize:11,color:"#9CA3AF"}}>{task.id}</span>
           </div>
         )}
@@ -7442,9 +7443,11 @@ export default function TaskFlow(){
                 members={data.members} activeMemberId={activeMember}
                 workspaceLinks={ws?.links||[]} agents={data.agents||[]}
                 ceoMemory={data.ceoMemory}
+                canDelete={isAdmin}
                 onClose={()=>setOverlayTaskId(null)}
                 onUpdate={(id,_cid,upd)=>updateTaskAnywhere(id,upd)}
                 onMove={(id,from,to)=>{moveTaskAnywhere(id,from,to);setOverlayTaskId(null);}}
+                onDelete={(id)=>deleteTaskAnywhere(id)}
               />;
             }
           }
