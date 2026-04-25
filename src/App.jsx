@@ -466,7 +466,7 @@ function _migrate(d){
     return a;
   });
   d.projects = (d.projects||[]).map(p=>({...p, workspaceId: p.workspaceId ?? null}));
-  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[]}))}))]));
+  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[], dueTime: t.dueTime||""}))}))]));
   // Backfill documents[] en negociaciones (upload + informes de análisis).
   d.negotiations = d.negotiations.map(n=>({
     ...n,
@@ -1868,7 +1868,19 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                     <div><FL c="Prioridad"/><select value={draft.priority} onChange={e=>set("priority",e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,background:"#fff",fontFamily:"inherit"}}><option value="alta">Alta</option><option value="media">Media</option><option value="baja">Baja</option></select></div>
                     <div><FL c="Horas estimadas"/><FI type="number" value={draft.estimatedHours} onChange={v=>set("estimatedHours",Number(v))} placeholder="ej. 8"/></div>
                     <div><FL c="Fecha inicio"/><FI type="date" value={draft.startDate} onChange={v=>set("startDate",v)}/></div>
-                    <div><FL c="Fecha limite"/><FI type="date" value={draft.dueDate} onChange={v=>set("dueDate",v)}/></div>
+                    <div>
+                      <FL c="Fecha límite + hora"/>
+                      <div style={{display:"flex",gap:6}}>
+                        <FI type="date" value={draft.dueDate} onChange={v=>set("dueDate",v)}/>
+                        <input
+                          type="time"
+                          value={draft.dueTime||""}
+                          onChange={e=>set("dueTime",e.target.value)}
+                          step="300"
+                          style={{padding:"7px 8px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff",width:96,flexShrink:0}}
+                        />
+                      </div>
+                    </div>
                     <div style={{gridColumn:"1 / -1"}}>
                       <FL c="Categoría del asesor IA"/>
                       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
@@ -2381,7 +2393,7 @@ function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
       <div style={{marginBottom:6}}><QBadge q={q}/></div>
       <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
         {task.startDate&&<span style={{fontSize:10,color:"#6b7280"}}>Inicio: {task.startDate}</span>}
-        {task.dueDate&&<span style={{fontSize:10,color:isOver?"#A32D2D":isToday?"#854F0B":"#9ca3af",fontWeight:isOver||isToday?600:400}}>{isOver?"Vencida":isToday?"Hoy":"Fin"}: {task.dueDate}</span>}
+        {task.dueDate&&<span style={{fontSize:10,color:isOver?"#A32D2D":isToday?"#854F0B":"#9ca3af",fontWeight:isOver||isToday?600:400}}>{isOver?"Vencida":isToday?"Hoy":"Fin"}: {task.dueDate}{task.dueTime?` · ${task.dueTime}`:""}</span>}
         {sched.length>0&&<span style={{fontSize:10,color:"#7F77DD",fontWeight:600}}>Planificado</span>}
       </div>
       {est>0&&totalLogged>0&&<div style={{marginBottom:6}}><div style={{height:4,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(Math.round(totalLogged/est*100),100)}%`,background:totalLogged>est?"#E24B4A":totalLogged/est>0.8?"#EF9F27":"#1D9E75",borderRadius:20}}/></div></div>}
