@@ -1038,11 +1038,28 @@ function pdfCheckPageBreak(doc, y, need = 6){
   return y;
 }
 
+// Sanea texto para jsPDF. La fuente Helvetica por defecto solo soporta
+// WinAnsiEncoding (Latin-1 + algunos extras). Emojis y otros caracteres
+// fuera de ese rango pueden romper splitTextToSize/text() silenciosamente
+// y dejar el body vacío. Mensajes de Héctor empiezan a menudo con 🎯/🔍
+// (briefing/análisis), por eso el chat exportaba sin contenido.
+function pdfSanitize(text){
+  return String(text||"")
+    .replace(/[\u{1F000}-\u{1FFFF}]/gu, "")    // emoji rango principal
+    .replace(/[\u2600-\u27BF]/g, "")           // misc symbols + dingbats
+    .replace(/[\u200D\uFE0F\u20E3]/g, "")      // ZWJ + variation selector
+    .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "");   // banderas regionales
+}
+
 function pdfWriteWrapped(doc, text, x, y, {maxWidth = PDF_CONTENT_W, lineH = 5}={}){
-  const lines = doc.splitTextToSize(String(text||""), maxWidth);
+  const safe = pdfSanitize(text);
+  let lines;
+  try { lines = doc.splitTextToSize(safe, maxWidth); }
+  catch(e){ console.warn("[pdf] splitTextToSize failed:", e, "text:", safe.slice(0,80)); lines = [safe]; }
   for(const line of lines){
     y = pdfCheckPageBreak(doc, y, lineH);
-    doc.text(line, x, y);
+    try { if(line) doc.text(line, x, y); }
+    catch(e){ console.warn("[pdf] text() failed:", e, "line:", line); }
     y += lineH;
   }
   return y;
@@ -1050,6 +1067,7 @@ function pdfWriteWrapped(doc, text, x, y, {maxWidth = PDF_CONTENT_W, lineH = 5}=
 
 // Mensajes tipo transcript para chat de Héctor / AgentBriefingModal.
 function renderChat(doc, y, messages, {userLabel = "Usuario", assistantLabel = "Héctor"} = {}){
+  console.log("[pdf] renderChat · msgs:", (messages||[]).length, "· first:", messages?.[0]?.content?.slice(0,40));
   if(!messages || messages.length === 0){
     doc.setFont("helvetica","italic"); doc.setFontSize(10); doc.setTextColor(156,163,175);
     doc.text("(Sin mensajes)", PDF_MARGIN_L, y);
@@ -1068,16 +1086,16 @@ function renderChat(doc, y, messages, {userLabel = "Usuario", assistantLabel = "
     doc.setLineWidth(0.8);
     doc.line(PDF_MARGIN_L, y - 3, PDF_MARGIN_L, y + 3);
 
-    // Autor + timestamp + tag
+    // Autor + timestamp + tag (sanitized para WinAnsi)
     doc.setFont("helvetica","bold"); doc.setFontSize(10);
     doc.setTextColor(accent[0],accent[1],accent[2]);
-    doc.text(who + tag, PDF_MARGIN_L + 3, y);
+    try { doc.text(pdfSanitize(who + tag), PDF_MARGIN_L + 3, y); } catch(e){ console.warn("[pdf] author text failed:", e); }
     doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
     doc.setTextColor(120,120,130);
-    doc.text(date, PDF_MARGIN_L + PDF_CONTENT_W, y, { align:"right" });
+    try { doc.text(pdfSanitize(date), PDF_MARGIN_L + PDF_CONTENT_W, y, { align:"right" }); } catch(e){ console.warn("[pdf] date text failed:", e); }
     y += 5;
 
-    // Contenido del mensaje
+    // Contenido del mensaje (pdfWriteWrapped ya sanea)
     doc.setFont("helvetica","normal"); doc.setFontSize(10);
     doc.setTextColor(31,41,55);
     y = pdfWriteWrapped(doc, m.content || "", PDF_MARGIN_L + 3, y, {maxWidth: PDF_CONTENT_W - 3});
