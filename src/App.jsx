@@ -144,6 +144,49 @@ const BASE_AVAIL = {
   transportMarginMins:30, blockedSlots:[],
 };
 
+// ── Códigos de proyecto y refs de tarea ──────────────────────────────────────
+// Cada proyecto tiene un código de 3 letras mayúsculas (SHM, GDP, INV…) y
+// cada tarea recibe un ref autogenerado código+"-"+secuencial (SHM-001).
+// El ref es permanente: aunque la tarea se mueva de columna, el ref no
+// cambia. Si se mueve de proyecto, el ref original también se conserva.
+const PROJECT_CODE_RE = /^[A-Z]{3}$/;
+function isValidProjectCode(code){ return typeof code==="string" && PROJECT_CODE_RE.test(code); }
+// Genera código de 3 letras a partir del nombre, evitando colisiones con
+// los códigos ya usados. Si las primeras 3 letras colisionan, intenta
+// "<2 primeras letras><dígito>" (SH2, SH3…). Última opción: P00..P99.
+function autoProjectCode(name, existingCodes){
+  const used = new Set((existingCodes||[]).filter(Boolean));
+  const clean = (name||"").toUpperCase().replace(/[^A-ZÑ]/g,"").replace(/Ñ/g,"N");
+  const base = clean.length>=3 ? clean.slice(0,3) : (clean+"XXX").slice(0,3);
+  if(!used.has(base)) return base;
+  const stem = (clean.length>=2 ? clean.slice(0,2) : (clean+"X").slice(0,2));
+  for(let n=2; n<=9; n++){
+    const cand = (stem + String(n)).slice(0,3);
+    if(!used.has(cand)) return cand;
+  }
+  for(let n=0; n<100; n++){
+    const cand = "P" + String(n).padStart(2,"0");
+    if(!used.has(cand)) return cand;
+  }
+  return "XXX";
+}
+// Calcula el siguiente ref disponible para un proyecto dado su código y el
+// estado actual de columnas. Recorre todas las tareas existentes del
+// proyecto, encuentra el mayor secuencial usado y devuelve el siguiente
+// formateado a 3 dígitos.
+function computeNextTaskRef(code, colsOfProject){
+  if(!code) return null;
+  const prefix = code + "-";
+  let maxN = 0;
+  (colsOfProject||[]).forEach(col=>(col.tasks||[]).forEach(t=>{
+    if(typeof t.ref==="string" && t.ref.startsWith(prefix)){
+      const n = parseInt(t.ref.slice(prefix.length), 10);
+      if(Number.isFinite(n) && n>maxN) maxN = n;
+    }
+  }));
+  return prefix + String(maxN+1).padStart(3,"0");
+}
+
 // Extensión de coaching ejecutivo (PNL) para Héctor. Se concatena al
 // promptBase tanto en el seed (nuevos usuarios) como en _migrate (usuarios
 // existentes con la versión previa). Template literal para no escapar las
@@ -605,6 +648,41 @@ function _migrate(d){
     return { ...m, email: m.email || "", accountRole: m.accountRole || "member" };
   });
   d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[], dueTime: t.dueTime||""}))}))]));
+  // Backfill project.code (3 letras MAYÚSCULAS) y task.ref (CODE-NNN). Para
+  // proyectos antiguos sin código, autogeneramos a partir del nombre y
+  // marcamos codeAuto:true (informativo, sin efecto funcional). Para tareas
+  // sin ref, asignamos secuencial respetando los refs ya existentes del
+  // proyecto. Idempotente: la segunda pasada no toca nada.
+  {
+    const existing = (d.projects||[]).map(p=>p.code).filter(isValidProjectCode);
+    d.projects = (d.projects||[]).map(p=>{
+      if(isValidProjectCode(p.code)) return p;
+      const code = autoProjectCode(p.name, existing);
+      existing.push(code);
+      return {...p, code, codeAuto:true};
+    });
+  }
+  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>{
+    const proj = (d.projects||[]).find(p=>p.id===Number(pid)) || (d.projects||[]).find(p=>String(p.id)===pid);
+    if(!proj || !isValidProjectCode(proj.code)) return [pid, cols];
+    const prefix = proj.code + "-";
+    let maxN = 0;
+    cols.forEach(col=>col.tasks.forEach(t=>{
+      if(typeof t.ref==="string" && t.ref.startsWith(prefix)){
+        const n = parseInt(t.ref.slice(prefix.length), 10);
+        if(Number.isFinite(n) && n>maxN) maxN = n;
+      }
+    }));
+    const newCols = cols.map(col=>({
+      ...col,
+      tasks: col.tasks.map(t=>{
+        if(typeof t.ref==="string" && t.ref) return t;
+        maxN += 1;
+        return {...t, ref: prefix + String(maxN).padStart(3,"0")};
+      }),
+    }));
+    return [pid, newCols];
+  }));
   // Backfill documents[] en negociaciones (upload + informes de análisis).
   d.negotiations = d.negotiations.map(n=>({
     ...n,
@@ -2012,6 +2090,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
     <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,paddingBottom:20,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${p2?p2.cardBorder:"#7F77DD"}`,marginBottom:20}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
+          {task.ref&&!editing&&<span style={{fontSize:11,color:"#6B7280",background:"#F3F4F6",border:"0.5px solid #E5E7EB",borderRadius:6,padding:"2px 7px",fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",fontWeight:700,letterSpacing:"0.04em",flexShrink:0}}>{task.ref}</span>}
           {editing
             ?<input value={draft.title} onChange={e=>set("title",e.target.value)} style={{flex:1,fontSize:15,fontWeight:600,border:"none",outline:"2px solid #7F77DD",borderRadius:6,padding:"4px 8px",fontFamily:"inherit"}}/>
             :<div style={{flex:1,fontWeight:600,fontSize:15}}>{task.title}</div>
@@ -2576,7 +2655,10 @@ function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
   const subAllDone=subs.length>0&&subDone===subs.length;
   return(
     <div draggable onDragStart={onDragStart} onClick={onOpen} style={{background:p2?p2.cardBg:"#fff",border:`0.5px solid ${p2?p2.cardBorder+"55":"#e5e7eb"}`,borderLeft:`4px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:10,padding:"10px 12px",marginBottom:8,cursor:"pointer"}}>
-      <div style={{fontSize:13,fontWeight:500,marginBottom:6,lineHeight:1.4}}>{task.title}</div>
+      <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:6}}>
+        <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,lineHeight:1.4}}>{task.title}</div>
+        {task.ref&&<span style={{fontSize:10,color:"#9CA3AF",fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",fontWeight:600,letterSpacing:"0.04em",flexShrink:0,marginTop:1}}>{task.ref}</span>}
+      </div>
       {task.tags.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:6}}>{task.tags.map((tg,i)=><Tag key={i} tag={tg}/>)}</div>}
       <div style={{marginBottom:6}}><QBadge q={q}/></div>
       <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
@@ -3342,12 +3424,13 @@ function TimeReportsView({boards,members,projects}){
 }
 
 // ── Project Modal ─────────────────────────────────────────────────────────────
-function ProjectModal({project,members,workspaces,onClose,onSave}){
+function ProjectModal({project,members,workspaces,allProjects,onClose,onSave}){
   const isEdit=!!project;
   const [name,setName]=useState(project?.name||"");
   const [desc,setDesc]=useState(project?.desc||"");
   const [color,setColor]=useState(project?.color||PROJECT_COLORS[0]);
   const [emoji,setEmoji]=useState(project?.emoji||"🚀");
+  const [code,setCode]=useState(project?.code||"");
   const [sel,setSel]=useState(project?.members||[]);
   const [workspaceId,setWorkspaceId]=useState(project?.workspaceId??null);
   const [cols,setCols]=useState(["Por hacer","En progreso","Revision","Hecho"]);
@@ -3356,10 +3439,11 @@ function ProjectModal({project,members,workspaces,onClose,onSave}){
   const [initialSnap]=useState(()=>JSON.stringify({
     name:project?.name||"", desc:project?.desc||"",
     color:project?.color||PROJECT_COLORS[0], emoji:project?.emoji||"🚀",
+    code:project?.code||"",
     sel:project?.members||[], workspaceId:project?.workspaceId??null,
     cols:["Por hacer","En progreso","Revision","Hecho"], newCol:"",
   }));
-  const isDirty=JSON.stringify({name,desc,color,emoji,sel,workspaceId,cols,newCol})!==initialSnap;
+  const isDirty=JSON.stringify({name,desc,color,emoji,code,sel,workspaceId,cols,newCol})!==initialSnap;
   const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
   useEffect(()=>{
     const onKey=e=>{ if(e.key==="Escape") handleClose(); };
@@ -3368,7 +3452,21 @@ function ProjectModal({project,members,workspaces,onClose,onSave}){
   },[isDirty]);
   const toggleM=id=>setSel(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
   const addCol=()=>{ const t=newCol.trim(); if(!t)return; setCols(p=>[...p,t]); setNewCol(""); };
-  const save=()=>{ if(!name.trim())return; onSave({name:name.trim(),desc,color,emoji,members:sel,columns:cols,workspaceId}); onClose(); };
+  // Validación de código: 3 letras A-Z y único entre proyectos (excluyendo
+  // el proyecto actual al editar). Devuelve mensaje de error o "" si ok.
+  const codeError = (()=>{
+    if(!code) return "Código obligatorio";
+    if(!isValidProjectCode(code)) return "Exactamente 3 letras (A-Z)";
+    const collision = (allProjects||[]).some(p=>p.code===code && (!project || p.id!==project.id));
+    if(collision) return "Código ya en uso";
+    return "";
+  })();
+  const canSave = !!name.trim() && !codeError;
+  const save=()=>{
+    if(!canSave) return;
+    onSave({name:name.trim(),desc,color,emoji,code,members:sel,columns:cols,workspaceId});
+    onClose();
+  };
   return(
     <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${color}`,marginBottom:24}}>
@@ -3390,8 +3488,27 @@ function ProjectModal({project,members,workspaces,onClose,onSave}){
               </div>
             </div>
             <div>
-              <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Nombre</div>
-              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Nombre del proyecto..." style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${name?color:"#d1d5db"}`,fontSize:14,fontWeight:500,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:8}}>
+                <div>
+                  <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Nombre</div>
+                  <input value={name} onChange={e=>setName(e.target.value)} placeholder="Nombre del proyecto..." style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${name?color:"#d1d5db"}`,fontSize:14,fontWeight:500,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Código</div>
+                  <input
+                    value={code}
+                    onChange={e=>{
+                      const v=(e.target.value||"").toUpperCase().replace(/[^A-Z]/g,"").slice(0,3);
+                      setCode(v);
+                    }}
+                    placeholder="ej: SHM"
+                    maxLength={3}
+                    style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${codeError?"#E24B4A":(code?color:"#d1d5db")}`,fontSize:14,fontWeight:700,outline:"none",fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",letterSpacing:"0.08em",textTransform:"uppercase",boxSizing:"border-box",textAlign:"center"}}
+                  />
+                </div>
+              </div>
+              {codeError&&<div style={{fontSize:10,color:"#A32D2D",marginTop:4,fontWeight:500}}>{codeError}</div>}
+              {!codeError&&project?.codeAuto&&code===project.code&&<div style={{fontSize:10,color:"#9ca3af",marginTop:4,fontStyle:"italic"}}>Código asignado automáticamente</div>}
               <div style={{marginTop:8}}>
                 <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5}}>Descripcion</div>
                 <input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="Descripcion breve..." style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
@@ -3426,7 +3543,7 @@ function ProjectModal({project,members,workspaces,onClose,onSave}){
           </div>
           <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
             <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
-            <button onClick={save} disabled={!name.trim()} style={{padding:"8px 20px",borderRadius:8,background:name.trim()?color:"#e5e7eb",color:name.trim()?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:name.trim()?"pointer":"default",fontWeight:600}}>{isEdit?"Guardar cambios":"Crear proyecto"}</button>
+            <button onClick={save} disabled={!canSave} style={{padding:"8px 20px",borderRadius:8,background:canSave?color:"#e5e7eb",color:canSave?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:canSave?"pointer":"default",fontWeight:600}}>{isEdit?"Guardar cambios":"Crear proyecto"}</button>
           </div>
         </div>
       </div>
@@ -3455,7 +3572,10 @@ function ProjectsView({projects,members,boards,onSelectProject,onCreateProject,o
               <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:12}}>
                 <div style={{fontSize:26,lineHeight:1}}>{p.emoji||"📋"}</div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:14,fontWeight:700,color:p.color,marginBottom:2}}>{p.name}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                    <div style={{fontSize:14,fontWeight:700,color:p.color}}>{p.name}</div>
+                    {p.code&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:5,background:`${p.color}18`,color:p.color,border:`1px solid ${p.color}55`,fontWeight:700,fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",letterSpacing:"0.06em"}}>{p.code}</span>}
+                  </div>
                   {p.desc&&<div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.desc}</div>}
                 </div>
                 <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
@@ -4395,11 +4515,14 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
         projects:[],
       };
     }
+    // Permite buscar tareas también por su ref (SHM-001) o por código de
+    // proyecto (SHM lista todas sus tareas), y proyectos por código.
+    const qUpper = q.toUpperCase();
     return {
-      tasks:      allTasks.filter(t=>fuzzyMatch(t.title,q)).slice(0,10),
+      tasks:      allTasks.filter(t=>fuzzyMatch(t.title,q) || (t.ref&&t.ref.toUpperCase().includes(qUpper))).slice(0,10),
       actions:    actions.filter(a=>fuzzyMatch(a.label,q)),
       workspaces: (data.workspaces||[]).filter(w=>fuzzyMatch(w.name,q)).slice(0,6),
-      projects:   data.projects.filter(p=>fuzzyMatch(p.name,q)).slice(0,6),
+      projects:   data.projects.filter(p=>fuzzyMatch(p.name,q) || (p.code&&p.code.toUpperCase().includes(qUpper))).slice(0,6),
     };
   },[query,data,actions]);
 
@@ -4495,7 +4618,10 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
               <div key={`t-${t.id}-${t.projId}-${i}`} data-idx={idx} onClick={()=>executeAt(idx)} onMouseEnter={()=>setSI(idx)} style={rowStyle(idx)}>
                 <span style={{fontSize:15,flexShrink:0}}>📌</span>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><HighlightedText text={t.title} query={query.trim()}/></div>
+                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {t.ref&&<span style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#9CA3AF",fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",fontWeight:700,marginRight:6,letterSpacing:"0.04em"}}>{t.ref}</span>}
+                    <HighlightedText text={t.title} query={query.trim()}/>
+                  </div>
                   <div style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#6B7280",opacity:0.85}}>{t.projEmoji} {t.projName} · {t.colName}</div>
                 </div>
               </div>
@@ -4532,7 +4658,10 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
               <div key={`p-${p.id}`} data-idx={idx} onClick={()=>executeAt(idx)} onMouseEnter={()=>setSI(idx)} style={rowStyle(idx)}>
                 <span style={{fontSize:15,flexShrink:0}}>{p.emoji||"📋"}</span>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><HighlightedText text={p.name} query={query.trim()}/></div>
+                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
+                    <HighlightedText text={p.name} query={query.trim()}/>
+                    {p.code&&<span style={{fontSize:10,color:idx===selectedIndex?"#1E40AF":"#9CA3AF",fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",fontWeight:700,letterSpacing:"0.04em"}}>{p.code}</span>}
+                  </div>
                   <div style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#6B7280",opacity:0.85}}>{ws?`${ws.emoji||"🏢"} ${ws.name} · `:""}{total} tarea{total!==1?"s":""}</div>
                 </div>
               </div>
@@ -5525,7 +5654,10 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                         <div onClick={()=>onOpenTask(t.id,t.projId)} style={{background:"#fff",border:"1px solid #E5E7EB",borderLeft:`3px solid ${t.projColor}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,transition:"background .12s"}} onMouseEnter={e=>{e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{e.currentTarget.style.background="#fff";}}>
                           <input type="checkbox" readOnly checked={false} style={{flexShrink:0,cursor:"pointer",accentColor:t.projColor}} onClick={e=>e.stopPropagation()}/>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:12.5,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                            <div style={{fontSize:12.5,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                              {t.ref&&<span style={{fontSize:10.5,color:"#9CA3AF",fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",fontWeight:700,marginRight:6,letterSpacing:"0.04em"}}>{t.ref}</span>}
+                              {t.title}
+                            </div>
                             <div style={{fontSize:10.5,color:"#9CA3AF"}}>{t.projEmoji} {t.projName} · {t.colName}</div>
                           </div>
                           <span style={{fontSize:10.5,color:dueColor,fontWeight:600,flexShrink:0}}>{dueLabel}</span>
@@ -5641,7 +5773,8 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               criticalTasks.slice(0,20).forEach(t=>{
                 const d = t.dueDate ? daysUntil(t.dueDate) : null;
                 const dueLabel = !t.dueDate ? "sin fecha" : d<0 ? `vencida ${-d}d` : d===0 ? "hoy" : `en ${d}d`;
-                lines.push(`- [${t.id}] ${t.title} (${t.projName}·${t.colName}, ${dueLabel}, prio=${t.priority})`);
+                const ident = t.ref || t.id;
+                lines.push(`- ${ident}: ${t.title} (${t.projName}·${t.colName}, ${dueLabel}, prio=${t.priority})`);
               });
             }
             if((negotiation.stakeholders||[]).length>0){
@@ -5827,8 +5960,8 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               return;
             }
             setChatLoading(true);
-            const taskLines = criticalTasks.map(t=>`- [${t.id}] ${t.title} (${t.projName}·${t.colName}, ${t.dueDate||"sin fecha"})`).join("\n");
-            const projLines = relProjs.map(({p,rp,activeCount,overdueCount})=>`- [${p.id}] ${p.name} (${rp.role||"relacionado"}, ${activeCount} activas, ${overdueCount} vencidas)`).join("\n");
+            const taskLines = criticalTasks.map(t=>`- ${t.ref||t.id}: ${t.title} (${t.projName}·${t.colName}, ${t.dueDate||"sin fecha"})`).join("\n");
+            const projLines = relProjs.map(({p,rp,activeCount,overdueCount})=>`- [${p.code||p.id}] ${p.name} (${rp.role||"relacionado"}, ${activeCount} activas, ${overdueCount} vencidas)`).join("\n");
             const userMsg = `Analiza cada tarea y proyecto vinculado a esta negociación. Para cada uno da:
 1. Análisis en 2-4 frases (directo, sin rodeos, accionable, estilo Chief of Staff).
 2. Tags de categorización (máx 2 por item) de esta lista cerrada exacta: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".
@@ -7292,7 +7425,13 @@ export default function TaskFlow(){
     addToast(`📅 Pospuesta hasta ${label||newDate}`,"info");
   },[addToast]);
   const addTask = useCallback((colId,title)=>{
-    setData(prev=>{ const nt={id:"t"+nextId++,title,tags:[],assignees:[activeMember],priority:"media",startDate:fmt(new Date()),dueDate:"",dueTime:"",estimatedHours:0,timeLogs:[],desc:"",comments:[]}; const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:[...col.tasks,nt]}:col); return{...prev,boards:{...prev.boards,[proj.id]:cols}}; });
+    setData(prev=>{
+      const projObj = prev.projects.find(p=>p.id===proj.id);
+      const ref = projObj?.code ? computeNextTaskRef(projObj.code, prev.boards[proj.id]||[]) : null;
+      const nt={id:"t"+nextId++,ref,title,tags:[],assignees:[activeMember],priority:"media",startDate:fmt(new Date()),dueDate:"",dueTime:"",estimatedHours:0,timeLogs:[],desc:"",comments:[]};
+      const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:[...col.tasks,nt]}:col);
+      return{...prev,boards:{...prev.boards,[proj.id]:cols}};
+    });
     addToast("✓ Tarea creada");
   },[proj.id,activeMember,addToast]);
   const deleteTask = useCallback((taskId,colId)=>{
@@ -7653,11 +7792,13 @@ export default function TaskFlow(){
         const cols = boardsOut[projId]; if(!cols) continue;
         const targetCol = cols.find(c=>c.name==="Por hacer")||cols[0];
         const id=_uid("t"); newIds.push(id);
+        const projObj = prev.projects.find(p=>p.id===projId);
+        const ref = projObj?.code ? computeNextTaskRef(projObj.code, boardsOut[projId]||[]) : null;
         const refs=[
           {id:_uid("rf"),type:"negotiation",targetId:negId,context:`Generada desde "${(prev.negotiations||[]).find(n=>n.id===negId)?.title||""}"`,createdAt:now},
           {id:_uid("rf"),type:"session",targetId:sessId,negotiationId:negId,context:"Acordado en sesión",createdAt:now},
         ];
-        const newTask={id,title:t.title.trim(),tags:[],assignees:[t.assignee],priority:t.priority||"media",startDate:fmt(new Date()),dueDate:t.dueDate||"",estimatedHours:0,timeLogs:[],desc:"",comments:[],subtasks:[],links:[],agentIds:[],refs,negotiationId:negId,sessionId:sessId};
+        const newTask={id,ref,title:t.title.trim(),tags:[],assignees:[t.assignee],priority:t.priority||"media",startDate:fmt(new Date()),dueDate:t.dueDate||"",estimatedHours:0,timeLogs:[],desc:"",comments:[],subtasks:[],links:[],agentIds:[],refs,negotiationId:negId,sessionId:sessId};
         boardsOut[projId] = cols.map(col=>col.id===targetCol.id?{...col,tasks:[...col.tasks,newTask]}:col);
       }
       const newNegs=(prev.negotiations||[]).map(n=>n.id===negId?{...n,relatedTaskIds:[...(n.relatedTaskIds||[]),...newIds],updatedAt:now}:n);
@@ -7666,16 +7807,27 @@ export default function TaskFlow(){
     addToast(`✓ ${tasks.length} tarea${tasks.length!==1?"s":""} creada${tasks.length!==1?"s":""}`);
   },[addToast]);
 
-  const createProject = useCallback(({name,desc,color,emoji,members:mems,columns,workspaceId})=>{
+  const createProject = useCallback(({name,desc,color,emoji,code,members:mems,columns,workspaceId})=>{
     const id=nextProjId++;
     const cols=columns.map(n=>({id:`nc${nextColId++}`,name:n,tasks:[]}));
-    setData(prev=>({...prev,projects:[...prev.projects,{id,name,desc,color,emoji,members:mems,workspaceId:workspaceId??null}],boards:{...prev.boards,[id]:cols}}));
+    setData(prev=>{
+      // Defensa adicional: el modal valida la unicidad pero un sync podría
+      // haber introducido un proyecto con el mismo código entre tanto.
+      const safeCode = isValidProjectCode(code) && !prev.projects.some(p=>p.code===code)
+        ? code
+        : autoProjectCode(name, prev.projects.map(p=>p.code).filter(Boolean));
+      return{...prev,projects:[...prev.projects,{id,name,desc,color,emoji,code:safeCode,members:mems,workspaceId:workspaceId??null}],boards:{...prev.boards,[id]:cols}};
+    });
     addToast("✓ Proyecto creado");
   },[addToast]);
-  const editProject = useCallback((idx,{name,desc,color,emoji,members:mems,columns,workspaceId})=>{
+  const editProject = useCallback((idx,{name,desc,color,emoji,code,members:mems,columns,workspaceId})=>{
     setData(prev=>{
       const p=prev.projects[idx];
-      const projects=prev.projects.map((x,i)=>i===idx?{...x,name,desc,color,emoji,members:mems,workspaceId:workspaceId??null}:x);
+      // Solo aceptamos cambio de código si es válido y no colisiona con
+      // otro proyecto distinto. En caso contrario, mantenemos el actual.
+      const codeIsFree = isValidProjectCode(code) && !prev.projects.some((x,i)=>i!==idx && x.code===code);
+      const finalCode = codeIsFree ? code : p.code;
+      const projects=prev.projects.map((x,i)=>i===idx?{...x,name,desc,color,emoji,code:finalCode,codeAuto:finalCode===p.code?x.codeAuto:false,members:mems,workspaceId:workspaceId??null}:x);
       const existing=prev.boards[p.id]||[];
       const existNames=existing.map(c=>c.name);
       const newCols=columns.filter(n=>!existNames.includes(n)).map(n=>({id:`nc${nextColId++}`,name:n,tasks:[]}));
@@ -7975,6 +8127,7 @@ export default function TaskFlow(){
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
               <span style={{fontSize:15,fontWeight:600}}>{proj.name}</span>
+              {proj.code&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:`${proj.color}18`,color:proj.color,border:`1px solid ${proj.color}55`,fontWeight:700,fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",letterSpacing:"0.06em"}}>{proj.code}</span>}
               <span style={{fontSize:11,padding:"2px 9px",borderRadius:20,background:`${proj.color}22`,color:proj.color,border:`0.5px solid ${proj.color}55`,fontWeight:500}}>{proj.members.length} miembros</span>
               {activeTab==="board"&&<span style={{fontSize:12,color:"#6b7280"}}>{doneTasks}/{totalTasks} completadas</span>}
               {(()=>{ const relNeg=(data.negotiations||[]).find(n=>n.projectId===proj.id); if(!relNeg) return null; const st=getNegStatus(relNeg.status); return(
@@ -8101,8 +8254,8 @@ export default function TaskFlow(){
       <EmailToast emails={emailQueue} onDismiss={i=>setEQ(q=>q.filter((_,j)=>j!==i))}/>
       <Toast toasts={toasts}/>
       {profileMember&&<ProfileModal member={profileMember} onClose={()=>setPM(null)} onSave={avail=>{saveMemberProfile(profileMember.id,avail);setPM(null);}}/>}
-      {projectModal==="create"&&<ProjectModal members={data.members} workspaces={data.workspaces||[]} onClose={()=>setProjModal(null)} onSave={createProject}/>}
-      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} workspaces={data.workspaces||[]} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)}/>}
+      {projectModal==="create"&&<ProjectModal members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} onClose={()=>setProjModal(null)} onSave={createProject}/>}
+      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)}/>}
       {memberModal==="create"&&<MemberEditModal allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={createMember}/>}
       {memberModal&&memberModal!=="create"&&<MemberEditModal member={memberModal} allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={d=>updateMember(d,memberModal.id)} onDelete={id=>{deleteMember(id);setMemberModal(null);}}/>}
       {agentModal==="create"&&<AgentEditModal onClose={()=>setAgentModal(null)} onSave={createAgent}/>}
