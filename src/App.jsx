@@ -15,7 +15,7 @@ import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.j
 import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import jsPDF from "jspdf";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE } from "./lib/agent.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel } from "./lib/agent.js";
 import { PresenceProvider, usePresence } from "./lib/presence.jsx";
 import PulsoDinamico from "./components/PulsoDinamico.jsx";
 import TaskKanban from "./components/TaskKanban.jsx";
@@ -3921,14 +3921,7 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
     (async()=>{
       try{
         const hour = new Date().getHours();
-        const energyLevel = (h=>{
-          if(h>=6&&h<9) return "muy alta";
-          if(h>=9&&h<12) return "alta";
-          if(h>=12&&h<14) return "media (post-comida)";
-          if(h>=14&&h<17) return "media-alta";
-          if(h>=17&&h<19) return "media-baja";
-          return "baja";
-        })(hour);
+        const energyLevel = getEnergyLevel(hour);
         const todayStr = fmt(new Date());
         const completedToday = myTasks.filter(t=>t.colName==="Hecho" && (t.timeLogs||[]).some(l=>l.date===todayStr)).length;
         const tasksJSON = JSON.stringify(active.slice(0,30).map(t=>{
@@ -4066,7 +4059,10 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
               tasks={active}
               currentFocus={currentFocus || focusTask}
               riesgos={riesgosDetectados}
-              userId={me?.name}
+              agent={(data.agents||[]).find(a=>a.name==="Héctor")}
+              ceoMemory={data.ceoMemory}
+              userId={activeMember}
+              userName={me?.name}
               onStateChange={onHectorStateChange}
               onNewRecommendation={onHectorRecommendation}
               onRecommendationClick={(rec)=>{
@@ -9260,7 +9256,10 @@ export default function TaskFlow(){
             tasks={myActive}
             currentFocus={currentFocus}
             riesgos={[]}
-            userId={me?.name}
+            agent={(data.agents||[]).find(a=>a.name==="Héctor")}
+            ceoMemory={data.ceoMemory}
+            userId={activeMember}
+            userName={me?.name}
             onStateChange={setHectorState}
             onNewRecommendation={setLastRecommendation}
             onRecommendationClick={(rec)=>{

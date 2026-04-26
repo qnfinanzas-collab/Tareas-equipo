@@ -1,18 +1,19 @@
-// HectorPanel — análisis proactivo visible. Cada 5 min consulta a Héctor
-// vía /api/agent (proxy server-side, NO api.anthropic.com directo) para
-// obtener un pensamiento + recomendación basados en el contexto actual.
-// Notifica al padre vía onStateChange y onNewRecommendation. Las
-// recomendaciones se acumulan localmente (últimas 3) y son clicables para
-// expandir reason/timeframe + 3 acciones.
-//
-// FIX bucle: useEffect anterior dependía de [tasks,riesgos,currentFocus],
-// arrays/objetos cuya referencia cambia en cada render del padre y que
-// hacían que el setInterval se reinstalara constantemente. Ahora se
-// instala UNA sola vez con [] y los datos se leen vía refs sincronizadas.
-// Guard adicional: lastCallTime + isGenerating + dedup por título de
-// recomendación previa.
+// HectorPanel — análisis proactivo visible. Comparte el MISMO stack que el
+// resto de la app:
+//   • voz: speak() de lib/voice.js con la config exacta de Héctor
+//     (gender:"male", rate:1.1, pitch:0.9) → la lib hace pickVoice("male"),
+//     getVoicesReady() y exclusión de voces femeninas.
+//   • prompt: agent.promptBase + PLAIN_TEXT_RULE (igual que decideFocus y
+//     NegotiationDetailView) + memoria CEO formateada con
+//     formatCeoMemoryForPrompt para que Héctor "recuerde" entre sesiones.
+//   • energía: getEnergyLevel(hour) compartido en lib/agent.js.
+//   • persistencia: las recomendaciones se guardan en localStorage con
+//     clave scoped por usuario y se rehidratan al montar — sobreviven a
+//     reloads y permiten que Héctor aprenda iterativamente del histórico.
 import React, { useEffect, useState, useRef } from "react";
 import { speak, stopSpeaking } from "../../lib/voice.js";
+import { PLAIN_TEXT_RULE, getEnergyLevel } from "../../lib/agent.js";
+import { formatCeoMemoryForPrompt } from "../../lib/memory.js";
 
 const STATE_LABEL = {
   analyzing:   { label: "Analizando…",  bg: "#FEF3C7", fg: "#92400E", border: "#F59E0B" },
@@ -28,6 +29,9 @@ const PRIORITY_STYLE = {
 };
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
+// Misma config de voz que en NegotiationDetailView (App.jsx:6072) y que la
+// guardada en data.agents para Héctor: {gender:"male", rate:1.1, pitch:0.9}.
+const HECTOR_VOICE = { gender: "male", rate: 1.1, pitch: 0.9 };
 
 const timeAgo = (ts) => {
   const s = Math.floor((Date.now() - ts) / 1000);
@@ -37,38 +41,41 @@ const timeAgo = (ts) => {
   return `hace ${Math.floor(s / 86400)} d`;
 };
 
-// Voz: reusa speak() de lib/voice.js, la MISMA función que usa Héctor en
-// la sección de Deal Room (NegotiationDetailView línea ~6072). Allí
-// pickVoice("male") busca por nombre Jorge/Diego/Juan/Pablo/Carlos/Miguel
-// /Enrique/Andrés en voces es-*, excluye femeninas (Mónica/Marisol/…) y
-// aplica pitch=0.5 si el SO solo expone voces femeninas. La config de
-// voz de Héctor en data.agents es {gender:"male", rate:1.1, pitch:0.9}
-// y ese es el contrato que respeta la lib (incluye voiceschanged async).
-// Sigue la preferencia "hector_muted" en localStorage (storage usa "1").
-const HECTOR_VOICE = { gender: "male", rate: 1.1, pitch: 0.9 };
+// Voz: delega en speak() de lib/voice.js — la MISMA función que usa Héctor
+// en Deal Room. Respeta la preferencia "hector_muted" en localStorage.
 const speakRecommendation = (text) => {
   if (typeof window === "undefined" || !window.speechSynthesis) return;
   try { if (localStorage.getItem("hector_muted") === "1") return; } catch {}
   if (!text) return;
-  try {
-    speak(text, HECTOR_VOICE);
-  } catch (e) {
-    console.warn("[HectorPanel] speak fallo:", e?.message);
-  }
+  try { speak(text, HECTOR_VOICE); }
+  catch (e) { console.warn("[HectorPanel] speak fallo:", e?.message); }
 };
 
 export default function HectorPanel({
   tasks = [],
   currentFocus = null,
   riesgos = [],
+  agent,                 // Héctor de data.agents (con promptBase real)
+  ceoMemory,             // data.ceoMemory (preferences, keyFacts, decisions, lessons)
   onRecommendationClick,
   onStateChange,
   onNewRecommendation,
-  userId,
+  userId,                // userId numérico — clave para localStorage
+  userName,              // display name (lo viejo `userId` se vuelve userName por compat)
 }) {
+  // Clave de localStorage scoped por usuario (mismo patrón que FOCUS_CACHE_KEY).
+  const STORAGE_KEY = `soulbaric.hector.recs.${userId ?? "anon"}`;
+
   const [hectorState, setHectorState] = useState("listening");
   const [currentThought, setCurrentThought] = useState("Esperando contexto del día…");
-  const [recommendations, setRecommendations] = useState([]);
+  const [recommendations, setRecommendations] = useState(()=>{
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed?.recommendations) ? parsed.recommendations.slice(0,3) : [];
+    } catch { return []; }
+  });
   const [isThinking, setIsThinking] = useState(false);
   const [expandedRecId, setExpandedRecId] = useState(null);
   const [thoughtFlash, setThoughtFlash] = useState(0);
@@ -77,13 +84,17 @@ export default function HectorPanel({
   });
 
   // Refs para que generateHectorThought lea SIEMPRE el valor más reciente
-  // sin reinstalar el interval. Sincronizamos en cada render.
+  // sin reinstalar el interval (deps refs no cambian la identidad).
   const tasksRef = useRef(tasks);
   const riesgosRef = useRef(riesgos);
   const focusRef = useRef(currentFocus);
+  const agentRef = useRef(agent);
+  const memoryRef = useRef(ceoMemory);
   tasksRef.current = tasks;
   riesgosRef.current = riesgos;
   focusRef.current = currentFocus;
+  agentRef.current = agent;
+  memoryRef.current = ceoMemory;
 
   // Guards anti-bucle
   const lastCallTime = useRef(0);
@@ -91,12 +102,24 @@ export default function HectorPanel({
   const lastRecTitleRef = useRef("");
   const cancelledRef = useRef(false);
 
+  // Persiste recomendaciones cada vez que cambian. localStorage con misma
+  // convención de claves que el resto de la app (soulbaric.* scoped).
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        recommendations,
+        lastRecTitle: lastRecTitleRef.current,
+        ts: Date.now(),
+      }));
+    } catch {}
+  }, [recommendations, STORAGE_KEY]);
+
   const setState = (s) => { setHectorState(s); onStateChange?.(s); };
 
   const generateHectorThought = async () => {
     if (typeof document !== "undefined" && document.hidden) return;
-    if (isGenerating.current) return; // ya hay una llamada en vuelo
-    if (Date.now() - lastCallTime.current < FIVE_MIN_MS) return; // throttle real 5 min
+    if (isGenerating.current) return;
+    if (Date.now() - lastCallTime.current < FIVE_MIN_MS) return;
     isGenerating.current = true;
     lastCallTime.current = Date.now();
     setIsThinking(true);
@@ -105,7 +128,10 @@ export default function HectorPanel({
       const tasksNow = tasksRef.current || [];
       const riesgosNow = riesgosRef.current || [];
       const focusNow = focusRef.current;
+      const ag = agentRef.current;
+      const mem = memoryRef.current;
       const now = new Date();
+      const energyLevel = getEnergyLevel(now.getHours());
       const pending = tasksNow.filter((t) => t.colName !== "Hecho" && t.colName !== "Cancelada");
       const top3 = pending
         .slice()
@@ -116,7 +142,20 @@ export default function HectorPanel({
         })
         .slice(0, 3);
       const criticalRisks = riesgosNow.filter((r) => r.level === "critical");
+
+      // System prompt — promptBase real de Héctor + reglas comunes. Mismo
+      // patrón que decideFocus (App.jsx:3950-3954) y NegotiationDetailView.
+      const baseSystem = ag?.promptBase
+        ? ag.promptBase + "\n\n" + PLAIN_TEXT_RULE
+        : "Eres Héctor, Chief of Staff estratégico. Conciso, directo, accionable. " + PLAIN_TEXT_RULE;
+      const memBlock = formatCeoMemoryForPrompt(mem);
+      const system = baseSystem
+        + (memBlock ? ("\n\n---\n" + memBlock) : "")
+        + "\n\nIMPORTANTE: en este turno responde ÚNICAMENTE con JSON válido sin markdown ni prosa.";
+
       const userPrompt = `Hora: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}.
+Día: ${now.toLocaleDateString("es-ES", { weekday: "long" })}.
+Energía esperada del CEO: ${energyLevel}.
 Tarea en foco: ${focusNow?.title || "Ninguna"}.
 Tareas pendientes: ${pending.length}.
 Riesgos críticos: ${criticalRisks.length}.
@@ -125,9 +164,9 @@ ${top3.map((t) => `- ${t.title}${t.dueDate ? ` (vence ${t.dueDate})` : ""}`).joi
 Riesgos activos:
 ${riesgosNow.slice(0, 5).map((r) => `- ${r.title || r.label || r.msg || ""}`).join("\n") || "(ninguno)"}
 
-Responde SOLO en JSON válido sin markdown:
+Devuelve JSON estricto con esta forma exacta:
 {"thought":"qué estás analizando en 1 línea","recommendation":"acción concreta recomendada","reason":"por qué en máximo 2 líneas","priority":"urgent|high|medium","timeframe":"30min|1h|today"}`;
-      const system = "Eres Héctor, asesor proactivo del CEO. Conciso, directo, accionable. Responde EXCLUSIVAMENTE con JSON válido sin markdown ni prosa adicional.";
+
       const r = await fetch("/api/agent", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -145,8 +184,7 @@ Responde SOLO en JSON válido sin markdown:
       setCurrentThought(decision.thought || "");
       setThoughtFlash((v) => v + 1);
       const recTitle = (decision.recommendation || "").trim();
-      // Dedup: si Héctor devuelve la MISMA recomendación que la última
-      // guardada, no la añadimos para evitar bucle visual + voz repetida.
+      // Dedup: misma recomendación que la última = no añadir, no leer voz.
       if (recTitle && recTitle === lastRecTitleRef.current) {
         setState("listening");
         return;
@@ -163,12 +201,7 @@ Responde SOLO en JSON válido sin markdown:
       setRecommendations((prev) => [rec, ...prev].slice(0, 3));
       setState("recommending");
       onNewRecommendation?.(rec);
-      // Voz: lee la recomendación si Héctor no está silenciado
-      try {
-        if (localStorage.getItem("hector_muted") !== "1") {
-          speakRecommendation(rec.title);
-        }
-      } catch {}
+      speakRecommendation(rec.title);
     } catch (e) {
       if (cancelledRef.current) return;
       console.warn("[HectorPanel] generateHectorThought fallo:", e?.message);
@@ -179,16 +212,12 @@ Responde SOLO en JSON válido sin markdown:
     }
   };
 
-  // Setup UNA sola vez: trigger inmediato (con time guard) + interval cada
-  // 60 s que delega en el throttle real de 5 min dentro de la función. No
-  // depende de tasks/riesgos/currentFocus → no se reinstala.
+  // Setup UNA sola vez: trigger inmediato + interval cada 60 s con throttle
+  // real de 5 min dentro de la función. No depende de tasks/riesgos.
   useEffect(() => {
     cancelledRef.current = false;
-    // Trigger inicial sin throttle (lastCallTime es 0)
     generateHectorThought();
-    const id = setInterval(() => {
-      generateHectorThought();
-    }, 60 * 1000); // chequea cada minuto, throttle real dentro
+    const id = setInterval(generateHectorThought, 60 * 1000);
     return () => { cancelledRef.current = true; clearInterval(id); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -197,14 +226,13 @@ Responde SOLO en JSON válido sin markdown:
     setMuted((prev) => {
       const next = !prev;
       try { localStorage.setItem("hector_muted", next ? "1" : "0"); } catch {}
-      if (next) {
-        try { stopSpeaking(); } catch {}
-      }
+      if (next) { try { stopSpeaking(); } catch {} }
       return next;
     });
   };
 
   const stateInfo = STATE_LABEL[hectorState] || STATE_LABEL.listening;
+  const displayName = userName || userId || "CEO";
 
   return (
     <div style={{
@@ -223,7 +251,7 @@ Responde SOLO en JSON válido sin markdown:
         <div style={{ width: 38, height: 38, borderRadius: "50%", background: "linear-gradient(135deg,#1D9E75,#0E7C5A)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🧙</div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", lineHeight: 1.1 }}>Héctor</div>
-          <div style={{ fontSize: 10.5, color: "#6B7280" }}>Chief of Staff · {userId || "CEO"}</div>
+          <div style={{ fontSize: 10.5, color: "#6B7280" }}>Chief of Staff · {displayName}</div>
         </div>
         <button
           onClick={toggleMute}

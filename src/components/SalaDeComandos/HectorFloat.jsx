@@ -23,7 +23,10 @@ export default function HectorFloat({
   tasks = [],
   currentFocus = null,
   riesgos = [],
+  agent,
+  ceoMemory,
   userId,
+  userName,
   onStateChange,
   onNewRecommendation,
   onRecommendationClick,
@@ -119,7 +122,10 @@ export default function HectorFloat({
                 tasks={tasks}
                 currentFocus={currentFocus}
                 riesgos={riesgos}
+                agent={agent}
+                ceoMemory={ceoMemory}
                 userId={userId}
+                userName={userName}
                 onStateChange={onStateChange}
                 onNewRecommendation={onNewRecommendation}
                 onRecommendationClick={onRecommendationClick}
