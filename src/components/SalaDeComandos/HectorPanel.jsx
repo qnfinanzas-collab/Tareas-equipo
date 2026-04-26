@@ -4,6 +4,13 @@
 // Notifica al padre vía onStateChange y onNewRecommendation. Las
 // recomendaciones se acumulan localmente (últimas 3) y son clicables para
 // expandir reason/timeframe + 3 acciones.
+//
+// FIX bucle: useEffect anterior dependía de [tasks,riesgos,currentFocus],
+// arrays/objetos cuya referencia cambia en cada render del padre y que
+// hacían que el setInterval se reinstalara constantemente. Ahora se
+// instala UNA sola vez con [] y los datos se leen vía refs sincronizadas.
+// Guard adicional: lastCallTime + isGenerating + dedup por título de
+// recomendación previa.
 import React, { useEffect, useState, useRef } from "react";
 
 const STATE_LABEL = {
@@ -19,12 +26,37 @@ const PRIORITY_STYLE = {
   medium: { bg: "#DBEAFE", fg: "#1E40AF", border: "#3B82F6", label: "MEDIA"   },
 };
 
+const FIVE_MIN_MS = 5 * 60 * 1000;
+
 const timeAgo = (ts) => {
   const s = Math.floor((Date.now() - ts) / 1000);
   if (s < 60) return "ahora";
   if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
   if (s < 86400) return `hace ${Math.floor(s / 3600)} h`;
   return `hace ${Math.floor(s / 86400)} d`;
+};
+
+// Voz vía Web Speech API. Cancela cualquier síntesis previa, fija lang
+// es-ES y prefiere una voz española si el navegador la expone. Silencioso
+// si la API no está disponible. Sigue la prefencia "hector_muted" del
+// localStorage — si está silenciado, salir sin hablar.
+const speakRecommendation = (text) => {
+  if (typeof window === "undefined" || !window.speechSynthesis) return;
+  try { if (localStorage.getItem("hector_muted") === "1") return; } catch {}
+  if (!text) return;
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "es-ES";
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    const voices = window.speechSynthesis.getVoices();
+    const spanishVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("es"));
+    if (spanishVoice) utterance.voice = spanishVoice;
+    window.speechSynthesis.speak(utterance);
+  } catch (e) {
+    console.warn("[HectorPanel] speak fallo:", e?.message);
+  }
 };
 
 export default function HectorPanel({
@@ -42,17 +74,41 @@ export default function HectorPanel({
   const [isThinking, setIsThinking] = useState(false);
   const [expandedRecId, setExpandedRecId] = useState(null);
   const [thoughtFlash, setThoughtFlash] = useState(0);
+  const [muted, setMuted] = useState(() => {
+    try { return localStorage.getItem("hector_muted") === "1"; } catch { return false; }
+  });
+
+  // Refs para que generateHectorThought lea SIEMPRE el valor más reciente
+  // sin reinstalar el interval. Sincronizamos en cada render.
+  const tasksRef = useRef(tasks);
+  const riesgosRef = useRef(riesgos);
+  const focusRef = useRef(currentFocus);
+  tasksRef.current = tasks;
+  riesgosRef.current = riesgos;
+  focusRef.current = currentFocus;
+
+  // Guards anti-bucle
+  const lastCallTime = useRef(0);
+  const isGenerating = useRef(false);
+  const lastRecTitleRef = useRef("");
   const cancelledRef = useRef(false);
 
   const setState = (s) => { setHectorState(s); onStateChange?.(s); };
 
   const generateHectorThought = async () => {
-    if (typeof document !== "undefined" && document.hidden) return; // ahorra llamadas si la pestaña no está visible
+    if (typeof document !== "undefined" && document.hidden) return;
+    if (isGenerating.current) return; // ya hay una llamada en vuelo
+    if (Date.now() - lastCallTime.current < FIVE_MIN_MS) return; // throttle real 5 min
+    isGenerating.current = true;
+    lastCallTime.current = Date.now();
     setIsThinking(true);
     setState("analyzing");
     try {
+      const tasksNow = tasksRef.current || [];
+      const riesgosNow = riesgosRef.current || [];
+      const focusNow = focusRef.current;
       const now = new Date();
-      const pending = (tasks || []).filter(t => t.colName !== "Hecho" && t.colName !== "Cancelada");
+      const pending = tasksNow.filter((t) => t.colName !== "Hecho" && t.colName !== "Cancelada");
       const top3 = pending
         .slice()
         .sort((a, b) => {
@@ -61,15 +117,15 @@ export default function HectorPanel({
           return da - db;
         })
         .slice(0, 3);
-      const criticalRisks = (riesgos || []).filter(r => r.level === "critical");
+      const criticalRisks = riesgosNow.filter((r) => r.level === "critical");
       const userPrompt = `Hora: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}.
-Tarea en foco: ${currentFocus?.title || "Ninguna"}.
+Tarea en foco: ${focusNow?.title || "Ninguna"}.
 Tareas pendientes: ${pending.length}.
 Riesgos críticos: ${criticalRisks.length}.
 Top 3 tareas por urgencia:
-${top3.map(t => `- ${t.title}${t.dueDate ? ` (vence ${t.dueDate})` : ""}`).join("\n") || "(ninguna)"}
+${top3.map((t) => `- ${t.title}${t.dueDate ? ` (vence ${t.dueDate})` : ""}`).join("\n") || "(ninguna)"}
 Riesgos activos:
-${(riesgos || []).slice(0, 5).map(r => `- ${r.title || r.label || r.msg || ""}`).join("\n") || "(ninguno)"}
+${riesgosNow.slice(0, 5).map((r) => `- ${r.title || r.label || r.msg || ""}`).join("\n") || "(ninguno)"}
 
 Responde SOLO en JSON válido sin markdown:
 {"thought":"qué estás analizando en 1 línea","recommendation":"acción concreta recomendada","reason":"por qué en máximo 2 líneas","priority":"urgent|high|medium","timeframe":"30min|1h|today"}`;
@@ -89,35 +145,66 @@ Responde SOLO en JSON válido sin markdown:
       const decision = JSON.parse(m[0]);
       if (cancelledRef.current) return;
       setCurrentThought(decision.thought || "");
-      setThoughtFlash(v => v + 1);
+      setThoughtFlash((v) => v + 1);
+      const recTitle = (decision.recommendation || "").trim();
+      // Dedup: si Héctor devuelve la MISMA recomendación que la última
+      // guardada, no la añadimos para evitar bucle visual + voz repetida.
+      if (recTitle && recTitle === lastRecTitleRef.current) {
+        setState("listening");
+        return;
+      }
       const rec = {
         id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        title: decision.recommendation || "",
+        title: recTitle,
         reason: decision.reason || "",
         priority: decision.priority || "medium",
         timeframe: decision.timeframe || "today",
         ts: Date.now(),
       };
-      setRecommendations(prev => [rec, ...prev].slice(0, 3));
+      lastRecTitleRef.current = recTitle;
+      setRecommendations((prev) => [rec, ...prev].slice(0, 3));
       setState("recommending");
       onNewRecommendation?.(rec);
+      // Voz: lee la recomendación si Héctor no está silenciado
+      try {
+        if (localStorage.getItem("hector_muted") !== "1") {
+          speakRecommendation(rec.title);
+        }
+      } catch {}
     } catch (e) {
       if (cancelledRef.current) return;
       console.warn("[HectorPanel] generateHectorThought fallo:", e?.message);
       setState("paused");
     } finally {
+      isGenerating.current = false;
       if (!cancelledRef.current) setIsThinking(false);
     }
   };
 
-  // Trigger inmediato + recálculo cada 5 min cuando cambia el contexto.
+  // Setup UNA sola vez: trigger inmediato (con time guard) + interval cada
+  // 60 s que delega en el throttle real de 5 min dentro de la función. No
+  // depende de tasks/riesgos/currentFocus → no se reinstala.
   useEffect(() => {
     cancelledRef.current = false;
+    // Trigger inicial sin throttle (lastCallTime es 0)
     generateHectorThought();
-    const id = setInterval(generateHectorThought, 5 * 60 * 1000);
+    const id = setInterval(() => {
+      generateHectorThought();
+    }, 60 * 1000); // chequea cada minuto, throttle real dentro
     return () => { cancelledRef.current = true; clearInterval(id); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, riesgos, currentFocus]);
+  }, []);
+
+  const toggleMute = () => {
+    setMuted((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("hector_muted", next ? "1" : "0"); } catch {}
+      if (next && typeof window !== "undefined" && window.speechSynthesis) {
+        try { window.speechSynthesis.cancel(); } catch {}
+      }
+      return next;
+    });
+  };
 
   const stateInfo = STATE_LABEL[hectorState] || STATE_LABEL.listening;
 
@@ -140,6 +227,11 @@ Responde SOLO en JSON válido sin markdown:
           <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", lineHeight: 1.1 }}>Héctor</div>
           <div style={{ fontSize: 10.5, color: "#6B7280" }}>Chief of Staff · {userId || "CEO"}</div>
         </div>
+        <button
+          onClick={toggleMute}
+          title={muted ? "Activar voz de Héctor" : "Silenciar voz de Héctor"}
+          style={{ background: "transparent", border: "1px solid #E5E7EB", borderRadius: 8, width: 30, height: 30, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, fontFamily: "inherit", color: muted ? "#9CA3AF" : "#1D9E75" }}
+        >{muted ? "🔇" : "🔊"}</button>
         <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 12, background: stateInfo.bg, color: stateInfo.fg, border: `1px solid ${stateInfo.border}`, display: "inline-flex", alignItems: "center", gap: 5 }}>
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: stateInfo.border, animation: isThinking ? "hp-pulse-dot 1.2s infinite" : "none" }} />
           {stateInfo.label}
@@ -171,7 +263,7 @@ Responde SOLO en JSON válido sin markdown:
         <div style={{ fontSize: 12, color: "#9CA3AF", fontStyle: "italic", padding: "10px 0" }}>Aún sin recomendaciones — Héctor está observando.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {recommendations.map(rec => {
+          {recommendations.map((rec) => {
             const pri = PRIORITY_STYLE[rec.priority] || PRIORITY_STYLE.medium;
             const isExpanded = expandedRecId === rec.id;
             return (
@@ -192,10 +284,10 @@ Responde SOLO en JSON válido sin markdown:
                   <div style={{ padding: "0 12px 10px", borderTop: "0.5px solid #F3F4F6" }}>
                     <div style={{ fontSize: 11.5, color: "#374151", lineHeight: 1.5, marginTop: 8, marginBottom: 8 }}>{rec.reason}</div>
                     {rec.timeframe && <div style={{ fontSize: 10.5, color: "#6B7280", marginBottom: 10 }}>⏱ Marco: <b style={{ color: "#374151" }}>{rec.timeframe}</b></div>}
-                    <div style={{ display: "flex", gap: 6 }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
                       <button onClick={() => { onRecommendationClick?.(rec); setExpandedRecId(null); }} style={{ padding: "6px 12px", borderRadius: 6, background: "#1D9E75", color: "#fff", border: "none", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Implementar</button>
                       <button onClick={() => { setExpandedRecId(null); }} style={{ padding: "6px 12px", borderRadius: 6, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Posponer</button>
-                      <button onClick={() => { setRecommendations(r => r.filter(x => x.id !== rec.id)); setExpandedRecId(null); }} style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", color: "#6B7280", border: "1px solid #D1D5DB", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Cerrar</button>
+                      <button onClick={() => { setRecommendations((r) => r.filter((x) => x.id !== rec.id)); setExpandedRecId(null); }} style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", color: "#6B7280", border: "1px solid #D1D5DB", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Cerrar</button>
                     </div>
                   </div>
                 )}
