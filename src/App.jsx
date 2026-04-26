@@ -21,6 +21,7 @@ import PulsoDinamico from "./components/PulsoDinamico.jsx";
 import TaskKanban from "./components/TaskKanban.jsx";
 import RiesgosPanel from "./components/RiesgosPanel.jsx";
 import BriefingMatinal from "./components/BriefingMatinal.jsx";
+import CierreDia from "./components/CierreDia.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
@@ -7790,6 +7791,10 @@ export default function TaskFlow(){
   // cerrarse. "soulbaric.lastOpenTs" se actualiza al final del trigger
   // para no auto-disparar de nuevo en la misma sesión.
   const [showBriefing,setShowBriefing] = useState(false);
+  // Cierre del día pasivo: aparece si la hora local es ≥18:00 y todavía
+  // no se mostró el cierre hoy. Se evalúa al montar y cuando el usuario
+  // vuelve a la pestaña (focus). La marca diaria la pone el propio modal.
+  const [showClosing,setShowClosing] = useState(false);
   useEffect(()=>{
     try{
       const today = fmt(new Date());
@@ -7802,6 +7807,20 @@ export default function TaskFlow(){
       }
       localStorage.setItem("soulbaric.lastOpenTs", String(Date.now()));
     }catch{}
+  },[]);
+  useEffect(()=>{
+    const evalClosing = ()=>{
+      try{
+        const today = fmt(new Date());
+        const lastClosing = localStorage.getItem("soulbaric.cierreDia.lastDate")||"";
+        if(lastClosing===today) return;
+        if(new Date().getHours()<18) return;
+        setShowClosing(true);
+      }catch{}
+    };
+    evalClosing();
+    window.addEventListener("focus", evalClosing);
+    return ()=>window.removeEventListener("focus", evalClosing);
   },[]);
   // isAdmin: lee accountRole del miembro activo. Cuando hay sesión
   // Supabase Auth, activeMember se resuelve por email tras login. Sin
@@ -9156,6 +9175,9 @@ export default function TaskFlow(){
 
       {/* Briefing matinal — solo si pasó el guard de 4h + no mostrado hoy */}
       {showBriefing && me && <BriefingMatinal user={me} data={data} onClose={()=>setShowBriefing(false)}/>}
+
+      {/* Cierre del día — a partir de las 18:00, una vez al día */}
+      {showClosing && me && <CierreDia user={me} data={data} onClose={()=>setShowClosing(false)}/>}
 
       {/* Botón flotante global del asesor — siempre visible */}
       <button className="tf-fab" onClick={()=>setScopeAvatar(activeTab||"global")} title="Asesor IA — habla sobre lo que estás viendo" style={{position:"fixed",bottom:24,right:24,zIndex:1500,width:60,height:60,borderRadius:"50%",background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 8px 24px rgba(127,119,221,0.4)",display:"flex",alignItems:"center",justifyContent:"center"}}>🎙️</button>
