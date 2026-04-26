@@ -186,6 +186,42 @@ function computeNextTaskRef(code, colsOfProject){
   }));
   return prefix + String(maxN+1).padStart(3,"0");
 }
+// Genera el siguiente código secuencial global con un prefijo fijo. Lo usan
+// negociaciones (NEG-001, NEG-002…) y workspaces (WSP-001, WSP-002…).
+// Lee items[].code y devuelve prefix+(max+1) formateado a 3 dígitos.
+const NEG_CODE_PREFIX = "NEG-";
+const WS_CODE_PREFIX  = "WSP-";
+function nextSeqCode(prefix, items){
+  let maxN = 0;
+  (items||[]).forEach(it=>{
+    if(typeof it.code==="string" && it.code.startsWith(prefix)){
+      const n = parseInt(it.code.slice(prefix.length), 10);
+      if(Number.isFinite(n) && n>maxN) maxN = n;
+    }
+  });
+  return prefix + String(maxN+1).padStart(3,"0");
+}
+
+// ── RefBadge ──────────────────────────────────────────────────────────────────
+// Chip monospaciado gris para mostrar el código de un proyecto/tarea/
+// negociación/workspace siempre junto a su nombre. Único para asegurar
+// consistencia visual cross-app. Si code es falsy, no renderiza nada.
+function RefBadge({code, title}){
+  if(!code) return null;
+  return(
+    <span title={title||code} style={{
+      fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
+      fontSize:11,
+      color:"#888",
+      background:"#f0f0f0",
+      padding:"1px 6px",
+      borderRadius:4,
+      letterSpacing:"0.5px",
+      flexShrink:0,
+      fontWeight:600,
+    }}>{code}</span>
+  );
+}
 
 // Extensión de coaching ejecutivo (PNL) para Héctor. Se concatena al
 // promptBase tanto en el seed (nuevos usuarios) como en _migrate (usuarios
@@ -683,6 +719,38 @@ function _migrate(d){
     }));
     return [pid, newCols];
   }));
+  // Backfill negotiation.code (NEG-001, NEG-002…) y workspace.code
+  // (WSP-001, WSP-002…). Numeración secuencial global por tipo. La asignación
+  // continúa el contador a partir del mayor código existente — segura ante
+  // sync entre clientes que ya hubieran sembrado códigos. Idempotente.
+  {
+    let i = 1;
+    (d.negotiations||[]).forEach(n=>{
+      if(typeof n.code==="string" && n.code.startsWith(NEG_CODE_PREFIX)){
+        const m = parseInt(n.code.slice(NEG_CODE_PREFIX.length),10);
+        if(Number.isFinite(m) && m>=i) i = m+1;
+      }
+    });
+    d.negotiations = (d.negotiations||[]).map(n=>{
+      if(n.code) return n;
+      const code = NEG_CODE_PREFIX + String(i++).padStart(3,"0");
+      return {...n, code};
+    });
+  }
+  {
+    let i = 1;
+    (d.workspaces||[]).forEach(w=>{
+      if(typeof w.code==="string" && w.code.startsWith(WS_CODE_PREFIX)){
+        const m = parseInt(w.code.slice(WS_CODE_PREFIX.length),10);
+        if(Number.isFinite(m) && m>=i) i = m+1;
+      }
+    });
+    d.workspaces = (d.workspaces||[]).map(w=>{
+      if(w.code) return w;
+      const code = WS_CODE_PREFIX + String(i++).padStart(3,"0");
+      return {...w, code};
+    });
+  }
   // Backfill documents[] en negociaciones (upload + informes de análisis).
   d.negotiations = d.negotiations.map(n=>({
     ...n,
@@ -2090,7 +2158,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
     <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,paddingBottom:20,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${p2?p2.cardBorder:"#7F77DD"}`,marginBottom:20}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
-          {task.ref&&!editing&&<span style={{fontSize:11,color:"#6B7280",background:"#F3F4F6",border:"0.5px solid #E5E7EB",borderRadius:6,padding:"2px 7px",fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",fontWeight:700,letterSpacing:"0.04em",flexShrink:0}}>{task.ref}</span>}
+          {!editing&&<RefBadge code={task.ref}/>}
           {editing
             ?<input value={draft.title} onChange={e=>set("title",e.target.value)} style={{flex:1,fontSize:15,fontWeight:600,border:"none",outline:"2px solid #7F77DD",borderRadius:6,padding:"4px 8px",fontFamily:"inherit"}}/>
             :<div style={{flex:1,fontWeight:600,fontSize:15}}>{task.title}</div>
@@ -2657,7 +2725,7 @@ function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
     <div draggable onDragStart={onDragStart} onClick={onOpen} style={{background:p2?p2.cardBg:"#fff",border:`0.5px solid ${p2?p2.cardBorder+"55":"#e5e7eb"}`,borderLeft:`4px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:10,padding:"10px 12px",marginBottom:8,cursor:"pointer"}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:6}}>
         <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,lineHeight:1.4}}>{task.title}</div>
-        {task.ref&&<span style={{fontSize:10,color:"#9CA3AF",fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",fontWeight:600,letterSpacing:"0.04em",flexShrink:0,marginTop:1}}>{task.ref}</span>}
+        <RefBadge code={task.ref}/>
       </div>
       {task.tags.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:6}}>{task.tags.map((tg,i)=><Tag key={i} tag={tg}/>)}</div>}
       <div style={{marginBottom:6}}><QBadge q={q}/></div>
@@ -3313,7 +3381,10 @@ function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask,onOpe
           const dueLabel=!t.dueDate?"Sin fecha":days<0?`Vencida hace ${-days}d`:days===0?"Hoy":`En ${days}d`;
           return(
             <div key={t.id} className="tf-lift" onClick={()=>{onOpenTask?.(t,projIdx);setSlideoutQ(null);}} style={{padding:"10px 12px",border:"0.5px solid #e5e7eb",borderLeft:`3px solid ${DASH_Q_COLORS[slideoutQ].border}`,borderRadius:10,marginBottom:8,cursor:"pointer",background:"#fff"}}>
-              <div style={{fontSize:13,fontWeight:500,marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3,minWidth:0}}>
+                <RefBadge code={t.ref}/>
+                <span style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
+              </div>
               <div style={{fontSize:11,color:"#6b7280"}}>{proj?.emoji} {proj?.name} · {t.colName} · <span style={{color:days<0?"#E24B4A":days===0?"#EF9F27":"#6b7280"}}>{dueLabel}</span></div>
             </div>
           );
@@ -3393,7 +3464,7 @@ function EisenhowerView({boards,members,activeMemberId,projects}){
           <div key={qk} style={{background:qm.bg,border:`1.5px solid ${qm.border}`,borderRadius:12,padding:12,minHeight:160}}>
             <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:10}}><span style={{fontSize:16}}>{qm.icon}</span><div><div style={{fontSize:12,fontWeight:700,color:qm.border}}>{qk}: {qm.label}</div><div style={{fontSize:10,color:"#6b7280"}}>{qm.sub}</div></div><span style={{marginLeft:"auto",fontSize:11,background:"#fff",border:`1px solid ${qm.border}`,borderRadius:20,padding:"1px 7px",color:qm.border,fontWeight:600}}>{tasks.length}</span></div>
             {tasks.length===0&&<div style={{fontSize:11,color:"#9ca3af",textAlign:"center",padding:8}}>Sin tareas</div>}
-            {tasks.map(task=>{ const days=daysUntil(task.dueDate); const p2=palOf(task.assignees); return <div key={task.id} style={{background:"#fff",border:`0.5px solid ${p2?p2.cardBorder+"44":"#e5e7eb"}`,borderLeft:`3px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:8,padding:"7px 10px",marginBottom:6}}><div style={{fontSize:12,fontWeight:500,marginBottom:3,lineHeight:1.3}}>{task.title}</div><div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontSize:10,color:days<0?"#A32D2D":days<=2?"#854F0B":"#9ca3af",fontWeight:days<=2?600:400}}>{days<0?"Vencida":days===0?"Hoy":`${days}d`}</span><div style={{marginLeft:"auto",display:"flex"}}>{task.assignees.slice(0,3).map((mid,i2)=><div key={mid} style={{marginLeft:i2>0?-5:0,width:16,height:16,borderRadius:"50%",background:(MP[mid]||MP[0]).solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,fontWeight:700,border:"1.5px solid #fff"}}>{members.find(m=>m.id===mid)?.initials.slice(0,2)||"?"}</div>)}</div></div></div>; })}
+            {tasks.map(task=>{ const days=daysUntil(task.dueDate); const p2=palOf(task.assignees); return <div key={task.id} style={{background:"#fff",border:`0.5px solid ${p2?p2.cardBorder+"44":"#e5e7eb"}`,borderLeft:`3px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:8,padding:"7px 10px",marginBottom:6}}><div style={{display:"flex",alignItems:"center",gap:5,marginBottom:3,minWidth:0}}><RefBadge code={task.ref}/><span style={{fontSize:12,fontWeight:500,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.title}</span></div><div style={{display:"flex",alignItems:"center",gap:5}}><span style={{fontSize:10,color:days<0?"#A32D2D":days<=2?"#854F0B":"#9ca3af",fontWeight:days<=2?600:400}}>{days<0?"Vencida":days===0?"Hoy":`${days}d`}</span><div style={{marginLeft:"auto",display:"flex"}}>{task.assignees.slice(0,3).map((mid,i2)=><div key={mid} style={{marginLeft:i2>0?-5:0,width:16,height:16,borderRadius:"50%",background:(MP[mid]||MP[0]).solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,fontWeight:700,border:"1.5px solid #fff"}}>{members.find(m=>m.id===mid)?.initials.slice(0,2)||"?"}</div>)}</div></div></div>; })}
           </div>
         );})}
       </div>
@@ -3574,7 +3645,7 @@ function ProjectsView({projects,members,boards,onSelectProject,onCreateProject,o
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
                     <div style={{fontSize:14,fontWeight:700,color:p.color}}>{p.name}</div>
-                    {p.code&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:5,background:`${p.color}18`,color:p.color,border:`1px solid ${p.color}55`,fontWeight:700,fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",letterSpacing:"0.06em"}}>{p.code}</span>}
+                    <RefBadge code={p.code}/>
                   </div>
                   {p.desc&&<div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.desc}</div>}
                 </div>
@@ -3620,7 +3691,7 @@ function TeamView({project,members,projects,onSelectProject,onEditProfile}){
     <div style={{padding:20,maxWidth:760}}>
       <div style={{background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:16,overflow:"hidden"}}>
         <div style={{padding:"16px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <div style={{fontWeight:500,fontSize:15}}>Equipo — {project.name}</div>
+          <div style={{display:"flex",alignItems:"center",gap:8,fontWeight:500,fontSize:15}}>Equipo — {project.name}<RefBadge code={project.code}/></div>
           <span style={{fontSize:11,padding:"2px 9px",borderRadius:20,background:`${project.color}22`,color:project.color,border:`0.5px solid ${project.color}55`,fontWeight:500}}>{project.members.length} miembros</span>
         </div>
         <div style={{padding:20}}>
@@ -4228,6 +4299,7 @@ function WorkspacesView({workspaces,projects,boards,onCreate,onEdit,onSelectProj
                     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                       <span style={{fontSize:16}}>{p.emoji||"📋"}</span>
                       <span style={{fontSize:13,fontWeight:600,color:p.color}}>{p.name}</span>
+                      <RefBadge code={p.code}/>
                     </div>
                     <div style={{fontSize:11,color:"#6b7280"}}>{done}/{total} tareas</div>
                   </div>
@@ -4295,7 +4367,10 @@ function WorkspacesView({workspaces,projects,boards,onCreate,onEdit,onSelectProj
               <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:10}}>
                 <div style={{fontSize:26,lineHeight:1}}>{w.emoji}</div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:14,fontWeight:700,color:w.color,marginBottom:2}}>{w.name}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                    <div style={{fontSize:14,fontWeight:700,color:w.color}}>{w.name}</div>
+                    <RefBadge code={w.code}/>
+                  </div>
                   {w.description&&<div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{w.description}</div>}
                 </div>
               </div>
@@ -4521,7 +4596,7 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
     return {
       tasks:      allTasks.filter(t=>fuzzyMatch(t.title,q) || (t.ref&&t.ref.toUpperCase().includes(qUpper))).slice(0,10),
       actions:    actions.filter(a=>fuzzyMatch(a.label,q)),
-      workspaces: (data.workspaces||[]).filter(w=>fuzzyMatch(w.name,q)).slice(0,6),
+      workspaces: (data.workspaces||[]).filter(w=>fuzzyMatch(w.name,q) || (w.code&&w.code.toUpperCase().includes(qUpper))).slice(0,6),
       projects:   data.projects.filter(p=>fuzzyMatch(p.name,q) || (p.code&&p.code.toUpperCase().includes(qUpper))).slice(0,6),
     };
   },[query,data,actions]);
@@ -4618,9 +4693,9 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
               <div key={`t-${t.id}-${t.projId}-${i}`} data-idx={idx} onClick={()=>executeAt(idx)} onMouseEnter={()=>setSI(idx)} style={rowStyle(idx)}>
                 <span style={{fontSize:15,flexShrink:0}}>📌</span>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                    {t.ref&&<span style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#9CA3AF",fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",fontWeight:700,marginRight:6,letterSpacing:"0.04em"}}>{t.ref}</span>}
-                    <HighlightedText text={t.title} query={query.trim()}/>
+                  <div style={{display:"flex",alignItems:"center",gap:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    <RefBadge code={t.ref}/>
+                    <span style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><HighlightedText text={t.title} query={query.trim()}/></span>
                   </div>
                   <div style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#6B7280",opacity:0.85}}>{t.projEmoji} {t.projName} · {t.colName}</div>
                 </div>
@@ -4645,7 +4720,10 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
               <div key={`w-${w.id}`} data-idx={idx} onClick={()=>executeAt(idx)} onMouseEnter={()=>setSI(idx)} style={rowStyle(idx)}>
                 <span style={{fontSize:15,flexShrink:0}}>{w.emoji||"🏢"}</span>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><HighlightedText text={w.name} query={query.trim()}/></div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    <span style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><HighlightedText text={w.name} query={query.trim()}/></span>
+                    <RefBadge code={w.code}/>
+                  </div>
                   <div style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#6B7280",opacity:0.85}}>{wsProjects.length} proyecto{wsProjects.length!==1?"s":""} · {done}/{total} completadas</div>
                 </div>
               </div>
@@ -4660,7 +4738,7 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
                     <HighlightedText text={p.name} query={query.trim()}/>
-                    {p.code&&<span style={{fontSize:10,color:idx===selectedIndex?"#1E40AF":"#9CA3AF",fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",fontWeight:700,letterSpacing:"0.04em"}}>{p.code}</span>}
+                    <RefBadge code={p.code}/>
                   </div>
                   <div style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#6B7280",opacity:0.85}}>{ws?`${ws.emoji||"🏢"} ${ws.name} · `:""}{total} tarea{total!==1?"s":""}</div>
                 </div>
@@ -4960,7 +5038,10 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
               <div key={rp.projectId} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,marginBottom:6}}>
                 <span style={{fontSize:16}}>{p?.emoji||"📋"}</span>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:13,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ws?`${ws.emoji} ${ws.name} / `:""}{p?.name||"(proyecto borrado)"}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+                    <span style={{fontSize:13,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{ws?`${ws.emoji} ${ws.name} / `:""}{p?.name||"(proyecto borrado)"}</span>
+                    <RefBadge code={p?.code}/>
+                  </div>
                   <div style={{fontSize:11,color:"#6B7280"}}>Rol: {rp.role}</div>
                 </div>
                 <span style={{fontSize:10,fontWeight:600,padding:"3px 8px",borderRadius:10,background:pri.bg,border:`1px solid ${pri.border}`,color:pri.text}}>{pri.label}</span>
@@ -4973,7 +5054,7 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
                   <FL c="Proyecto"/>
                   <select value={addProjSel} onChange={e=>setAddProjSel(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
                     <option value="">— Seleccionar —</option>
-                    {projects.filter(p=>!relatedProjects.some(rp=>rp.projectId===p.id)).map(p=>{ const ws=workspaces.find(w=>w.id===p.workspaceId); return <option key={p.id} value={p.id}>{ws?`${ws.name} / `:""}{p.name}</option>; })}
+                    {projects.filter(p=>!relatedProjects.some(rp=>rp.projectId===p.id)).map(p=>{ const ws=workspaces.find(w=>w.id===p.workspaceId); return <option key={p.id} value={p.id}>{ws?`${ws.name} / `:""}{p.name}{p.code?` [${p.code}]`:""}</option>; })}
                   </select>
                   <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:8,marginTop:6}}>
                     <div><FL c="Rol"/><FI value={addProjRole} onChange={setAddProjRole} placeholder="contrato, especificaciones…"/></div>
@@ -5014,7 +5095,7 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
                   <FL c="Negociación relacionada"/>
                   <select value={addRelTarget} onChange={e=>setAddRelTarget(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
                     <option value="">— Seleccionar —</option>
-                    {availableNegs.map(n=><option key={n.id} value={n.id}>{n.title}</option>)}
+                    {availableNegs.map(n=><option key={n.id} value={n.id}>{n.code?`[${n.code}] `:""}{n.title}</option>)}
                   </select>
                   <FL c="Descripción"/>
                   <textarea value={addRelDesc} onChange={e=>setAddRelDesc(e.target.value)} rows={2} placeholder="Ej: Necesitamos local firmado antes de comprar cámaras" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12.5,resize:"vertical",fontFamily:"inherit"}}/>
@@ -5307,6 +5388,7 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
                   <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10,marginBottom:6}}>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2,flexWrap:"wrap"}}>
+                        <RefBadge code={n.code}/>
                         <div style={{fontSize:16,fontWeight:600,color:"#111827"}}>{n.title}</div>
                         {alertLevel==="critical"&&<span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:10,background:"#FEE2E2",border:"1px solid #FCA5A5",color:"#B91C1C"}}>🚨 Crítico</span>}
                         {alertLevel==="warning"&&<span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:10,background:"#FEF3C7",border:"1px solid #FCD34D",color:"#92400E"}}>⚠️ Atención</span>}
@@ -5324,20 +5406,20 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
                   {blockedByList.length>0&&(
                     <div style={{fontSize:11.5,padding:"7px 10px",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:8,marginTop:6}}>
                       <div style={{fontWeight:600,color:"#991B1B"}}>🚫 Bloqueada por:</div>
-                      {blockedByList.map(b=><div key={b.id} style={{color:"#7F1D1D",marginTop:2}}>→ {b.title}</div>)}
+                      {blockedByList.map(b=><div key={b.id} style={{color:"#7F1D1D",marginTop:2,display:"flex",alignItems:"center",gap:6}}>→ <RefBadge code={b.code}/>{b.title}</div>)}
                       {daysSince>3&&<div style={{color:"#B91C1C",fontWeight:600,marginTop:4}}>⏱ Sin movimiento hace {daysSince}d</div>}
                     </div>
                   )}
                   {blocksList.length>0&&(
                     <div style={{fontSize:11.5,padding:"7px 10px",background:"#FEF3C7",border:"1px solid #FCD34D",borderRadius:8,marginTop:6}}>
                       <div style={{fontWeight:600,color:"#92400E"}}>🔒 Bloquea:</div>
-                      {blocksList.slice(0,3).map(b=><div key={b.id} style={{color:"#78350F",marginTop:2}}>→ {b.title}</div>)}
+                      {blocksList.slice(0,3).map(b=><div key={b.id} style={{color:"#78350F",marginTop:2,display:"flex",alignItems:"center",gap:6}}>→ <RefBadge code={b.code}/>{b.title}</div>)}
                     </div>
                   )}
                   {influencesList.length>0&&(
                     <div style={{fontSize:11.5,padding:"7px 10px",background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:8,marginTop:6}}>
                       <div style={{fontWeight:600,color:"#1E3A8A"}}>🔗 Relacionada con:</div>
-                      {influencesList.map(r=>{ const t=negotiations.find(x=>x.id===r.negotiationId); const rt=getRelType(r.type); return t?<div key={r.id} style={{color:"#1E40AF",marginTop:2}}>{rt.icon} {t.title}</div>:null; })}
+                      {influencesList.map(r=>{ const t=negotiations.find(x=>x.id===r.negotiationId); const rt=getRelType(r.type); return t?<div key={r.id} style={{color:"#1E40AF",marginTop:2,display:"flex",alignItems:"center",gap:6}}>{rt.icon} <RefBadge code={t.code}/>{t.title}</div>:null; })}
                     </div>
                   )}
 
@@ -5473,16 +5555,17 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
     const key = kind==="task" ? `task:${item.id}` : `proj:${item.p.id}`;
     setIndividualLoading(prev=>({...prev,[key]:true}));
     try{
+      const negIdent = negotiation.code ? `${negotiation.code} ` : "";
       const contextLines = [
-        `Negociación: ${negotiation.title}`,
+        `Negociación: ${negIdent}${negotiation.title}`,
         `Contraparte: ${negotiation.counterparty}`,
         `Estado: ${st.label}`,
       ];
       if(negotiation.description) contextLines.push(`Descripción: ${negotiation.description}`);
       const contextStr = contextLines.join("\n");
       const itemPrompt = kind==="task"
-        ? `Analiza SOLO esta tarea y nada más:\n[${item.id}] ${item.title} (proyecto: ${item.projName}, columna: ${item.colName}, fecha: ${item.dueDate||"sin fecha"}, prioridad: ${item.priority})\n\nDame 2-4 frases de análisis directo + máx 2 tags de esta lista cerrada: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".\n\nResponde EXCLUSIVAMENTE con JSON válido de esta forma exacta: {"text":"…","tags":["…"]}`
-        : `Analiza SOLO este proyecto y nada más:\n[${item.p.id}] ${item.p.name} (rol en esta negociación: ${item.rp.role||"relacionado"}, ${item.activeCount} tareas activas, ${item.overdueCount} vencidas)\n\nDame 2-4 frases de análisis directo + máx 2 tags de esta lista cerrada: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".\n\nResponde EXCLUSIVAMENTE con JSON válido de esta forma exacta: {"text":"…","tags":["…"]}`;
+        ? `Analiza SOLO esta tarea y nada más:\n${item.ref||"["+item.id+"]"} ${item.title} (proyecto: ${item.projName}, columna: ${item.colName}, fecha: ${item.dueDate||"sin fecha"}, prioridad: ${item.priority})\n\nDame 2-4 frases de análisis directo + máx 2 tags de esta lista cerrada: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".\n\nResponde EXCLUSIVAMENTE con JSON válido de esta forma exacta: {"text":"…","tags":["…"]}`
+        : `Analiza SOLO este proyecto y nada más:\n${item.p.code||"["+item.p.id+"]"} ${item.p.name} (rol en esta negociación: ${item.rp.role||"relacionado"}, ${item.activeCount} tareas activas, ${item.overdueCount} vencidas)\n\nDame 2-4 frases de análisis directo + máx 2 tags de esta lista cerrada: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".\n\nResponde EXCLUSIVAMENTE con JSON válido de esta forma exacta: {"text":"…","tags":["…"]}`;
       const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + contextStr + "\n\n" + PLAIN_TEXT_RULE + "\n\nIMPORTANTE: responde ÚNICAMENTE con JSON válido, sin markdown ni prosa. El valor del campo \"text\" debe ser texto plano sin asteriscos ni guiones de lista.";
       const txt = await callAgentSafe({system,messages:[{role:"user",content:itemPrompt}],max_tokens:500});
       let parsed=null;
@@ -5575,6 +5658,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
       {/* Header */}
       <div style={{marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
+          <RefBadge code={negotiation.code}/>
           <div style={{fontSize:22,fontWeight:700,color:"#111827"}}>{negotiation.title}</div>
           <span style={{fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:14,background:st.color+"18",color:st.color}}>{st.label}</span>
         </div>
@@ -5613,6 +5697,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                             <span style={{width:10,height:10,borderRadius:"50%",background:p.color,flexShrink:0}}/>
                             <span style={{fontSize:13,fontWeight:600,color:"#111827",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.emoji||"📋"} {p.name}</span>
+                            <RefBadge code={p.code}/>
                             <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:pri.bg,border:`1px solid ${pri.border}`,color:pri.text,flexShrink:0}}>{pri.label}</span>
                             <button onClick={chip.handleChipClick} title={chip.chipTitle} disabled={chip.loading} style={{width:22,height:22,borderRadius:"50%",background:chip.loading?"#FEF3C7":chip.chipBg,color:chip.chipColor,border:"none",fontSize:10,fontWeight:700,cursor:chip.loading?"wait":"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"}}>{chip.loading?"⋯":"H"}</button>
                           </div>
@@ -5654,9 +5739,9 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                         <div onClick={()=>onOpenTask(t.id,t.projId)} style={{background:"#fff",border:"1px solid #E5E7EB",borderLeft:`3px solid ${t.projColor}`,borderRadius:8,padding:"8px 10px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,transition:"background .12s"}} onMouseEnter={e=>{e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{e.currentTarget.style.background="#fff";}}>
                           <input type="checkbox" readOnly checked={false} style={{flexShrink:0,cursor:"pointer",accentColor:t.projColor}} onClick={e=>e.stopPropagation()}/>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:12.5,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                              {t.ref&&<span style={{fontSize:10.5,color:"#9CA3AF",fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",fontWeight:700,marginRight:6,letterSpacing:"0.04em"}}>{t.ref}</span>}
-                              {t.title}
+                            <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+                              <RefBadge code={t.ref}/>
+                              <span style={{fontSize:12.5,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
                             </div>
                             <div style={{fontSize:10.5,color:"#9CA3AF"}}>{t.projEmoji} {t.projName} · {t.colName}</div>
                           </div>
@@ -5739,7 +5824,8 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           // Construye contexto narrativo de la negociación para el system prompt.
           const buildContext = ()=>{
             const lines=[];
-            lines.push(`Negociación: ${negotiation.title}`);
+            const negIdent = negotiation.code ? `${negotiation.code} ` : "";
+            lines.push(`Negociación: ${negIdent}${negotiation.title}`);
             lines.push(`Contraparte: ${negotiation.counterparty}`);
             lines.push(`Estado: ${st.label}`);
             if(negotiation.value!=null) lines.push(`Valor: ${negotiation.value} ${negotiation.currency||"EUR"}`);
@@ -5765,7 +5851,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             if(relProjs.length>0){
               lines.push(`\nProyectos vinculados (${relProjs.length}):`);
               relProjs.forEach(({p,rp,activeCount,overdueCount})=>{
-                lines.push(`- [${p.id}] ${p.name} — rol "${rp.role||"relacionado"}", prioridad ${rp.priority||"high"}, ${activeCount} tareas activas (${overdueCount} vencidas)`);
+                lines.push(`- ${p.code||"["+p.id+"]"} ${p.name} — rol "${rp.role||"relacionado"}", prioridad ${rp.priority||"high"}, ${activeCount} tareas activas (${overdueCount} vencidas)`);
               });
             }
             if(criticalTasks.length>0){
@@ -5961,7 +6047,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             }
             setChatLoading(true);
             const taskLines = criticalTasks.map(t=>`- ${t.ref||t.id}: ${t.title} (${t.projName}·${t.colName}, ${t.dueDate||"sin fecha"})`).join("\n");
-            const projLines = relProjs.map(({p,rp,activeCount,overdueCount})=>`- [${p.code||p.id}] ${p.name} (${rp.role||"relacionado"}, ${activeCount} activas, ${overdueCount} vencidas)`).join("\n");
+            const projLines = relProjs.map(({p,rp,activeCount,overdueCount})=>`- ${p.code||"["+p.id+"]"} ${p.name} (${rp.role||"relacionado"}, ${activeCount} activas, ${overdueCount} vencidas)`).join("\n");
             const userMsg = `Analiza cada tarea y proyecto vinculado a esta negociación. Para cada uno da:
 1. Análisis en 2-4 frases (directo, sin rodeos, accionable, estilo Chief of Staff).
 2. Tags de categorización (máx 2 por item) de esta lista cerrada exacta: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".
@@ -6535,7 +6621,7 @@ function GenerateTasksModal({negotiation,session,availableProjects,members,activ
                 <div><FL c="Proyecto *"/>
                   <select value={t.projectId||""} onChange={e=>update(i,{projectId:Number(e.target.value)})} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:`0.5px solid ${t.projectId?"#d1d5db":"#FCA5A5"}`,fontSize:12,fontFamily:"inherit",background:"#fff"}}>
                     <option value="">— Seleccionar —</option>
-                    {availableProjects.map(p=><option key={p.id} value={p.id}>{p.emoji||"📋"} {p.name}</option>)}
+                    {availableProjects.map(p=><option key={p.id} value={p.id}>{p.emoji||"📋"} {p.name}{p.code?` [${p.code}]`:""}</option>)}
                   </select>
                 </div>
                 <div><FL c="Asignado a"/>
@@ -6633,7 +6719,10 @@ function MyTasksView({data,activeMember,onOpenTask,onNavigate}){
                 <div key={`${t.projId}-${t.id}`} onClick={()=>onOpenTask(t.id)} className="tf-lift" style={{background:"#fff",border:"1px solid #E5E7EB",borderLeft:`4px solid ${t.projColor}`,borderRadius:10,padding:"11px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
                   <QBadge q={q}/>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:500,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
+                      <RefBadge code={t.ref}/>
+                      <span style={{fontSize:13,fontWeight:500,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
+                    </div>
                     <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{t.projEmoji} {t.projName} · {t.colName} · <span style={{color:dueColor,fontWeight:500}}>{dueLabel}</span></div>
                   </div>
                   <PriBadge p={t.priority}/>
@@ -7281,16 +7370,16 @@ export default function TaskFlow(){
   const recentItems = React.useMemo(()=>{
     const out=[];
     (data.negotiations||[]).forEach(n=>{
-      if(n.updatedAt) out.push({kind:"neg",id:n.id,title:n.title,ts:n.updatedAt,emoji:"💼"});
+      if(n.updatedAt) out.push({kind:"neg",id:n.id,title:n.title,code:n.code,ts:n.updatedAt,emoji:"💼"});
       (n.sessions||[]).forEach(s=>{
-        if(s.updatedAt||s.date) out.push({kind:"sess",id:s.id,negId:n.id,title:`${getSessionTypeIcon(s.type)} ${n.title}`,subtitle:getSessionTypeLabel(s.type),ts:s.updatedAt||s.date,emoji:"📅"});
+        if(s.updatedAt||s.date) out.push({kind:"sess",id:s.id,negId:n.id,title:`${getSessionTypeIcon(s.type)} ${n.title}`,code:n.code,subtitle:getSessionTypeLabel(s.type),ts:s.updatedAt||s.date,emoji:"📅"});
       });
     });
     Object.entries(data.boards||{}).forEach(([pid,cols])=>{
       cols.forEach(col=>col.tasks.forEach(t=>{
         const lastLog=(t.timeLogs||[]).slice(-1)[0];
         const ts = lastLog?.date || t.startDate;
-        if(ts) out.push({kind:"task",id:t.id,projId:Number(pid),title:t.title,ts,emoji:"📌"});
+        if(ts) out.push({kind:"task",id:t.id,projId:Number(pid),title:t.title,code:t.ref,ts,emoji:"📌"});
       }));
     });
     const score=ts=>new Date(ts).getTime()||0;
@@ -7470,7 +7559,10 @@ export default function TaskFlow(){
   // ── Deal Room mutations ──
   const createNegotiation = useCallback((payload)=>{
     const id=_uid("neg"); const now=new Date().toISOString();
-    setData(prev=>({...prev,negotiations:[...(prev.negotiations||[]),{id,...payload,sessions:[],createdAt:now,updatedAt:now}]}));
+    setData(prev=>{
+      const code = nextSeqCode(NEG_CODE_PREFIX, prev.negotiations||[]);
+      return{...prev,negotiations:[...(prev.negotiations||[]),{id,code,...payload,sessions:[],createdAt:now,updatedAt:now}]};
+    });
     addToast("✓ Negociación creada");
   },[addToast]);
   const updateNegotiation = useCallback((negId,patch)=>{
@@ -7838,7 +7930,10 @@ export default function TaskFlow(){
   },[addToast]);
   const createWorkspace = useCallback((payload)=>{
     const id=nextWsId++;
-    setData(prev=>({...prev,workspaces:[...(prev.workspaces||[]),{id,...payload,createdAt:fmt(new Date())}]}));
+    setData(prev=>{
+      const code = nextSeqCode(WS_CODE_PREFIX, prev.workspaces||[]);
+      return{...prev,workspaces:[...(prev.workspaces||[]),{id,code,...payload,createdAt:fmt(new Date())}]};
+    });
     addToast("✓ Workspace creado");
   },[addToast]);
   const editWorkspace = useCallback((id,payload)=>{
@@ -8030,8 +8125,9 @@ export default function TaskFlow(){
                       else if(it.kind==="task"){ setOverlayTaskId(it.id); }
                     };
                     return(
-                      <div key={`${it.kind}-${it.id}`} onClick={onClick} title={it.title} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 10px",borderRadius:7,cursor:"pointer",fontSize:12,color:"#4b5563",marginBottom:1}} onMouseEnter={e=>{e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
+                      <div key={`${it.kind}-${it.id}`} onClick={onClick} title={`${it.code?it.code+" · ":""}${it.title}`} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 10px",borderRadius:7,cursor:"pointer",fontSize:12,color:"#4b5563",marginBottom:1}} onMouseEnter={e=>{e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
                         <span style={{fontSize:12,flexShrink:0}}>{it.emoji}</span>
+                        <RefBadge code={it.code}/>
                         <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.title}</span>
                       </div>
                     );
@@ -8127,7 +8223,7 @@ export default function TaskFlow(){
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
               <span style={{fontSize:15,fontWeight:600}}>{proj.name}</span>
-              {proj.code&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:`${proj.color}18`,color:proj.color,border:`1px solid ${proj.color}55`,fontWeight:700,fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",letterSpacing:"0.06em"}}>{proj.code}</span>}
+              <RefBadge code={proj.code}/>
               <span style={{fontSize:11,padding:"2px 9px",borderRadius:20,background:`${proj.color}22`,color:proj.color,border:`0.5px solid ${proj.color}55`,fontWeight:500}}>{proj.members.length} miembros</span>
               {activeTab==="board"&&<span style={{fontSize:12,color:"#6b7280"}}>{doneTasks}/{totalTasks} completadas</span>}
               {(()=>{ const relNeg=(data.negotiations||[]).find(n=>n.projectId===proj.id); if(!relNeg) return null; const st=getNegStatus(relNeg.status); return(
