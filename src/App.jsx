@@ -5483,6 +5483,19 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   const [negMemOpen,setNegMemOpen] = useState(null); // qué sección de memoria de la negociación está abierta
   const [banner20Ignored,setBanner20Ignored] = useState(false); // el aviso amarillo (20-29 msgs) solo se ignora hasta el rojo (30+)
   const [speakingMsgTs,setSpeakingMsgTs] = useState(null);
+  // Multi-agente: si está ON, tras la respuesta de Héctor disparamos una
+  // mini-llamada de clasificación que decide si conviene invocar a Mario o
+  // Jorge. Persistido en localStorage por dispositivo (no en data).
+  const [autoSpecialistsOn,setAutoSpecialistsOn] = useState(()=>{
+    try { return localStorage.getItem("soulbaric.autoSpecialists") !== "0"; } catch { return true; }
+  });
+  const toggleAutoSpecialists = ()=>{
+    setAutoSpecialistsOn(v=>{
+      const nv = !v;
+      try { localStorage.setItem("soulbaric.autoSpecialists", nv?"1":"0"); } catch {}
+      return nv;
+    });
+  };
   useEffect(()=>{
     const el = chatScrollRef.current; if(!el) return;
     el.scrollTop = el.scrollHeight;
@@ -5958,11 +5971,105 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               + (opts.extraSystem?("\n\n"+opts.extraSystem):"");
             // Ventana de contexto: ≤30 mensajes se envían enteros. Por encima,
             // primeros 5 (semilla del hilo) + últimos 25 (continuidad reciente).
+            // Mensajes "specialist" se inyectan como assistant con prefijo
+            // "(<NombreEspecialista> dijo: …)" para que Héctor los integre en
+            // su razonamiento sin romper el orden user/assistant alternado.
             const all = negotiation.hectorChat||[];
             const picked = all.length<=30 ? all : [...all.slice(0,5), ...all.slice(-25)];
-            const history = picked.map(m=>({role:m.role==="user"?"user":"assistant",content:m.content}));
+            const history = picked
+              .filter(m=>m.role!=="specialist-loading")
+              .map(m=>{
+                if(m.role==="specialist") return {role:"assistant", content:`(${m.specialistName||"Especialista"} dijo: ${m.content||""})`};
+                return {role:m.role==="user"?"user":"assistant", content:m.content};
+              });
             history.push({role:"user",content:userMessage});
             return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:userMessage}]:history,max_tokens:opts.maxTokens||900});
+          };
+          // Detecta si la respuesta de Héctor justifica invocar a un
+          // especialista. Llamada barata (max_tokens 100) que devuelve
+          // {agentId, name, emoji, task} o null. Solo se ejecuta si hay
+          // agentes Mario/Jorge cargados y el usuario activó el toggle.
+          const detectSpecialist = async(hectorReply, userMsg)=>{
+            const mario = (agents||[]).find(a=>a.name==="Mario Legal");
+            const jorge = (agents||[]).find(a=>a.name==="Jorge Finanzas");
+            if(!mario && !jorge) return null;
+            const sys = "Clasificas si la respuesta de un Chief of Staff necesita una tarea complementaria de un especialista. Responde SOLO JSON estricto, sin markdown ni prosa.";
+            const prompt = `Respuesta del CoS (Héctor):\n\"${(hectorReply||"").slice(0,500)}\"\n\nMensaje del usuario:\n\"${(userMsg||"").slice(0,200)}\"\n\nDevuelve JSON con dos claves:\n{\"specialist\":\"mario\"|\"jorge\"|null,\"task\":\"…\"|null}\n\nReglas:\n- \"mario\" para temas legales, contractuales, cláusulas, compliance, jurisprudencia.\n- \"jorge\" para modelos financieros, ROI, waterfall, payback, sensibilidades, márgenes.\n- null si la respuesta de Héctor es completa y no necesita validación experta.\n- task: descripción operativa de qué debe ejecutar el especialista (1-2 frases).`;
+            try{
+              const txt = await callAgentSafe({system:sys, messages:[{role:"user",content:prompt}], max_tokens:120});
+              const m = (txt||"").match(/\{[\s\S]*\}/);
+              if(!m) return null;
+              const parsed = JSON.parse(m[0]);
+              if(parsed.specialist==="mario" && mario) return {agentId:mario.id, name:"Mario Legal", emoji:"⚖️", task:parsed.task||""};
+              if(parsed.specialist==="jorge" && jorge) return {agentId:jorge.id, name:"Jorge Finanzas", emoji:"📊", task:parsed.task||""};
+              return null;
+            } catch(e){ console.warn("[multi-agent] detectSpecialist failed:", e.message); return null; }
+          };
+          // Llamada al especialista con su propio promptBase + contexto +
+          // tarea + respuesta previa de Héctor. Devuelve el texto plano del
+          // especialista. No persiste — el caller decide qué hacer con él.
+          const invokeSpecialist = async({agentId, task, hectorReply})=>{
+            const ag = (agents||[]).find(a=>a.id===agentId); if(!ag) return null;
+            const sys = (ag.promptBase||`Eres ${ag.name}, ${ag.role||"especialista"}.`) + "\n\n" + PLAIN_TEXT_RULE;
+            const negIdent = negotiation.code ? `${negotiation.code} ` : "";
+            const ctx = `CONTEXTO DE LA NEGOCIACIÓN:\nTítulo: ${negIdent}${negotiation.title}\nContraparte: ${negotiation.counterparty}` +
+              (negotiation.value!=null ? `\nValor: ${negotiation.value} ${negotiation.currency||"EUR"}` : "") +
+              (negotiation.description ? `\nDescripción: ${negotiation.description}` : "") +
+              `\n\nTAREA QUE TE ENCARGA HÉCTOR:\n${task||"(sin descripción)"}` +
+              (hectorReply ? `\n\nRESPUESTA PREVIA DE HÉCTOR (referencia):\n${String(hectorReply).slice(0,800)}` : "");
+            return callAgentSafe({system:sys, messages:[{role:"user",content:ctx}], max_tokens:1000});
+          };
+          // Orquestador: invoca a un especialista y mete dos mensajes en el
+          // chat (placeholder loading + respuesta final). Usado tanto por la
+          // detección automática como por los botones manuales.
+          const runSpecialist = async(specialist, hectorReply)=>{
+            const loadingTs = new Date().toISOString();
+            onAppendHectorMessage(negotiation.id, {
+              role:"specialist-loading",
+              specialistId: specialist.agentId,
+              specialistName: specialist.name,
+              specialistEmoji: specialist.emoji,
+              task: specialist.task||"",
+              timestamp: loadingTs,
+            });
+            try{
+              const out = await invokeSpecialist({agentId:specialist.agentId, task:specialist.task, hectorReply});
+              onAppendHectorMessage(negotiation.id, {
+                role:"specialist",
+                specialistId: specialist.agentId,
+                specialistName: specialist.name,
+                specialistEmoji: specialist.emoji,
+                content: out||"(sin respuesta)",
+                task: specialist.task||"",
+                invokedBy: hectorReply ? "hector" : "user",
+                loadingTs,
+                timestamp: new Date().toISOString(),
+              });
+            }catch(e){
+              onAppendHectorMessage(negotiation.id, {
+                role:"specialist",
+                specialistId: specialist.agentId,
+                specialistName: specialist.name,
+                specialistEmoji: specialist.emoji,
+                content: `⚠ Error al invocar a ${specialist.name}: ${e.message||e}`,
+                task: specialist.task||"",
+                invokedBy: hectorReply ? "hector" : "user",
+                loadingTs,
+                timestamp: new Date().toISOString(),
+                error: true,
+              });
+            }
+          };
+          // Manual: el usuario pulsa "⚖️ Mario" o "📊 Jorge" desde el chat,
+          // se pide la tarea por window.prompt y se invoca. La descripción
+          // queda asociada al mensaje en el chat para trazabilidad.
+          const handleManualSpecialist = (which)=>{
+            if(chatLoading) return;
+            const ag = (agents||[]).find(a=>which==="mario" ? a.name==="Mario Legal" : a.name==="Jorge Finanzas");
+            if(!ag){ onAppendHectorMessage(negotiation.id,{role:"assistant",content:`⚠ No encuentro a ${which==="mario"?"Mario Legal":"Jorge Finanzas"} en agentes.`,timestamp:new Date().toISOString()}); return; }
+            const task = window.prompt(`¿Qué tarea le pides a ${ag.name}?`, "");
+            if(!task || !task.trim()) return;
+            runSpecialist({agentId:ag.id, name:ag.name, emoji:which==="mario"?"⚖️":"📊", task:task.trim()}, null);
           };
           const handleSend = async(overrideText)=>{
             const txt = (overrideText ?? chatInput).trim(); if(!txt||chatLoading||!hector) return;
@@ -5993,6 +6100,19 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                   setSpeakingMsgTs(assistantTs);
                   speakAgentResponse(content,hector,{onEnd:()=>setSpeakingMsgTs(null)});
                 }
+              }
+              // Multi-agente: si está activado y el mensaje del usuario es
+              // suficientemente largo, clasificamos si Héctor necesita
+              // delegar a un especialista y, si procede, lo invocamos. Una
+              // sola invocación por turno. Fire-and-forget para no bloquear.
+              if(autoSpecialistsOn && txt.length>50){
+                (async()=>{
+                  try{
+                    const sp = await detectSpecialist(content, txt);
+                    if(!sp) return;
+                    await runSpecialist(sp, content);
+                  } catch(e){ console.warn("[multi-agent] auto-invoke failed:", e.message); }
+                })();
               }
               // Auto-aprendizaje fire-and-forget (no bloquea el chat).
               // Envía últimos 4 msgs al LLM con el extractor tipado y
@@ -6135,6 +6255,49 @@ ${taskLines||"(ninguna)"}`;
                       Pulsa <b>Pedir briefing</b> o escribe una pregunta abajo.
                     </div>
                   : chatMsgs.map((m,i)=>{
+                      // Mensaje "specialist": se renderiza con bg propio
+                      // (azul claro Mario, verde claro Jorge), header con
+                      // emoji + nombre + "invocado por Héctor/usuario", y
+                      // footer con botón "📎 Guardar en memoria".
+                      if(m.role==="specialist"){
+                        const isMario = m.specialistName==="Mario Legal";
+                        const bg = isMario?"#EFF6FF":"#F0FDF4";
+                        const border = isMario?"#BFDBFE":"#86EFAC";
+                        const accent = isMario?"#1E40AF":"#0E7C5A";
+                        const saveToMemory = ()=>{
+                          const text = `[${m.specialistName||"Especialista"}] ${m.task?`(${m.task}) `:""}${m.content||""}`.slice(0,800);
+                          onAddNegMemory?.(negotiation.id, "keyFacts", text);
+                        };
+                        return(
+                          <div key={i} style={{display:"flex",justifyContent:"flex-start"}}>
+                            <div style={{maxWidth:"92%",padding:"10px 12px",borderRadius:10,background:bg,border:`1px solid ${border}`,fontSize:12.5,color:"#1f2937",lineHeight:1.55,whiteSpace:"pre-wrap"}}>
+                              <div style={{fontSize:11,fontWeight:700,color:accent,marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
+                                <span>{m.specialistEmoji||"🤝"}</span>
+                                <span>{m.specialistName||"Especialista"}</span>
+                                <span style={{fontWeight:500,color:"#6B7280"}}>— invocado por {m.invokedBy==="user"?"ti":"Héctor"}</span>
+                              </div>
+                              {m.task&&<div style={{fontSize:10.5,color:"#6B7280",fontStyle:"italic",marginBottom:6}}>Tarea: {m.task}</div>}
+                              <div>{m.content}</div>
+                              <div style={{fontSize:10,color:"#9CA3AF",marginTop:6,opacity:0.85,display:"flex",alignItems:"center",gap:8}}>
+                                <span style={{flex:1}}>{m.timestamp?new Date(m.timestamp).toLocaleString("es-ES",{hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"}):""}</span>
+                                {!m.error && (
+                                  <button onClick={saveToMemory} title="Guardar como dato clave en memoria de la negociación" style={{padding:"2px 8px",borderRadius:10,background:"#fff",color:accent,border:`1px solid ${border}`,fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>📎 Guardar en memoria</button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      if(m.role==="specialist-loading"){
+                        return(
+                          <div key={i} style={{display:"flex",justifyContent:"flex-start"}}>
+                            <div style={{padding:"8px 12px",borderRadius:10,background:"#FFFBEB",border:"1px dashed #FCD34D",fontSize:12,color:"#92400E",fontStyle:"italic",display:"flex",alignItems:"center",gap:6}}>
+                              <span>{m.specialistEmoji||"🤝"}</span>
+                              <span>Consultando a {m.specialistName||"especialista"}…</span>
+                            </div>
+                          </div>
+                        );
+                      }
                       const isUser=m.role==="user";
                       const isSpeaking = !isUser && m.timestamp===speakingMsgTs;
                       return(
@@ -6204,6 +6367,17 @@ ${taskLines||"(ninguna)"}`;
                   </div>
                 );
               })()}
+              {/* Barra multi-agente: invocación manual + toggle ON/OFF */}
+              <div style={{padding:"6px 12px",borderTop:"1px solid #F3F4F6",background:"#FCFCFD",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                <span style={{fontSize:10,fontWeight:600,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.06em"}}>Especialistas</span>
+                <button onClick={()=>handleManualSpecialist("mario")} disabled={chatLoading} title="Pedir intervención de Mario Legal" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#1E40AF",border:"1px solid #BFDBFE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>⚖️ Mario</button>
+                <button onClick={()=>handleManualSpecialist("jorge")} disabled={chatLoading} title="Pedir intervención de Jorge Finanzas" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#0E7C5A",border:"1px solid #86EFAC",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>📊 Jorge</button>
+                <div style={{flex:1}}/>
+                <label style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:10,color:"#6B7280",cursor:"pointer"}} title="Cuando está activo, Héctor delega automáticamente en Mario o Jorge si la respuesta lo requiere.">
+                  <input type="checkbox" checked={autoSpecialistsOn} onChange={toggleAutoSpecialists} style={{cursor:"pointer"}}/>
+                  Auto
+                </label>
+              </div>
               {/* Input */}
               <div style={{padding:"10px 12px",borderTop:"1px solid #F3F4F6",background:"#FAFAFA",display:"flex",gap:6,alignItems:"center"}}>
                 <VoiceMicButton
