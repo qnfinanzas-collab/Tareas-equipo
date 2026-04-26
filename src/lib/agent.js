@@ -1307,6 +1307,77 @@ export async function summarizeChat(messages, negTitle){
   }
 }
 
+// Extracción de lecciones tras cerrar una negociación. Devuelve
+// {lessons: [{type, content, applicableTo}]} con type en
+// {lesson, pattern, warning}. Silencioso: si falla, lessons=[].
+export async function extractLessonsFromNegotiation(neg){
+  console.log("[memory] extractLessonsFromNegotiation called · neg:", neg?.title);
+  const r = neg?.result || {};
+  const system = [
+    "Eres un analista que extrae lecciones aprendidas de negociaciones",
+    "cerradas. Tu output entra directamente en la memoria del CEO.",
+    "",
+    "Cada item debe ser:",
+    "- type: 'lesson' (algo aprendido), 'pattern' (patrón observado",
+    "  que se puede generalizar) o 'warning' (alerta para futuras",
+    "  negociaciones similares).",
+    "- content: frase corta (<20 palabras), neutro, en español, sin",
+    "  markdown, sin signos finales.",
+    "- applicableTo: a qué tipo de contraparte/situación aplica.",
+    "",
+    "Reglas:",
+    "- Mínimo 0, máximo 6 items. Si hay poco que aprender, devuelve",
+    "  pocos. Calidad > cantidad.",
+    "- Responde ÚNICAMENTE con JSON válido, sin prosa ni markdown.",
+    "",
+    "Formato exacto:",
+    `{"lessons":[{"type":"lesson|pattern|warning","content":"...","applicableTo":"..."}]}`,
+  ].join("\n");
+  const prompt = [
+    `Negociación cerrada: ${neg.title||"(sin título)"}`,
+    `Contraparte: ${neg.counterparty||"(sin contraparte)"}`,
+    `Resultado: ${r.outcome||"(sin outcome)"}`,
+    `Duración: ${r.durationDays!=null?`${r.durationDays} días`:"(desconocida)"}`,
+    r.finalValue!=null ? `Valor final: ${r.finalValue} ${neg.currency||"EUR"}` : null,
+    r.counterpartRating ? `Cumplimiento de la contraparte: ${r.counterpartRating}` : null,
+    r.whatWorked ? `\nQué funcionó:\n${r.whatWorked}` : null,
+    r.whatFailed ? `\nQué falló o podría mejorar:\n${r.whatFailed}` : null,
+    r.strategiesUsed?.length ? `\nEstrategias usadas: ${r.strategiesUsed.join(", ")}` : null,
+    "",
+    "Extrae las lecciones aprendidas. Devuelve el JSON ahora.",
+  ].filter(Boolean).join("\n");
+  const empty = { lessons: [] };
+  try {
+    const res = await fetch("/api/agent", {
+      method:"POST",
+      headers:{ "content-type":"application/json" },
+      body: JSON.stringify({ system, messages:[{role:"user",content:prompt}], max_tokens:600 }),
+    });
+    const data = await res.json().catch(e=>{ console.warn("[memory] lessons res.json failed:", e); return {}; });
+    if(!res.ok){ console.warn("[memory] lessons /api/agent not ok · status:", res.status, "· error:", data.error); return empty; }
+    const text = data.text || "";
+    console.log("[memory] lessons LLM raw (first 400):", text.slice(0,400));
+    const m = text.match(/\{[\s\S]*\}/);
+    if(!m){ console.warn("[memory] lessons no JSON braces"); return empty; }
+    let parsed;
+    try { parsed = JSON.parse(m[0]); }
+    catch(e){ console.warn("[memory] lessons JSON.parse failed:", e.message); return empty; }
+    const validTypes = new Set(["lesson","pattern","warning"]);
+    const lessons = (Array.isArray(parsed.lessons)?parsed.lessons:[])
+      .map(it=>({
+        type: validTypes.has(String(it?.type)) ? it.type : "lesson",
+        content: String(it?.content||"").trim(),
+        applicableTo: String(it?.applicableTo||"").trim(),
+      }))
+      .filter(it => it.content.length >= 4 && it.content.length <= 220);
+    console.log("[memory] lessons extracted:", lessons.length);
+    return { lessons };
+  } catch(e){
+    console.warn("[memory] extractLessonsFromNegotiation threw:", e);
+    return empty;
+  }
+}
+
 function parseAnalysisReport(text){
   const sections = { summary:"", details:"", recommendations:"" };
   const blocks = text.split(/\n(?=[A-ZÁÉÍÓÚÑ ]{3,}:)/);

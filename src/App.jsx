@@ -15,7 +15,7 @@ import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.j
 import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import jsPDF from "jspdf";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, PLAIN_TEXT_RULE } from "./lib/agent.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE } from "./lib/agent.js";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
@@ -525,6 +525,7 @@ function _migrate(d){
   d.negotiations = d.negotiations.map(n=>({
     ...n,
     documents: n.documents||[],
+    result: n.result || null,
     memory: n.memory ? {
       keyFacts:      Array.isArray(n.memory.keyFacts)      ? n.memory.keyFacts      : [],
       agreements:    Array.isArray(n.memory.agreements)    ? n.memory.agreements    : [],
@@ -4472,7 +4473,11 @@ const NEG_STATUSES = [
   { id:"pausado",         label:"Pausado",          color:"#F59E0B" },
   { id:"cerrado_ganado",  label:"Cerrado ganado",   color:"#3B82F6" },
   { id:"cerrado_perdido", label:"Cerrado perdido",  color:"#E24B4A" },
+  { id:"acuerdo_parcial", label:"Acuerdo parcial",  color:"#7F77DD" },
 ];
+// IDs de status que disparan el modal de cierre + extracción de lecciones.
+const CLOSED_STATUSES = new Set(["cerrado_ganado","cerrado_perdido","acuerdo_parcial"]);
+const NEG_STRATEGIES = ["Silencio","Indiferencia","BATNA","Preguntas calibradas","Anclaje","Reencuadre","Otra"];
 const SESSION_TYPES = [
   { id:"meeting",  label:"Reunión presencial", icon:"🤝" },
   { id:"call",     label:"Llamada",            icon:"📞" },
@@ -4528,6 +4533,96 @@ function timeAgoIso(iso){
 }
 
 // Modal crear/editar negociación.
+// Modal de cierre. Recoge los datos del resultado tras marcar la
+// negociación como cerrada (ganada/perdida/parcial). Tras guardar,
+// el caller dispara la extracción de lecciones vía LLM.
+function NegotiationCloseModal({negotiation, outcomeStatus, onSave, onCancel}){
+  const labelByStatus = {
+    cerrado_ganado:  "Cerrada ganada",
+    cerrado_perdido: "Cerrada perdida",
+    acuerdo_parcial: "Acuerdo parcial",
+  };
+  const computedDuration = (()=>{
+    const start = negotiation?.createdAt ? new Date(negotiation.createdAt) : null;
+    if(!start) return "";
+    const days = Math.max(0, Math.round((Date.now() - start.getTime())/(1000*60*60*24)));
+    return String(days);
+  })();
+  const [finalValue,setFinalValue] = useState(negotiation?.value ?? "");
+  const [duration,setDuration]     = useState(computedDuration);
+  const [rating,setRating]         = useState("Sí");
+  const [whatWorked,setWhatWorked] = useState("");
+  const [whatFailed,setWhatFailed] = useState("");
+  const [strategies,setStrategies] = useState(new Set());
+  const toggleStrategy = (s)=> setStrategies(prev=>{
+    const n = new Set(prev); if(n.has(s)) n.delete(s); else n.add(s); return n;
+  });
+  const submit = ()=>{
+    const result = {
+      outcome: labelByStatus[outcomeStatus] || outcomeStatus,
+      finalValue: finalValue==="" ? null : Number(finalValue),
+      durationDays: duration==="" ? null : Number(duration),
+      counterpartRating: rating,
+      whatWorked: whatWorked.trim(),
+      whatFailed: whatFailed.trim(),
+      strategiesUsed: Array.from(strategies),
+      closedAt: new Date().toISOString(),
+    };
+    onSave(result);
+  };
+  return(
+    <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onCancel()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:3500,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:30,paddingBottom:20,overflowY:"auto"}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:"4px solid #7F77DD",marginBottom:20}}>
+        <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb"}}>
+          <div style={{fontSize:15,fontWeight:700,color:"#111827"}}>Cerrar negociación</div>
+          <div style={{fontSize:12,color:"#6B7280",marginTop:2}}>{negotiation?.title} — {labelByStatus[outcomeStatus]}</div>
+        </div>
+        <div style={{padding:18,display:"flex",flexDirection:"column",gap:14,maxHeight:"68vh",overflowY:"auto"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,color:"#374151",marginBottom:4}}>Valor final acordado (€)</div>
+              <input type="number" value={finalValue} onChange={e=>setFinalValue(e.target.value)} placeholder="Opcional" style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:11,fontWeight:600,color:"#374151",marginBottom:4}}>Duración (días)</div>
+              <input type="number" value={duration} onChange={e=>setDuration(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit"}}/>
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:600,color:"#374151",marginBottom:4}}>Contraparte cumplió expectativas</div>
+            <div style={{display:"flex",gap:6}}>
+              {["Sí","Parcialmente","No"].map(opt=>(
+                <button key={opt} onClick={()=>setRating(opt)} style={{padding:"6px 12px",borderRadius:6,background:rating===opt?"#7F77DD":"#fff",color:rating===opt?"#fff":"#374151",border:`1px solid ${rating===opt?"#7F77DD":"#D1D5DB"}`,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{opt}</button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:600,color:"#374151",marginBottom:4}}>Qué funcionó</div>
+            <textarea value={whatWorked} onChange={e=>setWhatWorked(e.target.value)} rows={3} placeholder="Ej: silencio en la 2ª sesión hizo que ofrecieran +€10k" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",resize:"vertical"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:600,color:"#374151",marginBottom:4}}>Qué falló o podría mejorar</div>
+            <textarea value={whatFailed} onChange={e=>setWhatFailed(e.target.value)} rows={3} placeholder="Ej: respondí demasiado rápido a la oferta inicial" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",resize:"vertical"}}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:600,color:"#374151",marginBottom:4}}>Estrategias principales usadas</div>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+              {NEG_STRATEGIES.map(s=>{
+                const sel = strategies.has(s);
+                return <button key={s} onClick={()=>toggleStrategy(s)} style={{padding:"5px 11px",borderRadius:14,background:sel?"#EEEDFE":"#fff",color:sel?"#3C3489":"#6B7280",border:`1px solid ${sel?"#7F77DD":"#E5E7EB"}`,fontSize:11.5,fontWeight:sel?600:500,cursor:"pointer",fontFamily:"inherit"}}>{sel?"✓ ":""}{s}</button>;
+              })}
+            </div>
+          </div>
+        </div>
+        <div style={{padding:"12px 20px",borderTop:"0.5px solid #e5e7eb",display:"flex",justifyContent:"flex-end",gap:8,background:"#fafafa",borderBottomLeftRadius:16,borderBottomRightRadius:16}}>
+          <button onClick={onCancel} style={{padding:"8px 16px",borderRadius:8,background:"transparent",color:"#374151",border:"0.5px solid #D1D5DB",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+          <button onClick={submit} style={{padding:"8px 18px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cerrar y aprender</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NegotiationModal({negotiation,members,workspaces,projects,agents,allNegotiations,onClose,onSave,onDelete}){
   const isEdit=!!negotiation;
   const [title,setTitle]       = useState(negotiation?.title||"");
@@ -4548,10 +4643,24 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
   const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,ownerId,relatedProjects,relationships,stakeholders,agentId})!==initialSnap;
   const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
   useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
+  const [showCloseFlow,setShowCloseFlow] = useState(false);
+  const buildPayload = ()=>{
+    const primaryProjectId = relatedProjects[0]?.projectId ?? null;
+    return {title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),projectId:primaryProjectId,agentId:agentId===""?null:Number(agentId),relatedProjects,relationships,stakeholders};
+  };
   const save=()=>{
     if(!title.trim()||!counterparty.trim()) return;
-    const primaryProjectId = relatedProjects[0]?.projectId ?? null;
-    onSave({title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),projectId:primaryProjectId,agentId:agentId===""?null:Number(agentId),relatedProjects,relationships,stakeholders});
+    // Si pasamos a status cerrado/parcial Y aún no hay result → modal
+    // de cierre. Tras rellenarlo se persiste el resultado y se dispara
+    // la extracción de lecciones vía LLM (handler closeNegotiation).
+    const becomingClosed = CLOSED_STATUSES.has(status) && !negotiation?.result;
+    if(becomingClosed){ setShowCloseFlow(true); return; }
+    onSave(buildPayload());
+    onClose();
+  };
+  const handleCloseFlowSave = (result)=>{
+    onSave({...buildPayload(), result});
+    setShowCloseFlow(false);
     onClose();
   };
 
@@ -4776,6 +4885,7 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
           </div>
         </div>
       </div>
+      {showCloseFlow && <NegotiationCloseModal negotiation={negotiation} outcomeStatus={status} onSave={handleCloseFlowSave} onCancel={()=>setShowCloseFlow(false)}/>}
     </div>
   );
 }
@@ -5476,6 +5586,23 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             if(taskComments.length>0){
               lines.push(`\nCOMENTARIOS DE TAREAS VINCULADAS (${Math.min(20,taskComments.length)}/${taskComments.length}):`);
               taskComments.slice(0,20).forEach(c=>lines.push(`- ${c}`));
+            }
+            // Lecciones de negociaciones anteriores cerradas (extraídas
+            // por LLM tras el cierre). Las últimas 10 ordenadas por fecha
+            // más reciente. Permiten a Héctor recomendar estrategias que
+            // ya han funcionado y evitar las que fallaron.
+            const allLessons = (ceoMemory?.lessons||[])
+              .filter(l => l.source==="negotiation-result")
+              .slice()
+              .sort((a,b)=> new Date(b.createdAt||0) - new Date(a.createdAt||0))
+              .slice(0,10);
+            if(allLessons.length>0){
+              lines.push(`\nLECCIONES DE NEGOCIACIONES ANTERIORES (${allLessons.length}):`);
+              allLessons.forEach(l=>{
+                const tag = l.lessonType ? `[${l.lessonType}]` : "[lesson]";
+                const ctx = l.negotiationTitle ? ` (de "${l.negotiationTitle}", ${l.outcome||""})` : "";
+                lines.push(`- ${tag} ${l.text}${ctx}`);
+              });
             }
             // Resúmenes de chats anteriores con Héctor (auto-generados al
             // pulsar "Limpiar chat"). Dan continuidad entre hilos pasados
@@ -6432,6 +6559,45 @@ function MemoryPanel({ceoMemory, negotiation, onAddCeo, onRemoveCeo, onAddNeg, o
         />
       ))}
 
+      {/* Lecciones de negociación: subset filtrado de ceoMemory.lessons
+          con source="negotiation-result". Render dedicado con badge por
+          tipo y referencia a la negociación origen. */}
+      {(()=>{
+        const negLessons = (ceoMemory?.lessons||[]).filter(l=>l.source==="negotiation-result");
+        if(negLessons.length===0) return null;
+        const badgeStyle = (type)=>{
+          if(type==="warning") return {bg:"#FEF2F2",color:"#B91C1C",label:"warning"};
+          if(type==="pattern") return {bg:"#EFF6FF",color:"#1E40AF",label:"pattern"};
+          return {bg:"#F0FDF4",color:"#0E7C5A",label:"lesson"};
+        };
+        return(
+          <>
+            <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",margin:"18px 0 10px"}}>Lecciones de negociación ({negLessons.length})</div>
+            <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:10}}>
+              {negLessons.slice().reverse().map(item=>{
+                const b = badgeStyle(item.lessonType);
+                return(
+                  <div key={item.id} style={{padding:"10px 12px",background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,borderLeft:`3px solid ${b.color}`}}>
+                    <div style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:4}}>
+                      <span style={{fontSize:9.5,fontWeight:700,color:b.color,background:b.bg,padding:"1px 7px",borderRadius:4,textTransform:"uppercase",letterSpacing:"0.04em",flexShrink:0}}>{b.label}</span>
+                      <div style={{flex:1,fontSize:12.5,color:"#1F2937",lineHeight:1.5}}>{item.text}</div>
+                    </div>
+                    {(item.negotiationTitle || item.outcome) && (
+                      <div style={{fontSize:10.5,color:"#9CA3AF",fontStyle:"italic"}}>
+                        ↳ {item.negotiationTitle||"(sin título)"}{item.outcome?` · ${item.outcome}`:""} · {new Date(item.createdAt).toLocaleDateString("es-ES")}
+                      </div>
+                    )}
+                    {item.applicableTo && (
+                      <div style={{fontSize:10.5,color:"#6B7280",marginTop:3}}>Aplica a: {item.applicableTo}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        );
+      })()}
+
       {negotiation && (
         <>
           <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",margin:"18px 0 10px"}}>Memoria de esta negociación</div>
@@ -7087,6 +7253,54 @@ export default function TaskFlow(){
   const updateNegotiation = useCallback((negId,patch)=>{
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,...patch,updatedAt:new Date().toISOString()}:n)}));
     addToast("✓ Negociación actualizada");
+    // Si el patch trae result (cierre con learnings), dispara extracción
+    // de lecciones fire-and-forget. dataRef nos da la versión recién
+    // actualizada de la negociación con todo el contexto (sesiones,
+    // sponsors, etc.) sin esperar al re-render de React.
+    if(patch?.result){
+      (async()=>{
+        try {
+          const updatedNeg = (dataRef.current?.negotiations||[]).find(n=>n.id===negId);
+          if(!updatedNeg) return;
+          const { lessons } = await extractLessonsFromNegotiation(updatedNeg);
+          if(!lessons || lessons.length===0){
+            console.log("[memory] sin lecciones extraídas del cierre");
+            return;
+          }
+          // Persiste cada lesson como item de ceoMemory.lessons con
+          // metadata de origen (negotiationId, outcome, type, applicableTo).
+          const cur = dataRef.current?.ceoMemory || emptyCeoMemory();
+          let lessonsList = cur.lessons || [];
+          let added = 0;
+          const newItems = [];
+          for(const l of lessons){
+            const text = l.applicableTo
+              ? `[${l.type}] ${l.content} — aplica a: ${l.applicableTo}`
+              : `[${l.type}] ${l.content}`;
+            const res = addUnique(lessonsList, text, "negotiation-result");
+            if(res.added){
+              added++;
+              const item = res.list[res.list.length-1];
+              item.lessonType    = l.type;
+              item.applicableTo  = l.applicableTo;
+              item.negotiationId = negId;
+              item.negotiationTitle = updatedNeg.title;
+              item.outcome       = updatedNeg.result?.outcome;
+              newItems.push(item);
+            }
+            lessonsList = res.list;
+          }
+          if(added>0){
+            const next = {...cur, lessons: lessonsList, updatedAt: new Date().toISOString()};
+            dataRef.current = {...dataRef.current, ceoMemory: next};
+            setData(prev=>({...prev, ceoMemory: next}));
+            addToast(`🧠 ${added} lección${added!==1?"es":""} extraída${added!==1?"s":""} de la negociación`,"info",{ttl:5000,onClick:()=>setActiveTab("memory")});
+          }
+        } catch(e){
+          console.warn("[memory] error extrayendo lecciones:", e);
+        }
+      })();
+    }
   },[addToast]);
   const deleteNegotiation = useCallback((negId)=>{
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).filter(n=>n.id!==negId)}));
