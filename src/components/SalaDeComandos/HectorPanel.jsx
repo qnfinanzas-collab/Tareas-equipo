@@ -36,10 +36,12 @@ const timeAgo = (ts) => {
   return `hace ${Math.floor(s / 86400)} d`;
 };
 
-// Voz vía Web Speech API. Cancela cualquier síntesis previa, fija lang
-// es-ES y prefiere una voz española si el navegador la expone. Silencioso
-// si la API no está disponible. Sigue la prefencia "hector_muted" del
-// localStorage — si está silenciado, salir sin hablar.
+// Voz vía Web Speech API. En la primera carga, getVoices() devuelve [] en
+// muchos navegadores (Chrome/Safari) hasta que el motor TTS dispara
+// voiceschanged. Si lo ignoras, speak() arranca con voz por defecto del
+// sistema (a veces inglesa) o no arranca. Solución: si no hay voces aún,
+// suscribirse a voiceschanged una vez y disparar speak() cuando lleguen.
+// Sigue la preferencia "hector_muted" en localStorage (storage usa "1").
 const speakRecommendation = (text) => {
   if (typeof window === "undefined" || !window.speechSynthesis) return;
   try { if (localStorage.getItem("hector_muted") === "1") return; } catch {}
@@ -50,10 +52,17 @@ const speakRecommendation = (text) => {
     utterance.lang = "es-ES";
     utterance.rate = 0.95;
     utterance.pitch = 1;
-    const voices = window.speechSynthesis.getVoices();
-    const spanishVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("es"));
-    if (spanishVoice) utterance.voice = spanishVoice;
-    window.speechSynthesis.speak(utterance);
+    const trySpeak = () => {
+      const voices = window.speechSynthesis.getVoices() || [];
+      const spanishVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("es"));
+      if (spanishVoice) utterance.voice = spanishVoice;
+      window.speechSynthesis.speak(utterance);
+    };
+    if ((window.speechSynthesis.getVoices() || []).length === 0) {
+      window.speechSynthesis.addEventListener("voiceschanged", trySpeak, { once: true });
+    } else {
+      trySpeak();
+    }
   } catch (e) {
     console.warn("[HectorPanel] speak fallo:", e?.message);
   }
