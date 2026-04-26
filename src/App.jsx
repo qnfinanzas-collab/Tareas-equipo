@@ -23,6 +23,7 @@ import RiesgosPanel from "./components/RiesgosPanel.jsx";
 import BriefingMatinal from "./components/BriefingMatinal.jsx";
 import CierreDia from "./components/CierreDia.jsx";
 import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
+import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
@@ -9235,6 +9236,45 @@ export default function TaskFlow(){
 
       {/* Cierre del día — a partir de las 18:00, una vez al día */}
       {showClosing && me && <CierreDia user={me} data={data} onClose={()=>setShowClosing(false)}/>}
+
+      {/* Héctor flotante — siempre visible, fuera de cualquier vista. El
+          panel lateral abre HectorPanel reutilizando los datos globales y
+          los mismos setters de estado para mantener una única fuente. */}
+      {(()=>{
+        const myActive = [];
+        Object.entries(data.boards||{}).forEach(([pid,cols])=>{
+          const projObj = data.projects.find(p=>p.id===Number(pid));
+          cols.forEach(col=>col.tasks.forEach(t=>{
+            if(!t.assignees?.includes(activeMember)) return;
+            if(col.name==="Hecho") return;
+            myActive.push({...t, colName:col.name, projId:Number(pid), projName:projObj?.name||""});
+          }));
+        });
+        return(
+          <HectorFloat
+            isOpen={hectorPanelOpen}
+            onToggle={()=>setHectorPanelOpen(o=>!o)}
+            lastRecommendation={lastRecommendation}
+            hasNewRecommendation={hectorHasNew}
+            hectorState={hectorState}
+            tasks={myActive}
+            currentFocus={currentFocus}
+            riesgos={[]}
+            userId={me?.name}
+            onStateChange={setHectorState}
+            onNewRecommendation={setLastRecommendation}
+            onRecommendationClick={(rec)=>{
+              const task = myActive.find(t=>t.title===rec.title);
+              if(task){
+                setCurrentFocus(task);
+                const i = data.projects.findIndex(p=>p.id===task.projId);
+                if(i>=0){ setAP(i); setActiveTab("board"); setPendingOpenTaskId(task.id); }
+                setHectorPanelOpen(false);
+              }
+            }}
+          />
+        );
+      })()}
 
       {/* Botón flotante global del asesor — siempre visible */}
       <button className="tf-fab" onClick={()=>setScopeAvatar(activeTab||"global")} title="Asesor IA — habla sobre lo que estás viendo" style={{position:"fixed",bottom:24,right:24,zIndex:1500,width:60,height:60,borderRadius:"50%",background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 8px 24px rgba(127,119,221,0.4)",display:"flex",alignItems:"center",justifyContent:"center"}}>🎙️</button>
