@@ -2117,7 +2117,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
 }
 
 // ── Task Modal ────────────────────────────────────────────────────────────────
-function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,onClose,onUpdate,onMove,onDelete}){
+function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,onTransferProject,onClose,onUpdate,onMove,onDelete}){
   const [editing,setEditing]=useState(false);
   const [draft,setDraft]=useState({...task});
   const [comment,setComment]=useState("");
@@ -2132,6 +2132,11 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
   const [newLink,setNewLink]=useState({label:"",url:"",icon:"🔗"});
   const [avatarOpen,setAvatarOpen]=useState(false);
   const [pendingClose,setPendingClose]=useState(false);
+  // Transferencia de proyecto principal: panel inline de confirmación.
+  // Al confirmar se llama onTransferProject(newProjectId) y el caller
+  // mueve la tarea entre boards y recalcula task.ref.
+  const [transferOpen,setTransferOpen]=useState(false);
+  const [transferTarget,setTransferTarget]=useState("");
   const intRef=useRef(null);
   const p2=palOf(task.assignees); const q=getQ(task);
 
@@ -2330,7 +2335,36 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                       desde aquí — para cambiarlo, usa "Cambiar proyecto
                       principal". El código (ref) sigue al proyecto principal. */}
                   <div style={{marginTop:14}}>
-                    <FL c="Proyectos vinculados"/>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <FL c="Proyectos vinculados"/>
+                      {onTransferProject && (projects||[]).length>1 && !transferOpen && (
+                        <button onClick={()=>{setTransferOpen(true); setTransferTarget("");}} title="Mover el proyecto principal a otro" style={{padding:"3px 10px",borderRadius:6,background:"#fff",color:"#7F77DD",border:"1px solid #CFC9F3",fontSize:11,cursor:"pointer",fontWeight:600,fontFamily:"inherit"}}>↪ Cambiar principal</button>
+                      )}
+                    </div>
+                    {transferOpen && (()=>{
+                      const currentPid = draft.projectId??task.projectId;
+                      const candidates = (projects||[]).filter(p=>p.id!==currentPid);
+                      const target = (projects||[]).find(p=>p.id===Number(transferTarget));
+                      const currentProj = (projects||[]).find(p=>p.id===currentPid);
+                      return(
+                        <div style={{padding:"10px 12px",background:"#FFF8E1",border:"1px solid #FCD34D",borderRadius:8,marginBottom:10}}>
+                          <div style={{fontSize:11.5,color:"#92400E",marginBottom:8}}>Selecciona el nuevo proyecto principal. {currentProj?currentProj.name:""} pasará a vinculado y el código se recalculará al prefijo del nuevo proyecto.</div>
+                          <select value={transferTarget} onChange={e=>setTransferTarget(e.target.value)} style={{width:"100%",padding:"6px 10px",borderRadius:6,border:"1px solid #d1d5db",fontSize:12,marginBottom:8,fontFamily:"inherit"}}>
+                            <option value="">— Selecciona proyecto destino —</option>
+                            {candidates.map(p=><option key={p.id} value={p.id}>{p.emoji||"📋"} {p.name}{p.code?` [${p.code}]`:""}</option>)}
+                          </select>
+                          {target && (
+                            <div style={{fontSize:11,color:"#374151",marginBottom:8,fontStyle:"italic"}}>
+                              ¿Mover <b>{task.ref||""}</b> a <b>{target.name}</b>? El código pasará a <b>{target.code||"?"}-NNN</b>. {currentProj?currentProj.code:"el actual"} seguirá vinculado.
+                            </div>
+                          )}
+                          <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                            <button onClick={()=>{setTransferOpen(false); setTransferTarget("");}} style={{padding:"5px 10px",borderRadius:6,background:"transparent",color:"#6B7280",border:"1px solid #D1D5DB",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+                            <button onClick={()=>{ if(target){ onTransferProject(target.id); setTransferOpen(false); setTransferTarget(""); } }} disabled={!target} style={{padding:"5px 12px",borderRadius:6,background:target?"#7F77DD":"#E5E7EB",color:target?"#fff":"#9CA3AF",border:"none",fontSize:11,cursor:target?"pointer":"not-allowed",fontWeight:600,fontFamily:"inherit"}}>Confirmar traspaso</button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                       {(()=>{
                         const primary = (projects||[]).find(p=>p.id===(draft.projectId??task.projectId));
@@ -2864,7 +2898,7 @@ function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
 }
 
 // ── Board View ────────────────────────────────────────────────────────────────
-function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask,onDeleteTask}){
+function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,onTransferProject,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask,onDeleteTask}){
   const [openTaskId,setOpenTaskId]=useState(null);
   useEffect(()=>{
     if(externalOpenTaskId){
@@ -2896,7 +2930,7 @@ function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,wor
           </div>
         ))}
       </div>
-      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} agents={agents||[]} ceoMemory={ceoMemory} canDelete={canDelete || (openModal.t.assignees||[]).length===0} projects={projects} onNavigateProject={onNavigateProject} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}} onDelete={onDeleteTask}/>}
+      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} agents={agents||[]} ceoMemory={ceoMemory} canDelete={canDelete || (openModal.t.assignees||[]).length===0} projects={projects} onNavigateProject={onNavigateProject} onTransferProject={onTransferProject?(newPid)=>{ onTransferProject(openModal.t.id, newPid); setOpenTaskId(null); }:undefined} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}} onDelete={onDeleteTask}/>}
     </>
   );
 }
@@ -7826,6 +7860,59 @@ export default function TaskFlow(){
     });
     addToast("✓ Tarea completada");
   },[addToast]);
+  // Traspaso de proyecto principal: extrae la tarea del board de su proyecto
+  // actual (sea cual sea), la inserta en el board del nuevo proyecto en una
+  // columna que case por nombre con la actual (o la primera), recalcula
+  // task.ref con el código del nuevo proyecto y empuja el proyecto antiguo
+  // a linkedProjects (si no estaba ya). Idempotente respecto a linkedProjects.
+  const transferTaskToProject = useCallback((taskId, newProjId)=>{
+    setData(prev=>{
+      // Localiza la tarea y su proyecto actual
+      let oldPid = null;
+      let task = null;
+      let currentColName = null;
+      for(const pid in prev.boards){
+        const cols = prev.boards[pid];
+        for(const col of cols){
+          const t = col.tasks.find(x=>x.id===taskId);
+          if(t){ oldPid = Number(pid); task = t; currentColName = col.name; break; }
+        }
+        if(task) break;
+      }
+      if(!task || oldPid===null) return prev;
+      if(oldPid===newProjId) return prev;
+      const newProj = (prev.projects||[]).find(p=>p.id===newProjId);
+      if(!newProj){ return prev; }
+      const destCols = prev.boards[newProjId] || [];
+      if(destCols.length===0) return prev;
+      const destCol = destCols.find(c=>c.name===currentColName) || destCols[0];
+      // Recalcula ref si el nuevo proyecto tiene código válido
+      const newRef = newProj.code ? computeNextTaskRef(newProj.code, destCols) : task.ref;
+      // Asegura que el proyecto antiguo entra en linkedProjects (si no está)
+      const oldLinked = Array.isArray(task.linkedProjects) ? task.linkedProjects : [];
+      const nextLinked = oldLinked.filter(x=>x!==newProjId);
+      if(!nextLinked.includes(oldPid)) nextLinked.push(oldPid);
+      const movedTask = {...task, projectId:newProjId, ref:newRef, linkedProjects:nextLinked};
+      // Quita del board origen
+      const newOldBoard = prev.boards[oldPid].map(col=>({
+        ...col,
+        tasks: col.tasks.filter(t=>t.id!==taskId),
+      }));
+      // Inserta en el board destino en la col elegida
+      const newDestBoard = destCols.map(col=>col.id===destCol.id
+        ? {...col, tasks:[...col.tasks, movedTask]}
+        : col);
+      return {
+        ...prev,
+        boards: {
+          ...prev.boards,
+          [oldPid]: newOldBoard,
+          [newProjId]: newDestBoard,
+        },
+      };
+    });
+    addToast("✓ Proyecto principal cambiado");
+  },[addToast]);
   const moveTaskAnywhere = useCallback((taskId,fromColId,toColId)=>{
     setData(prev=>{
       for(const pid in prev.boards){
@@ -8360,6 +8447,7 @@ export default function TaskFlow(){
                 canDelete={isAdmin}
                 projects={data.projects}
                 onNavigateProject={pid=>{const i=data.projects.findIndex(x=>x.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}}
+                onTransferProject={newPid=>{ transferTaskToProject(t.id, newPid); setOverlayTaskId(null); }}
                 onClose={()=>setOverlayTaskId(null)}
                 onUpdate={(id,_cid,upd)=>updateTaskAnywhere(id,upd)}
                 onMove={(id,from,to)=>{moveTaskAnywhere(id,from,to);setOverlayTaskId(null);}}
@@ -8672,7 +8760,7 @@ export default function TaskFlow(){
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
-          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={(id,cid,upd)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) updateTask(id,cid,upd); else updateTaskAnywhere(id,upd); }} onMove={moveTask} onAddTask={addTask} onDeleteTask={(id,cid)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) deleteTask(id,cid); else deleteTaskAnywhere(id); }}/>}
+          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} onTransferProject={transferTaskToProject} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={(id,cid,upd)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) updateTask(id,cid,upd); else updateTaskAnywhere(id,upd); }} onMove={moveTask} onAddTask={addTask} onDeleteTask={(id,cid)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) deleteTask(id,cid); else deleteTaskAnywhere(id); }}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
           {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile} onUpdateTask={updateTaskAnywhere}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
