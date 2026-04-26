@@ -12,6 +12,7 @@
 // Guard adicional: lastCallTime + isGenerating + dedup por título de
 // recomendación previa.
 import React, { useEffect, useState, useRef } from "react";
+import { speak, stopSpeaking } from "../../lib/voice.js";
 
 const STATE_LABEL = {
   analyzing:   { label: "Analizando…",  bg: "#FEF3C7", fg: "#92400E", border: "#F59E0B" },
@@ -36,43 +37,21 @@ const timeAgo = (ts) => {
   return `hace ${Math.floor(s / 86400)} d`;
 };
 
-// Voz vía Web Speech API. En la primera carga, getVoices() devuelve [] en
-// muchos navegadores (Chrome/Safari) hasta que el motor TTS dispara
-// voiceschanged. Si lo ignoras, speak() arranca con voz por defecto del
-// sistema (a veces inglesa) o no arranca. Solución: si no hay voces aún,
-// suscribirse a voiceschanged una vez y disparar speak() cuando lleguen.
+// Voz: reusa speak() de lib/voice.js, la MISMA función que usa Héctor en
+// la sección de Deal Room (NegotiationDetailView línea ~6072). Allí
+// pickVoice("male") busca por nombre Jorge/Diego/Juan/Pablo/Carlos/Miguel
+// /Enrique/Andrés en voces es-*, excluye femeninas (Mónica/Marisol/…) y
+// aplica pitch=0.5 si el SO solo expone voces femeninas. La config de
+// voz de Héctor en data.agents es {gender:"male", rate:1.1, pitch:0.9}
+// y ese es el contrato que respeta la lib (incluye voiceschanged async).
 // Sigue la preferencia "hector_muted" en localStorage (storage usa "1").
+const HECTOR_VOICE = { gender: "male", rate: 1.1, pitch: 0.9 };
 const speakRecommendation = (text) => {
   if (typeof window === "undefined" || !window.speechSynthesis) return;
   try { if (localStorage.getItem("hector_muted") === "1") return; } catch {}
   if (!text) return;
   try {
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "es-ES";
-    const trySpeak = () => {
-      const voices = window.speechSynthesis.getVoices() || [];
-      // Voz masculina española por preferencia de nombre (catálogos OS suelen
-      // exponer Jorge/Diego/Carlos/Álvaro). Si no hay match, fallback a
-      // cualquier es-ES con "male" en el nombre, luego es-ES, luego es-*.
-      const maleVoice =
-        voices.find((v) => v.name && v.name.includes("Jorge")) ||
-        voices.find((v) => v.name && v.name.includes("Diego")) ||
-        voices.find((v) => v.name && v.name.includes("Carlos")) ||
-        voices.find((v) => v.name && (v.name.includes("Álvaro") || v.name.includes("Alvaro"))) ||
-        voices.find((v) => v.lang === "es-ES" && v.name && v.name.toLowerCase().includes("male")) ||
-        voices.find((v) => v.lang === "es-ES") ||
-        voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("es"));
-      if (maleVoice) utterance.voice = maleVoice;
-      utterance.pitch = 0.85; // más grave para sonar masculino
-      utterance.rate = 0.92;
-      window.speechSynthesis.speak(utterance);
-    };
-    if ((window.speechSynthesis.getVoices() || []).length === 0) {
-      window.speechSynthesis.addEventListener("voiceschanged", trySpeak, { once: true });
-    } else {
-      trySpeak();
-    }
+    speak(text, HECTOR_VOICE);
   } catch (e) {
     console.warn("[HectorPanel] speak fallo:", e?.message);
   }
@@ -218,8 +197,8 @@ Responde SOLO en JSON válido sin markdown:
     setMuted((prev) => {
       const next = !prev;
       try { localStorage.setItem("hector_muted", next ? "1" : "0"); } catch {}
-      if (next && typeof window !== "undefined" && window.speechSynthesis) {
-        try { window.speechSynthesis.cancel(); } catch {}
+      if (next) {
+        try { stopSpeaking(); } catch {}
       }
       return next;
     });
