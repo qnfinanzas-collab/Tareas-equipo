@@ -3929,6 +3929,8 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
   // Acciones del Foco. Empezar/Hecho mutan el board mediante callbacks
   // ya existentes en App; Posponer pide razón inline y mueve la fecha 1 día.
   const [postponeReason,setPostponeReason] = useState(null); // null | string en edición
+  // Hover en bloques del Pulso del Día — muestra popover con detalles.
+  const [hoverBlock,setHoverBlock] = useState(null);
   const startFocus = ()=>{
     if(!focusTask) return;
     onOpenTask?.(focusTask.id, focusTask.projId);
@@ -3970,11 +3972,49 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
           </div>
         </div>
         <div style={{position:"relative",display:"grid",gridTemplateColumns:"repeat(16,1fr)",gap:3,height:36}}>
-          {blocks.map((b,i)=>(
-            <div key={i} title={b.task?`${b.label} · ${b.task.title}`:b.label} style={{background:b.color,borderRadius:4,position:"relative",cursor:b.task?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>b.task&&onOpenTask?.(b.task.id, b.task.projId)}>
-              {i%2===0&&<span style={{fontSize:9,color:"#374151",fontWeight:600,opacity:0.7}}>{b.label}</span>}
-            </div>
-          ))}
+          {blocks.map((b,i)=>{
+            const isHover = hoverBlock===i;
+            // Bloques con tarea son los que muestran popover. La posición
+            // del popover se calcula relativo a la grilla: left% según el
+            // bloque (16 columnas), centrado horizontalmente con translate.
+            // Para los extremos (i<2 o i>13) ajustamos para no salirnos.
+            const leftPct = ((i+0.5)/16)*100;
+            const transformX = i<=1 ? "0" : i>=14 ? "-100%" : "-50%";
+            return(
+              <div
+                key={i}
+                onMouseEnter={()=>setHoverBlock(i)}
+                onMouseLeave={()=>setHoverBlock(h=>h===i?null:h)}
+                style={{background:b.color,borderRadius:4,position:"relative",cursor:b.task?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center"}}
+                onClick={()=>b.task&&onOpenTask?.(b.task.id, b.task.projId)}
+              >
+                {i%2===0&&<span style={{fontSize:9,color:"#374151",fontWeight:600,opacity:0.7}}>{b.label}</span>}
+                {isHover && b.task && (()=>{
+                  const t = b.task;
+                  const neg = t.negotiationId ? (negotiations||[]).find(n=>n.id===t.negotiationId) : null;
+                  const priColors = t.priority==="alta"?{bg:"#FCEBEB",fg:"#A32D2D",bd:"#E24B4A"}
+                                  : t.priority==="media"?{bg:"#FEF3C7",fg:"#92400E",bd:"#FCD34D"}
+                                  : {bg:"#F0FDF4",fg:"#0E7C5A",bd:"#86EFAC"};
+                  return(
+                    <div style={{position:"absolute",left:`${leftPct - ((i+0.5)/16)*100 + 50}%`,bottom:"calc(100% + 8px)",transform:`translateX(${transformX})`,width:240,maxWidth:240,padding:"10px 12px",background:"#fff",border:"1px solid #E5E7EB",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:50,pointerEvents:"none",fontFamily:"inherit",textAlign:"left"}}>
+                      <div style={{fontSize:10,color:"#9CA3AF",fontWeight:600,marginBottom:4}}>🕒 {b.label}</div>
+                      <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:5,flexWrap:"wrap"}}>
+                        <RefBadge code={t.ref}/>
+                        <span style={{fontSize:10.5,color:t.projColor||"#6B7280",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}}>{t.projEmoji||"📋"} {t.projName}</span>
+                      </div>
+                      <div style={{fontSize:13,fontWeight:600,color:"#111827",lineHeight:1.3,marginBottom:6,wordBreak:"break-word"}}>{t.title}</div>
+                      {neg && <div style={{fontSize:11,color:"#6B7280",marginBottom:4}}>🤝 Contraparte: <b style={{color:"#374151"}}>{neg.counterparty}</b></div>}
+                      <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginTop:6}}>
+                        <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:priColors.bg,border:`1px solid ${priColors.bd}`,color:priColors.fg}}>Prio {t.priority||"media"}</span>
+                        <span style={{fontSize:10,fontWeight:500,padding:"2px 7px",borderRadius:10,background:"#F3F4F6",color:"#374151",border:"1px solid #E5E7EB"}}>{t.colName||"—"}</span>
+                        {t.estimatedHours>0 && <span style={{fontSize:10,color:"#6B7280"}}>⌛ {t.estimatedHours}h est.</span>}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            );
+          })}
           {/* Línea vertical de hora actual */}
           {(()=>{
             const start=blocks[0]?.ts; if(!start) return null;
