@@ -2324,6 +2324,54 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                       );
                     })}
                   </div>
+                  {/* Proyectos vinculados: la tarea aparece también en el
+                      tablero de los proyectos secundarios. El proyecto
+                      principal (task.projectId) no se puede desvincular
+                      desde aquí — para cambiarlo, usa "Cambiar proyecto
+                      principal". El código (ref) sigue al proyecto principal. */}
+                  <div style={{marginTop:14}}>
+                    <FL c="Proyectos vinculados"/>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                      {(()=>{
+                        const primary = (projects||[]).find(p=>p.id===(draft.projectId??task.projectId));
+                        if(primary){
+                          return(
+                            <span title="Proyecto principal — no se puede desvincular" style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 8px 3px 8px",borderRadius:14,background:`${primary.color}14`,border:`1px solid ${primary.color}55`,color:primary.color,fontSize:11.5,fontWeight:600}}>
+                              <span style={{fontSize:9,padding:"1px 5px",borderRadius:4,background:primary.color,color:"#fff",fontWeight:700,letterSpacing:"0.04em"}}>PRINCIPAL</span>
+                              {primary.emoji||"📋"} {primary.name}
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
+                      {(draft.linkedProjects||[]).map(pid=>{
+                        const p=(projects||[]).find(x=>x.id===pid); if(!p) return null;
+                        return(
+                          <span key={pid} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"3px 5px 3px 8px",borderRadius:14,background:"#F3F4F6",border:"1px solid #E5E7EB",color:"#374151",fontSize:11.5,fontWeight:500}}>
+                            🔗 {p.emoji||""} {p.name}
+                            <button onClick={()=>set("linkedProjects",(draft.linkedProjects||[]).filter(x=>x!==pid))} title="Desvincular" style={{width:16,height:16,borderRadius:"50%",background:"#E24B4A",color:"#fff",border:"none",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>×</button>
+                          </span>
+                        );
+                      })}
+                      {(()=>{
+                        const usedIds = new Set([(draft.projectId??task.projectId), ...(draft.linkedProjects||[])]);
+                        const candidates = (projects||[]).filter(p=>!usedIds.has(p.id));
+                        if(candidates.length===0) return null;
+                        return(
+                          <select value="" onChange={e=>{
+                            const v=Number(e.target.value);
+                            if(!Number.isFinite(v)) return;
+                            set("linkedProjects",[...(draft.linkedProjects||[]), v]);
+                          }} style={{padding:"4px 8px",borderRadius:14,border:"1px dashed #9CA3AF",background:"#fff",fontSize:11.5,color:"#4B5563",cursor:"pointer",fontFamily:"inherit"}}>
+                            <option value="">+ Vincular a proyecto…</option>
+                            {candidates.map(p=>(
+                              <option key={p.id} value={p.id}>{p.emoji||"📋"} {p.name}{p.code?` [${p.code}]`:""}</option>
+                            ))}
+                          </select>
+                        );
+                      })()}
+                    </div>
+                  </div>
                 </>
               ):(
                 <>
@@ -2770,7 +2818,7 @@ function ScopeAvatarModal({scope,data,activeProjectId,activeMemberId,onClose,onM
 }
 
 // ── Task Card ─────────────────────────────────────────────────────────────────
-function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
+function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
   const p2=palOf(task.assignees);
   const isOver=daysUntil(task.dueDate)<0;
   const isToday=daysUntil(task.dueDate)===0;
@@ -2781,10 +2829,22 @@ function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
   const subs=task.subtasks||[];
   const subDone=subs.filter(s=>s.done).length;
   const subAllDone=subs.length>0&&subDone===subs.length;
+  // Tarjetas mostradas en boards secundarios (linked) son no draggables y
+  // tienen un fondo levemente distinto para distinguirlas. La tarea sigue
+  // viviendo en su proyecto principal — se sincronizan vía mutadores Anywhere.
+  const isLinkedHere = !!task._linkedFromAnotherProject;
+  const linkedNames = (task.linkedProjects||[])
+    .map(pid=>(projects||[]).find(p=>p.id===pid))
+    .filter(Boolean)
+    .map(p=>`${p.code||p.name}`);
+  const sharedTooltip = isLinkedHere
+    ? `Compartida desde otro proyecto`
+    : (linkedNames.length>0 ? `También en: ${linkedNames.join(", ")}` : "");
   return(
-    <div draggable onDragStart={onDragStart} onClick={onOpen} style={{background:p2?p2.cardBg:"#fff",border:`0.5px solid ${p2?p2.cardBorder+"55":"#e5e7eb"}`,borderLeft:`4px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:10,padding:"10px 12px",marginBottom:8,cursor:"pointer"}}>
+    <div draggable={!isLinkedHere} onDragStart={isLinkedHere?undefined:onDragStart} onClick={onOpen} style={{background:isLinkedHere?"#FAFAF5":(p2?p2.cardBg:"#fff"),border:`0.5px solid ${p2?p2.cardBorder+"55":"#e5e7eb"}`,borderLeft:`4px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:10,padding:"10px 12px",marginBottom:8,cursor:"pointer"}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:6}}>
         <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,lineHeight:1.4}}>{task.title}</div>
+        {(isLinkedHere || (task.linkedProjects||[]).length>0) && <span title={sharedTooltip} style={{fontSize:10,padding:"1px 6px",borderRadius:4,background:"#F3F4F6",color:"#6B7280",border:"0.5px solid #E5E7EB",fontWeight:600,flexShrink:0}}>🔗</span>}
         <RefBadge code={task.ref}/>
       </div>
       {task.tags.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:6}}>{task.tags.map((tg,i)=><Tag key={i} tag={tg}/>)}</div>}
@@ -2828,7 +2888,7 @@ function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,wor
         {board.map(col=>(
           <div key={col.id} className="tf-board-col" onDragOver={e=>e.preventDefault()} onDrop={e=>handleDrop(e,col.id)} style={{width:268,flexShrink:0,background:"#f3f4f6",borderRadius:14,padding:10}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"0 2px"}}><span style={{fontSize:13,fontWeight:500}}>{col.name}</span><span style={{fontSize:11,background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:20,padding:"1px 7px",color:"#6b7280"}}>{col.tasks.length}</span></div>
-            {col.tasks.map(task=><TaskCard key={task.id} task={task} members={members} aiSchedule={aiSchedule} onOpen={()=>setOpenTaskId(task.id)} onDragStart={()=>setDragging({taskId:task.id,colId:col.id})}/>)}
+            {col.tasks.map(task=><TaskCard key={`${task._linkedFromAnotherProject?"L-":""}${task.id}`} task={task} members={members} aiSchedule={aiSchedule} projects={projects} onOpen={()=>setOpenTaskId(task.id)} onDragStart={()=>setDragging({taskId:task.id,colId:col.id})}/>)}
             {newCard===col.id
               ?<div style={{background:"#fff",border:"0.5px solid #7F77DD",borderRadius:10,padding:8}}><input autoFocus value={newCardTitle} onChange={e=>setNewCardTitle(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveNew(col.id);if(e.key==="Escape")setNewCard(null);}} placeholder="Titulo de la tarea..." style={{width:"100%",border:"none",outline:"none",fontSize:13,background:"transparent",fontFamily:"inherit"}}/><div style={{display:"flex",gap:6,marginTop:8}}><button onClick={()=>saveNew(col.id)} style={{padding:"4px 10px",borderRadius:6,background:"#7F77DD",color:"#fff",border:"none",fontSize:12,cursor:"pointer"}}>Añadir</button><button onClick={()=>setNewCard(null)} style={{padding:"4px 10px",borderRadius:6,background:"transparent",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>Cancelar</button></div></div>
               :<button onClick={()=>{setNewCard(col.id);setNewCardTitle("");}} style={{width:"100%",textAlign:"left",padding:"7px 8px",borderRadius:8,fontSize:13,color:"#6b7280",background:"transparent",border:"none",cursor:"pointer"}}>+ Añadir tarea</button>
@@ -7568,7 +7628,36 @@ export default function TaskFlow(){
   },[showUserModal,toggleSidebarCollapsed]);
 
   const proj  = data.projects[activeProject];
-  const board = data.boards[proj.id];
+  // Tablero derivado: incluye tareas vinculadas desde otros proyectos cuyo
+  // linkedProjects incluya este proyecto. Se mapean a la columna que
+  // coincida por nombre con la columna primaria de la tarea; si no hay
+  // match, van a la primera columna. Llevan flag _linkedFromAnotherProject
+  // para que la TaskCard las muestre en gris y no draggables.
+  const board = React.useMemo(()=>{
+    const own = data.boards[proj.id] || [];
+    if(!own.length) return own;
+    const linked = [];
+    Object.entries(data.boards||{}).forEach(([pid,cols])=>{
+      if(Number(pid)===proj.id) return;
+      cols.forEach(col=>col.tasks.forEach(t=>{
+        if(Array.isArray(t.linkedProjects) && t.linkedProjects.includes(proj.id)){
+          linked.push({task:t, primaryColName:col.name});
+        }
+      }));
+    });
+    if(!linked.length) return own;
+    return own.map((col,idx)=>{
+      const matched = linked
+        .filter(({primaryColName})=>primaryColName===col.name)
+        .map(({task})=>({...task, _linkedFromAnotherProject:true}));
+      const orphan = idx===0
+        ? linked
+            .filter(({primaryColName})=>!own.some(c=>c.name===primaryColName))
+            .map(({task})=>({...task, _linkedFromAnotherProject:true}))
+        : [];
+      return {...col, tasks:[...col.tasks, ...matched, ...orphan]};
+    });
+  },[data.boards, proj.id]);
   const alerts = genAlerts(data.boards, data.members);
   const critCount = alerts.filter(a=>a.memberId===activeMember&&(a.level==="critical"||a.level==="warning")).length;
 
@@ -8583,7 +8672,7 @@ export default function TaskFlow(){
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
-          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask} onDeleteTask={deleteTask}/>}
+          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={(id,cid,upd)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) updateTask(id,cid,upd); else updateTaskAnywhere(id,upd); }} onMove={moveTask} onAddTask={addTask} onDeleteTask={(id,cid)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) deleteTask(id,cid); else deleteTaskAnywhere(id); }}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
           {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile} onUpdateTask={updateTaskAnywhere}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
