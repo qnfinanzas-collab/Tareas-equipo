@@ -3834,6 +3834,217 @@ function ProjectModal({project,members,workspaces,allProjects,onClose,onSave}){
   );
 }
 
+// ── Sala de Mando — Command Room ─────────────────────────────────────────────
+// Dashboard activo que dirige al CEO en lugar de informarle. La estructura
+// visual contiene 4 elementos: Pulso del Día (timeline horizontal), Foco
+// del Momento (tarjeta grande central), Riesgos Activos (3 tarjetas
+// derecha) y los modales proactivos de Héctor (briefing matinal y cierre
+// del día). Esta primera versión usa heurísticas deterministas; la
+// selección por LLM y el resto de funcionalidades inteligentes se añaden
+// en commits posteriores.
+function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostponeTask,onGoDashboard,onGoMytasks,onGoDealRoom}){
+  const {boards,projects,members,negotiations}=data;
+  const me = (members||[]).find(m=>m.id===activeMember);
+  // Tareas del usuario activo (asignadas a mí), enriquecidas con metadatos
+  // de proyecto/columna para los chips visuales.
+  const myTasks = [];
+  Object.entries(boards||{}).forEach(([pid,cols])=>{
+    const proj = (projects||[]).find(p=>p.id===Number(pid));
+    cols.forEach(col=>col.tasks.forEach(t=>{
+      if(!t.assignees?.includes(activeMember)) return;
+      myTasks.push({...t, colId:col.id, colName:col.name, projId:Number(pid), projName:proj?.name||"", projColor:proj?.color||"#7F77DD", projEmoji:proj?.emoji||"📋", projCode:proj?.code});
+    }));
+  });
+  const active = myTasks.filter(t=>t.colName!=="Hecho");
+  // Foco del Momento: heurística determinista por urgencia. La selección
+  // automática por Héctor (LLM) llega en el commit "feat(focus): …".
+  const focusTask = (()=>{
+    const overdue = active.filter(t=>t.dueDate&&daysUntil(t.dueDate)<0)
+      .sort((a,b)=>daysUntil(a.dueDate)-daysUntil(b.dueDate));
+    if(overdue.length>0) return overdue[0];
+    const today = active.filter(t=>t.dueDate&&daysUntil(t.dueDate)===0)
+      .sort((a,b)=>(b.priority==="alta"?1:0)-(a.priority==="alta"?1:0));
+    if(today.length>0) return today[0];
+    const high = active.filter(t=>t.priority==="alta")
+      .sort((a,b)=>(a.dueDate?daysUntil(a.dueDate):9999)-(b.dueDate?daysUntil(b.dueDate):9999));
+    if(high.length>0) return high[0];
+    return active[0] || null;
+  })();
+  const focusReason = (()=>{
+    if(!focusTask) return "";
+    const d = focusTask.dueDate ? daysUntil(focusTask.dueDate) : null;
+    if(d!==null && d<0) return `Vencida hace ${-d}d — ciérrala antes de seguir`;
+    if(d===0) return "Vence hoy — bloquea esto en tu mañana";
+    if(focusTask.priority==="alta") return "Alta prioridad y nadie la está moviendo";
+    return "Avanza esta primero, libera atención";
+  })();
+  const focusCountdown = (()=>{
+    if(!focusTask?.dueDate) return null;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const due = new Date(focusTask.dueDate); due.setHours(focusTask.dueTime?Number(focusTask.dueTime.split(":")[0]):23, focusTask.dueTime?Number(focusTask.dueTime.split(":")[1]):59);
+    const diffMs = due - new Date();
+    if(diffMs<0){ const d = Math.floor(-diffMs/86400000); return d>0?`Vencida hace ${d}d`:"Vencida"; }
+    const h = Math.floor(diffMs/3600000), m = Math.floor((diffMs%3600000)/60000);
+    if(h>=24) return `Vence en ${Math.floor(h/24)}d ${h%24}h`;
+    return `Vence en ${h}h ${m}min`;
+  })();
+
+  // Pulso del Día: 16 bloques de 30 min desde la hora actual (8h adelante).
+  // Color según heurística simple. Asignación de tareas a bloques en el
+  // commit "feat(timeline): …".
+  const now = new Date();
+  const blocks = (()=>{
+    const out=[]; const start=new Date(now); start.setMinutes(start.getMinutes()-(start.getMinutes()%30),0,0);
+    for(let i=0;i<16;i++){
+      const t=new Date(start.getTime()+i*30*60000);
+      const hh=String(t.getHours()).padStart(2,"0"), mm=String(t.getMinutes()).padStart(2,"0");
+      out.push({label:`${hh}:${mm}`, ts:t.getTime(), color:"#E5E7EB", task:null});
+    }
+    return out;
+  })();
+  // Pinta los primeros bloques con tareas críticas/urgentes (placeholder).
+  const overdueList = active.filter(t=>t.dueDate&&daysUntil(t.dueDate)<0).slice(0,2);
+  const todayList   = active.filter(t=>t.dueDate&&daysUntil(t.dueDate)===0).slice(0,2);
+  const highList    = active.filter(t=>t.priority==="alta"&&!overdueList.includes(t)&&!todayList.includes(t)).slice(0,3);
+  let bIdx=0;
+  overdueList.forEach(t=>{ if(blocks[bIdx]){ blocks[bIdx].color="#FCA5A5"; blocks[bIdx].task=t; bIdx++; if(blocks[bIdx]){ blocks[bIdx].color="#FCA5A5"; blocks[bIdx].task=t; bIdx++; } } });
+  todayList.forEach(t=>{ if(blocks[bIdx]){ blocks[bIdx].color="#FDBA74"; blocks[bIdx].task=t; bIdx++; if(blocks[bIdx]){ blocks[bIdx].color="#FDBA74"; blocks[bIdx].task=t; bIdx++; } } });
+  highList.forEach(t=>{ if(blocks[bIdx]){ blocks[bIdx].color="#93C5FD"; blocks[bIdx].task=t; bIdx++; if(blocks[bIdx]){ blocks[bIdx].color="#93C5FD"; blocks[bIdx].task=t; bIdx++; } } });
+
+  // Riesgos Activos — heurísticas deterministas.
+  const overdueCold = active.filter(t=>{
+    if(!t.dueDate||daysUntil(t.dueDate)>=0) return false;
+    const lastLog = (t.timeLogs||[]).slice(-1)[0]?.date || t.startDate;
+    const days = lastLog ? Math.floor((Date.now()-new Date(lastLog).getTime())/86400000) : 999;
+    return days>=2;
+  });
+  const coldNegs = (negotiations||[]).filter(n=>{
+    if(n.status!=="active" && n.status!=="open" && n.status!=="negotiating") return false;
+    const ts = n.updatedAt ? new Date(n.updatedAt).getTime() : 0;
+    if(!ts) return false;
+    return (Date.now()-ts) > 5*86400000;
+  });
+  const waiting = active.filter(t=>(t.comments||[]).some(c=>/esperando respuesta/i.test(c.text||"")));
+
+  // Acciones del Foco. Empezar/Hecho mutan el board mediante callbacks
+  // ya existentes en App; Posponer pide razón inline y mueve la fecha 1 día.
+  const [postponeReason,setPostponeReason] = useState(null); // null | string en edición
+  const startFocus = ()=>{
+    if(!focusTask) return;
+    onOpenTask?.(focusTask.id, focusTask.projId);
+  };
+  const completeFocus = ()=>{
+    if(!focusTask) return;
+    onCompleteTask?.(focusTask.id, focusTask.projId, focusTask.colId);
+  };
+  const submitPostpone = ()=>{
+    if(!focusTask) return;
+    const newDate = new Date(focusTask.dueDate || new Date());
+    newDate.setDate(newDate.getDate()+1);
+    onPostponeTask?.(focusTask, fmt(newDate), "+1d");
+    setPostponeReason(null);
+  };
+
+  return(
+    <div style={{padding:"20px 22px",maxWidth:1280,margin:"0 auto"}}>
+      {/* Cabecera */}
+      <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginBottom:18,gap:12,flexWrap:"wrap"}}>
+        <div>
+          <div style={{fontSize:11,fontWeight:700,color:"#7F77DD",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>🎯 Sala de Mando</div>
+          <div style={{fontSize:22,fontWeight:700,color:"#111827"}}>Hola{me?`, ${me.name.split(" ")[0]}`:""}</div>
+          <div style={{fontSize:12,color:"#6B7280",marginTop:2}}>{active.length} tarea{active.length!==1?"s":""} activa{active.length!==1?"s":""} · {now.toLocaleString("es-ES",{weekday:"long",day:"numeric",month:"long"})}</div>
+        </div>
+        <button onClick={onGoDashboard} style={{padding:"6px 12px",borderRadius:8,background:"#fff",color:"#6B7280",border:"1px solid #E5E7EB",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📊 Dashboard analítico →</button>
+      </div>
+
+      {/* Pulso del Día — timeline horizontal */}
+      <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:"14px 16px",marginBottom:16}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#374151",textTransform:"uppercase",letterSpacing:"0.08em"}}>⏱ Pulso del día — próximas 8 h</div>
+          <div style={{display:"flex",gap:8,fontSize:10,color:"#9CA3AF"}}>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,background:"#FCA5A5",borderRadius:2}}/>Crítico</span>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,background:"#FDBA74",borderRadius:2}}/>Hoy</span>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,background:"#93C5FD",borderRadius:2}}/>Profundo</span>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,background:"#86EFAC",borderRadius:2}}/>Comunicación</span>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,background:"#E5E7EB",borderRadius:2}}/>Libre</span>
+          </div>
+        </div>
+        <div style={{position:"relative",display:"grid",gridTemplateColumns:"repeat(16,1fr)",gap:3,height:36}}>
+          {blocks.map((b,i)=>(
+            <div key={i} title={b.task?`${b.label} · ${b.task.title}`:b.label} style={{background:b.color,borderRadius:4,position:"relative",cursor:b.task?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>b.task&&onOpenTask?.(b.task.id, b.task.projId)}>
+              {i%2===0&&<span style={{fontSize:9,color:"#374151",fontWeight:600,opacity:0.7}}>{b.label}</span>}
+            </div>
+          ))}
+          {/* Línea vertical de hora actual */}
+          {(()=>{
+            const start=blocks[0]?.ts; if(!start) return null;
+            const elapsedRatio = ((now.getTime()-start)/(8*3600000));
+            if(elapsedRatio<0||elapsedRatio>1) return null;
+            return <div style={{position:"absolute",top:-3,bottom:-3,left:`${elapsedRatio*100}%`,width:2,background:"#E24B4A",pointerEvents:"none"}}/>;
+          })()}
+        </div>
+      </div>
+
+      {/* Grid 70/30 — Foco + Riesgos */}
+      <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 280px",gap:16}}>
+        {/* Foco del Momento */}
+        <div style={{background:"#fff",border:"2px solid #7F77DD33",borderRadius:14,padding:"24px 26px",minHeight:280,display:"flex",flexDirection:"column"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#7F77DD",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>🎯 Foco del momento</div>
+          {!focusTask
+            ? <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10}}>
+                <div style={{fontSize:30}}>✨</div>
+                <div style={{fontSize:15,color:"#6B7280",fontWeight:500}}>Sin tareas pendientes — has ganado la mañana.</div>
+                <button onClick={onGoMytasks} style={{padding:"7px 14px",borderRadius:8,background:"transparent",color:"#7F77DD",border:"1px solid #7F77DD",fontSize:12,cursor:"pointer",fontWeight:600}}>Ver Mis tareas →</button>
+              </div>
+            : <>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+                  <RefBadge code={focusTask.ref}/>
+                  <span style={{fontSize:11,padding:"2px 9px",borderRadius:14,background:`${focusTask.projColor}18`,color:focusTask.projColor,border:`1px solid ${focusTask.projColor}55`,fontWeight:600}}>{focusTask.projEmoji} {focusTask.projName}</span>
+                  {focusCountdown && <span style={{fontSize:11,padding:"2px 9px",borderRadius:14,background:"#FEF3C7",color:"#92400E",border:"1px solid #FCD34D",fontWeight:600}}>⏱ {focusCountdown}</span>}
+                </div>
+                <div style={{fontSize:32,fontWeight:700,color:"#111827",lineHeight:1.2,marginBottom:16}}>{focusTask.title}</div>
+                <div style={{padding:"10px 14px",background:"#F5F3FF",border:"1px solid #DDD6FE",borderRadius:10,marginBottom:18,fontSize:12.5,color:"#5B21B6",fontStyle:"italic",lineHeight:1.5}}>
+                  <b>Héctor:</b> {focusReason}
+                </div>
+                {postponeReason!==null
+                  ? <div style={{display:"flex",gap:8,alignItems:"center",marginTop:"auto"}}>
+                      <input value={postponeReason} onChange={e=>setPostponeReason(e.target.value)} placeholder="¿Por qué pospones? (obligatorio)" style={{flex:1,padding:"9px 12px",borderRadius:8,border:"1.5px solid #FCD34D",fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+                      <button onClick={submitPostpone} disabled={!postponeReason.trim()} style={{padding:"9px 16px",borderRadius:8,background:postponeReason.trim()?"#EF9F27":"#E5E7EB",color:postponeReason.trim()?"#fff":"#9CA3AF",border:"none",fontSize:12.5,cursor:postponeReason.trim()?"pointer":"not-allowed",fontWeight:600,fontFamily:"inherit"}}>Posponer +1d</button>
+                      <button onClick={()=>setPostponeReason(null)} style={{padding:"9px 12px",borderRadius:8,background:"transparent",color:"#6B7280",border:"1px solid #D1D5DB",fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+                    </div>
+                  : <div style={{display:"flex",gap:10,marginTop:"auto"}}>
+                      <button onClick={startFocus} style={{flex:2,padding:"12px 18px",borderRadius:10,background:"#1D9E75",color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>▶ Empezar ahora</button>
+                      <button onClick={()=>setPostponeReason("")} style={{flex:1,padding:"12px 14px",borderRadius:10,background:"#fff",color:"#6B7280",border:"1px solid #D1D5DB",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>⏸ Posponer</button>
+                      <button onClick={completeFocus} style={{flex:1,padding:"12px 14px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✓ Hecho</button>
+                    </div>
+                }
+              </>
+          }
+        </div>
+
+        {/* Riesgos Activos */}
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div onClick={()=>onGoMytasks?.("overdue")} style={{background:"#fff",border:`1px solid ${overdueCold.length>0?"#FCA5A5":"#E5E7EB"}`,borderLeft:`4px solid ${overdueCold.length>0?"#E24B4A":"#D1D5DB"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#991B1B",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🔴 Vencidas sin tocar</div>
+            <div style={{fontSize:24,fontWeight:700,color:overdueCold.length>0?"#B91C1C":"#9CA3AF",lineHeight:1.1}}>{overdueCold.length}</div>
+            <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{overdueCold.length===0?"Limpio — ningún olvido":"+2 días sin actualización"}</div>
+          </div>
+          <div onClick={()=>onGoDealRoom?.("cold")} style={{background:"#fff",border:`1px solid ${coldNegs.length>0?"#FCD34D":"#E5E7EB"}`,borderLeft:`4px solid ${coldNegs.length>0?"#EF9F27":"#D1D5DB"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#92400E",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>⏳ Negociaciones frías</div>
+            <div style={{fontSize:24,fontWeight:700,color:coldNegs.length>0?"#B45309":"#9CA3AF",lineHeight:1.1}}>{coldNegs.length}</div>
+            <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{coldNegs.length===0?"Todas en movimiento":"+5 días sin actividad"}</div>
+          </div>
+          <div onClick={()=>onGoMytasks?.("waiting")} style={{background:"#fff",border:`1px solid ${waiting.length>0?"#BFDBFE":"#E5E7EB"}`,borderLeft:`4px solid ${waiting.length>0?"#3B82F6":"#D1D5DB"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#1E3A8A",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📨 Esperan respuesta</div>
+            <div style={{fontSize:24,fontWeight:700,color:waiting.length>0?"#1E40AF":"#9CA3AF",lineHeight:1.1}}>{waiting.length}</div>
+            <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{waiting.length===0?"Sin pendientes externos":"Con etiqueta en comentarios"}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Projects Home View ────────────────────────────────────────────────────────
 function ProjectsView({projects,members,boards,onSelectProject,onCreateProject,onEditProject,onDeleteProject}){
   const total=pid=>(boards[pid]||[]).flatMap(c=>c.tasks).length;
@@ -7528,7 +7739,7 @@ export default function TaskFlow(){
   const [syncReady,setSyncReady]   = useState(!syncEnabled);
   const [syncStatus,setSyncStatus] = useState(syncEnabled?"connecting":"off");
   const [activeProject,setAP]      = useState(0);
-  const [activeTab,setActiveTab]   = useState("home");
+  const [activeTab,setActiveTab]   = useState("command");
   const [activeMember,setAM]       = useState(()=>{ const u=readStoredUser(); return typeof u?.id==="number"?u.id:5; });
   // isAdmin: lee accountRole del miembro activo. Cuando hay sesión
   // Supabase Auth, activeMember se resuelve por email tras login. Sin
@@ -8539,12 +8750,13 @@ export default function TaskFlow(){
         // (no acceden a Board, Proyectos, Deal Room, Dashboard, Briefings,
         // Memoria — solo ven sus propias tareas asignadas).
         const ALL_PRIMARY=[
+          {id:"command",    icon:"🎯", label:"Sala de Mando",shortcut:"",    onClick:()=>{setActiveTab("command");}, adminOnly:false},
           {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}, adminOnly:false},
           {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:true},
           {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false},
           {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:true},
           {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}, adminOnly:true},
-          {id:"dashboard",  icon:"📊", label:"Dashboard",    shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:true},
+          {id:"dashboard",  icon:"📊", label:"Dashboard analítico", shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:true},
           {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:true},
           {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:true},
         ];
@@ -8815,6 +9027,7 @@ export default function TaskFlow(){
               onEdit={n=>setNegModal(n)}
             />;
           })()}
+          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
