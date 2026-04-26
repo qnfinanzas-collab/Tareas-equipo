@@ -50,12 +50,22 @@ const speakRecommendation = (text) => {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "es-ES";
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
     const trySpeak = () => {
       const voices = window.speechSynthesis.getVoices() || [];
-      const spanishVoice = voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("es"));
-      if (spanishVoice) utterance.voice = spanishVoice;
+      // Voz masculina española por preferencia de nombre (catálogos OS suelen
+      // exponer Jorge/Diego/Carlos/Álvaro). Si no hay match, fallback a
+      // cualquier es-ES con "male" en el nombre, luego es-ES, luego es-*.
+      const maleVoice =
+        voices.find((v) => v.name && v.name.includes("Jorge")) ||
+        voices.find((v) => v.name && v.name.includes("Diego")) ||
+        voices.find((v) => v.name && v.name.includes("Carlos")) ||
+        voices.find((v) => v.name && (v.name.includes("Álvaro") || v.name.includes("Alvaro"))) ||
+        voices.find((v) => v.lang === "es-ES" && v.name && v.name.toLowerCase().includes("male")) ||
+        voices.find((v) => v.lang === "es-ES") ||
+        voices.find((v) => v.lang && v.lang.toLowerCase().startsWith("es"));
+      if (maleVoice) utterance.voice = maleVoice;
+      utterance.pitch = 0.85; // más grave para sonar masculino
+      utterance.rate = 0.92;
       window.speechSynthesis.speak(utterance);
     };
     if ((window.speechSynthesis.getVoices() || []).length === 0) {
