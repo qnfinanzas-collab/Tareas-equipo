@@ -712,7 +712,7 @@ function _migrate(d){
     }
     return { ...m, email: m.email || "", accountRole: m.accountRole || "member" };
   });
-  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[], dueTime: t.dueTime||""}))}))]));
+  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, projectId: typeof t.projectId==="number" ? t.projectId : Number(pid), linkedProjects: Array.isArray(t.linkedProjects)?t.linkedProjects:[], links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[], dueTime: t.dueTime||""}))}))]));
   // Backfill project.code (3 letras MAYÚSCULAS) y task.ref (CODE-NNN). Para
   // proyectos antiguos sin código, autogeneramos a partir del nombre y
   // marcamos codeAuto:true (informativo, sin efecto funcional). Para tareas
@@ -2111,13 +2111,13 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
       )}
 
       {profileMember&&<ProfileModal member={profileMember} onClose={()=>setProfileMember(null)} onSave={avail=>{saveMemberProfile?.(profileMember.id,avail);delete ICS_CACHE[profileMember.id];setResult(null);}}/>}
-      {editingTask&&<TaskModal task={editingTask.task} colId={editingTask.colId} cols={editingTask.cols} members={data.members} activeMemberId={0} workspaceLinks={[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} onClose={()=>setEditingTask(null)} onUpdate={(id,cid,upd)=>{onUpdateTask?.(id,upd);setEditingTask(prev=>prev?{...prev,task:upd}:null);}} onMove={()=>setEditingTask(null)}/>}
+      {editingTask&&<TaskModal task={editingTask.task} colId={editingTask.colId} cols={editingTask.cols} members={data.members} activeMemberId={0} workspaceLinks={[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} projects={data.projects} onNavigateProject={onNavigateProject} onClose={()=>setEditingTask(null)} onUpdate={(id,cid,upd)=>{onUpdateTask?.(id,upd);setEditingTask(prev=>prev?{...prev,task:upd}:null);}} onMove={()=>setEditingTask(null)}/>}
     </div>
   );
 }
 
 // ── Task Modal ────────────────────────────────────────────────────────────────
-function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,ceoMemory,canDelete,onClose,onUpdate,onMove,onDelete}){
+function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,onClose,onUpdate,onMove,onDelete}){
   const [editing,setEditing]=useState(false);
   const [draft,setDraft]=useState({...task});
   const [comment,setComment]=useState("");
@@ -2186,6 +2186,37 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
   return(
     <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,paddingBottom:20,overflowY:"auto"}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${p2?p2.cardBorder:"#7F77DD"}`,marginBottom:20}}>
+        {(()=>{
+          // Proyecto principal + vinculados (si existen). Permiten contexto
+          // visual del proyecto al que pertenece la tarea y de los proyectos
+          // adicionales a los que está vinculada.
+          const primary = (projects||[]).find(p=>p.id===task.projectId);
+          const linked = ((task.linkedProjects||[]))
+            .map(pid=>(projects||[]).find(p=>p.id===pid))
+            .filter(Boolean);
+          if(!primary && linked.length===0) return null;
+          return(
+            <div style={{padding:"8px 20px",borderBottom:"0.5px solid #f3f4f6",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:11.5,color:"#6B7280",background:"#FCFCFD"}}>
+              {primary&&(
+                <button
+                  onClick={()=>{ if(onNavigateProject){ onNavigateProject(primary.id); onClose?.(); } }}
+                  disabled={!onNavigateProject}
+                  title={onNavigateProject?`Ir al tablero de ${primary.name}`:primary.name}
+                  style={{display:"inline-flex",alignItems:"center",gap:5,padding:"2px 8px",borderRadius:6,background:`${primary.color}14`,border:`1px solid ${primary.color}55`,color:primary.color,fontSize:11.5,fontWeight:600,cursor:onNavigateProject?"pointer":"default",fontFamily:"inherit"}}
+                >📁 {primary.emoji||""} {primary.name}<RefBadge code={primary.code}/></button>
+              )}
+              {linked.map(p=>(
+                <button
+                  key={p.id}
+                  onClick={()=>{ if(onNavigateProject){ onNavigateProject(p.id); onClose?.(); } }}
+                  disabled={!onNavigateProject}
+                  title={onNavigateProject?`Ir al tablero de ${p.name}`:p.name}
+                  style={{display:"inline-flex",alignItems:"center",gap:5,padding:"2px 8px",borderRadius:6,background:"#F3F4F6",border:"1px solid #E5E7EB",color:"#6B7280",fontSize:11,fontWeight:500,cursor:onNavigateProject?"pointer":"default",fontFamily:"inherit"}}
+                >🔗 {p.name}<RefBadge code={p.code}/></button>
+              ))}
+            </div>
+          );
+        })()}
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
           {!editing&&<RefBadge code={task.ref}/>}
           {editing
@@ -2773,7 +2804,7 @@ function TaskCard({task,members,aiSchedule,onOpen,onDragStart}){
 }
 
 // ── Board View ────────────────────────────────────────────────────────────────
-function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,ceoMemory,canDelete,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask,onDeleteTask}){
+function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask,onDeleteTask}){
   const [openTaskId,setOpenTaskId]=useState(null);
   useEffect(()=>{
     if(externalOpenTaskId){
@@ -2805,7 +2836,7 @@ function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,wor
           </div>
         ))}
       </div>
-      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} agents={agents||[]} ceoMemory={ceoMemory} canDelete={canDelete || (openModal.t.assignees||[]).length===0} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}} onDelete={onDeleteTask}/>}
+      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} agents={agents||[]} ceoMemory={ceoMemory} canDelete={canDelete || (openModal.t.assignees||[]).length===0} projects={projects} onNavigateProject={onNavigateProject} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}} onDelete={onDeleteTask}/>}
     </>
   );
 }
@@ -8238,6 +8269,8 @@ export default function TaskFlow(){
                 workspaceLinks={ws?.links||[]} agents={data.agents||[]}
                 ceoMemory={data.ceoMemory}
                 canDelete={isAdmin}
+                projects={data.projects}
+                onNavigateProject={pid=>{const i=data.projects.findIndex(x=>x.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}}
                 onClose={()=>setOverlayTaskId(null)}
                 onUpdate={(id,_cid,upd)=>updateTaskAnywhere(id,upd)}
                 onMove={(id,from,to)=>{moveTaskAnywhere(id,from,to);setOverlayTaskId(null);}}
@@ -8550,7 +8583,7 @@ export default function TaskFlow(){
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
-          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask} onDeleteTask={deleteTask}/>}
+          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={updateTask} onMove={moveTask} onAddTask={addTask} onDeleteTask={deleteTask}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
           {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile} onUpdateTask={updateTaskAnywhere}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
