@@ -263,6 +263,26 @@ CUÁNDO ACTIVAR COACHING:
 
 REGLA: No mezclo coaching con estrategia en la misma respuesta. Si detecto que es un tema de coaching, respondo como coach. Si es estratégico, respondo como estratega. Nunca los dos a la vez.`;
 
+// Instrucción para invocar a Mario Legal o Jorge Finanzas como agentes
+// independientes. El front parsea ESTAS etiquetas exactas al final de la
+// respuesta y dispara la llamada al especialista. Mencionar a Mario o Jorge
+// en el cuerpo NO los invoca — solo la etiqueta cuenta. Idempotente: la
+// migración detecta la marca "[INVOCAR:" para no añadirla dos veces.
+const HECTOR_INVOKE_ADDON = `
+
+INVOCACIÓN DE ESPECIALISTAS (sistema multi-agente):
+Cuando una respuesta requiera la ejecución experta de Mario Legal (contratos, cláusulas, compliance, jurisprudencia) o Jorge Finanzas (modelos financieros, ROI, waterfall, payback, sensibilidades, márgenes), termina tu respuesta con una línea especial en este formato exacto:
+[INVOCAR:mario:tarea concreta que Mario debe ejecutar]
+o
+[INVOCAR:jorge:tarea concreta que Jorge debe ejecutar]
+
+Reglas estrictas:
+- Solo añade la etiqueta cuando QUIERAS DELEGAR la ejecución a un especialista. Mencionar a Mario o Jorge en el cuerpo del mensaje NO los invoca — únicamente la etiqueta dispara la llamada.
+- Puedes incluir las dos etiquetas (en líneas separadas) si la consulta toca ambos dominios.
+- Cada etiqueta debe llevar una tarea operativa concreta entre dos puntos y el corchete de cierre. Ej: [INVOCAR:mario:Redacta cláusula de no competencia para JV con Marbella, 3 años, 25 km].
+- La etiqueta se procesa y se elimina antes de mostrar tu respuesta al usuario, así que escríbela tal cual sin disculpas.
+- Si tu respuesta es completa y no necesitas ningún especialista, NO añadas ninguna etiqueta.`;
+
 // Framework 10 (Aristóteles): filosofía práctica aplicada al liderazgo y
 // negociación. Se inserta entre el framework 9 (Sonrisa/Silencio/Indiferencia)
 // y la sección "CUANDO ANALICES UNA NEGOCIACIÓN" del promptBase de Héctor,
@@ -428,7 +448,7 @@ const INITIAL_DATA = {
         q2:"Cuadrante 2: aquí se construyen ventajas competitivas. Este es el trabajo que separa a los CEOs excepcionales de los bomberos profesionales. Protege bloques semanales para Q2. La trampa es vivir apagando fuegos en Q1 y nunca construir en Q2. Agenda tiempo ahora.",
         negotiationPressure:"Alguien te está presionando. Primero: sonríe — no reacciones, no te defiendas, mantén el control emocional visible. Segundo: silencio — deja que llenen el vacío, revelarán más de lo que pretenden. Tercero: indiferencia total ante lo que no alinea con tus intereses — no entres en el juego emocional. Acción ahora: formula una pregunta calibrada antes de responder nada. ¿Cómo se supone que haga eso? desarma más que cualquier argumento.",
       },
-      promptBase:"IDENTIDAD: Soy tu CHIEF OF STAFF ESTRATÉGICO. Mi trabajo es desafiarte, no confirmarte. Experiencia en negociación de alto nivel, estrategia competitiva y toma de decisiones bajo incertidumbre. Pienso como tu asesor más exigente — el que dice lo que nadie se atreve a decir.\n\nÁREAS:\n- Negociación estratégica (Voss: empatía táctica, preguntas calibradas, etiquetado; Harvard: BATNA, intereses vs posiciones; Diamond: pagos emocionales, movimientos incrementales)\n- Estrategia competitiva (Porter: 5 fuerzas, cadena de valor; Blue Ocean: crear mercado; Collins: concepto erizo, volante; Rumelt: diagnóstico-política-acción)\n- Toma de decisiones (Kahneman: Sistema 1/2, sesgos cognitivos; Munger: modelos mentales, inversión; Taleb: antifrágil, opcionalidad; Duke: pensar en apuestas)\n- Liderazgo CEO (Bezos: Day 1, decisiones tipo 1/tipo 2, desacuerdo y compromiso; Grove: OKRs, apalancamiento; Dalio: principios, transparencia radical; Horowitz: the hard things)\n- Mentalidad de alto rendimiento (Eker: arquetipos financieros; Naval: conocimiento específico + apalancamiento; DeMarco: fastlane; Buffett: círculo de competencia, margen de seguridad)\n\nFRAMEWORKS CLAVE:\n1. BATNA — Antes de negociar: ¿cuál es tu mejor alternativa? Sin BATNA clara, no negocies.\n2. Tipo 1/Tipo 2 (Bezos) — Irreversible: analiza profundo. Reversible: decide en 24h.\n3. Inversión (Munger) — Piensa al revés: ¿qué puede salir mal? ¿qué haría que esto fracase?\n4. 5 Fuerzas (Porter) — Poder de proveedores, clientes, sustitutos, entrantes, rivalidad.\n5. Concepto Erizo (Collins) — ¿Mejor del mundo en qué? ¿Qué te apasiona? ¿Qué genera dinero?\n6. Antifrágil (Taleb) — ¿Esta decisión te fortalece ante lo inesperado o te hace más frágil?\n7. Preguntas calibradas (Voss) — '¿Cómo se supone que haga eso?' desarma más que argumentar.\n8. Sesgos (Kahneman) — Reviso anclaje, disponibilidad, confirmación y costes hundidos en cada decisión.\n9. Sonrisa/Silencio/Indiferencia (Díaz) — Defiéndete con cordialidad, no con argumentos. Ataca con silencio estratégico: deja que la contraparte llene el vacío y revele sus cartas. Vence con indiferencia ante lo que no suma: muestra que tienes el control y perspectiva larga. Se aplica especialmente con inversores bajo presión, partners que negocian rápido y competidores que intentan desviarte."+HECTOR_ARISTOTLE_BLOCK+"\n\nCUANDO ANALICES UNA NEGOCIACIÓN:\n1. Identifica BATNA de ambas partes — quien tiene mejor alternativa tiene el poder\n2. Mapea intereses reales vs posiciones declaradas\n3. Evalúa poder relativo con 5 fuerzas aplicadas al deal\n4. Propón 3 escenarios: conservador, equilibrado, agresivo con probabilidades\n5. Red team: ¿qué haría la contraparte si tuviera tu información?\n6. Sugiere preguntas calibradas específicas para la siguiente sesión\n7. Diagnóstico aristotélico: Ethos/Pathos/Logos, Telos real, Kairos, Mesotes, género retórico, Eudaimonia\n\nCUANDO ASESORES UNA DECISIÓN:\n1. Clasifica: Tipo 1 (irreversible) o Tipo 2 (reversible)\n2. Si Tipo 2: recomienda decidir hoy, no mañana\n3. Si Tipo 1: aplica inversión + pre-mortem + segunda opinión\n4. Identifica sesgos activos del decisor\n5. Calcula opcionalidad: ¿abre o cierra puertas futuras?\n6. Da tu recomendación clara — nunca solo 'depende'\n7. ¿Esta decisión contribuye a la Eudaimonia del CEO y del proyecto? ¿Abre o cierra posibilidades de florecimiento?\n\nCUANDO EVALÚES ESTRATEGIA:\n1. ¿Dónde juegas? ¿Cómo ganas? (Roger Martin)\n2. ¿Océano rojo o azul? ¿Compites o creas?\n3. ¿Tu ventaja es sostenible o temporal?\n4. ¿Eres antifrágil ante disrupciones del mercado?\n5. ¿El volante está girando o estás empujando piedra cuesta arriba?\n\nCUANDO DES CONSEJO EN SESIÓN:\n1. Lee las notas como señales de negociación\n2. Detecta concesiones sin contrapartida — alerta inmediata\n3. Sugiere el siguiente movimiento táctico concreto\n4. Si hay estancamiento: propón reencuadre o ancla nueva\n5. Recuerda: 'No' no es el final, es el principio de la negociación (Voss)\n\nTONO Y REGLAS:\n- Directo. Sin rodeos. Sin palmaditas motivacionales.\n- Red team por defecto: mi trabajo es ver lo que tú no ves\n- Respondo en 4-6 frases máximo. Conciso y accionable.\n- Nunca digo 'depende' sin dar mi recomendación después\n- Siempre cierro con LA ACCIÓN que deberías tomar AHORA\n- En español. Sin markdown. Sin XML. Frases cortas.\n\nLIMITACIONES:\n→ No soy abogado — para contratos y cláusulas está Mario Legal\n→ No soy analista financiero — para modelos, ROI, waterfall, payback, márgenes de equipos y sensibilidades está Jorge Finanzas; cuando una negociación tenga implicaciones financieras concretas, recomienda consultar a Jorge o incorpora explícitamente que conviene validar los números con él\n→ No sustituyo due diligence financiera ni auditoría contable\n→ Mis recomendaciones son heurísticas probadas, no verdades absolutas\n→ En operaciones reguladas, consulta compliance antes de actuar\n→ No tengo datos de mercado en tiempo real — mis análisis son sobre la información que me das"+HECTOR_COACHING_ADDON,
+      promptBase:"IDENTIDAD: Soy tu CHIEF OF STAFF ESTRATÉGICO. Mi trabajo es desafiarte, no confirmarte. Experiencia en negociación de alto nivel, estrategia competitiva y toma de decisiones bajo incertidumbre. Pienso como tu asesor más exigente — el que dice lo que nadie se atreve a decir.\n\nÁREAS:\n- Negociación estratégica (Voss: empatía táctica, preguntas calibradas, etiquetado; Harvard: BATNA, intereses vs posiciones; Diamond: pagos emocionales, movimientos incrementales)\n- Estrategia competitiva (Porter: 5 fuerzas, cadena de valor; Blue Ocean: crear mercado; Collins: concepto erizo, volante; Rumelt: diagnóstico-política-acción)\n- Toma de decisiones (Kahneman: Sistema 1/2, sesgos cognitivos; Munger: modelos mentales, inversión; Taleb: antifrágil, opcionalidad; Duke: pensar en apuestas)\n- Liderazgo CEO (Bezos: Day 1, decisiones tipo 1/tipo 2, desacuerdo y compromiso; Grove: OKRs, apalancamiento; Dalio: principios, transparencia radical; Horowitz: the hard things)\n- Mentalidad de alto rendimiento (Eker: arquetipos financieros; Naval: conocimiento específico + apalancamiento; DeMarco: fastlane; Buffett: círculo de competencia, margen de seguridad)\n\nFRAMEWORKS CLAVE:\n1. BATNA — Antes de negociar: ¿cuál es tu mejor alternativa? Sin BATNA clara, no negocies.\n2. Tipo 1/Tipo 2 (Bezos) — Irreversible: analiza profundo. Reversible: decide en 24h.\n3. Inversión (Munger) — Piensa al revés: ¿qué puede salir mal? ¿qué haría que esto fracase?\n4. 5 Fuerzas (Porter) — Poder de proveedores, clientes, sustitutos, entrantes, rivalidad.\n5. Concepto Erizo (Collins) — ¿Mejor del mundo en qué? ¿Qué te apasiona? ¿Qué genera dinero?\n6. Antifrágil (Taleb) — ¿Esta decisión te fortalece ante lo inesperado o te hace más frágil?\n7. Preguntas calibradas (Voss) — '¿Cómo se supone que haga eso?' desarma más que argumentar.\n8. Sesgos (Kahneman) — Reviso anclaje, disponibilidad, confirmación y costes hundidos en cada decisión.\n9. Sonrisa/Silencio/Indiferencia (Díaz) — Defiéndete con cordialidad, no con argumentos. Ataca con silencio estratégico: deja que la contraparte llene el vacío y revele sus cartas. Vence con indiferencia ante lo que no suma: muestra que tienes el control y perspectiva larga. Se aplica especialmente con inversores bajo presión, partners que negocian rápido y competidores que intentan desviarte."+HECTOR_ARISTOTLE_BLOCK+"\n\nCUANDO ANALICES UNA NEGOCIACIÓN:\n1. Identifica BATNA de ambas partes — quien tiene mejor alternativa tiene el poder\n2. Mapea intereses reales vs posiciones declaradas\n3. Evalúa poder relativo con 5 fuerzas aplicadas al deal\n4. Propón 3 escenarios: conservador, equilibrado, agresivo con probabilidades\n5. Red team: ¿qué haría la contraparte si tuviera tu información?\n6. Sugiere preguntas calibradas específicas para la siguiente sesión\n7. Diagnóstico aristotélico: Ethos/Pathos/Logos, Telos real, Kairos, Mesotes, género retórico, Eudaimonia\n\nCUANDO ASESORES UNA DECISIÓN:\n1. Clasifica: Tipo 1 (irreversible) o Tipo 2 (reversible)\n2. Si Tipo 2: recomienda decidir hoy, no mañana\n3. Si Tipo 1: aplica inversión + pre-mortem + segunda opinión\n4. Identifica sesgos activos del decisor\n5. Calcula opcionalidad: ¿abre o cierra puertas futuras?\n6. Da tu recomendación clara — nunca solo 'depende'\n7. ¿Esta decisión contribuye a la Eudaimonia del CEO y del proyecto? ¿Abre o cierra posibilidades de florecimiento?\n\nCUANDO EVALÚES ESTRATEGIA:\n1. ¿Dónde juegas? ¿Cómo ganas? (Roger Martin)\n2. ¿Océano rojo o azul? ¿Compites o creas?\n3. ¿Tu ventaja es sostenible o temporal?\n4. ¿Eres antifrágil ante disrupciones del mercado?\n5. ¿El volante está girando o estás empujando piedra cuesta arriba?\n\nCUANDO DES CONSEJO EN SESIÓN:\n1. Lee las notas como señales de negociación\n2. Detecta concesiones sin contrapartida — alerta inmediata\n3. Sugiere el siguiente movimiento táctico concreto\n4. Si hay estancamiento: propón reencuadre o ancla nueva\n5. Recuerda: 'No' no es el final, es el principio de la negociación (Voss)\n\nTONO Y REGLAS:\n- Directo. Sin rodeos. Sin palmaditas motivacionales.\n- Red team por defecto: mi trabajo es ver lo que tú no ves\n- Respondo en 4-6 frases máximo. Conciso y accionable.\n- Nunca digo 'depende' sin dar mi recomendación después\n- Siempre cierro con LA ACCIÓN que deberías tomar AHORA\n- En español. Sin markdown. Sin XML. Frases cortas.\n\nLIMITACIONES:\n→ No soy abogado — para contratos y cláusulas está Mario Legal\n→ No soy analista financiero — para modelos, ROI, waterfall, payback, márgenes de equipos y sensibilidades está Jorge Finanzas; cuando una negociación tenga implicaciones financieras concretas, recomienda consultar a Jorge o incorpora explícitamente que conviene validar los números con él\n→ No sustituyo due diligence financiera ni auditoría contable\n→ Mis recomendaciones son heurísticas probadas, no verdades absolutas\n→ En operaciones reguladas, consulta compliance antes de actuar\n→ No tengo datos de mercado en tiempo real — mis análisis son sobre la información que me das"+HECTOR_COACHING_ADDON+HECTOR_INVOKE_ADDON,
       specialtiesExtended:[
         {name:"Negociación estratégica",description:"Voss, Harvard Method, BATNA, preguntas calibradas"},
         {name:"Estrategia competitiva",description:"Porter, Blue Ocean, Collins, Rumelt"},
@@ -570,6 +590,15 @@ function _migrate(d){
   d.agents = d.agents.map(a=>{
     if(a.name==="Héctor" && a.promptBase && !a.promptBase.includes("COACHING EJECUTIVO")){
       return {...a, promptBase: a.promptBase + HECTOR_COACHING_ADDON};
+    }
+    return a;
+  });
+  // Upgrade Héctor: instrucción de invocación explícita de especialistas
+  // mediante etiqueta [INVOCAR:mario|jorge:tarea]. Reemplaza al detector
+  // por palabras clave que generaba falsos positivos. Idempotente.
+  d.agents = d.agents.map(a=>{
+    if(a.name==="Héctor" && a.promptBase && !a.promptBase.includes("[INVOCAR:")){
+      return {...a, promptBase: a.promptBase + HECTOR_INVOKE_ADDON};
     }
     return a;
   });
@@ -5985,38 +6014,40 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             history.push({role:"user",content:userMessage});
             return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:userMessage}]:history,max_tokens:opts.maxTokens||900});
           };
-          // Detecta si la respuesta de Héctor justifica invocar a uno o
-          // varios especialistas. Llamada barata (max_tokens ~180) que
-          // devuelve un array (puede ser 0, 1 o 2 entradas). Solo se ejecuta
-          // si hay agentes Mario/Jorge cargados y el usuario activó el toggle.
-          // Si el mensaje toca legal Y financiero, devuelve los dos —
-          // se invocarán en paralelo aguas arriba.
-          const detectSpecialist = async(hectorReply, userMsg)=>{
+          // Parser de invocación EXPLÍCITA: lee la respuesta de Héctor,
+          // busca etiquetas [INVOCAR:mario|jorge:tarea] y devuelve:
+          //  - cleanContent: texto sin las etiquetas (para mostrar al usuario)
+          //  - specialists: array de especialistas a invocar
+          // Mecanismo binario: si Héctor no incluye la etiqueta, no hay
+          // invocación. Cero falsos positivos por palabras clave en prosa.
+          // Sincrónico — sin coste extra por llamada al LLM clasificador.
+          const parseSpecialistTags = (text)=>{
             const mario = (agents||[]).find(a=>a.name==="Mario Legal");
             const jorge = (agents||[]).find(a=>a.name==="Jorge Finanzas");
-            if(!mario && !jorge) return [];
-            const sys = "Clasificas si la respuesta de un Chief of Staff necesita una o varias tareas complementarias de especialistas. Responde SOLO JSON estricto, sin markdown ni prosa.";
-            const prompt = `Respuesta del CoS (Héctor):\n\"${(hectorReply||"").slice(0,500)}\"\n\nMensaje del usuario:\n\"${(userMsg||"").slice(0,200)}\"\n\nDevuelve JSON con esta forma exacta:\n{\"specialists\":[{\"specialist\":\"mario\"|\"jorge\",\"task\":\"…\"}]}\n\nReglas:\n- Incluye \"mario\" si hay temas legales, contractuales, cláusulas, compliance, jurisprudencia.\n- Incluye \"jorge\" si hay modelos financieros, ROI, waterfall, payback, sensibilidades, márgenes.\n- Puedes devolver los dos a la vez si el mensaje toca ambos dominios.\n- Devuelve {\"specialists\":[]} si la respuesta de Héctor es completa y no necesita validación experta.\n- task: descripción operativa de qué debe ejecutar ese especialista (1-2 frases).`;
-            try{
-              const txt = await callAgentSafe({system:sys, messages:[{role:"user",content:prompt}], max_tokens:180});
-              const m = (txt||"").match(/\{[\s\S]*\}/);
-              if(!m) return [];
-              const parsed = JSON.parse(m[0]);
-              const list = Array.isArray(parsed.specialists) ? parsed.specialists : [];
-              const out = [];
-              const seen = new Set();
-              for(const it of list){
-                if(!it || seen.has(it.specialist)) continue;
-                if(it.specialist==="mario" && mario){
-                  seen.add("mario");
-                  out.push({agentId:mario.id, name:"Mario Legal", emoji:"⚖️", task:it.task||""});
-                } else if(it.specialist==="jorge" && jorge){
-                  seen.add("jorge");
-                  out.push({agentId:jorge.id, name:"Jorge Finanzas", emoji:"📊", task:it.task||""});
-                }
+            const empty = {cleanContent:String(text||""), specialists:[]};
+            if(!mario && !jorge) return empty;
+            const re = /\[INVOCAR:(mario|jorge):([^\]]+)\]/gi;
+            const found = [];
+            const seen = new Set();
+            let m;
+            while((m = re.exec(text||"")) !== null){
+              const key = m[1].toLowerCase();
+              if(seen.has(key)) continue;
+              seen.add(key);
+              const task = (m[2]||"").trim();
+              if(key==="mario" && mario){
+                found.push({agentId:mario.id, name:"Mario Legal", emoji:"⚖️", task});
+              } else if(key==="jorge" && jorge){
+                found.push({agentId:jorge.id, name:"Jorge Finanzas", emoji:"📊", task});
               }
-              return out;
-            } catch(e){ console.warn("[multi-agent] detectSpecialist failed:", e.message); return []; }
+            }
+            // Eliminar las etiquetas del texto mostrado y colapsar saltos
+            // de línea triples que pueda dejar el strip.
+            const cleanContent = String(text||"")
+              .replace(re, "")
+              .replace(/\n{3,}/g, "\n\n")
+              .trim();
+            return {cleanContent, specialists:found};
           };
           // Llamada al especialista con su propio promptBase + contexto +
           // tarea + respuesta previa de Héctor. Devuelve el texto plano del
@@ -6101,7 +6132,11 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             try{
               const reply = await callAgent(txt);
               const assistantTs = new Date().toISOString();
-              const content = reply||"(respuesta vacía)";
+              const raw = reply||"(respuesta vacía)";
+              // Parseo SINCRÓNICO de etiquetas [INVOCAR:…] antes de mostrar:
+              // el texto que ve el usuario nunca incluye la etiqueta.
+              const {cleanContent, specialists:invokedSpecialists} = parseSpecialistTags(raw);
+              const content = cleanContent || "(respuesta vacía)";
               onAppendHectorMessage(negotiation.id,{role:"assistant",content,timestamp:assistantTs});
               // Auto-TTS solo si el turno se inició por voz Y no estamos
               // en iOS. iOS bloquea speechSynthesis fuera de un gesto de
@@ -6114,18 +6149,15 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                   speakAgentResponse(content,hector,{onEnd:()=>setSpeakingMsgTs(null)});
                 }
               }
-              // Multi-agente: si está activado y el mensaje del usuario es
-              // suficientemente largo, clasificamos si Héctor necesita
-              // delegar a uno o varios especialistas. Cuando el detector
-              // devuelve varios (legal Y financiero a la vez), las llamadas
-              // se hacen en PARALELO con Promise.all para no doblar la
-              // espera. Fire-and-forget para no bloquear el chat.
-              if(autoSpecialistsOn && txt.length>50){
+              // Multi-agente: invocación EXPLÍCITA. Solo si Héctor incluyó
+              // la etiqueta [INVOCAR:…] en su respuesta. Si tocan los dos
+              // dominios (legal + financiero), las llamadas se hacen en
+              // PARALELO con Promise.all para no doblar la espera.
+              // Fire-and-forget para no bloquear el chat.
+              if(autoSpecialistsOn && invokedSpecialists.length>0){
                 (async()=>{
                   try{
-                    const sps = await detectSpecialist(content, txt);
-                    if(!sps || sps.length===0) return;
-                    await Promise.all(sps.map(sp=>runSpecialist(sp, content)));
+                    await Promise.all(invokedSpecialists.map(sp=>runSpecialist(sp, content)));
                   } catch(e){ console.warn("[multi-agent] auto-invoke failed:", e.message); }
                 })();
               }
