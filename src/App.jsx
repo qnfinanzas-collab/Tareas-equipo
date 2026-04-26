@@ -22,6 +22,7 @@ import TaskKanban from "./components/TaskKanban.jsx";
 import RiesgosPanel from "./components/RiesgosPanel.jsx";
 import BriefingMatinal from "./components/BriefingMatinal.jsx";
 import CierreDia from "./components/CierreDia.jsx";
+import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
@@ -3847,7 +3848,7 @@ function ProjectModal({project,members,workspaces,allProjects,onClose,onSave}){
 // del día). Esta primera versión usa heurísticas deterministas; la
 // selección por LLM y el resto de funcionalidades inteligentes se añaden
 // en commits posteriores.
-function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostponeTask,onGoDashboard,onGoMytasks,onGoDealRoom}){
+function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostponeTask,onGoDashboard,onGoMytasks,onGoDealRoom,currentFocus,onSetCurrentFocus,onHectorStateChange,onHectorRecommendation}){
   const {boards,projects,members,negotiations}=data;
   const me = (members||[]).find(m=>m.id===activeMember);
   // Tareas del usuario activo (asignadas a mí), enriquecidas con metadatos
@@ -4035,6 +4036,49 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
         <button onClick={onGoDashboard} style={{padding:"6px 12px",borderRadius:8,background:"#fff",color:"#6B7280",border:"1px solid #E5E7EB",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📊 Dashboard analítico →</button>
       </div>
 
+      {/* HectorPanel — análisis proactivo visible en la cabecera */}
+      {(()=>{
+        // Riesgos derivados con campo `level` para que HectorPanel pueda
+        // contar críticos. Se reusa la heurística que también calcula
+        // RiesgosPanel pero serializada para el LLM.
+        const overdueCold = active.filter(t=>{
+          if(!t.dueDate||daysUntil(t.dueDate)>=0) return false;
+          const lastLog = (t.timeLogs||[]).slice(-1)[0]?.date || t.startDate;
+          const days = lastLog ? Math.floor((Date.now()-new Date(lastLog).getTime())/86400000) : 999;
+          return days>=2;
+        });
+        const coldNegs = (negotiations||[]).filter(n=>{
+          if(n.status!=="active" && n.status!=="open" && n.status!=="negotiating") return false;
+          const ts = n.updatedAt ? new Date(n.updatedAt).getTime() : 0;
+          if(!ts) return false;
+          return (Date.now()-ts) > 5*86400000;
+        });
+        const waiting = active.filter(t=>(t.comments||[]).some(c=>/esperando respuesta/i.test(c.text||"")));
+        const riesgosDetectados = [
+          ...overdueCold.map(t=>({title:t.title, level:"critical", category:"vencida"})),
+          ...coldNegs.map(n=>({title:n.title, level:"warning", category:"negociacion-fria"})),
+          ...waiting.map(t=>({title:t.title, level:"medium", category:"esperando"})),
+        ];
+        return(
+          <div style={{marginBottom:16}}>
+            <HectorPanel
+              tasks={active}
+              currentFocus={currentFocus || focusTask}
+              riesgos={riesgosDetectados}
+              userId={me?.name}
+              onStateChange={onHectorStateChange}
+              onNewRecommendation={onHectorRecommendation}
+              onRecommendationClick={(rec)=>{
+                const task = active.find(t=>t.title===rec.title);
+                if(task){
+                  onSetCurrentFocus?.(task);
+                  onOpenTask?.(task.id, task.projId);
+                }
+              }}
+            />
+          </div>
+        );
+      })()}
       {/* Pulso del Día — timeline horizontal extraído a componente */}
       <PulsoDinamico active={active} negotiations={negotiations} onOpenTask={onOpenTask} RefBadge={RefBadge}/>
       {/* Mini-Kanban del día con tareas agrupadas por columna */}
@@ -7795,6 +7839,19 @@ export default function TaskFlow(){
   // no se mostró el cierre hoy. Se evalúa al montar y cuando el usuario
   // vuelve a la pestaña (focus). La marca diaria la pone el propio modal.
   const [showClosing,setShowClosing] = useState(false);
+  // Sala de Mando — estado proactivo de Héctor compartido entre
+  // HectorPanel (Sala de Mando) y HectorFloat (widget global).
+  const [hectorPanelOpen,setHectorPanelOpen] = useState(false);
+  const [hectorState,setHectorState]         = useState("listening");
+  const [currentFocus,setCurrentFocus]       = useState(null);
+  const [lastRecommendation,setLastRecommendation] = useState(null);
+  const [hectorHasNew,setHectorHasNew]       = useState(false);
+  useEffect(()=>{
+    if(!lastRecommendation) return;
+    setHectorHasNew(true);
+    const t = setTimeout(()=>setHectorHasNew(false), 5000);
+    return ()=>clearTimeout(t);
+  },[lastRecommendation]);
   useEffect(()=>{
     try{
       const today = fmt(new Date());
@@ -9108,7 +9165,7 @@ export default function TaskFlow(){
               onEdit={n=>setNegModal(n)}
             />;
           })()}
-          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}}/>}
+          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
