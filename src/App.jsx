@@ -3856,28 +3856,136 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
     }));
   });
   const active = myTasks.filter(t=>t.colName!=="Hecho");
-  // Foco del Momento: heurística determinista por urgencia. La selección
-  // automática por Héctor (LLM) llega en el commit "feat(focus): …".
-  const focusTask = (()=>{
+  // Foco del Momento: selección automática por Héctor (LLM) con fallback
+  // determinista. El fallback se calcula siempre (instantáneo) y se muestra
+  // mientras llega la decisión del LLM. Si hay cache <5min válido, se usa
+  // sin nueva llamada. Si el LLM falla o no hay agente Héctor, se mantiene
+  // el fallback con razón heurística.
+  const fallbackFocus = (()=>{
     const overdue = active.filter(t=>t.dueDate&&daysUntil(t.dueDate)<0)
       .sort((a,b)=>daysUntil(a.dueDate)-daysUntil(b.dueDate));
-    if(overdue.length>0) return overdue[0];
+    if(overdue.length>0) return {task:overdue[0], reason:`Vencida hace ${-daysUntil(overdue[0].dueDate)}d — ciérrala antes de seguir`};
     const today = active.filter(t=>t.dueDate&&daysUntil(t.dueDate)===0)
       .sort((a,b)=>(b.priority==="alta"?1:0)-(a.priority==="alta"?1:0));
-    if(today.length>0) return today[0];
+    if(today.length>0) return {task:today[0], reason:"Vence hoy — bloquea esto en tu mañana"};
     const high = active.filter(t=>t.priority==="alta")
       .sort((a,b)=>(a.dueDate?daysUntil(a.dueDate):9999)-(b.dueDate?daysUntil(b.dueDate):9999));
-    if(high.length>0) return high[0];
-    return active[0] || null;
+    if(high.length>0) return {task:high[0], reason:"Alta prioridad y nadie la está moviendo"};
+    return active.length>0 ? {task:active[0], reason:"Avanza esta primero, libera atención"} : null;
   })();
-  const focusReason = (()=>{
-    if(!focusTask) return "";
-    const d = focusTask.dueDate ? daysUntil(focusTask.dueDate) : null;
-    if(d!==null && d<0) return `Vencida hace ${-d}d — ciérrala antes de seguir`;
-    if(d===0) return "Vence hoy — bloquea esto en tu mañana";
-    if(focusTask.priority==="alta") return "Alta prioridad y nadie la está moviendo";
-    return "Avanza esta primero, libera atención";
-  })();
+  // Cache key específico por usuario activo
+  const FOCUS_CACHE_KEY = `soulbaric.focus.${activeMember}`;
+  const FOCUS_TTL_MS = 5*60*1000; // 5 minutos
+  // Hash compacto de las tareas activas — invalida cache cuando cambian
+  // (id, columna, fecha, prioridad). No incluye campos dinámicos de tiempo.
+  const tasksHash = active.map(t=>`${t.id}|${t.colName}|${t.dueDate||""}|${t.priority||""}`).sort().join(";");
+  const [llmFocus,setLlmFocus] = useState(null);
+  const [focusLoading,setFocusLoading] = useState(false);
+  // Hidratar de cache al montar
+  useEffect(()=>{
+    try{
+      const raw = localStorage.getItem(FOCUS_CACHE_KEY);
+      if(!raw) return;
+      const cached = JSON.parse(raw);
+      if(!cached || cached.taskHash!==tasksHash) return;
+      if(Date.now()-cached.ts > FOCUS_TTL_MS) return;
+      const taskObj = active.find(t=>t.id===cached.taskId);
+      if(taskObj) setLlmFocus({task:taskObj, reason:cached.reason||"", energyRequired:cached.energyRequired});
+    }catch{}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+  // Decide vía LLM cuando cambia el set de tareas (con debounce implícito
+  // por TTL de cache). Cancelable si el componente se desmonta.
+  useEffect(()=>{
+    if(!active.length) { setLlmFocus(null); return; }
+    // Si el cache es válido para este hash, no llamamos
+    try{
+      const raw = localStorage.getItem(FOCUS_CACHE_KEY);
+      if(raw){
+        const cached = JSON.parse(raw);
+        if(cached?.taskHash===tasksHash && Date.now()-cached.ts <= FOCUS_TTL_MS){
+          const taskObj = active.find(t=>t.id===cached.taskId);
+          if(taskObj){ setLlmFocus({task:taskObj, reason:cached.reason||"", energyRequired:cached.energyRequired}); return; }
+        }
+      }
+    }catch{}
+    let cancelled=false;
+    setFocusLoading(true);
+    (async()=>{
+      try{
+        const hour = new Date().getHours();
+        const energyLevel = (h=>{
+          if(h>=6&&h<9) return "muy alta";
+          if(h>=9&&h<12) return "alta";
+          if(h>=12&&h<14) return "media (post-comida)";
+          if(h>=14&&h<17) return "media-alta";
+          if(h>=17&&h<19) return "media-baja";
+          return "baja";
+        })(hour);
+        const todayStr = fmt(new Date());
+        const completedToday = myTasks.filter(t=>t.colName==="Hecho" && (t.timeLogs||[]).some(l=>l.date===todayStr)).length;
+        const tasksJSON = JSON.stringify(active.slice(0,30).map(t=>{
+          const neg = t.negotiationId ? (negotiations||[]).find(n=>n.id===t.negotiationId) : null;
+          return {
+            id: t.id,
+            ref: t.ref,
+            title: t.title,
+            project: t.projName,
+            counterparty: neg?.counterparty || null,
+            priority: t.priority,
+            dueDate: t.dueDate || null,
+            colName: t.colName,
+            estimatedHours: t.estimatedHours || 0,
+            daysOverdue: t.dueDate ? -daysUntil(t.dueDate) : null,
+          };
+        }));
+        const ceoFacts = (data.ceoMemory?.keyFacts||[]).slice(0,3).map(f=>f.content||f.text).filter(Boolean).join("; ");
+        const hectorAgent = (data.agents||[]).find(a=>a.name==="Héctor");
+        const baseSystem = hectorAgent?.promptBase
+          ? hectorAgent.promptBase + "\n\n" + PLAIN_TEXT_RULE
+          : "Eres Héctor, Chief of Staff estratégico. Decides qué tarea debe ejecutar el CEO ahora mismo. " + PLAIN_TEXT_RULE;
+        const system = baseSystem + "\n\nIMPORTANTE: responde ÚNICAMENTE con JSON válido, sin markdown ni prosa.";
+        const prompt = `El CEO te pide que decidas QUÉ TAREA debe hacer AHORA MISMO.\n\nCONTEXTO:\n- Hora actual: ${new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}\n- Día: ${new Date().toLocaleDateString("es-ES",{weekday:"long"})}\n- Tareas completadas hoy: ${completedToday}\n- Energía esperada a esta hora: ${energyLevel}\n${ceoFacts?`- Memoria del CEO: ${ceoFacts}\n`:""}\nTAREAS DISPONIBLES (${active.length} total, mostradas hasta 30):\n${tasksJSON}\n\nCRITERIOS (en este orden):\n1. Deadline: vencidas > vencen hoy > resto.\n2. Prioridad: alta > media > baja.\n3. Impacto: si hay contraparte esperando respuesta, prioriza.\n4. Energía: antes de las 12, tareas difíciles; después de las 15, tareas simples.\n5. Secuencia: evita cambiar entre proyectos cada 30 min.\n\nDevuelve JSON con esta forma exacta:\n{"taskId":"id de la tarea elegida","reason":"frase imperativa de 1 línea","timeBlocks":2,"energyRequired":"alta|media|baja"}`;
+        const r = await fetch("/api/agent",{
+          method:"POST",
+          headers:{"content-type":"application/json"},
+          body:JSON.stringify({system, messages:[{role:"user", content:prompt}], max_tokens:200}),
+        });
+        const raw = await r.text();
+        if(cancelled) return;
+        if(!r.ok) throw new Error(`HTTP ${r.status}`);
+        let parsed = null;
+        try { parsed = JSON.parse(raw); } catch{}
+        const txt = parsed?.text || raw;
+        const m = txt.match(/\{[\s\S]*\}/);
+        if(!m) throw new Error("JSON no encontrado");
+        const decision = JSON.parse(m[0]);
+        const taskObj = active.find(t=>String(t.id)===String(decision.taskId));
+        if(!taskObj) throw new Error("taskId no coincide con ninguna tarea activa");
+        const result = {task:taskObj, reason:decision.reason||"", energyRequired:decision.energyRequired||null};
+        setLlmFocus(result);
+        try{
+          localStorage.setItem(FOCUS_CACHE_KEY, JSON.stringify({
+            taskId: taskObj.id,
+            reason: result.reason,
+            energyRequired: result.energyRequired,
+            taskHash: tasksHash,
+            ts: Date.now(),
+          }));
+        }catch{}
+      } catch(e){
+        console.warn("[decideFocus] LLM falló, uso fallback:", e?.message);
+      } finally {
+        if(!cancelled) setFocusLoading(false);
+      }
+    })();
+    return ()=>{ cancelled=true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[tasksHash]);
+  // Foco efectivo: el del LLM si lo hay, si no el determinista.
+  const focus = llmFocus || fallbackFocus;
+  const focusTask = focus?.task || null;
+  const focusReason = focus?.reason || "";
   const focusCountdown = (()=>{
     if(!focusTask?.dueDate) return null;
     const today = new Date(); today.setHours(0,0,0,0);
@@ -4029,7 +4137,11 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
       <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 280px",gap:16}}>
         {/* Foco del Momento */}
         <div style={{background:"#fff",border:"2px solid #7F77DD33",borderRadius:14,padding:"24px 26px",minHeight:280,display:"flex",flexDirection:"column"}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#7F77DD",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>🎯 Foco del momento</div>
+          <div style={{fontSize:11,fontWeight:700,color:"#7F77DD",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+            <span>🎯 Foco del momento</span>
+            {focusLoading && <span title="Héctor está decidiendo el siguiente foco" style={{fontSize:9,padding:"2px 7px",borderRadius:10,background:"#FEF3C7",color:"#92400E",border:"1px solid #FCD34D",fontWeight:600,letterSpacing:0,textTransform:"none",fontFamily:"inherit"}}>🤖 Héctor decidiendo…</span>}
+            {!focusLoading && llmFocus && <span title="Decisión actual de Héctor" style={{fontSize:9,padding:"2px 7px",borderRadius:10,background:"#F0F9F1",color:"#0E7C5A",border:"1px solid #86EFAC",fontWeight:600,letterSpacing:0,textTransform:"none",fontFamily:"inherit"}}>🤖 Decidido por Héctor</span>}
+          </div>
           {!focusTask
             ? <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10}}>
                 <div style={{fontSize:30}}>✨</div>
@@ -4041,6 +4153,7 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
                   <RefBadge code={focusTask.ref}/>
                   <span style={{fontSize:11,padding:"2px 9px",borderRadius:14,background:`${focusTask.projColor}18`,color:focusTask.projColor,border:`1px solid ${focusTask.projColor}55`,fontWeight:600}}>{focusTask.projEmoji} {focusTask.projName}</span>
                   {focusCountdown && <span style={{fontSize:11,padding:"2px 9px",borderRadius:14,background:"#FEF3C7",color:"#92400E",border:"1px solid #FCD34D",fontWeight:600}}>⏱ {focusCountdown}</span>}
+                  {llmFocus?.energyRequired && <span title="Energía estimada para esta tarea" style={{fontSize:11,padding:"2px 9px",borderRadius:14,background:"#EEEDFE",color:"#3C3489",border:"1px solid #AFA9EC",fontWeight:600}}>⚡ {llmFocus.energyRequired}</span>}
                 </div>
                 <div style={{fontSize:32,fontWeight:700,color:"#111827",lineHeight:1.2,marginBottom:16}}>{focusTask.title}</div>
                 <div style={{padding:"10px 14px",background:"#F5F3FF",border:"1px solid #DDD6FE",borderRadius:10,marginBottom:18,fontSize:12.5,color:"#5B21B6",fontStyle:"italic",lineHeight:1.5}}>
