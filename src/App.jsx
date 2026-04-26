@@ -5985,25 +5985,38 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             history.push({role:"user",content:userMessage});
             return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:userMessage}]:history,max_tokens:opts.maxTokens||900});
           };
-          // Detecta si la respuesta de Héctor justifica invocar a un
-          // especialista. Llamada barata (max_tokens 100) que devuelve
-          // {agentId, name, emoji, task} o null. Solo se ejecuta si hay
-          // agentes Mario/Jorge cargados y el usuario activó el toggle.
+          // Detecta si la respuesta de Héctor justifica invocar a uno o
+          // varios especialistas. Llamada barata (max_tokens ~180) que
+          // devuelve un array (puede ser 0, 1 o 2 entradas). Solo se ejecuta
+          // si hay agentes Mario/Jorge cargados y el usuario activó el toggle.
+          // Si el mensaje toca legal Y financiero, devuelve los dos —
+          // se invocarán en paralelo aguas arriba.
           const detectSpecialist = async(hectorReply, userMsg)=>{
             const mario = (agents||[]).find(a=>a.name==="Mario Legal");
             const jorge = (agents||[]).find(a=>a.name==="Jorge Finanzas");
-            if(!mario && !jorge) return null;
-            const sys = "Clasificas si la respuesta de un Chief of Staff necesita una tarea complementaria de un especialista. Responde SOLO JSON estricto, sin markdown ni prosa.";
-            const prompt = `Respuesta del CoS (Héctor):\n\"${(hectorReply||"").slice(0,500)}\"\n\nMensaje del usuario:\n\"${(userMsg||"").slice(0,200)}\"\n\nDevuelve JSON con dos claves:\n{\"specialist\":\"mario\"|\"jorge\"|null,\"task\":\"…\"|null}\n\nReglas:\n- \"mario\" para temas legales, contractuales, cláusulas, compliance, jurisprudencia.\n- \"jorge\" para modelos financieros, ROI, waterfall, payback, sensibilidades, márgenes.\n- null si la respuesta de Héctor es completa y no necesita validación experta.\n- task: descripción operativa de qué debe ejecutar el especialista (1-2 frases).`;
+            if(!mario && !jorge) return [];
+            const sys = "Clasificas si la respuesta de un Chief of Staff necesita una o varias tareas complementarias de especialistas. Responde SOLO JSON estricto, sin markdown ni prosa.";
+            const prompt = `Respuesta del CoS (Héctor):\n\"${(hectorReply||"").slice(0,500)}\"\n\nMensaje del usuario:\n\"${(userMsg||"").slice(0,200)}\"\n\nDevuelve JSON con esta forma exacta:\n{\"specialists\":[{\"specialist\":\"mario\"|\"jorge\",\"task\":\"…\"}]}\n\nReglas:\n- Incluye \"mario\" si hay temas legales, contractuales, cláusulas, compliance, jurisprudencia.\n- Incluye \"jorge\" si hay modelos financieros, ROI, waterfall, payback, sensibilidades, márgenes.\n- Puedes devolver los dos a la vez si el mensaje toca ambos dominios.\n- Devuelve {\"specialists\":[]} si la respuesta de Héctor es completa y no necesita validación experta.\n- task: descripción operativa de qué debe ejecutar ese especialista (1-2 frases).`;
             try{
-              const txt = await callAgentSafe({system:sys, messages:[{role:"user",content:prompt}], max_tokens:120});
+              const txt = await callAgentSafe({system:sys, messages:[{role:"user",content:prompt}], max_tokens:180});
               const m = (txt||"").match(/\{[\s\S]*\}/);
-              if(!m) return null;
+              if(!m) return [];
               const parsed = JSON.parse(m[0]);
-              if(parsed.specialist==="mario" && mario) return {agentId:mario.id, name:"Mario Legal", emoji:"⚖️", task:parsed.task||""};
-              if(parsed.specialist==="jorge" && jorge) return {agentId:jorge.id, name:"Jorge Finanzas", emoji:"📊", task:parsed.task||""};
-              return null;
-            } catch(e){ console.warn("[multi-agent] detectSpecialist failed:", e.message); return null; }
+              const list = Array.isArray(parsed.specialists) ? parsed.specialists : [];
+              const out = [];
+              const seen = new Set();
+              for(const it of list){
+                if(!it || seen.has(it.specialist)) continue;
+                if(it.specialist==="mario" && mario){
+                  seen.add("mario");
+                  out.push({agentId:mario.id, name:"Mario Legal", emoji:"⚖️", task:it.task||""});
+                } else if(it.specialist==="jorge" && jorge){
+                  seen.add("jorge");
+                  out.push({agentId:jorge.id, name:"Jorge Finanzas", emoji:"📊", task:it.task||""});
+                }
+              }
+              return out;
+            } catch(e){ console.warn("[multi-agent] detectSpecialist failed:", e.message); return []; }
           };
           // Llamada al especialista con su propio promptBase + contexto +
           // tarea + respuesta previa de Héctor. Devuelve el texto plano del
@@ -6103,14 +6116,16 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               }
               // Multi-agente: si está activado y el mensaje del usuario es
               // suficientemente largo, clasificamos si Héctor necesita
-              // delegar a un especialista y, si procede, lo invocamos. Una
-              // sola invocación por turno. Fire-and-forget para no bloquear.
+              // delegar a uno o varios especialistas. Cuando el detector
+              // devuelve varios (legal Y financiero a la vez), las llamadas
+              // se hacen en PARALELO con Promise.all para no doblar la
+              // espera. Fire-and-forget para no bloquear el chat.
               if(autoSpecialistsOn && txt.length>50){
                 (async()=>{
                   try{
-                    const sp = await detectSpecialist(content, txt);
-                    if(!sp) return;
-                    await runSpecialist(sp, content);
+                    const sps = await detectSpecialist(content, txt);
+                    if(!sps || sps.length===0) return;
+                    await Promise.all(sps.map(sp=>runSpecialist(sp, content)));
                   } catch(e){ console.warn("[multi-agent] auto-invoke failed:", e.message); }
                 })();
               }
