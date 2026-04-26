@@ -19,6 +19,7 @@ import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, exec
 import { PresenceProvider, usePresence } from "./lib/presence.jsx";
 import PulsoDinamico from "./components/PulsoDinamico.jsx";
 import TaskKanban from "./components/TaskKanban.jsx";
+import RiesgosPanel from "./components/RiesgosPanel.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
@@ -4079,41 +4080,8 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
           }
         </div>
 
-        {/* Riesgos Activos — heurísticas inline (extraído a componente en commit siguiente) */}
-        {(()=>{
-          const overdueCold = active.filter(t=>{
-            if(!t.dueDate||daysUntil(t.dueDate)>=0) return false;
-            const lastLog = (t.timeLogs||[]).slice(-1)[0]?.date || t.startDate;
-            const days = lastLog ? Math.floor((Date.now()-new Date(lastLog).getTime())/86400000) : 999;
-            return days>=2;
-          });
-          const coldNegs = (negotiations||[]).filter(n=>{
-            if(n.status!=="active" && n.status!=="open" && n.status!=="negotiating") return false;
-            const ts = n.updatedAt ? new Date(n.updatedAt).getTime() : 0;
-            if(!ts) return false;
-            return (Date.now()-ts) > 5*86400000;
-          });
-          const waiting = active.filter(t=>(t.comments||[]).some(c=>/esperando respuesta/i.test(c.text||"")));
-          return(
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              <div onClick={()=>onGoMytasks?.("overdue")} style={{background:"#fff",border:`1px solid ${overdueCold.length>0?"#FCA5A5":"#E5E7EB"}`,borderLeft:`4px solid ${overdueCold.length>0?"#E24B4A":"#D1D5DB"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
-                <div style={{fontSize:11,fontWeight:700,color:"#991B1B",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🔴 Vencidas sin tocar</div>
-                <div style={{fontSize:24,fontWeight:700,color:overdueCold.length>0?"#B91C1C":"#9CA3AF",lineHeight:1.1}}>{overdueCold.length}</div>
-                <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{overdueCold.length===0?"Limpio — ningún olvido":"+2 días sin actualización"}</div>
-              </div>
-              <div onClick={()=>onGoDealRoom?.("cold")} style={{background:"#fff",border:`1px solid ${coldNegs.length>0?"#FCD34D":"#E5E7EB"}`,borderLeft:`4px solid ${coldNegs.length>0?"#EF9F27":"#D1D5DB"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
-                <div style={{fontSize:11,fontWeight:700,color:"#92400E",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>⏳ Negociaciones frías</div>
-                <div style={{fontSize:24,fontWeight:700,color:coldNegs.length>0?"#B45309":"#9CA3AF",lineHeight:1.1}}>{coldNegs.length}</div>
-                <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{coldNegs.length===0?"Todas en movimiento":"+5 días sin actividad"}</div>
-              </div>
-              <div onClick={()=>onGoMytasks?.("waiting")} style={{background:"#fff",border:`1px solid ${waiting.length>0?"#BFDBFE":"#E5E7EB"}`,borderLeft:`4px solid ${waiting.length>0?"#3B82F6":"#D1D5DB"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
-                <div style={{fontSize:11,fontWeight:700,color:"#1E3A8A",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📨 Esperan respuesta</div>
-                <div style={{fontSize:24,fontWeight:700,color:waiting.length>0?"#1E40AF":"#9CA3AF",lineHeight:1.1}}>{waiting.length}</div>
-                <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{waiting.length===0?"Sin pendientes externos":"Con etiqueta en comentarios"}</div>
-              </div>
-            </div>
-          );
-        })()}
+        {/* Riesgos Activos — extraído a componente */}
+        <RiesgosPanel active={active} negotiations={negotiations} onGoMytasks={onGoMytasks} onGoDealRoom={onGoDealRoom}/>
       </div>
     </div>
   );
