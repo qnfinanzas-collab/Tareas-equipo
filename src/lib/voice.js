@@ -131,14 +131,11 @@ export function stripMarkdown(text){
 
 let currentUtterance = null;
 
-export async function speak(text, { rate = 1, pitch = 1, gender = "any", onEnd } = {}){
-  if(!("speechSynthesis" in window)){ onEnd?.(); return null; }
-  stopSpeaking();
-  // En iOS la primera vez getVoices() devuelve [] hasta que el motor
-  // dispara voiceschanged. Esperar evita que speak() elija una voz
-  // por defecto equivocada antes de que aparezca la neural masculina.
-  await getVoicesReady();
-  const u = new SpeechSynthesisUtterance(stripMarkdown(text));
+// Configura el utterance con la mejor voz disponible y lo encola en el
+// motor TTS. Asume que getVoices() ya devuelve voces (>0). Aislado para
+// reusarse desde la rama síncrona (voces ya cargadas) y la diferida (vía
+// voiceschanged) sin duplicar lógica.
+function _enqueueUtterance(u, gender, pitch){
   const { voice: v, method } = pickVoice(gender);
   // Compensación para voces masculinas no disponibles: si method==="fallback"
   // y pedimos "male", el SO solo ofrece voces femeninas (típico Safari iOS
@@ -153,17 +150,53 @@ export async function speak(text, { rate = 1, pitch = 1, gender = "any", onEnd }
   if(v && !voiceIsEs){
     console.warn("[voice] descartando voz no-es:", v.name, "|", v.lang);
   }
-  console.log("[voice] speak() · gender:", gender, "· voz:", voiceIsEs?v.name:"(ninguna)", "· method:", method, "· pitch:", finalPitch);
+  console.log("[speak] voz seleccionada:", voiceIsEs?v.name:"(ninguna)", "· método:", method, "· pitch:", finalPitch);
   if(voiceIsEs) u.voice = v;
   // u.lang fijado a es-ES siempre — independientemente de la voz — para
   // que el motor no infiera el idioma del default del sistema.
   u.lang = voiceIsEs ? v.lang : "es-ES";
-  u.rate = rate;
   u.pitch = finalPitch;
+  window.speechSynthesis.speak(u);
+}
+
+export function speak(text, { rate = 1, pitch = 1, gender = "any", onEnd } = {}){
+  if(!("speechSynthesis" in window)){ onEnd?.(); return null; }
+  // Diagnóstico: confirmar que el handler del botón llegó hasta aquí.
+  console.log("[speak] iniciando con texto:", String(text||"").slice(0,50));
+  // CRÍTICO: cancelar cualquier síntesis previa antes de crear la nueva.
+  // Si quedó algo "speaking" o "paused" en cola, los siguientes speak()
+  // se ignoran silenciosamente en Safari/Chrome.
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(stripMarkdown(text));
+  u.rate = rate;
   u.onend = () => { if(currentUtterance === u) currentUtterance = null; onEnd?.(); };
   u.onerror = () => { if(currentUtterance === u) currentUtterance = null; onEnd?.(); };
   currentUtterance = u;
-  window.speechSynthesis.speak(u);
+  // Camino síncrono cuando las voces ya están cargadas: se ejecuta dentro
+  // del mismo gesto de usuario que originó el click. Safari/iOS rechaza
+  // speak() cuando el flujo cruza un await, así que evitamos await aquí.
+  const voicesNow = window.speechSynthesis.getVoices();
+  if(voicesNow && voicesNow.length){
+    _enqueueUtterance(u, gender, pitch);
+    return u;
+  }
+  // Fallback: aún no hay catálogo de voces (típico primer uso en iOS).
+  // Esperamos voiceschanged una sola vez. El gesto se pierde, pero al no
+  // haber alternativa, intentamos igualmente — funciona en desktop.
+  console.log("[speak] sin voces aún, esperando voiceschanged…");
+  const onVoices = () => {
+    window.speechSynthesis.removeEventListener("voiceschanged", onVoices);
+    _enqueueUtterance(u, gender, pitch);
+  };
+  window.speechSynthesis.addEventListener("voiceschanged", onVoices, { once: true });
+  // Safety net por si voiceschanged nunca llega (algunos navegadores ya
+  // tienen voces pero no disparan el evento). 1s y disparamos a ciegas.
+  setTimeout(()=>{
+    if(currentUtterance !== u) return; // ya cancelado/reemplazado
+    if(window.speechSynthesis.speaking) return; // ya está hablando
+    window.speechSynthesis.removeEventListener("voiceschanged", onVoices);
+    _enqueueUtterance(u, gender, pitch);
+  }, 1000);
   return u;
 }
 
