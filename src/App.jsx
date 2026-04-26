@@ -16,6 +16,7 @@ import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, re
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE } from "./lib/agent.js";
+import { PresenceProvider, usePresence } from "./lib/presence.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
@@ -2137,6 +2138,21 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
   // mueve la tarea entre boards y recalcula task.ref.
   const [transferOpen,setTransferOpen]=useState(false);
   const [transferTarget,setTransferTarget]=useState("");
+  // Presencia en tiempo real: publicamos qué tarea tenemos abierta y si la
+  // estamos editando. Otros usuarios verán el banner. Al desmontar el modal
+  // limpiamos (openTaskId=null) para no aparecer "viendo" tareas que cerramos.
+  const presence = usePresence();
+  useEffect(()=>{
+    if(!task?.id) return;
+    presence.setOpenTask(task.id, false);
+    return ()=>presence.setOpenTask(null, false);
+  },[task?.id]);
+  useEffect(()=>{
+    if(!task?.id) return;
+    presence.setOpenTask(task.id, !!editing);
+  },[editing, task?.id]);
+  const presentOthers = (presence.presenceByTask?.[task?.id]||[])
+    .filter(u=>String(u.userId)!==String(presence.currentUserId));
   const intRef=useRef(null);
   const p2=palOf(task.assignees); const q=getQ(task);
 
@@ -2240,6 +2256,33 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
           </div>
         </div>
         {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
+        {presentOthers.length>0 && (()=>{
+          const editors = presentOthers.filter(u=>u.isEditing);
+          const viewers = presentOthers.filter(u=>!u.isEditing);
+          const isEditingMode = editors.length>0;
+          const bg = isEditingMode ? "#FEF3C7" : "#EFF6FF";
+          const border = isEditingMode ? "#FCD34D" : "#BFDBFE";
+          const accent = isEditingMode ? "#92400E" : "#1E40AF";
+          const main = editors[0] || viewers[0];
+          const others = (isEditingMode ? editors : viewers).slice(1);
+          const extraTxt = others.length>0 ? ` y ${others.length} más` : "";
+          return(
+            <div style={{padding:"6px 14px",background:bg,border:`1px solid ${border}`,borderTop:0,borderLeft:0,borderRight:0,fontSize:11.5,color:accent,display:"flex",alignItems:"center",gap:8}}>
+              <span>{isEditingMode?"✏️":"👁️"}</span>
+              <span style={{flex:1}}>
+                <b>{main.userName||"Otro usuario"}</b>{extraTxt} {isEditingMode?"está editando esta tarea — los cambios se sincronizarán":"está viendo esta tarea ahora"}
+              </span>
+              <div style={{display:"flex"}}>
+                {presentOthers.slice(0,4).map((u,i)=>{
+                  const mp2 = MP[u.userId]||MP[0];
+                  return(
+                    <div key={u.userId} title={`${u.userName}${u.isEditing?" (editando)":""}`} style={{marginLeft:i>0?-6:0,zIndex:10-i,width:22,height:22,borderRadius:"50%",background:mp2.solid,color:"#fff",border:"2px solid #fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{u.userInitials||"?"}</div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
         {avatarOpen&&<AvatarModal task={task} members={members} connectedAgents={(agents||[]).filter(a=>(task.agentIds||[]).includes(a.id))} ceoMemory={ceoMemory} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})} onMutateTask={newTask=>onUpdate(task.id,colId,newTask)}/>}
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
@@ -2863,6 +2906,11 @@ function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
   const subs=task.subtasks||[];
   const subDone=subs.filter(s=>s.done).length;
   const subAllDone=subs.length>0&&subDone===subs.length;
+  // Presencia: avatares apilados en la esquina si otros usuarios tienen
+  // esta tarea abierta. Ignora al usuario actual.
+  const presence = usePresence();
+  const presentHere = (presence.presenceByTask?.[task.id]||[])
+    .filter(u=>String(u.userId)!==String(presence.currentUserId));
   // Tarjetas mostradas en boards secundarios (linked) son no draggables y
   // tienen un fondo levemente distinto para distinguirlas. La tarea sigue
   // viviendo en su proyecto principal — se sincronizan vía mutadores Anywhere.
@@ -2878,6 +2926,16 @@ function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
     <div draggable={!isLinkedHere} onDragStart={isLinkedHere?undefined:onDragStart} onClick={onOpen} style={{background:isLinkedHere?"#FAFAF5":(p2?p2.cardBg:"#fff"),border:`0.5px solid ${p2?p2.cardBorder+"55":"#e5e7eb"}`,borderLeft:`4px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:10,padding:"10px 12px",marginBottom:8,cursor:"pointer"}}>
       <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:6}}>
         <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,lineHeight:1.4}}>{task.title}</div>
+        {presentHere.length>0 && (
+          <div style={{display:"flex",flexShrink:0}} title={`${presentHere.map(u=>u.userName).join(", ")} ${presentHere.length===1?"está":"están"} viendo esta tarea`}>
+            {presentHere.slice(0,3).map((u,i)=>{
+              const mp2 = MP[u.userId]||MP[0];
+              return(
+                <div key={u.userId} style={{marginLeft:i>0?-5:0,zIndex:10-i,width:18,height:18,borderRadius:"50%",background:mp2.solid,color:"#fff",border:"2px solid #fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,boxShadow:u.isEditing?"0 0 0 2px #FCD34D":"none"}}>{u.userInitials||"?"}</div>
+              );
+            })}
+          </div>
+        )}
         {(isLinkedHere || (task.linkedProjects||[]).length>0) && <span title={sharedTooltip} style={{fontSize:10,padding:"1px 6px",borderRadius:4,background:"#F3F4F6",color:"#6B7280",border:"0.5px solid #E5E7EB",fontWeight:600,flexShrink:0}}>🔗</span>}
         <RefBadge code={task.ref}/>
       </div>
@@ -8428,7 +8486,9 @@ export default function TaskFlow(){
       </div>;
     }
   }
+  const me = (data.members||[]).find(m=>m.id===activeMember);
   return(
+    <PresenceProvider currentUser={me}>
     <div style={{display:"flex",height:"100vh",fontFamily:"'Segoe UI',system-ui,sans-serif",background:"#f9fafb",color:"#111827"}}>
       {showUserModal&&!authSession&&<UserSelectionModal members={data.members} onSelectUser={selectUser}/>}
       {showShortcuts&&<ShortcutsModal onClose={()=>setShowShortcuts(false)}/>}
@@ -8833,5 +8893,6 @@ export default function TaskFlow(){
         onOpenTask={(pid,tid)=>{ const idx=data.projects.findIndex(p=>p.id===pid); if(idx>=0){setAP(idx);setActiveTab("board");setPendingOpenTaskId(tid);} }}
       />}
     </div>
+    </PresenceProvider>
   );
 }
