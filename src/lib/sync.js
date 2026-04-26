@@ -15,36 +15,15 @@ export async function fetchState(){
 
 let pushTimer = null;
 let lastPushAt = 0;
-let onPushResultCb = null;
-
-// Permite a la UI suscribirse al resultado del push: cb(error|null).
-// Se llama tras cada flush del debounce — null si OK, Error si fallo.
-export function setOnPushResult(cb){ onPushResultCb = cb; }
-
 export function pushState(state){
-  if(!supa){ console.warn("[sync] pushState llamado sin Supabase configurado"); return; }
+  if(!supa) return;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(async ()=>{
     lastPushAt = Date.now();
-    try {
-      const { error } = await supa.from("taskflow_state")
-        .update({ data: state, updated_at: new Date().toISOString() })
-        .eq("id",1);
-      if(error){
-        // ANTES: console.warn silencioso. AHORA: console.error visible
-        // en DevTools rojo + callback a la UI para toast persistente.
-        // Causa típica: RLS bloqueando UPDATE para usuarios authenticated
-        // (faltan policies). Sin esto, cambios locales nunca subían y al
-        // recargar la app fetchState devolvía estado viejo → datos perdidos.
-        console.error("[sync] push falló:", error.message, error);
-        onPushResultCb?.(error);
-      } else {
-        onPushResultCb?.(null);
-      }
-    } catch(e){
-      console.error("[sync] push lanzó excepción:", e);
-      onPushResultCb?.(e instanceof Error ? e : new Error(String(e)));
-    }
+    const { error } = await supa.from("taskflow_state")
+      .update({ data: state, updated_at: new Date().toISOString() })
+      .eq("id",1);
+    if(error) console.warn("[sync] push", error.message);
   }, 400);
 }
 
