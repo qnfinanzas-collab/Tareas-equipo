@@ -20,6 +20,7 @@ import { PresenceProvider, usePresence } from "./lib/presence.jsx";
 import PulsoDinamico from "./components/PulsoDinamico.jsx";
 import TaskKanban from "./components/TaskKanban.jsx";
 import RiesgosPanel from "./components/RiesgosPanel.jsx";
+import BriefingMatinal from "./components/BriefingMatinal.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
@@ -7783,6 +7784,25 @@ export default function TaskFlow(){
   const [activeProject,setAP]      = useState(0);
   const [activeTab,setActiveTab]   = useState("command");
   const [activeMember,setAM]       = useState(()=>{ const u=readStoredUser(); return typeof u?.id==="number"?u.id:5; });
+  // Briefing matinal automático: aparece la primera apertura del día
+  // (>4h desde el último uso) si todavía no se mostró hoy. La marca
+  // "soulbaric.briefingMatinal.lastDate" la pone el propio modal al
+  // cerrarse. "soulbaric.lastOpenTs" se actualiza al final del trigger
+  // para no auto-disparar de nuevo en la misma sesión.
+  const [showBriefing,setShowBriefing] = useState(false);
+  useEffect(()=>{
+    try{
+      const today = fmt(new Date());
+      const lastOpen = Number(localStorage.getItem("soulbaric.lastOpenTs")||0);
+      const lastBriefing = localStorage.getItem("soulbaric.briefingMatinal.lastDate")||"";
+      const sinceLastOpen = Date.now() - lastOpen;
+      const fourH = 4*60*60*1000;
+      if(lastBriefing!==today && sinceLastOpen>fourH){
+        setShowBriefing(true);
+      }
+      localStorage.setItem("soulbaric.lastOpenTs", String(Date.now()));
+    }catch{}
+  },[]);
   // isAdmin: lee accountRole del miembro activo. Cuando hay sesión
   // Supabase Auth, activeMember se resuelve por email tras login. Sin
   // sesión y con user picker legacy, se sigue usando para gate de
@@ -9133,6 +9153,9 @@ export default function TaskFlow(){
       {activeNegId&&sessModal&&sessModal!=="create"&&<SessionModal session={sessModal} onClose={()=>setSessModal(null)} onSave={p=>updateSession(activeNegId,sessModal.id,p)} onDelete={sid=>{ deleteSession(activeNegId,sid); if(activeSessId===sid) setActiveSessId(null); }}/>}
       {activeNegId&&activeSessId&&noteModal==="create"&&<AddNoteModal onClose={()=>setNoteModal(null)} onSave={p=>addNote(activeNegId,activeSessId,p)}/>}
       {activeNegId&&activeSessId&&noteModal&&noteModal!=="create"&&<AddNoteModal initialNote={noteModal} onClose={()=>setNoteModal(null)} onSave={p=>updateNote(activeNegId,activeSessId,noteModal.id,p)} onDelete={nid=>deleteNote(activeNegId,activeSessId,nid)}/>}
+
+      {/* Briefing matinal — solo si pasó el guard de 4h + no mostrado hoy */}
+      {showBriefing && me && <BriefingMatinal user={me} data={data} onClose={()=>setShowBriefing(false)}/>}
 
       {/* Botón flotante global del asesor — siempre visible */}
       <button className="tf-fab" onClick={()=>setScopeAvatar(activeTab||"global")} title="Asesor IA — habla sobre lo que estás viendo" style={{position:"fixed",bottom:24,right:24,zIndex:1500,width:60,height:60,borderRadius:"50%",background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 8px 24px rgba(127,119,221,0.4)",display:"flex",alignItems:"center",justifyContent:"center"}}>🎙️</button>
