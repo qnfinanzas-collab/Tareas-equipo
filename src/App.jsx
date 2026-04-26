@@ -17,6 +17,8 @@ import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, del
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE } from "./lib/agent.js";
 import { PresenceProvider, usePresence } from "./lib/presence.jsx";
+import PulsoDinamico from "./components/PulsoDinamico.jsx";
+import TaskKanban from "./components/TaskKanban.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
@@ -3997,48 +3999,11 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
     return `Vence en ${h}h ${m}min`;
   })();
 
-  // Pulso del Día: 16 bloques de 30 min desde la hora actual (8h adelante).
-  // Color según heurística simple. Asignación de tareas a bloques en el
-  // commit "feat(timeline): …".
   const now = new Date();
-  const blocks = (()=>{
-    const out=[]; const start=new Date(now); start.setMinutes(start.getMinutes()-(start.getMinutes()%30),0,0);
-    for(let i=0;i<16;i++){
-      const t=new Date(start.getTime()+i*30*60000);
-      const hh=String(t.getHours()).padStart(2,"0"), mm=String(t.getMinutes()).padStart(2,"0");
-      out.push({label:`${hh}:${mm}`, ts:t.getTime(), color:"#E5E7EB", task:null});
-    }
-    return out;
-  })();
-  // Pinta los primeros bloques con tareas críticas/urgentes (placeholder).
-  const overdueList = active.filter(t=>t.dueDate&&daysUntil(t.dueDate)<0).slice(0,2);
-  const todayList   = active.filter(t=>t.dueDate&&daysUntil(t.dueDate)===0).slice(0,2);
-  const highList    = active.filter(t=>t.priority==="alta"&&!overdueList.includes(t)&&!todayList.includes(t)).slice(0,3);
-  let bIdx=0;
-  overdueList.forEach(t=>{ if(blocks[bIdx]){ blocks[bIdx].color="#FCA5A5"; blocks[bIdx].task=t; bIdx++; if(blocks[bIdx]){ blocks[bIdx].color="#FCA5A5"; blocks[bIdx].task=t; bIdx++; } } });
-  todayList.forEach(t=>{ if(blocks[bIdx]){ blocks[bIdx].color="#FDBA74"; blocks[bIdx].task=t; bIdx++; if(blocks[bIdx]){ blocks[bIdx].color="#FDBA74"; blocks[bIdx].task=t; bIdx++; } } });
-  highList.forEach(t=>{ if(blocks[bIdx]){ blocks[bIdx].color="#93C5FD"; blocks[bIdx].task=t; bIdx++; if(blocks[bIdx]){ blocks[bIdx].color="#93C5FD"; blocks[bIdx].task=t; bIdx++; } } });
-
-  // Riesgos Activos — heurísticas deterministas.
-  const overdueCold = active.filter(t=>{
-    if(!t.dueDate||daysUntil(t.dueDate)>=0) return false;
-    const lastLog = (t.timeLogs||[]).slice(-1)[0]?.date || t.startDate;
-    const days = lastLog ? Math.floor((Date.now()-new Date(lastLog).getTime())/86400000) : 999;
-    return days>=2;
-  });
-  const coldNegs = (negotiations||[]).filter(n=>{
-    if(n.status!=="active" && n.status!=="open" && n.status!=="negotiating") return false;
-    const ts = n.updatedAt ? new Date(n.updatedAt).getTime() : 0;
-    if(!ts) return false;
-    return (Date.now()-ts) > 5*86400000;
-  });
-  const waiting = active.filter(t=>(t.comments||[]).some(c=>/esperando respuesta/i.test(c.text||"")));
 
   // Acciones del Foco. Empezar/Hecho mutan el board mediante callbacks
   // ya existentes en App; Posponer pide razón inline y mueve la fecha 1 día.
   const [postponeReason,setPostponeReason] = useState(null); // null | string en edición
-  // Hover en bloques del Pulso del Día — muestra popover con detalles.
-  const [hoverBlock,setHoverBlock] = useState(null);
   const startFocus = ()=>{
     if(!focusTask) return;
     onOpenTask?.(focusTask.id, focusTask.projId);
@@ -4067,71 +4032,10 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
         <button onClick={onGoDashboard} style={{padding:"6px 12px",borderRadius:8,background:"#fff",color:"#6B7280",border:"1px solid #E5E7EB",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📊 Dashboard analítico →</button>
       </div>
 
-      {/* Pulso del Día — timeline horizontal */}
-      <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,padding:"14px 16px",marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#374151",textTransform:"uppercase",letterSpacing:"0.08em"}}>⏱ Pulso del día — próximas 8 h</div>
-          <div style={{display:"flex",gap:8,fontSize:10,color:"#9CA3AF"}}>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,background:"#FCA5A5",borderRadius:2}}/>Crítico</span>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,background:"#FDBA74",borderRadius:2}}/>Hoy</span>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,background:"#93C5FD",borderRadius:2}}/>Profundo</span>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,background:"#86EFAC",borderRadius:2}}/>Comunicación</span>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,background:"#E5E7EB",borderRadius:2}}/>Libre</span>
-          </div>
-        </div>
-        <div style={{position:"relative",display:"grid",gridTemplateColumns:"repeat(16,1fr)",gap:3,height:36}}>
-          {blocks.map((b,i)=>{
-            const isHover = hoverBlock===i;
-            // Bloques con tarea son los que muestran popover. La posición
-            // del popover se calcula relativo a la grilla: left% según el
-            // bloque (16 columnas), centrado horizontalmente con translate.
-            // Para los extremos (i<2 o i>13) ajustamos para no salirnos.
-            const leftPct = ((i+0.5)/16)*100;
-            const transformX = i<=1 ? "0" : i>=14 ? "-100%" : "-50%";
-            return(
-              <div
-                key={i}
-                onMouseEnter={()=>setHoverBlock(i)}
-                onMouseLeave={()=>setHoverBlock(h=>h===i?null:h)}
-                style={{background:b.color,borderRadius:4,position:"relative",cursor:b.task?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center"}}
-                onClick={()=>b.task&&onOpenTask?.(b.task.id, b.task.projId)}
-              >
-                {i%2===0&&<span style={{fontSize:9,color:"#374151",fontWeight:600,opacity:0.7}}>{b.label}</span>}
-                {isHover && b.task && (()=>{
-                  const t = b.task;
-                  const neg = t.negotiationId ? (negotiations||[]).find(n=>n.id===t.negotiationId) : null;
-                  const priColors = t.priority==="alta"?{bg:"#FCEBEB",fg:"#A32D2D",bd:"#E24B4A"}
-                                  : t.priority==="media"?{bg:"#FEF3C7",fg:"#92400E",bd:"#FCD34D"}
-                                  : {bg:"#F0FDF4",fg:"#0E7C5A",bd:"#86EFAC"};
-                  return(
-                    <div style={{position:"absolute",left:`${leftPct - ((i+0.5)/16)*100 + 50}%`,bottom:"calc(100% + 8px)",transform:`translateX(${transformX})`,width:240,maxWidth:240,padding:"10px 12px",background:"#fff",border:"1px solid #E5E7EB",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:50,pointerEvents:"none",fontFamily:"inherit",textAlign:"left"}}>
-                      <div style={{fontSize:10,color:"#9CA3AF",fontWeight:600,marginBottom:4}}>🕒 {b.label}</div>
-                      <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:5,flexWrap:"wrap"}}>
-                        <RefBadge code={t.ref}/>
-                        <span style={{fontSize:10.5,color:t.projColor||"#6B7280",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}}>{t.projEmoji||"📋"} {t.projName}</span>
-                      </div>
-                      <div style={{fontSize:13,fontWeight:600,color:"#111827",lineHeight:1.3,marginBottom:6,wordBreak:"break-word"}}>{t.title}</div>
-                      {neg && <div style={{fontSize:11,color:"#6B7280",marginBottom:4}}>🤝 Contraparte: <b style={{color:"#374151"}}>{neg.counterparty}</b></div>}
-                      <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginTop:6}}>
-                        <span style={{fontSize:10,fontWeight:600,padding:"2px 7px",borderRadius:10,background:priColors.bg,border:`1px solid ${priColors.bd}`,color:priColors.fg}}>Prio {t.priority||"media"}</span>
-                        <span style={{fontSize:10,fontWeight:500,padding:"2px 7px",borderRadius:10,background:"#F3F4F6",color:"#374151",border:"1px solid #E5E7EB"}}>{t.colName||"—"}</span>
-                        {t.estimatedHours>0 && <span style={{fontSize:10,color:"#6B7280"}}>⌛ {t.estimatedHours}h est.</span>}
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            );
-          })}
-          {/* Línea vertical de hora actual */}
-          {(()=>{
-            const start=blocks[0]?.ts; if(!start) return null;
-            const elapsedRatio = ((now.getTime()-start)/(8*3600000));
-            if(elapsedRatio<0||elapsedRatio>1) return null;
-            return <div style={{position:"absolute",top:-3,bottom:-3,left:`${elapsedRatio*100}%`,width:2,background:"#E24B4A",pointerEvents:"none"}}/>;
-          })()}
-        </div>
-      </div>
+      {/* Pulso del Día — timeline horizontal extraído a componente */}
+      <PulsoDinamico active={active} negotiations={negotiations} onOpenTask={onOpenTask} RefBadge={RefBadge}/>
+      {/* Mini-Kanban del día con tareas agrupadas por columna */}
+      <TaskKanban myTasks={myTasks} onOpenTask={onOpenTask} RefBadge={RefBadge}/>
 
       {/* Grid 70/30 — Foco + Riesgos */}
       <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 280px",gap:16}}>
@@ -4175,24 +4079,41 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
           }
         </div>
 
-        {/* Riesgos Activos */}
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          <div onClick={()=>onGoMytasks?.("overdue")} style={{background:"#fff",border:`1px solid ${overdueCold.length>0?"#FCA5A5":"#E5E7EB"}`,borderLeft:`4px solid ${overdueCold.length>0?"#E24B4A":"#D1D5DB"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#991B1B",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🔴 Vencidas sin tocar</div>
-            <div style={{fontSize:24,fontWeight:700,color:overdueCold.length>0?"#B91C1C":"#9CA3AF",lineHeight:1.1}}>{overdueCold.length}</div>
-            <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{overdueCold.length===0?"Limpio — ningún olvido":"+2 días sin actualización"}</div>
-          </div>
-          <div onClick={()=>onGoDealRoom?.("cold")} style={{background:"#fff",border:`1px solid ${coldNegs.length>0?"#FCD34D":"#E5E7EB"}`,borderLeft:`4px solid ${coldNegs.length>0?"#EF9F27":"#D1D5DB"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#92400E",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>⏳ Negociaciones frías</div>
-            <div style={{fontSize:24,fontWeight:700,color:coldNegs.length>0?"#B45309":"#9CA3AF",lineHeight:1.1}}>{coldNegs.length}</div>
-            <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{coldNegs.length===0?"Todas en movimiento":"+5 días sin actividad"}</div>
-          </div>
-          <div onClick={()=>onGoMytasks?.("waiting")} style={{background:"#fff",border:`1px solid ${waiting.length>0?"#BFDBFE":"#E5E7EB"}`,borderLeft:`4px solid ${waiting.length>0?"#3B82F6":"#D1D5DB"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#1E3A8A",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📨 Esperan respuesta</div>
-            <div style={{fontSize:24,fontWeight:700,color:waiting.length>0?"#1E40AF":"#9CA3AF",lineHeight:1.1}}>{waiting.length}</div>
-            <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{waiting.length===0?"Sin pendientes externos":"Con etiqueta en comentarios"}</div>
-          </div>
-        </div>
+        {/* Riesgos Activos — heurísticas inline (extraído a componente en commit siguiente) */}
+        {(()=>{
+          const overdueCold = active.filter(t=>{
+            if(!t.dueDate||daysUntil(t.dueDate)>=0) return false;
+            const lastLog = (t.timeLogs||[]).slice(-1)[0]?.date || t.startDate;
+            const days = lastLog ? Math.floor((Date.now()-new Date(lastLog).getTime())/86400000) : 999;
+            return days>=2;
+          });
+          const coldNegs = (negotiations||[]).filter(n=>{
+            if(n.status!=="active" && n.status!=="open" && n.status!=="negotiating") return false;
+            const ts = n.updatedAt ? new Date(n.updatedAt).getTime() : 0;
+            if(!ts) return false;
+            return (Date.now()-ts) > 5*86400000;
+          });
+          const waiting = active.filter(t=>(t.comments||[]).some(c=>/esperando respuesta/i.test(c.text||"")));
+          return(
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div onClick={()=>onGoMytasks?.("overdue")} style={{background:"#fff",border:`1px solid ${overdueCold.length>0?"#FCA5A5":"#E5E7EB"}`,borderLeft:`4px solid ${overdueCold.length>0?"#E24B4A":"#D1D5DB"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#991B1B",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>🔴 Vencidas sin tocar</div>
+                <div style={{fontSize:24,fontWeight:700,color:overdueCold.length>0?"#B91C1C":"#9CA3AF",lineHeight:1.1}}>{overdueCold.length}</div>
+                <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{overdueCold.length===0?"Limpio — ningún olvido":"+2 días sin actualización"}</div>
+              </div>
+              <div onClick={()=>onGoDealRoom?.("cold")} style={{background:"#fff",border:`1px solid ${coldNegs.length>0?"#FCD34D":"#E5E7EB"}`,borderLeft:`4px solid ${coldNegs.length>0?"#EF9F27":"#D1D5DB"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#92400E",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>⏳ Negociaciones frías</div>
+                <div style={{fontSize:24,fontWeight:700,color:coldNegs.length>0?"#B45309":"#9CA3AF",lineHeight:1.1}}>{coldNegs.length}</div>
+                <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{coldNegs.length===0?"Todas en movimiento":"+5 días sin actividad"}</div>
+              </div>
+              <div onClick={()=>onGoMytasks?.("waiting")} style={{background:"#fff",border:`1px solid ${waiting.length>0?"#BFDBFE":"#E5E7EB"}`,borderLeft:`4px solid ${waiting.length>0?"#3B82F6":"#D1D5DB"}`,borderRadius:10,padding:"12px 14px",cursor:"pointer"}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#1E3A8A",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.06em"}}>📨 Esperan respuesta</div>
+                <div style={{fontSize:24,fontWeight:700,color:waiting.length>0?"#1E40AF":"#9CA3AF",lineHeight:1.1}}>{waiting.length}</div>
+                <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{waiting.length===0?"Sin pendientes externos":"Con etiqueta en comentarios"}</div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
