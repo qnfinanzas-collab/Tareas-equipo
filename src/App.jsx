@@ -4072,6 +4072,13 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
                   onOpenTask?.(task.id, task.projId);
                 }
               }}
+              onCompleteTask={(taskId,projId,colId)=>onCompleteTask?.(taskId,projId,colId)}
+              onPostponeTask={(task)=>{
+                if(!task) return;
+                const newDate = new Date(task.dueDate||new Date());
+                newDate.setDate(newDate.getDate()+1);
+                onPostponeTask?.(task, fmt(newDate), "+1d");
+              }}
             />
           </div>
         );
@@ -9270,6 +9277,13 @@ export default function TaskFlow(){
                 if(i>=0){ setAP(i); setActiveTab("board"); setPendingOpenTaskId(task.id); }
                 setHectorPanelOpen(false);
               }
+            }}
+            onCompleteTask={(taskId,projId,colId)=>completeTaskAnywhere(taskId,projId,colId)}
+            onPostponeTask={(task)=>{
+              if(!task) return;
+              const newDate = new Date(task.dueDate||new Date());
+              newDate.setDate(newDate.getDate()+1);
+              postponeTaskAnywhere(task, fmt(newDate), "+1d");
             }}
           />
         );
