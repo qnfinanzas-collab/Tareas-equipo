@@ -11,7 +11,7 @@ import {
 } from "./lib/availability.js";
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
-import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
+import { syncEnabled, fetchState, pushState, subscribeState, setOnPushResult } from "./lib/sync.js";
 import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import jsPDF from "jspdf";
@@ -6919,6 +6919,30 @@ export default function TaskFlow(){
     pushState(data);
   },[data,syncReady]);
 
+  // Suscripción al resultado del push: si falla, toast persistente y
+  // syncStatus="error" (visible en TopBar). Si OK tras un error previo,
+  // restaura "ok". Antes los fallos quedaban silenciados en console.warn
+  // y el usuario no se enteraba hasta que perdía datos.
+  const lastSyncErrToastIdRef = useRef(0);
+  useEffect(()=>{
+    if(!syncEnabled) return;
+    setOnPushResult((err)=>{
+      if(err){
+        const id = ++lastSyncErrToastIdRef.current;
+        // throttle: solo un toast cada 30s para no spamear si el debounce
+        // dispara muchos pushes seguidos con la misma RLS rota.
+        if(id !== 1 && (Date.now() - (lastSyncErrToastIdRef.shownAt||0)) < 30000) return;
+        lastSyncErrToastIdRef.shownAt = Date.now();
+        addToast(`⚠ No se pudo guardar en la nube: ${err.message||"error desconocido"}`,"error",{ttl:8000});
+        setSyncStatus("error");
+      } else {
+        // Reset solo si veníamos de error.
+        setSyncStatus(s=> s==="error" ? "ok" : s);
+      }
+    });
+    return ()=> setOnPushResult(null);
+  },[addToast]);
+
   // Sync inicial + subscripción realtime
   useEffect(()=>{
     if(!syncEnabled) return;
@@ -7247,8 +7271,9 @@ export default function TaskFlow(){
   // ── Deal Room mutations ──
   const createNegotiation = useCallback((payload)=>{
     const id=_uid("neg"); const now=new Date().toISOString();
+    console.log("[neg] createNegotiation:", payload?.title, "id:", id, "counterparty:", payload?.counterparty);
     setData(prev=>({...prev,negotiations:[...(prev.negotiations||[]),{id,...payload,sessions:[],createdAt:now,updatedAt:now}]}));
-    addToast("✓ Negociación creada");
+    addToast(`✅ Negociación "${payload?.title||""}" guardada`);
   },[addToast]);
   const updateNegotiation = useCallback((negId,patch)=>{
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,...patch,updatedAt:new Date().toISOString()}:n)}));
