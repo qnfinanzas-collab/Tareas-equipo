@@ -145,6 +145,9 @@ export default function HectorPanel({
   onOpenTask,
   userId,
   userName,
+  // Contexto financiero opcional. Si llega, se inyecta en el prompt para
+  // que Héctor pondere recomendaciones según runway y caja disponible.
+  financeContext,
 }) {
   const STORAGE_KEY = `soulbaric.hector.recs.${userId ?? "anon"}`;
   const CHAT_KEY = `soulbaric.hector.chat.${userId ?? "anon"}`;
@@ -210,6 +213,7 @@ export default function HectorPanel({
   const chatHistoryRef = useRef(chatHistory);
   const recommendationsRef = useRef(recommendations);
   const sessionRef = useRef(sessionMemory);
+  const financeRef = useRef(financeContext);
   tasksRef.current = tasks;
   riesgosRef.current = riesgos;
   focusRef.current = currentFocus;
@@ -218,6 +222,7 @@ export default function HectorPanel({
   chatHistoryRef.current = chatHistory;
   recommendationsRef.current = recommendations;
   sessionRef.current = sessionMemory;
+  financeRef.current = financeContext;
 
   // Guards anti-bucle (proactive thought)
   const lastCallTime = useRef(0);
@@ -378,13 +383,31 @@ export default function HectorPanel({
         dueDate: t.dueDate,
         assignedTo: t.assignedTo,
       }));
+      // Bloque financiero opcional: solo se incluye si el caller pasa
+      // financeContext. Las cifras se formatean en EUR español dentro del
+      // prompt para que Héctor las cite literales sin recálculo.
+      const fin = financeRef.current;
+      const fmtEur = (n)=> typeof n==="number" ? new Intl.NumberFormat("es-ES",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n) : "—";
+      const finBlock = fin ? `\nCONTEXTO FINANCIERO ACTUAL:
+- Saldo: ${fmtEur(fin.currentBalance)}
+- Burn rate mensual: ${fmtEur(fin.monthlyBurnRate)}
+- Runway estimado: ${fin.runway==null?"sin datos":(typeof fin.runway==="number"?fin.runway.toFixed(1)+" meses":fin.runway)}
+- Ingresos pendientes de cobro: ${fmtEur(fin.pendingIncome)}
+- Gastos pendientes de pago: ${fmtEur(fin.upcomingExpenses)}
+
+Considera estos datos en tus recomendaciones:
+- Si runway < 3 meses → prioriza acciones que generen ingresos.
+- Si hay ingresos pendientes significativos → recomienda gestión de cobro.
+- Si gastos pendientes > saldo → alerta de tesorería.
+` : "";
+
       const userPrompt = `Hora: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}.
 Día: ${now.toLocaleDateString("es-ES", { weekday: "long" })} (${now.toLocaleDateString("es-ES")}).
 Energía esperada del CEO: ${energyLevel}.
 Tarea en foco: ${focusNow?.title || "Ninguna"}.
 Tareas pendientes: ${tasksWithContext.length}.
 Riesgos críticos: ${criticalRisks.length}.
-
+${finBlock}
 TAREAS DISPONIBLES (JSON — copia taskId, ref, title, board y urgency TAL CUAL):
 ${JSON.stringify(tasksForPrompt)}
 

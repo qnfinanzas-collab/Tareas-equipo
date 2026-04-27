@@ -3916,7 +3916,7 @@ function ProjectModal({project,members,workspaces,allProjects,onClose,onSave}){
 // del día). Esta primera versión usa heurísticas deterministas; la
 // selección por LLM y el resto de funcionalidades inteligentes se añaden
 // en commits posteriores.
-function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostponeTask,onArchiveTask,onGoDashboard,onGoMytasks,onGoDealRoom,currentFocus,onSetCurrentFocus,onHectorStateChange,onHectorRecommendation}){
+function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostponeTask,onArchiveTask,onGoDashboard,onGoMytasks,onGoDealRoom,currentFocus,onSetCurrentFocus,onHectorStateChange,onHectorRecommendation,financeContext}){
   const {boards,projects,members,negotiations}=data;
   const me = (members||[]).find(m=>m.id===activeMember);
   // Tareas del usuario activo (asignadas a mí), enriquecidas con metadatos
@@ -4150,6 +4150,7 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
               }}
               onArchiveTask={onArchiveTask}
               onOpenTask={onOpenTask}
+              financeContext={financeContext}
             />
           </div>
         );
@@ -7993,6 +7994,28 @@ export default function TaskFlow(){
   // cerrarse. "soulbaric.lastOpenTs" se actualiza al final del trigger
   // para no auto-disparar de nuevo en la misma sesión.
   const [showBriefing,setShowBriefing] = useState(false);
+  // Contexto financiero para Héctor — se calcula a partir de
+  // data.financeMovements. Igual heurística que FinanceDashboard pero
+  // expuesta en forma compacta para el prompt del agente.
+  const financeContext = React.useMemo(()=>{
+    const movs = data.financeMovements || [];
+    const today = new Date();
+    const isSameMonth = (date, ref)=>{ const d=new Date(date); return d.getFullYear()===ref.getFullYear() && d.getMonth()===ref.getMonth(); };
+    const currentBalance = movs.reduce((acc,m)=>{
+      if(m.status!=="paid") return acc;
+      return m.type==="income" ? acc + Number(m.amount||0) : acc - Number(m.amount||0);
+    },0);
+    let burnSum = 0;
+    for(let i=1;i<=3;i++){
+      const ref = new Date(today.getFullYear(), today.getMonth()-i, 1);
+      burnSum += movs.filter(m=>m.type==="expense" && m.status==="paid" && isSameMonth(m.date,ref)).reduce((a,m)=>a+Number(m.amount||0),0);
+    }
+    const monthlyBurnRate = burnSum/3;
+    const runway = monthlyBurnRate>0 ? Number((currentBalance/monthlyBurnRate).toFixed(1)) : null;
+    const pendingIncome = movs.filter(m=>m.type==="income" && m.status==="pending").reduce((a,m)=>a+Number(m.amount||0),0);
+    const upcomingExpenses = movs.filter(m=>m.type==="expense" && m.status==="pending").reduce((a,m)=>a+Number(m.amount||0),0);
+    return { currentBalance, monthlyBurnRate, runway, pendingIncome, upcomingExpenses };
+  },[data.financeMovements]);
   // Cierre del día pasivo: aparece si la hora local es ≥18:00 y todavía
   // no se mostró el cierre hoy. Se evalúa al montar y cuando el usuario
   // vuelve a la pestaña (focus). La marca diaria la pone el propio modal.
@@ -9421,7 +9444,7 @@ export default function TaskFlow(){
               onEdit={n=>setNegModal(n)}
             />;
           })()}
-          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)}/>}
+          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission}/>}
@@ -9554,6 +9577,7 @@ export default function TaskFlow(){
               if(i>=0){ setAP(i); setActiveTab("board"); setPendingOpenTaskId(taskId); }
               setHectorPanelOpen(false);
             }}
+            financeContext={financeContext}
           />
         );
       })()}
