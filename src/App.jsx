@@ -721,7 +721,28 @@ function _migrate(d){
     }
     return { ...m, email: m.email || "", accountRole: m.accountRole || "member" };
   });
-  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, projectId: typeof t.projectId==="number" ? t.projectId : Number(pid), linkedProjects: Array.isArray(t.linkedProjects)?t.linkedProjects:[], links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[], dueTime: t.dueTime||"", archived: typeof t.archived === "boolean" ? t.archived : false}))}))]));
+  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>{
+    // Migración timeline: si existen comments antiguos y no hay timeline,
+    // mapeamos cada comment a una entrada de tipo "human". Idempotente:
+    // si ya hay timeline, se respeta y no se duplica desde comments.
+    let timeline = Array.isArray(t.timeline) ? t.timeline : null;
+    if(!timeline){
+      const oldComments = Array.isArray(t.comments) ? t.comments : [];
+      timeline = oldComments.map((c, idx)=>({
+        id: `tlmig_${t.id}_${idx}_${Date.now().toString(36)}`,
+        type: "human",
+        author: null,
+        authorId: c.author ?? null,
+        authorAvatar: "👤",
+        text: c.text || "",
+        timestamp: c.timestamp || new Date().toISOString(),
+        isMilestone: false,
+        relatedRecommendationId: null,
+        legacyTime: c.time || null,
+      }));
+    }
+    return {...t, projectId: typeof t.projectId==="number" ? t.projectId : Number(pid), linkedProjects: Array.isArray(t.linkedProjects)?t.linkedProjects:[], links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[], dueTime: t.dueTime||"", archived: typeof t.archived === "boolean" ? t.archived : false, timeline, comments: t.comments||[]};
+  })}))]));
   // Backfill project.code (3 letras MAYÚSCULAS) y task.ref (CODE-NNN). Para
   // proyectos antiguos sin código, autogeneramos a partir del nombre y
   // marcamos codeAuto:true (informativo, sin efecto funcional). Para tareas
@@ -8587,6 +8608,48 @@ export default function TaskFlow(){
     });
     addToast("↩ Tarea restaurada");
   },[addToast]);
+  // Timeline de avance en tareas: cada entrada queda anexada al final.
+  // Acepta tipos human / ai / milestone. ID generado si no viene.
+  const addTimelineEntry = useCallback((taskId, entry)=>{
+    const id = entry?.id || (typeof crypto!=="undefined" && crypto.randomUUID ? crypto.randomUUID() : `tl_${Date.now()}_${Math.random().toString(36).slice(2,8)}`);
+    const ts = entry?.timestamp || new Date().toISOString();
+    const e = {
+      id,
+      type: entry?.type==="ai" || entry?.type==="milestone" ? entry.type : "human",
+      author: entry?.author || null,
+      authorId: entry?.authorId ?? null,
+      authorAvatar: entry?.authorAvatar || (entry?.type==="ai" ? "🧙" : "👤"),
+      text: (entry?.text || "").trim(),
+      timestamp: ts,
+      isMilestone: !!entry?.isMilestone,
+      relatedRecommendationId: entry?.relatedRecommendationId || null,
+    };
+    setData(prev=>{
+      const newBoards = {};
+      for(const pid in prev.boards){
+        newBoards[pid] = prev.boards[pid].map(col=>({...col, tasks: col.tasks.map(t=>{
+          if(t.id!==taskId) return t;
+          const tl = Array.isArray(t.timeline) ? t.timeline : [];
+          return {...t, timeline:[...tl, e]};
+        })}));
+      }
+      return {...prev, boards: newBoards};
+    });
+  },[]);
+  // Toggle milestone: marca/desmarca una entrada del timeline como hito.
+  const toggleTimelineMilestone = useCallback((taskId, entryId)=>{
+    setData(prev=>{
+      const newBoards = {};
+      for(const pid in prev.boards){
+        newBoards[pid] = prev.boards[pid].map(col=>({...col, tasks: col.tasks.map(t=>{
+          if(t.id!==taskId) return t;
+          const tl = (t.timeline||[]).map(e=>e.id===entryId ? {...e, isMilestone:!e.isMilestone} : e);
+          return {...t, timeline: tl};
+        })}));
+      }
+      return {...prev, boards: newBoards};
+    });
+  },[]);
   // Permisos granulares: setMemberPermission cambia un flag (view/edit/
   // admin) para un miembro y un feature. Implica jerarquía: edit→view,
   // admin→edit→view (al activar admin, los inferiores quedan true).
