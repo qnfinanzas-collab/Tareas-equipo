@@ -59,3 +59,22 @@ export function resolveSessionMember(session, members){
   if(!byEmail) return { member: null, role: null };
   return { member: byEmail, role: byEmail.accountRole || "member" };
 }
+
+// Sistema de permisos granulares por feature reutilizable. data.permissions
+// es {[memberId]: {[feature]: {view, edit, admin}}}. Admin global de la
+// cuenta (accountRole==="admin") tiene acceso total a todos los features
+// automáticamente; el resto necesita el flag específico. Niveles
+// jerárquicos: admin ⊃ edit ⊃ view (un admin del módulo también puede
+// editar y ver). Pasamos `permissions` como argumento para no depender
+// de globals — el caller suele tener data.permissions a mano.
+export function hasPermission(member, feature, level = "view", permissions = null) {
+  if (!member) return false;
+  if (member.accountRole === "admin") return true;
+  if (!permissions || !feature) return false;
+  const memberPerms = permissions[member.id]?.[feature];
+  if (!memberPerms) return false;
+  if (level === "view")  return !!(memberPerms.view || memberPerms.edit || memberPerms.admin);
+  if (level === "edit")  return !!(memberPerms.edit || memberPerms.admin);
+  if (level === "admin") return !!memberPerms.admin;
+  return false;
+}

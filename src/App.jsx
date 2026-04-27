@@ -12,7 +12,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
-import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember } from "./lib/auth.js";
+import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel } from "./lib/agent.js";
@@ -809,6 +809,12 @@ function _migrate(d){
     lessons:     Array.isArray(d.ceoMemory.lessons)     ? d.ceoMemory.lessons     : [],
     updatedAt:   d.ceoMemory.updatedAt || null,
   } : emptyCeoMemory();
+  // Permisos granulares por feature: {[memberId]: {[feature]: {view, edit, admin}}}.
+  // El admin global (accountRole==="admin") tiene acceso total automáticamente
+  // y no necesita entradas aquí. Idempotente: si existe se respeta.
+  if (!d.permissions || typeof d.permissions !== "object") d.permissions = {};
+  // Movimientos financieros (módulo Finanzas). Lista plana de movimientos.
+  if (!Array.isArray(d.financeMovements)) d.financeMovements = [];
   return d;
 }
 function _loadData(){
@@ -8484,6 +8490,64 @@ export default function TaskFlow(){
     });
     addToast("↩ Tarea restaurada");
   },[addToast]);
+  // Permisos granulares: setMemberPermission cambia un flag (view/edit/
+  // admin) para un miembro y un feature. Implica jerarquía: edit→view,
+  // admin→edit→view (al activar admin, los inferiores quedan true).
+  // Solo admin global debería poder llamarlo (gate en la UI).
+  const setMemberPermission = useCallback((memberId, feature, level, value)=>{
+    setData(prev=>{
+      const perms = {...(prev.permissions||{})};
+      const memberPerms = {...(perms[memberId]||{})};
+      const featurePerms = {...(memberPerms[feature]||{view:false,edit:false,admin:false})};
+      featurePerms[level] = !!value;
+      // Implicaciones jerárquicas
+      if(level==="edit"  && value) featurePerms.view = true;
+      if(level==="admin" && value){ featurePerms.view = true; featurePerms.edit = true; }
+      if(level==="view"  && !value){ featurePerms.edit = false; featurePerms.admin = false; }
+      if(level==="edit"  && !value){ featurePerms.admin = false; }
+      memberPerms[feature] = featurePerms;
+      perms[memberId] = memberPerms;
+      return {...prev, permissions: perms};
+    });
+    addToast("✓ Permisos actualizados");
+  },[addToast]);
+  // Finanzas: CRUD de movimientos. ID con crypto.randomUUID si está
+  // disponible (browser moderno) o fallback con Date.now+random.
+  const _newFinanceId = ()=> (typeof crypto!=="undefined" && crypto.randomUUID) ? crypto.randomUUID() : `fin_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+  const addFinanceMovement = useCallback((payload)=>{
+    const now = new Date().toISOString();
+    const movement = {
+      id: _newFinanceId(),
+      type: payload.type==="income" ? "income" : "expense",
+      concept: (payload.concept||"").trim(),
+      amount: Math.max(0, Number(payload.amount)||0),
+      date: payload.date || fmt(new Date()),
+      category: payload.category || "Otros",
+      projectId: payload.projectId || null,
+      paymentMethod: payload.paymentMethod || "transfer",
+      status: payload.status || "paid",
+      notes: (payload.notes||"").trim(),
+      createdBy: activeMember,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setData(prev=>({...prev, financeMovements:[movement, ...(prev.financeMovements||[])]}));
+    addToast(`✓ ${movement.type==="income"?"Entrada":"Salida"} registrada`);
+  },[activeMember, addToast]);
+  const updateFinanceMovement = useCallback((id, patch)=>{
+    setData(prev=>({
+      ...prev,
+      financeMovements: (prev.financeMovements||[]).map(m=>m.id===id ? {...m, ...patch, updatedAt:new Date().toISOString()} : m),
+    }));
+    addToast("✓ Movimiento actualizado");
+  },[addToast]);
+  const deleteFinanceMovement = useCallback((id)=>{
+    setData(prev=>({
+      ...prev,
+      financeMovements: (prev.financeMovements||[]).filter(m=>m.id!==id),
+    }));
+    addToast("Movimiento eliminado","info");
+  },[addToast]);
   const applySchedule = useCallback((schedule)=>{
     setData(prev=>({...prev,aiSchedule:schedule}));
     addToast("✓ Plan aplicado");
@@ -9005,7 +9069,17 @@ export default function TaskFlow(){
           {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:true},
           {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:true},
         ];
-        const PRIMARY = isAdmin ? ALL_PRIMARY : ALL_PRIMARY.filter(it=>!it.adminOnly);
+        // Filtrado del sidebar: admin global ve todo. Para no-admins:
+        // - adminOnly:true → oculto.
+        // - requiresPermission:"<feature>" → visible solo si el miembro
+        //   tiene al menos permission "view" en ese feature.
+        const myMember = (data.members||[]).find(m=>m.id===activeMember);
+        const PRIMARY = ALL_PRIMARY.filter(it=>{
+          if(isAdmin) return true;
+          if(it.adminOnly) return false;
+          if(it.requiresPermission && !hasPermission(myMember, it.requiresPermission, "view", data.permissions)) return false;
+          return true;
+        });
         return(
         <div className={`tf-sidebar${sidebarOpen?" open":""}`} data-sb-no-close style={{width:sidebarCollapsed?60:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column",transition:"width .18s ease"}}>
           {/* Header: logo + brand + collapse button */}
