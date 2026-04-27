@@ -116,6 +116,7 @@ export default function HectorPanel({
   onCompleteTask,
   onPostponeTask,
   onAssignTask,
+  onOpenTask,
   userId,
   userName,
 }) {
@@ -228,6 +229,17 @@ export default function HectorPanel({
         + (memBlock ? ("\n\n---\n" + memBlock) : "")
         + "\n\nIMPORTANTE: en este turno responde ÚNICAMENTE con JSON válido sin markdown ni prosa. USA EL CAMPO \"urgency\" tal cual viene calculado — NO recalcules fechas absolutas y NO menciones la fecha cruda; siempre habla en términos relativos al momento actual.";
 
+      // Lista enriquecida — Héctor recibe id, ref, título, proyecto y la
+      // urgency PRE-CALCULADA. Le pedimos que copie estos campos tal cual.
+      const tasksForPrompt = tasksWithContext.slice(0, 20).map((t) => ({
+        taskId: t.id,
+        ref: t.ref || null,
+        title: t.title,
+        board: t.project || "(sin proyecto)",
+        priority: t.priority,
+        urgency: t.urgency,
+        daysOverdue: t.daysOverdue,
+      }));
       const userPrompt = `Hora: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}.
 Día: ${now.toLocaleDateString("es-ES", { weekday: "long" })} (${now.toLocaleDateString("es-ES")}).
 Energía esperada del CEO: ${energyLevel}.
@@ -235,19 +247,40 @@ Tarea en foco: ${focusNow?.title || "Ninguna"}.
 Tareas pendientes: ${tasksWithContext.length}.
 Riesgos críticos: ${criticalRisks.length}.
 
-Top 3 tareas por urgencia (USA el campo urgency tal cual, no inventes fechas):
-${top3.map((t) => `- ${t.title} · proyecto ${t.project} · prio ${t.priority} · ${t.urgency}`).join("\n") || "(ninguna)"}
+TAREAS DISPONIBLES (JSON — copia taskId, ref, title, board y urgency TAL CUAL):
+${JSON.stringify(tasksForPrompt)}
 
 Riesgos activos:
 ${riesgosNow.slice(0, 5).map((r) => `- ${r.title || r.label || r.msg || ""}`).join("\n") || "(ninguno)"}
 
-Devuelve JSON estricto:
-{"thought":"qué estás analizando en 1 línea","recommendation":"acción concreta recomendada","reason":"por qué en máximo 2 líneas","priority":"urgent|high|medium","timeframe":"30min|1h|today"}`;
+Devuelve JSON ESTRUCTURADO con esta forma exacta (sin markdown, sin prosa fuera del JSON):
+{
+  "thought": "resumen en 1 línea de qué estás analizando ahora",
+  "tasks": [
+    {
+      "taskId": "<id real de la tarea de la lista>",
+      "ref": "<código tipo SHM-003 si lo da la lista>",
+      "title": "<título exacto>",
+      "board": "<nombre del proyecto>",
+      "urgency": "<copia el campo urgency tal cual>",
+      "urgencyLevel": "critical|high|medium",
+      "action": "frase imperativa de 1 línea de qué hacer",
+      "timeframe": "ahora|hoy|esta semana"
+    }
+  ],
+  "summary": "frase de cierre estratégica de 1 línea"
+}
+
+Reglas:
+- Selecciona 1-5 tareas que el CEO debe atender. Vencidas y high-priority primero.
+- urgencyLevel: "critical" si está vencida o vence en horas; "high" si vence hoy/mañana o priority alta; "medium" en el resto.
+- NO inventes taskId — usa solo los de la lista.
+- NO recalcules fechas — usa el campo urgency provisto.`;
 
       const r = await fetch("/api/agent", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ system, messages: [{ role: "user", content: userPrompt }], max_tokens: 300 }),
+        body: JSON.stringify({ system, messages: [{ role: "user", content: userPrompt }], max_tokens: 800 }),
       });
       const raw = await r.text();
       if (cancelledRef.current) return;
@@ -258,26 +291,56 @@ Devuelve JSON estricto:
       if (!m) throw new Error("JSON no encontrado en respuesta");
       const decision = JSON.parse(m[0]);
       if (cancelledRef.current) return;
-      setCurrentThought(decision.thought || "");
+      const analysis = {
+        thought: (decision.thought || "").trim(),
+        summary: (decision.summary || "").trim(),
+        tasks: Array.isArray(decision.tasks) ? decision.tasks.slice(0, 6).map((t) => ({
+          taskId: t.taskId || null,
+          ref: t.ref || null,
+          title: (t.title || "").trim(),
+          board: (t.board || "").trim(),
+          urgency: (t.urgency || "").trim(),
+          urgencyLevel: ["critical","high","medium"].includes(t.urgencyLevel) ? t.urgencyLevel : "medium",
+          action: (t.action || "").trim(),
+          timeframe: (t.timeframe || "").trim(),
+        })) : [],
+      };
+      setCurrentThought(analysis.thought || analysis.summary || "");
       setThoughtFlash((v) => v + 1);
-      const recTitle = (decision.recommendation || "").trim();
-      if (recTitle && recTitle === lastRecTitleRef.current) {
+      // Dedup: misma firma de análisis → no añadir, no leer voz, evitar bucle.
+      const sig = analysis.tasks.map((t) => `${t.taskId}|${t.urgencyLevel}|${t.action}`).join(";") + "::" + analysis.summary;
+      if (sig === lastRecTitleRef.current) {
         setState("listening");
         return;
       }
-      const rec = {
-        id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        title: recTitle,
-        reason: decision.reason || "",
-        priority: decision.priority || "medium",
-        timeframe: decision.timeframe || "today",
+      lastRecTitleRef.current = sig;
+      // Persiste como mensaje rico de chat (kind:"hector_analysis").
+      const analysisMsg = {
+        role: "hector_analysis",
+        analysis,
         ts: Date.now(),
       };
-      lastRecTitleRef.current = recTitle;
-      setRecommendations((prev) => [rec, ...prev].slice(0, 3));
+      setChatHistory((prev) => [...prev, analysisMsg].slice(-CHAT_MAX));
+      // Mantén la sección "Recomendaciones" sincronizada con la primera
+      // tarea por urgencia para no romper consumidores externos
+      // (onNewRecommendation, badge en HectorFloat, etc.).
+      const top = analysis.tasks[0];
+      if (top) {
+        const rec = {
+          id: `rec_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          title: top.action || top.title,
+          reason: top.urgency || "",
+          priority: top.urgencyLevel === "critical" ? "urgent" : top.urgencyLevel === "high" ? "high" : "medium",
+          timeframe: top.timeframe || "today",
+          ts: Date.now(),
+          taskId: top.taskId,
+        };
+        setRecommendations((prev) => [rec, ...prev].slice(0, 3));
+        onNewRecommendation?.(rec);
+      }
       setState("recommending");
-      onNewRecommendation?.(rec);
-      speakRecommendation(rec.title);
+      // Voz: lee el summary (más estratégico que cada acción individual).
+      if (analysis.summary) speakRecommendation(analysis.summary);
     } catch (e) {
       if (cancelledRef.current) return;
       console.warn("[HectorPanel] generateHectorThought fallo:", e?.message);
@@ -317,6 +380,24 @@ Devuelve JSON estricto:
     } else if (parsed.action === "assign_task") {
       onAssignTask?.(task, parsed.assigneeId);
     }
+  };
+
+  // Helpers para acciones desde las task cards del análisis estructurado.
+  const goToTask = (taskId, fallbackTitle) => {
+    const task = findTask(taskId, fallbackTitle);
+    if (!task) return;
+    if (onOpenTask) onOpenTask(task.id, task.projId);
+    else onRecommendationClick?.({ title: task.title });
+  };
+  const completeFromCard = (taskId, fallbackTitle) => {
+    const task = findTask(taskId, fallbackTitle);
+    if (!task) return;
+    onCompleteTask?.(task.id, task.projId, task.colId);
+  };
+  const postponeFromCard = (taskId, fallbackTitle) => {
+    const task = findTask(taskId, fallbackTitle);
+    if (!task) return;
+    onPostponeTask?.(task);
   };
 
   const sendOrderToHector = async (rawMessage) => {
@@ -557,6 +638,63 @@ Si pide ejecutar algo (marcar hecho, posponer, asignar) usa una acción y refere
           {chatHistory.length === 0 ? (
             <div style={{ fontSize: 11.5, color: "#9CA3AF", fontStyle: "italic", padding: "10px 8px", textAlign: "center" }}>Habla con Héctor o dale una orden — esto es el inicio.</div>
           ) : chatHistory.slice(-CHAT_MAX).map((m, i) => {
+            // Mensaje rico de análisis estructurado: agrupa por urgencyLevel
+            // y renderiza una card por tarea con acciones inline.
+            if (m.role === "hector_analysis" && m.analysis) {
+              const groups = [
+                { key: "critical", label: "🔴 URGENTE",      bg: "#FEE2E2", fg: "#991B1B", border: "#FCA5A5", urgencyColor: "#B91C1C" },
+                { key: "high",     label: "🟠 HOY",          bg: "#FEF3C7", fg: "#92400E", border: "#FCD34D", urgencyColor: "#B45309" },
+                { key: "medium",   label: "🟡 ESTA SEMANA",  bg: "#FEF9C3", fg: "#854D0E", border: "#FDE68A", urgencyColor: "#A16207" },
+              ];
+              return (
+                <div key={i} style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "flex-start", padding: "0 6px" }}>
+                  <span style={{ fontSize: 14, lineHeight: "20px", flexShrink: 0 }}>🧙</span>
+                  <div style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 10, background: "#F0F7FF", border: "0.5px solid #BFDBFE" }}>
+                    {m.analysis.thought && (
+                      <div style={{ fontSize: 11, fontStyle: "italic", color: "#1E3A8A", marginBottom: 8 }}>💭 {m.analysis.thought}</div>
+                    )}
+                    {groups.map((g) => {
+                      const items = (m.analysis.tasks || []).filter((t) => t.urgencyLevel === g.key);
+                      if (!items.length) return null;
+                      return (
+                        <div key={g.key} style={{ marginBottom: 8 }}>
+                          <div style={{ fontSize: 9.5, fontWeight: 700, color: g.fg, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{g.label}</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                            {items.map((t, j) => (
+                              <div key={`${i}-${g.key}-${j}`} style={{ background: "#fff", border: `1px solid ${g.border}`, borderLeft: `4px solid ${g.border}`, borderRadius: 8, padding: "7px 9px" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3, flexWrap: "wrap" }}>
+                                  {t.ref && (
+                                    <button
+                                      onClick={() => goToTask(t.taskId, t.title)}
+                                      title={`Ir a ${t.ref}`}
+                                      style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 4, background: "#F3F4F6", color: "#374151", border: "0.5px solid #E5E7EB", fontFamily: "ui-monospace,monospace", fontWeight: 700, cursor: "pointer" }}
+                                    >{t.ref}</button>
+                                  )}
+                                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                                  {t.board && (
+                                    <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 10, background: "#EEEDFE", color: "#3C3489", border: "0.5px solid #AFA9EC", fontWeight: 600, flexShrink: 0 }}>{t.board}</span>
+                                  )}
+                                </div>
+                                <div style={{ fontSize: 10.5, color: g.urgencyColor, fontWeight: 600, marginBottom: 4 }}>{t.urgency}</div>
+                                {t.action && <div style={{ fontSize: 11, color: "#374151", fontStyle: "italic", marginBottom: 6 }}>{t.action}</div>}
+                                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                                  <button onClick={() => goToTask(t.taskId, t.title)}      style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#1E40AF", border: "1px solid #BFDBFE", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>→ Ver tarea</button>
+                                  <button onClick={() => completeFromCard(t.taskId, t.title)} style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#065F46", border: "1px solid #86EFAC", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>✓ Hecho</button>
+                                  <button onClick={() => postponeFromCard(t.taskId, t.title)} style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>⏸ Posponer</button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {m.analysis.summary && (
+                      <div style={{ fontSize: 11.5, color: "#1E3A8A", fontWeight: 600, marginTop: 6, paddingTop: 6, borderTop: "0.5px dashed #BFDBFE" }}>{m.analysis.summary}</div>
+                    )}
+                  </div>
+                </div>
+              );
+            }
             const isUser = m.role === "user";
             return (
               <div key={i} style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", gap: 6, alignItems: "flex-start", padding: "0 6px" }}>

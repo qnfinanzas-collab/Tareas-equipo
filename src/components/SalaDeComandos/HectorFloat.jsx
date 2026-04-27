@@ -33,6 +33,7 @@ export default function HectorFloat({
   onCompleteTask,
   onPostponeTask,
   onAssignTask,
+  onOpenTask,
 }) {
   const borderColor = STATE_BORDER[hectorState] || STATE_BORDER.listening;
   const pendingCount = lastRecommendation ? 1 : 0; // simple: 1 reco viva = 1 badge
@@ -135,6 +136,7 @@ export default function HectorFloat({
                 onCompleteTask={onCompleteTask}
                 onPostponeTask={onPostponeTask}
                 onAssignTask={onAssignTask}
+                onOpenTask={onOpenTask}
               />
             </div>
           </div>

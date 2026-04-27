@@ -4079,6 +4079,7 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
                 newDate.setDate(newDate.getDate()+1);
                 onPostponeTask?.(task, fmt(newDate), "+1d");
               }}
+              onOpenTask={onOpenTask}
             />
           </div>
         );
@@ -9284,6 +9285,11 @@ export default function TaskFlow(){
               const newDate = new Date(task.dueDate||new Date());
               newDate.setDate(newDate.getDate()+1);
               postponeTaskAnywhere(task, fmt(newDate), "+1d");
+            }}
+            onOpenTask={(taskId,projId)=>{
+              const i = data.projects.findIndex(p=>p.id===projId);
+              if(i>=0){ setAP(i); setActiveTab("board"); setPendingOpenTaskId(taskId); }
+              setHectorPanelOpen(false);
             }}
           />
         );
