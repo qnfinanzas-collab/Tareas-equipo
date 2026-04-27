@@ -55,6 +55,54 @@ const speakRecommendation = (text) => {
   catch (e) { console.warn("[HectorPanel] speak fallo:", e?.message); }
 };
 
+// Calcula urgencia REAL en tiempo real para cada tarea pendiente. Devuelve
+// objetos enriquecidos con `urgency` legible (VENCIDA HACE N DÍAS / VENCE
+// HOY en Xh / VENCE EN N DÍAS) y `daysOverdue` numérico para ordenar. Se
+// pasa al LLM para que use el texto pre-calculado en lugar de razonar
+// fechas absolutas — evita errores tipo "vence 2024-12-15" cuando hoy es
+// 2026 y debería decir "vencida hace 500 días". Misma serialización en
+// generateHectorThought y sendOrderToHector.
+const buildTasksWithContext = (tasks, now) => {
+  const ref = now instanceof Date ? now : new Date();
+  const pending = (tasks || []).filter((t) => t.colName !== "Hecho" && t.colName !== "Cancelada" && !t.completed);
+  return pending.map((t) => {
+    const rawDeadline = t.dueDate || t.deadline;
+    const deadline = rawDeadline ? new Date(rawDeadline) : null;
+    let urgency = "SIN FECHA";
+    let daysOverdue = -1;
+    let diffDays = null;
+    if (deadline && !isNaN(deadline.getTime())) {
+      const diffMs = deadline.getTime() - ref.getTime();
+      diffDays = Math.floor(diffMs / 86400000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      if (diffDays < -1)       urgency = `VENCIDA HACE ${Math.abs(diffDays)} DÍAS`;
+      else if (diffDays === -1) urgency = "VENCIDA AYER";
+      else if (diffDays === 0 && diffHours < 0) urgency = "VENCIDA HOY";
+      else if (diffDays === 0) urgency = `VENCE HOY en ${Math.max(0, diffHours)}h`;
+      else if (diffDays === 1) urgency = "VENCE MAÑANA";
+      else                     urgency = `VENCE EN ${diffDays} DÍAS`;
+      daysOverdue = diffDays < 0 ? Math.abs(diffDays) : 0;
+    }
+    return {
+      id: t.id,
+      title: t.title,
+      project: (t.project && (t.project.name || t.project)) || t.projName || "",
+      priority: t.priority || "media",
+      urgency,
+      daysOverdue,
+      diffDays,
+      deadlineRaw: deadline && !isNaN(deadline.getTime()) ? deadline.toLocaleDateString("es-ES") : null,
+      colName: t.colName || null,
+    };
+  }).sort((a, b) => {
+    // Vencidas primero (mayor retraso arriba), luego por días hasta vencer.
+    if (a.daysOverdue !== b.daysOverdue) return b.daysOverdue - a.daysOverdue;
+    const da = a.diffDays === null ? 9999 : a.diffDays;
+    const db = b.diffDays === null ? 9999 : b.diffDays;
+    return da - db;
+  });
+};
+
 export default function HectorPanel({
   tasks = [],
   currentFocus = null,
@@ -168,15 +216,8 @@ export default function HectorPanel({
       const mem = memoryRef.current;
       const now = new Date();
       const energyLevel = getEnergyLevel(now.getHours());
-      const pending = tasksNow.filter((t) => t.colName !== "Hecho" && t.colName !== "Cancelada");
-      const top3 = pending
-        .slice()
-        .sort((a, b) => {
-          const da = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
-          const db = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
-          return da - db;
-        })
-        .slice(0, 3);
+      const tasksWithContext = buildTasksWithContext(tasksNow, now);
+      const top3 = tasksWithContext.slice(0, 3);
       const criticalRisks = riesgosNow.filter((r) => r.level === "critical");
 
       const baseSystem = ag?.promptBase
@@ -185,16 +226,18 @@ export default function HectorPanel({
       const memBlock = formatCeoMemoryForPrompt(mem);
       const system = baseSystem
         + (memBlock ? ("\n\n---\n" + memBlock) : "")
-        + "\n\nIMPORTANTE: en este turno responde ÚNICAMENTE con JSON válido sin markdown ni prosa.";
+        + "\n\nIMPORTANTE: en este turno responde ÚNICAMENTE con JSON válido sin markdown ni prosa. USA EL CAMPO \"urgency\" tal cual viene calculado — NO recalcules fechas absolutas y NO menciones la fecha cruda; siempre habla en términos relativos al momento actual.";
 
       const userPrompt = `Hora: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}.
-Día: ${now.toLocaleDateString("es-ES", { weekday: "long" })}.
+Día: ${now.toLocaleDateString("es-ES", { weekday: "long" })} (${now.toLocaleDateString("es-ES")}).
 Energía esperada del CEO: ${energyLevel}.
 Tarea en foco: ${focusNow?.title || "Ninguna"}.
-Tareas pendientes: ${pending.length}.
+Tareas pendientes: ${tasksWithContext.length}.
 Riesgos críticos: ${criticalRisks.length}.
-Top 3 tareas por urgencia:
-${top3.map((t) => `- ${t.title}${t.dueDate ? ` (vence ${t.dueDate})` : ""}`).join("\n") || "(ninguna)"}
+
+Top 3 tareas por urgencia (USA el campo urgency tal cual, no inventes fechas):
+${top3.map((t) => `- ${t.title} · proyecto ${t.project} · prio ${t.priority} · ${t.urgency}`).join("\n") || "(ninguna)"}
+
 Riesgos activos:
 ${riesgosNow.slice(0, 5).map((r) => `- ${r.title || r.label || r.msg || ""}`).join("\n") || "(ninguno)"}
 
@@ -296,18 +339,21 @@ Devuelve JSON estricto:
       const memBlock = formatCeoMemoryForPrompt(mem);
       const system = baseSystem
         + (memBlock ? ("\n\n---\n" + memBlock) : "")
-        + "\n\nIMPORTANTE: en este turno responde ÚNICAMENTE con JSON válido sin markdown ni prosa.";
+        + "\n\nIMPORTANTE: en este turno responde ÚNICAMENTE con JSON válido sin markdown ni prosa. USA EL CAMPO \"urgency\" de cada tarea tal cual viene calculado — NO recalcules fechas absolutas; habla en términos relativos al momento actual.";
 
-      // Tareas listadas con id para que Héctor pueda referenciar acciones.
-      const tasksList = tasksNow.slice(0, 30).map((t) => `- ${t.id} :: ${t.title}${t.dueDate ? ` (vence ${t.dueDate}, prio ${t.priority || "media"})` : ""}`).join("\n") || "(ninguna)";
+      // Tareas con urgencia calculada en tiempo real para que Héctor no
+      // razone sobre fechas absolutas y no diga "vence 2024-12-15" cuando
+      // hoy ya estamos en 2026.
+      const tasksWithContext = buildTasksWithContext(tasksNow, now);
+      const tasksList = tasksWithContext.slice(0, 30).map((t) => `- ${t.id} :: ${t.title} · proyecto ${t.project} · prio ${t.priority} · ${t.urgency}`).join("\n") || "(ninguna)";
       const histLines = (chatHistoryRef.current || []).slice(-8).map((m) => `${m.role === "user" ? "CEO" : "Héctor"}: ${m.text}`).join("\n");
 
-      const userPrompt = `Hora: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}.
+      const userPrompt = `Hora: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} (${now.toLocaleDateString("es-ES")}).
 Última recomendación tuya: ${recsNow[0]?.title || "(ninguna)"}.
 Tarea en foco: ${focusNow?.title || "Ninguna"}.
 Riesgos críticos: ${riesgosNow.filter((r) => r.level === "critical").length}.
 
-TAREAS DISPONIBLES (id :: título):
+TAREAS DISPONIBLES (id :: título · proyecto · prio · urgency):
 ${tasksList}
 
 CONVERSACIÓN PREVIA (últimos turnos):
