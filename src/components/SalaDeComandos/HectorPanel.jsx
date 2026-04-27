@@ -520,14 +520,21 @@ Reglas:
     if (!parsed || !parsed.action || parsed.action === "none") return;
     const task = findTask(parsed.taskId, parsed.taskTitle);
     if (!task) return;
-    if (parsed.action === "complete_task") {
+    // Defensive: si el LLM devuelve "archive", "delete", "remove" — el
+    // modelo de datos no los soporta, así que los mapeamos a complete_task
+    // (mover a "Hecho"). Mantiene la promesa verbal del agente sin alucinar
+    // mutaciones que no existen.
+    const action = (parsed.action === "archive_task" || parsed.action === "archive" || parsed.action === "delete_task" || parsed.action === "remove_task")
+      ? "complete_task"
+      : parsed.action;
+    if (action === "complete_task") {
       onCompleteTask?.(task.id, task.projId, task.colId);
-    } else if (parsed.action === "postpone_task") {
+    } else if (action === "postpone_task") {
       // Posponer +1 día por defecto. App calcula la fecha label.
       onPostponeTask?.(task);
-    } else if (parsed.action === "assign_task") {
+    } else if (action === "assign_task") {
       onAssignTask?.(task, parsed.assigneeId);
-    } else if (parsed.action === "block_task") {
+    } else if (action === "block_task") {
       // Bloqueo temporal: blockUntil/followUpAt vienen como "HH:MM" desde
       // Héctor. parseBlockUntil convierte a timestamp (null si la hora ya
       // pasó). Si blockUntil es null y la cadena venía vacía, el bloqueo
@@ -613,11 +620,19 @@ ${histLines || "(sin turnos previos)"}
 EL CEO TE DICE AHORA:
 "${userMessage}"
 
+ACCIONES PERMITIDAS (solo estas, NO inventes otras):
+- complete_task: marcar tarea como completada (la mueve a "Hecho").
+- postpone_task: posponer tarea +1 día.
+- block_task: bloquear tarea en esta sesión hasta una hora indicada.
+- none: solo responder sin ejecutar acción.
+
+NUNCA uses acciones como "archive", "archive_task", "delete", "delete_task", "remove", "assign" o cualquier otra que no esté en la lista anterior. Si el CEO pide "archivar" una tarea, usa complete_task y explica en el reply que la marcas como completada (en este sistema no hay archivado independiente — completar = sacar del flujo activo). Si pide "asignar" o "borrar", responde con action:"none" y explica que no lo soportas todavía.
+
 Devuelve JSON estricto. Si solo es conversación:
 {"reply":"tu respuesta breve","action":"none"}
 
-Si pide marcar hecho, posponer o asignar:
-{"reply":"confirmación verbal corta","action":"complete_task|postpone_task|assign_task","taskId":"id real","taskTitle":"título","message":"detalle"}
+Si pide marcar hecho o posponer:
+{"reply":"confirmación verbal corta","action":"complete_task|postpone_task","taskId":"id real","taskTitle":"título","message":"detalle"}
 
 Si pide BLOQUEAR una tarea (gestionará offline, fuera de la app, en una reunión, etc.) y menciona una hora exacta tipo "11:00" / "a las 9:30" / "esta tarde a las 16":
 {"reply":"confirmación verbal corta","action":"block_task","taskId":"id real","blockReason":"resumen de por qué se bloquea","blockUntil":"HH:MM o null si no dijo hora concreta","followUpAt":"HH:MM 5 minutos después de blockUntil para hacer seguimiento, o null"}
