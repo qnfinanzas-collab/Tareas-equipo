@@ -141,6 +141,7 @@ export default function HectorPanel({
   onCompleteTask,
   onPostponeTask,
   onAssignTask,
+  onArchiveTask,
   onOpenTask,
   userId,
   userName,
@@ -520,18 +521,17 @@ Reglas:
     if (!parsed || !parsed.action || parsed.action === "none") return;
     const task = findTask(parsed.taskId, parsed.taskTitle);
     if (!task) return;
-    // Defensive: si el LLM devuelve "archive", "delete", "remove" — el
-    // modelo de datos no los soporta, así que los mapeamos a complete_task
-    // (mover a "Hecho"). Mantiene la promesa verbal del agente sin alucinar
-    // mutaciones que no existen.
-    const action = (parsed.action === "archive_task" || parsed.action === "archive" || parsed.action === "delete_task" || parsed.action === "remove_task")
-      ? "complete_task"
-      : parsed.action;
+    // Aliases comunes del LLM. archive/archive_task → archive_task real.
+    // delete/remove → complete_task (no soportamos delete desde aquí).
+    let action = parsed.action;
+    if (action === "archive") action = "archive_task";
+    if (action === "delete_task" || action === "remove_task") action = "complete_task";
     if (action === "complete_task") {
       onCompleteTask?.(task.id, task.projId, task.colId);
     } else if (action === "postpone_task") {
-      // Posponer +1 día por defecto. App calcula la fecha label.
       onPostponeTask?.(task);
+    } else if (action === "archive_task") {
+      onArchiveTask?.(task.id);
     } else if (action === "assign_task") {
       onAssignTask?.(task, parsed.assigneeId);
     } else if (action === "block_task") {
@@ -622,17 +622,22 @@ EL CEO TE DICE AHORA:
 
 ACCIONES PERMITIDAS (solo estas, NO inventes otras):
 - complete_task: marcar tarea como completada (la mueve a "Hecho").
+- archive_task: archivar tarea (sale del flujo activo y solo aparece en "Mis tareas ▸ Archivadas"; reversible).
 - postpone_task: posponer tarea +1 día.
 - block_task: bloquear tarea en esta sesión hasta una hora indicada.
 - none: solo responder sin ejecutar acción.
 
-NUNCA uses acciones como "archive", "archive_task", "delete", "delete_task", "remove", "assign" o cualquier otra que no esté en la lista anterior. Si el CEO pide "archivar" una tarea, usa complete_task y explica en el reply que la marcas como completada (en este sistema no hay archivado independiente — completar = sacar del flujo activo). Si pide "asignar" o "borrar", responde con action:"none" y explica que no lo soportas todavía.
+NUNCA uses acciones como "delete", "delete_task", "remove", "assign" o cualquier otra que no esté en la lista anterior. Si el CEO pide "borrar" una tarea, responde con action:"none" y propón archivarla en su lugar. Si pide "asignar", responde con action:"none" y explica que no lo soportas todavía.
+
+Distinción clave entre completar y archivar:
+- complete_task = la tarea está terminada y el resultado importa (queda en "Hecho" para reportes).
+- archive_task = la tarea ya no aplica/no se va a hacer/quedó obsoleta; sale del flujo y deja de ocupar atención.
 
 Devuelve JSON estricto. Si solo es conversación:
 {"reply":"tu respuesta breve","action":"none"}
 
-Si pide marcar hecho o posponer:
-{"reply":"confirmación verbal corta","action":"complete_task|postpone_task","taskId":"id real","taskTitle":"título","message":"detalle"}
+Si pide marcar hecho, archivar o posponer:
+{"reply":"confirmación verbal corta","action":"complete_task|archive_task|postpone_task","taskId":"id real","taskTitle":"título","message":"detalle"}
 
 Si pide BLOQUEAR una tarea (gestionará offline, fuera de la app, en una reunión, etc.) y menciona una hora exacta tipo "11:00" / "a las 9:30" / "esta tarde a las 16":
 {"reply":"confirmación verbal corta","action":"block_task","taskId":"id real","blockReason":"resumen de por qué se bloquea","blockUntil":"HH:MM o null si no dijo hora concreta","followUpAt":"HH:MM 5 minutos después de blockUntil para hacer seguimiento, o null"}

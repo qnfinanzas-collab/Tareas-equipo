@@ -44,7 +44,7 @@ async function runPlanner(boards,members,existing){
     catch(e){ ics[m.id]=[]; icsErrors.push({memberId:m.id,memberName:m.name,msg:e.message||"error"}); }
   }));
 
-  const allTasks=Object.values(boards).flatMap(cols=>cols.flatMap(col=>col.tasks.filter(t=>col.name!=="Hecho").map(t=>({...t,colName:col.name}))));
+  const allTasks=Object.values(boards).flatMap(cols=>cols.flatMap(col=>col.tasks.filter(t=>col.name!=="Hecho"&&!t.archived).map(t=>({...t,colName:col.name}))));
   const sorted=[...allTasks].sort((a,b)=>{ const o={Q1:0,Q2:1,Q3:2,Q4:3}; const qa=o[getQ(a)],qb=o[getQ(b)]; return qa!==qb?qa-qb:daysUntil(a.dueDate)-daysUntil(b.dueDate); });
   const days=getWorkDays(fmt(TODAY),PLAN_HORIZON_DAYS);
   const planLog=[]; const freeSlotMap={};
@@ -720,7 +720,7 @@ function _migrate(d){
     }
     return { ...m, email: m.email || "", accountRole: m.accountRole || "member" };
   });
-  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, projectId: typeof t.projectId==="number" ? t.projectId : Number(pid), linkedProjects: Array.isArray(t.linkedProjects)?t.linkedProjects:[], links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[], dueTime: t.dueTime||""}))}))]));
+  d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>({...t, projectId: typeof t.projectId==="number" ? t.projectId : Number(pid), linkedProjects: Array.isArray(t.linkedProjects)?t.linkedProjects:[], links: t.links||[], agentIds: t.agentIds||[], refs: t.refs||[], documents: t.documents||[], dueTime: t.dueTime||"", archived: typeof t.archived === "boolean" ? t.archived : false}))}))]));
   // Backfill project.code (3 letras MAYÚSCULAS) y task.ref (CODE-NNN). Para
   // proyectos antiguos sin código, autogeneramos a partir del nombre y
   // marcamos codeAuto:true (informativo, sin efecto funcional). Para tareas
@@ -1676,7 +1676,7 @@ function HighlightedText({text,query}){
 // ── Alerts engine ─────────────────────────────────────────────────────────────
 function genAlerts(boards,members){
   const alerts=[];
-  const all=Object.values(boards).flatMap(cols=>cols.flatMap(col=>col.tasks.map(t=>({...t,colName:col.name}))));
+  const all=Object.values(boards).flatMap(cols=>cols.flatMap(col=>col.tasks.filter(t=>!t.archived).map(t=>({...t,colName:col.name}))));
   all.forEach(task=>{
     const days=daysUntil(task.dueDate),q=getQ(task);
     task.assignees.forEach(mid=>{
@@ -3485,7 +3485,7 @@ function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask,onOpe
   const weekFromStr=fmt(weekAgo);
   const weekAheadEnd=new Date(TODAY); weekAheadEnd.setDate(weekAheadEnd.getDate()+7);
 
-  const allT=Object.entries(boards).flatMap(([pid,cols])=>cols.flatMap(col=>col.tasks.map(t=>({...t,colId:col.id,colName:col.name,projId:Number(pid),projName:projects.find(p=>p.id===Number(pid))?.name||""}))));
+  const allT=Object.entries(boards).flatMap(([pid,cols])=>cols.flatMap(col=>col.tasks.filter(t=>!t.archived).map(t=>({...t,colId:col.id,colName:col.name,projId:Number(pid),projName:projects.find(p=>p.id===Number(pid))?.name||""}))));
   const active=allT.filter(t=>t.colName!=="Hecho");
   const done=allT.filter(t=>t.colName==="Hecho");
   const overdue=active.filter(t=>t.dueDate&&daysUntil(t.dueDate)<0);
@@ -3666,7 +3666,7 @@ function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask,onOpe
 
 function EisenhowerView({boards,members,activeMemberId,projects}){
   const [fm,setFm]=useState(activeMemberId);
-  const allT=Object.entries(boards).flatMap(([pid,cols])=>cols.flatMap(col=>col.tasks.map(t=>({...t,colName:col.name,projName:projects.find(p=>p.id===Number(pid))?.name||""})))).filter(t=>t.colName!=="Hecho");
+  const allT=Object.entries(boards).flatMap(([pid,cols])=>cols.flatMap(col=>col.tasks.filter(t=>!t.archived).map(t=>({...t,colName:col.name,projName:projects.find(p=>p.id===Number(pid))?.name||""})))).filter(t=>t.colName!=="Hecho");
   const filt=fm===-1?allT:allT.filter(t=>t.assignees.includes(fm));
   const quads={Q1:[],Q2:[],Q3:[],Q4:[]}; filt.forEach(t=>quads[getQ(t)].push(t));
   const allMems=[...new Set(Object.values(boards).flatMap(cols=>cols.flatMap(col=>col.tasks.flatMap(t=>t.assignees))))].map(id=>members.find(m=>m.id===id)).filter(Boolean);
@@ -3694,7 +3694,7 @@ function EisenhowerView({boards,members,activeMemberId,projects}){
 // ── Time Reports View ─────────────────────────────────────────────────────────
 function TimeReportsView({boards,members,projects}){
   const [fm,setFm]=useState(-1); const [fp,setFp]=useState(-1);
-  const allT=Object.entries(boards).flatMap(([pid,cols])=>cols.flatMap(col=>col.tasks.map(t=>({...t,colName:col.name,projId:Number(pid),projName:projects.find(p=>p.id===Number(pid))?.name||""}))));
+  const allT=Object.entries(boards).flatMap(([pid,cols])=>cols.flatMap(col=>col.tasks.filter(t=>!t.archived).map(t=>({...t,colName:col.name,projId:Number(pid),projName:projects.find(p=>p.id===Number(pid))?.name||""}))));
   const grand=allT.flatMap(t=>t.timeLogs||[]).reduce((s,l)=>s+l.seconds,0);
   const grandEst=allT.filter(t=>t.estimatedHours).reduce((s,t)=>s+t.estimatedHours*3600,0);
   const mStats=members.map(m=>{ const logs=allT.flatMap(t=>(t.timeLogs||[]).filter(l=>l.memberId===m.id)); const total=logs.reduce((s,l)=>s+l.seconds,0); const est=allT.filter(t=>t.assignees.includes(m.id)&&(t.estimatedHours||0)>0).reduce((s,t)=>s+(t.estimatedHours||0)*3600,0); return{...m,total,est,eff:est>0?Math.round(total/est*100):null}; }).filter(m=>m.total>0);
@@ -3849,7 +3849,7 @@ function ProjectModal({project,members,workspaces,allProjects,onClose,onSave}){
 // del día). Esta primera versión usa heurísticas deterministas; la
 // selección por LLM y el resto de funcionalidades inteligentes se añaden
 // en commits posteriores.
-function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostponeTask,onGoDashboard,onGoMytasks,onGoDealRoom,currentFocus,onSetCurrentFocus,onHectorStateChange,onHectorRecommendation}){
+function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostponeTask,onArchiveTask,onGoDashboard,onGoMytasks,onGoDealRoom,currentFocus,onSetCurrentFocus,onHectorStateChange,onHectorRecommendation}){
   const {boards,projects,members,negotiations}=data;
   const me = (members||[]).find(m=>m.id===activeMember);
   // Tareas del usuario activo (asignadas a mí), enriquecidas con metadatos
@@ -3858,6 +3858,7 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
   Object.entries(boards||{}).forEach(([pid,cols])=>{
     const proj = (projects||[]).find(p=>p.id===Number(pid));
     cols.forEach(col=>col.tasks.forEach(t=>{
+      if(t.archived) return;                                    // ocultas en Sala de Mando
       if(!t.assignees?.includes(activeMember)) return;
       const assigneeNames = (t.assignees||[]).map(id=>(members||[]).find(m=>m.id===id)?.name).filter(Boolean);
       myTasks.push({...t, colId:col.id, colName:col.name, projId:Number(pid), projName:proj?.name||"", projColor:proj?.color||"#7F77DD", projEmoji:proj?.emoji||"📋", projCode:proj?.code, assigneeNames, assigneeName:assigneeNames[0]||null});
@@ -4080,6 +4081,7 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
                 newDate.setDate(newDate.getDate()+1);
                 onPostponeTask?.(task, fmt(newDate), "+1d");
               }}
+              onArchiveTask={onArchiveTask}
               onOpenTask={onOpenTask}
             />
           </div>
@@ -5096,6 +5098,7 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
     Object.entries(data.boards||{}).forEach(([pid,cols])=>{
       const proj=data.projects.find(p=>p.id===Number(pid));
       cols.forEach(col=>col.tasks.forEach(t=>{
+        if(t.archived) return;
         allTasks.push({...t,projId:Number(pid),projName:proj?.name||"",projEmoji:proj?.emoji||"📋",colName:col.name,colId:col.id});
       }));
     });
@@ -6033,7 +6036,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   // Tareas críticas cross-project: TODAS las tareas activas de TODOS los
   // proyectos vinculados, ordenadas por urgencia (vencidas primero, luego
   // por fecha próxima; sin fecha al final).
-  const criticalTasks = relProjs.flatMap(({p,tasks})=>tasks.filter(t=>t.colName!=="Hecho").map(t=>({...t, projId:p.id, projName:p.name, projColor:p.color, projEmoji:p.emoji||"📋"})))
+  const criticalTasks = relProjs.flatMap(({p,tasks})=>tasks.filter(t=>t.colName!=="Hecho"&&!t.archived).map(t=>({...t, projId:p.id, projName:p.name, projColor:p.color, projEmoji:p.emoji||"📋"})))
     .sort((a,b)=>{
       const da = a.dueDate ? daysUntil(a.dueDate) : 9999;
       const db = b.dueDate ? daysUntil(b.dueDate) : 9999;
@@ -7362,7 +7365,7 @@ function GenerateTasksModal({negotiation,session,availableProjects,members,activ
 }
 
 // ── Mis tareas (vista global tipo "My Issues") ───────────────────────────────
-function MyTasksView({data,activeMember,onOpenTask,onNavigate}){
+function MyTasksView({data,activeMember,onOpenTask,onNavigate,onUnarchiveTask}){
   const [filter,setFilter] = useState("all"); // all | overdue | today | soon | done
   const me = data.members.find(m=>m.id===activeMember);
   const allMine = [];
@@ -7374,18 +7377,23 @@ function MyTasksView({data,activeMember,onOpenTask,onNavigate}){
     }));
   });
   const today = fmt(TODAY);
+  // Activas = no archivadas. El filtro "Archivadas" es el único que las muestra.
+  const active = allMine.filter(t=>!t.archived);
+  const archived = allMine.filter(t=>t.archived);
   const counts = {
-    all:      allMine.length,
-    overdue:  allMine.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)<0).length,
-    today:    allMine.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)===0).length,
-    soon:     allMine.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)>0&&daysUntil(t.dueDate)<=7).length,
-    done:     allMine.filter(t=>t.colName==="Hecho").length,
+    all:       active.length,
+    overdue:   active.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)<0).length,
+    today:     active.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)===0).length,
+    soon:      active.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)>0&&daysUntil(t.dueDate)<=7).length,
+    done:      active.filter(t=>t.colName==="Hecho").length,
+    archived:  archived.length,
   };
-  let filtered=allMine;
-  if(filter==="overdue") filtered = allMine.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)<0);
-  else if(filter==="today") filtered = allMine.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)===0);
-  else if(filter==="soon") filtered = allMine.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)>0&&daysUntil(t.dueDate)<=7);
-  else if(filter==="done") filtered = allMine.filter(t=>t.colName==="Hecho");
+  let filtered = active;
+  if(filter==="overdue")       filtered = active.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)<0);
+  else if(filter==="today")    filtered = active.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)===0);
+  else if(filter==="soon")     filtered = active.filter(t=>t.colName!=="Hecho"&&t.dueDate&&daysUntil(t.dueDate)>0&&daysUntil(t.dueDate)<=7);
+  else if(filter==="done")     filtered = active.filter(t=>t.colName==="Hecho");
+  else if(filter==="archived") filtered = archived;
   // Sort: overdue/today first, then by due date asc, then by project
   filtered = filtered.slice().sort((a,b)=>{
     const da=a.dueDate?daysUntil(a.dueDate):9999;
@@ -7393,7 +7401,7 @@ function MyTasksView({data,activeMember,onOpenTask,onNavigate}){
     if(da!==db) return da-db;
     return (a.projName||"").localeCompare(b.projName||"");
   });
-  const FILTERS=[["all","Todas"],["overdue","Vencidas"],["today","Hoy"],["soon","Próximos 7d"],["done","Hechas"]];
+  const FILTERS=[["all","Todas"],["overdue","Vencidas"],["today","Hoy"],["soon","Próximos 7d"],["done","Hechas"],["archived","📦 Archivadas"]];
 
   return(
     <div style={{maxWidth:900,margin:"0 auto",padding:"30px 20px"}}>
@@ -7425,16 +7433,20 @@ function MyTasksView({data,activeMember,onOpenTask,onNavigate}){
               const dueLabel = !t.dueDate ? "Sin fecha" : days<0 ? `Vencida hace ${-days}d` : days===0 ? "Vence hoy" : days<=7 ? `En ${days}d` : `En ${days}d`;
               const dueColor = !t.dueDate ? "#9CA3AF" : days<0 ? "#E24B4A" : days===0 ? "#EF9F27" : "#6b7280";
               return(
-                <div key={`${t.projId}-${t.id}`} onClick={()=>onOpenTask(t.id)} className="tf-lift" style={{background:"#fff",border:"1px solid #E5E7EB",borderLeft:`4px solid ${t.projColor}`,borderRadius:10,padding:"11px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12}}>
+                <div key={`${t.projId}-${t.id}`} onClick={()=>onOpenTask(t.id)} className="tf-lift" style={{background:t.archived?"#FAFAFA":"#fff",border:"1px solid #E5E7EB",borderLeft:`4px solid ${t.projColor}`,borderRadius:10,padding:"11px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:12,opacity:t.archived?0.85:1}}>
                   <QBadge q={q}/>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0}}>
                       <RefBadge code={t.ref}/>
                       <span style={{fontSize:13,fontWeight:500,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
+                      {t.archived&&<span style={{fontSize:9.5,padding:"1px 6px",borderRadius:4,background:"#E5E7EB",color:"#6B7280",fontWeight:600,letterSpacing:"0.04em"}}>📦 ARCHIVADA</span>}
                     </div>
                     <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{t.projEmoji} {t.projName} · {t.colName} · <span style={{color:dueColor,fontWeight:500}}>{dueLabel}</span></div>
                   </div>
                   <PriBadge p={t.priority}/>
+                  {t.archived&&onUnarchiveTask&&(
+                    <button onClick={e=>{e.stopPropagation(); onUnarchiveTask(t.id);}} title="Restaurar tarea (vuelve a ser activa)" style={{padding:"5px 10px",borderRadius:6,background:"#fff",color:"#1D9E75",border:"1px solid #86EFAC",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>↩ Restaurar</button>
+                  )}
                 </div>
               );
             })}
@@ -8081,12 +8093,16 @@ export default function TaskFlow(){
   // match, van a la primera columna. Llevan flag _linkedFromAnotherProject
   // para que la TaskCard las muestre en gris y no draggables.
   const board = React.useMemo(()=>{
-    const own = data.boards[proj.id] || [];
-    if(!own.length) return own;
+    const ownRaw = data.boards[proj.id] || [];
+    if(!ownRaw.length) return ownRaw;
+    // Filtra archivadas en TODAS las cols antes de calcular nada — el
+    // kanban no debe mostrarlas. Aparecen solo en MyTasksView ▸ Archivadas.
+    const own = ownRaw.map(col=>({...col, tasks: col.tasks.filter(t=>!t.archived)}));
     const linked = [];
     Object.entries(data.boards||{}).forEach(([pid,cols])=>{
       if(Number(pid)===proj.id) return;
       cols.forEach(col=>col.tasks.forEach(t=>{
+        if(t.archived) return;
         if(Array.isArray(t.linkedProjects) && t.linkedProjects.includes(proj.id)){
           linked.push({task:t, primaryColName:col.name});
         }
@@ -8382,6 +8398,31 @@ export default function TaskFlow(){
       return {...prev, boards: newBoards};
     });
     addToast("Tarea eliminada","info");
+  },[addToast]);
+  // Archivado: la tarea se queda en su columna pero `archived:true` la
+  // saca de TODAS las vistas activas (kanban, Sala de Mando, Mis Tareas
+  // por defecto, Eisenhower, Time Reports, búsqueda, alertas, contexto
+  // de Héctor). Solo aparece en MyTasksView con el filtro "Archivadas",
+  // donde puede restaurarse vía unarchiveTaskAnywhere.
+  const archiveTaskAnywhere = useCallback((taskId)=>{
+    setData(prev=>{
+      const newBoards = {};
+      for(const pid in prev.boards){
+        newBoards[pid] = prev.boards[pid].map(col => ({...col, tasks: col.tasks.map(t => t.id===taskId ? {...t, archived:true} : t)}));
+      }
+      return {...prev, boards: newBoards};
+    });
+    addToast("📦 Tarea archivada","info");
+  },[addToast]);
+  const unarchiveTaskAnywhere = useCallback((taskId)=>{
+    setData(prev=>{
+      const newBoards = {};
+      for(const pid in prev.boards){
+        newBoards[pid] = prev.boards[pid].map(col => ({...col, tasks: col.tasks.map(t => t.id===taskId ? {...t, archived:false} : t)}));
+      }
+      return {...prev, boards: newBoards};
+    });
+    addToast("↩ Tarea restaurada");
   },[addToast]);
   const applySchedule = useCallback((schedule)=>{
     setData(prev=>({...prev,aiSchedule:schedule}));
@@ -9093,7 +9134,7 @@ export default function TaskFlow(){
         {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember}/>}
         <div style={{flex:1,overflow:"auto"}}>
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onToast={addToast} onOpenTask={id=>setOverlayTaskId(id)}/>}
-          {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)}/>}
+          {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)} onUnarchiveTask={unarchiveTaskAnywhere}/>}
           {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
           {activeTab==="memory"    &&<MemoryPanel ceoMemory={data.ceoMemory} onAddCeo={addCeoMemoryItems} onRemoveCeo={removeCeoMemoryItem} onAddNeg={addNegMemoryItems} onRemoveNeg={removeNegMemoryItem}/>}
           {activeTab==="dealroom"&&(()=>{
@@ -9171,7 +9212,7 @@ export default function TaskFlow(){
               onEdit={n=>setNegModal(n)}
             />;
           })()}
-          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)}/>}
+          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
@@ -9250,6 +9291,7 @@ export default function TaskFlow(){
         Object.entries(data.boards||{}).forEach(([pid,cols])=>{
           const projObj = data.projects.find(p=>p.id===Number(pid));
           cols.forEach(col=>col.tasks.forEach(t=>{
+            if(t.archived) return;
             if(!t.assignees?.includes(activeMember)) return;
             if(col.name==="Hecho") return;
             const assigneeNames = (t.assignees||[]).map(id=>(data.members||[]).find(m=>m.id===id)?.name).filter(Boolean);
@@ -9288,6 +9330,7 @@ export default function TaskFlow(){
               newDate.setDate(newDate.getDate()+1);
               postponeTaskAnywhere(task, fmt(newDate), "+1d");
             }}
+            onArchiveTask={archiveTaskAnywhere}
             onOpenTask={(taskId,projId)=>{
               const i = data.projects.findIndex(p=>p.id===projId);
               if(i>=0){ setAP(i); setActiveTab("board"); setPendingOpenTaskId(taskId); }

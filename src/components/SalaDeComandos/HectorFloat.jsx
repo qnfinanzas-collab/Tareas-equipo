@@ -33,6 +33,7 @@ export default function HectorFloat({
   onCompleteTask,
   onPostponeTask,
   onAssignTask,
+  onArchiveTask,
   onOpenTask,
 }) {
   const borderColor = STATE_BORDER[hectorState] || STATE_BORDER.listening;
@@ -136,6 +137,7 @@ export default function HectorFloat({
                 onCompleteTask={onCompleteTask}
                 onPostponeTask={onPostponeTask}
                 onAssignTask={onAssignTask}
+                onArchiveTask={onArchiveTask}
                 onOpenTask={onOpenTask}
               />
             </div>
