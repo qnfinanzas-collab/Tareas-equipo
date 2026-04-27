@@ -29,23 +29,9 @@ const STATE_LABEL = {
   paused:      { label: "Pausado",      bg: "#F3F4F6", fg: "#6B7280", border: "#9CA3AF" },
 };
 
-const PRIORITY_STYLE = {
-  urgent: { bg: "#FEE2E2", fg: "#991B1B", border: "#F87171", label: "URGENTE" },
-  high:   { bg: "#FEF3C7", fg: "#92400E", border: "#F59E0B", label: "ALTA"    },
-  medium: { bg: "#DBEAFE", fg: "#1E40AF", border: "#3B82F6", label: "MEDIA"   },
-};
-
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const HECTOR_VOICE = { gender: "male", rate: 1.1, pitch: 0.9 };
 const CHAT_MAX = 50;
-
-const timeAgo = (ts) => {
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60) return "ahora";
-  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
-  if (s < 86400) return `hace ${Math.floor(s / 3600)} h`;
-  return `hace ${Math.floor(s / 86400)} d`;
-};
 
 const speakRecommendation = (text) => {
   if (typeof window === "undefined" || !window.speechSynthesis) return;
@@ -176,10 +162,20 @@ export default function HectorPanel({
   const [isListening, setIsListening] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
-  const [expandedRecId, setExpandedRecId] = useState(null);
   const [thoughtFlash, setThoughtFlash] = useState(0);
   const [muted, setMuted] = useState(() => {
     try { return localStorage.getItem("hector_muted") === "1"; } catch { return false; }
+  });
+  // Tab activo + contador de no-leídos para el badge "💬 Chat X".
+  // Cuando el usuario entra en el tab Chat, sincronizamos lastSeenChatLength
+  // con chatHistory.length → unread vuelve a 0. Se persiste solo en memoria.
+  const [activeTab, setActiveTab] = useState("analysis");
+  const [lastSeenChatLength, setLastSeenChatLength] = useState(() => {
+    try {
+      const raw = localStorage.getItem(CHAT_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.length : 0;
+    } catch { return 0; }
   });
 
   // Refs para el contexto siempre fresco sin reinstalar el interval.
@@ -207,6 +203,7 @@ export default function HectorPanel({
   const cancelledRef = useRef(false);
   const stopListenRef = useRef(null);
   const chatScrollRef = useRef(null);
+  const chatEndRef = useRef(null);
 
   // Persistencia: recomendaciones
   useEffect(() => {
@@ -295,11 +292,18 @@ export default function HectorPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-scroll al último mensaje
+  // Auto-scroll al último mensaje cuando hay actividad en el chat. Usa un
+  // sentinel al final de la lista — el contenedor con overflow:auto está
+  // varios niveles arriba y se remonta al cambiar de tab, así que
+  // scrollIntoView en el sentinel es la forma más fiable.
   useEffect(() => {
-    const el = chatScrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [chatHistory.length, chatLoading]);
+    if (activeTab !== "chat") return;
+    const el = chatEndRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      try { el.scrollIntoView({ block: "end" }); } catch {}
+    });
+  }, [activeTab, chatHistory.length, chatLoading]);
 
   const setState = (s) => { setHectorState(s); onStateChange?.(s); };
 
@@ -653,289 +657,309 @@ Reglas para block_task:
   const handleSubmit = (e) => {
     e?.preventDefault?.();
     if (chatLoading || !inputMessage.trim()) return;
+    setActiveTab("chat");
     sendOrderToHector(inputMessage);
   };
 
-  const handleImplementRec = (rec) => {
-    setExpandedRecId(null);
-    onRecommendationClick?.(rec);
-    sendOrderToHector(`Implementa esta recomendación: ${rec.title}`);
+  // Wrappers de acciones para el tab Análisis: ejecutan + dejan rastro en
+  // el chat + cambian al tab Chat para que el CEO vea la confirmación.
+  const switchToChatWithMessage = (text) => {
+    setActiveTab("chat");
+    if (text) setChatHistory((prev) => [...prev, { role: "hector", text, ts: Date.now() }].slice(-CHAT_MAX));
   };
+  const handleViewTaskFromCard = (taskId, title) => {
+    goToTask(taskId, title);
+    switchToChatWithMessage(`Abriendo "${title}".`);
+  };
+  const handleCompleteFromCard = (taskId, title) => {
+    completeFromCard(taskId, title);
+    switchToChatWithMessage(`✓ Marcada como hecha: "${title}".`);
+  };
+  const handlePostponeFromCard = (taskId, title) => {
+    postponeFromCard(taskId, title);
+    switchToChatWithMessage(`⏸ Pospuesta +1d: "${title}".`);
+  };
+
+  // Sincroniza el contador de no-leídos cuando el tab Chat está activo.
+  useEffect(() => {
+    if (activeTab === "chat") setLastSeenChatLength(chatHistory.length);
+  }, [activeTab, chatHistory.length]);
+
+  // Análisis a mostrar en el tab Análisis = el último hector_analysis del
+  // chatHistory. Si todavía no hay ninguno, se muestra placeholder.
+  const latestAnalysis = (() => {
+    for (let i = chatHistory.length - 1; i >= 0; i--) {
+      const m = chatHistory[i];
+      if (m.role === "hector_analysis" && m.analysis) return m.analysis;
+    }
+    return null;
+  })();
+  const unreadCount = Math.max(0, chatHistory.length - lastSeenChatLength);
 
   const stateInfo = STATE_LABEL[hectorState] || STATE_LABEL.listening;
   const displayName = userName || userId || "CEO";
+
+  // ── Sub-renderers de cards (extraídos para reuso entre tabs) ────────────
+  const URGENCY_GROUPS = [
+    { key: "critical", label: "🔴 URGENTE",     fg: "#991B1B", border: "#FCA5A5", urgencyColor: "#B91C1C" },
+    { key: "high",     label: "🟠 HOY",         fg: "#92400E", border: "#FCD34D", urgencyColor: "#B45309" },
+    { key: "medium",   label: "🟡 ESTA SEMANA", fg: "#854D0E", border: "#FDE68A", urgencyColor: "#A16207" },
+  ];
+
+  const renderTaskCard = (t, key, onView, onComplete, onPostpone, urgencyColor, border) => (
+    <div key={key} style={{ background: "#fff", border: `1px solid ${border}`, borderLeft: `4px solid ${border}`, borderRadius: 8, padding: "7px 9px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3, flexWrap: "wrap" }}>
+        {t.ref && (
+          <button onClick={() => onView(t.taskId, t.title)} title={`Ir a ${t.ref}`} style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 4, background: "#F3F4F6", color: "#374151", border: "0.5px solid #E5E7EB", fontFamily: "ui-monospace,monospace", fontWeight: 700, cursor: "pointer" }}>{t.ref}</button>
+        )}
+        <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+        {t.board && <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 10, background: "#EEEDFE", color: "#3C3489", border: "0.5px solid #AFA9EC", fontWeight: 600, flexShrink: 0 }}>{t.board}</span>}
+      </div>
+      <div style={{ fontSize: 10.5, color: urgencyColor, fontWeight: 600, marginBottom: 4 }}>{t.urgency}</div>
+      {t.action && <div style={{ fontSize: 11, color: "#374151", fontStyle: "italic", marginBottom: 6 }}>{t.action}</div>}
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+        <button onClick={() => onView(t.taskId, t.title)}      style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#1E40AF", border: "1px solid #BFDBFE", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>→ Ver tarea</button>
+        <button onClick={() => onComplete(t.taskId, t.title)}  style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#065F46", border: "1px solid #86EFAC", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>✓ Hecho</button>
+        <button onClick={() => onPostpone(t.taskId, t.title)}  style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>⏸ Posponer</button>
+      </div>
+    </div>
+  );
+
+  const renderAnalysisGroups = (analysis, onView, onComplete, onPostpone) => (
+    <>
+      {URGENCY_GROUPS.map((g) => {
+        const items = (analysis.tasks || []).filter((t) => t.urgencyLevel === g.key);
+        if (!items.length) return null;
+        return (
+          <div key={g.key} style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: g.fg, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{g.label}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {items.slice(0, 5).map((t, j) => renderTaskCard(t, `${g.key}-${j}`, onView, onComplete, onPostpone, g.urgencyColor, g.border))}
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+
+  const fmtTs = (ts) => {
+    if (!ts) return "";
+    const d = new Date(ts);
+    return d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+  };
 
   return (
     <div style={{
       backgroundColor: "white",
       border: "2px solid #3498DB",
       borderRadius: 12,
-      padding: 20,
       boxShadow: "0 4px 16px rgba(52,152,219,0.15)",
       fontFamily: "inherit",
       display: "flex",
       flexDirection: "column",
-      gap: 14,
+      height: "100%",
+      minHeight: 560,
+      overflow: "hidden",
     }}>
       <style>{`
+        @keyframes hp-fade-tab { from { opacity: 0; } to { opacity: 1; } }
         @keyframes hp-fade { from { opacity: 0; transform: translateY(2px);} to { opacity: 1; transform: translateY(0);} }
         @keyframes hp-pulse-dot { 0%,100% { opacity:1;} 50% { opacity:0.4;} }
         @keyframes hp-mic-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(231,76,60,0.55);} 50% { box-shadow: 0 0 0 6px rgba(231,76,60,0);} }
       `}</style>
 
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      {/* Header (64px fijo) */}
+      <div style={{ height: 64, padding: "0 16px", display: "flex", alignItems: "center", gap: 10, borderBottom: "0.5px solid #E5E7EB", flexShrink: 0 }}>
         <div style={{ width: 38, height: 38, borderRadius: "50%", background: "linear-gradient(135deg,#1D9E75,#0E7C5A)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🧙</div>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", lineHeight: 1.1 }}>Héctor</div>
-          <div style={{ fontSize: 10.5, color: "#6B7280" }}>Chief of Staff · {displayName}</div>
+          <div style={{ fontSize: 10.5, color: "#6B7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Chief of Staff · {displayName}</div>
         </div>
         <button onClick={toggleMute} title={muted ? "Activar voz de Héctor" : "Silenciar voz de Héctor"} style={{ background: "transparent", border: "1px solid #E5E7EB", borderRadius: 8, width: 30, height: 30, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, fontFamily: "inherit", color: muted ? "#9CA3AF" : "#1D9E75" }}>{muted ? "🔇" : "🔊"}</button>
-        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 12, background: stateInfo.bg, color: stateInfo.fg, border: `1px solid ${stateInfo.border}`, display: "inline-flex", alignItems: "center", gap: 5 }}>
+        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 12, background: stateInfo.bg, color: stateInfo.fg, border: `1px solid ${stateInfo.border}`, display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: stateInfo.border, animation: isThinking ? "hp-pulse-dot 1.2s infinite" : "none" }} />
           {stateInfo.label}
         </span>
       </div>
 
-      {/* Pensamiento actual */}
-      <div key={thoughtFlash} style={{
-        background: "#F0F7FF",
-        border: "2px solid #3498DB",
-        borderRadius: 10,
-        padding: "10px 14px",
-        fontSize: 12.5,
-        color: "#1E3A8A",
-        lineHeight: 1.5,
-        animation: "hp-fade .35s ease",
-        display: "flex",
-        gap: 8,
-        alignItems: "flex-start",
-      }}>
-        <span style={{ fontSize: 14 }}>💭</span>
-        <span style={{ flex: 1 }}>{currentThought || "—"}</span>
+      {/* Tab bar (40px fijo) */}
+      <div style={{ height: 40, display: "flex", borderBottom: "0.5px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
+        {[
+          { key: "analysis", label: "📋 Análisis", badge: 0 },
+          { key: "chat",     label: "💬 Chat",     badge: unreadCount },
+        ].map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              style={{
+                flex: 1,
+                background: isActive ? "#fff" : "transparent",
+                border: "none",
+                borderBottom: isActive ? "2px solid #3498DB" : "2px solid transparent",
+                fontSize: 12,
+                fontWeight: isActive ? 700 : 500,
+                color: isActive ? "#1E40AF" : "#6B7280",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              <span>{tab.label}</span>
+              {tab.badge > 0 && (
+                <span style={{ minWidth: 18, height: 18, padding: "0 5px", borderRadius: 9, background: "#E74C3C", color: "#fff", fontSize: 10, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{tab.badge}</span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Recomendaciones */}
-      <div>
-        <div style={{ fontSize: 10.5, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Recomendaciones</div>
-        {recommendations.length === 0 ? (
-          <div style={{ fontSize: 12, color: "#9CA3AF", fontStyle: "italic", padding: "8px 0" }}>Aún sin recomendaciones — Héctor está observando.</div>
+      {/* Contenido (flex: 1, scroll único) */}
+      <div key={activeTab} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 14, animation: "hp-fade-tab .2s ease", minHeight: 0 }}>
+        {activeTab === "analysis" ? (
+          <>
+            {/* Pensamiento actual */}
+            <div key={thoughtFlash} style={{
+              background: "#F0F7FF",
+              border: "2px solid #3498DB",
+              borderRadius: 10,
+              padding: "10px 14px",
+              fontSize: 12.5,
+              color: "#1E3A8A",
+              lineHeight: 1.5,
+              animation: "hp-fade .35s ease",
+              display: "flex",
+              gap: 8,
+              alignItems: "flex-start",
+              marginBottom: 12,
+              maxHeight: 60,
+              overflow: "hidden",
+            }}>
+              <span style={{ fontSize: 14 }}>💭</span>
+              <span style={{ flex: 1, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{currentThought || "—"}</span>
+            </div>
+            {latestAnalysis && latestAnalysis.tasks && latestAnalysis.tasks.length > 0 ? (
+              <>
+                {renderAnalysisGroups(latestAnalysis, handleViewTaskFromCard, handleCompleteFromCard, handlePostponeFromCard)}
+                {latestAnalysis.summary && (
+                  <div style={{ fontSize: 11.5, color: "#1E3A8A", fontWeight: 600, marginTop: 6, paddingTop: 8, borderTop: "0.5px dashed #BFDBFE" }}>{latestAnalysis.summary}</div>
+                )}
+              </>
+            ) : (
+              <div style={{ fontSize: 12, color: "#9CA3AF", fontStyle: "italic", padding: "20px 8px", textAlign: "center" }}>Héctor está observando — el primer análisis llegará en cuanto tenga contexto suficiente.</div>
+            )}
+          </>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {recommendations.map((rec) => {
-              const pri = PRIORITY_STYLE[rec.priority] || PRIORITY_STYLE.medium;
-              const isExpanded = expandedRecId === rec.id;
-              return (
-                <div key={rec.id} style={{
-                  border: `1px solid ${pri.border}55`,
-                  borderLeft: `4px solid ${pri.border}`,
-                  borderRadius: 8,
-                  background: "#fff",
-                  overflow: "hidden",
-                  cursor: "pointer",
-                }} onClick={() => setExpandedRecId(isExpanded ? null : rec.id)}>
-                  <div style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 9.5, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: pri.bg, color: pri.fg, border: `1px solid ${pri.border}`, flexShrink: 0 }}>{pri.label}</span>
-                    <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: "#111827", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{rec.title}</span>
-                    <span style={{ fontSize: 10, color: "#9CA3AF", flexShrink: 0 }}>{timeAgo(rec.ts)}</span>
-                  </div>
-                  {isExpanded && (
-                    <div style={{ padding: "0 12px 10px", borderTop: "0.5px solid #F3F4F6" }}>
-                      <div style={{ fontSize: 11.5, color: "#374151", lineHeight: 1.5, marginTop: 8, marginBottom: 8 }}>{rec.reason}</div>
-                      {rec.timeframe && <div style={{ fontSize: 10.5, color: "#6B7280", marginBottom: 10 }}>⏱ Marco: <b style={{ color: "#374151" }}>{rec.timeframe}</b></div>}
-                      <div style={{ display: "flex", gap: 6 }} onClick={(e) => e.stopPropagation()}>
-                        <button onClick={() => handleImplementRec(rec)} style={{ padding: "6px 12px", borderRadius: 6, background: "#1D9E75", color: "#fff", border: "none", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Implementar</button>
-                        <button onClick={() => { setExpandedRecId(null); }} style={{ padding: "6px 12px", borderRadius: 6, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Posponer</button>
-                        <button onClick={() => { setRecommendations((r) => r.filter((x) => x.id !== rec.id)); setExpandedRecId(null); }} style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", color: "#6B7280", border: "1px solid #D1D5DB", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Cerrar</button>
+          <div ref={chatScrollRef} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {chatHistory.length === 0 ? (
+              <div style={{ fontSize: 11.5, color: "#9CA3AF", fontStyle: "italic", padding: "20px 8px", textAlign: "center" }}>Habla con Héctor o dale una orden — esto es el inicio.</div>
+            ) : chatHistory.slice(-CHAT_MAX).map((m, i) => {
+              // Burbuja de análisis dentro del chat (renderiza task cards).
+              if (m.role === "hector_analysis" && m.analysis) {
+                return (
+                  <div key={i} style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 14, lineHeight: "20px", flexShrink: 0 }}>🧙</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ padding: "10px 12px", background: "#F0F7FF", border: "0.5px solid #BFDBFE", borderRadius: "12px 12px 12px 0" }}>
+                        {m.analysis.thought && <div style={{ fontSize: 11, fontStyle: "italic", color: "#1E3A8A", marginBottom: 8 }}>💭 {m.analysis.thought}</div>}
+                        {renderAnalysisGroups(m.analysis, handleViewTaskFromCard, handleCompleteFromCard, handlePostponeFromCard)}
+                        {m.analysis.summary && (
+                          <div style={{ fontSize: 11.5, color: "#1E3A8A", fontWeight: 600, marginTop: 6, paddingTop: 6, borderTop: "0.5px dashed #BFDBFE" }}>{m.analysis.summary}</div>
+                        )}
                       </div>
+                      <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4 }}>{fmtTs(m.ts)}</div>
                     </div>
-                  )}
+                  </div>
+                );
+              }
+              // Follow-up con 2 botones de respuesta rápida.
+              if (m.role === "hector" && m.isFollowUp) {
+                const closeAndComplete = () => {
+                  completeFromCard(m.taskId);
+                  removeBlockedTask(m.taskId);
+                  setChatHistory((prev) => [...prev, { role: "hector", text: "✓ Cerrada y archivada.", ts: Date.now() }].slice(-CHAT_MAX));
+                };
+                const reactivate = () => {
+                  removeBlockedTask(m.taskId);
+                  setChatHistory((prev) => [...prev, { role: "hector", text: "Vale, la dejo activa para volver a recomendártela.", ts: Date.now() }].slice(-CHAT_MAX));
+                  lastCallTime.current = 0;
+                  generateHectorThought();
+                };
+                return (
+                  <div key={i} style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 14, lineHeight: "20px" }}>🧙</span>
+                    <div style={{ maxWidth: "82%" }}>
+                      <div style={{ padding: "8px 10px", background: "#FFF8E1", border: "1px solid #FCD34D", borderRadius: "12px 12px 12px 0", fontSize: 12, color: "#78350F", lineHeight: 1.4 }}>
+                        <div style={{ fontSize: 9.5, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>⏰ Seguimiento</div>
+                        <div style={{ marginBottom: 8 }}>{m.text}</div>
+                        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                          <button onClick={closeAndComplete} style={{ padding: "3px 9px", borderRadius: 5, background: "#fff", color: "#065F46", border: "1px solid #86EFAC", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>✓ Cerrado</button>
+                          <button onClick={reactivate}      style={{ padding: "3px 9px", borderRadius: 5, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>↩ Necesita acción</button>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4 }}>{fmtTs(m.ts)}</div>
+                    </div>
+                  </div>
+                );
+              }
+              const isUser = m.role === "user";
+              return (
+                <div key={i} style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", gap: 6, alignItems: "flex-start" }}>
+                  {!isUser && <span style={{ fontSize: 14, lineHeight: "20px" }}>🧙</span>}
+                  <div style={{ maxWidth: "82%", display: "flex", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
+                    <div style={{
+                      padding: "8px 12px",
+                      borderRadius: isUser ? "12px 12px 0 12px" : "12px 12px 12px 0",
+                      background: isUser ? "#F0F0F0" : "#F0F7FF",
+                      border: `0.5px solid ${isUser ? "#E5E7EB" : "#BFDBFE"}`,
+                      fontSize: 12,
+                      color: "#111827",
+                      whiteSpace: "pre-wrap",
+                      lineHeight: 1.4,
+                      wordBreak: "break-word",
+                    }}>{m.text}</div>
+                    <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4, paddingRight: 4 }}>{fmtTs(m.ts)}</div>
+                  </div>
                 </div>
               );
             })}
+            {chatLoading && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <span style={{ fontSize: 14, lineHeight: "20px" }}>🧙</span>
+                <div style={{ padding: "8px 12px", borderRadius: "12px 12px 12px 0", background: "#F0F7FF", border: "0.5px solid #BFDBFE", fontSize: 12, color: "#6B7280", fontStyle: "italic" }}>Héctor está pensando…</div>
+              </div>
+            )}
+            <div ref={chatEndRef} style={{ height: 1 }} />
           </div>
         )}
       </div>
 
-      {/* Chat bidireccional */}
-      <div>
-        <div style={{ fontSize: 10.5, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>Conversación</div>
-        <div ref={chatScrollRef} style={{
-          maxHeight: 240,
-          overflowY: "auto",
-          padding: "8px 4px",
-          background: "#FAFAFA",
-          border: "1px solid #F3F4F6",
-          borderRadius: 8,
-          marginBottom: 8,
-          display: "flex",
-          flexDirection: "column",
-          gap: 6,
-        }}>
-          {chatHistory.length === 0 ? (
-            <div style={{ fontSize: 11.5, color: "#9CA3AF", fontStyle: "italic", padding: "10px 8px", textAlign: "center" }}>Habla con Héctor o dale una orden — esto es el inicio.</div>
-          ) : chatHistory.slice(-CHAT_MAX).map((m, i) => {
-            // Mensaje rico de análisis estructurado: agrupa por urgencyLevel
-            // y renderiza una card por tarea con acciones inline.
-            if (m.role === "hector_analysis" && m.analysis) {
-              const groups = [
-                { key: "critical", label: "🔴 URGENTE",      bg: "#FEE2E2", fg: "#991B1B", border: "#FCA5A5", urgencyColor: "#B91C1C" },
-                { key: "high",     label: "🟠 HOY",          bg: "#FEF3C7", fg: "#92400E", border: "#FCD34D", urgencyColor: "#B45309" },
-                { key: "medium",   label: "🟡 ESTA SEMANA",  bg: "#FEF9C3", fg: "#854D0E", border: "#FDE68A", urgencyColor: "#A16207" },
-              ];
-              return (
-                <div key={i} style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "flex-start", padding: "0 6px" }}>
-                  <span style={{ fontSize: 14, lineHeight: "20px", flexShrink: 0 }}>🧙</span>
-                  <div style={{ flex: 1, minWidth: 0, padding: "8px 10px", borderRadius: 10, background: "#F0F7FF", border: "0.5px solid #BFDBFE" }}>
-                    {m.analysis.thought && (
-                      <div style={{ fontSize: 11, fontStyle: "italic", color: "#1E3A8A", marginBottom: 8 }}>💭 {m.analysis.thought}</div>
-                    )}
-                    {groups.map((g) => {
-                      const items = (m.analysis.tasks || []).filter((t) => t.urgencyLevel === g.key);
-                      if (!items.length) return null;
-                      return (
-                        <div key={g.key} style={{ marginBottom: 8 }}>
-                          <div style={{ fontSize: 9.5, fontWeight: 700, color: g.fg, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{g.label}</div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                            {items.map((t, j) => (
-                              <div key={`${i}-${g.key}-${j}`} style={{ background: "#fff", border: `1px solid ${g.border}`, borderLeft: `4px solid ${g.border}`, borderRadius: 8, padding: "7px 9px" }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3, flexWrap: "wrap" }}>
-                                  {t.ref && (
-                                    <button
-                                      onClick={() => goToTask(t.taskId, t.title)}
-                                      title={`Ir a ${t.ref}`}
-                                      style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 4, background: "#F3F4F6", color: "#374151", border: "0.5px solid #E5E7EB", fontFamily: "ui-monospace,monospace", fontWeight: 700, cursor: "pointer" }}
-                                    >{t.ref}</button>
-                                  )}
-                                  <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-                                  {t.board && (
-                                    <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 10, background: "#EEEDFE", color: "#3C3489", border: "0.5px solid #AFA9EC", fontWeight: 600, flexShrink: 0 }}>{t.board}</span>
-                                  )}
-                                </div>
-                                <div style={{ fontSize: 10.5, color: g.urgencyColor, fontWeight: 600, marginBottom: 4 }}>{t.urgency}</div>
-                                {t.action && <div style={{ fontSize: 11, color: "#374151", fontStyle: "italic", marginBottom: 6 }}>{t.action}</div>}
-                                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                                  <button onClick={() => goToTask(t.taskId, t.title)}      style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#1E40AF", border: "1px solid #BFDBFE", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>→ Ver tarea</button>
-                                  <button onClick={() => completeFromCard(t.taskId, t.title)} style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#065F46", border: "1px solid #86EFAC", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>✓ Hecho</button>
-                                  <button onClick={() => postponeFromCard(t.taskId, t.title)} style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>⏸ Posponer</button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {m.analysis.summary && (
-                      <div style={{ fontSize: 11.5, color: "#1E3A8A", fontWeight: 600, marginTop: 6, paddingTop: 6, borderTop: "0.5px dashed #BFDBFE" }}>{m.analysis.summary}</div>
-                    )}
-                  </div>
-                </div>
-              );
-            }
-            // Mensaje de follow-up: chat normal de Héctor + 2 botones de
-            // respuesta rápida (cerrar tarea / reactivar bloqueo).
-            if (m.role === "hector" && m.isFollowUp) {
-              const closeAndComplete = () => {
-                completeFromCard(m.taskId);
-                removeBlockedTask(m.taskId);
-                setChatHistory((prev) => [...prev, { role: "hector", text: "✓ Cerrada y archivada.", ts: Date.now() }].slice(-CHAT_MAX));
-              };
-              const reactivate = () => {
-                removeBlockedTask(m.taskId);
-                setChatHistory((prev) => [...prev, { role: "hector", text: "Vale, la dejo activa para volver a recomendártela.", ts: Date.now() }].slice(-CHAT_MAX));
-                // Trigger inmediato del análisis para que la tarea reaparezca.
-                lastCallTime.current = 0;
-                generateHectorThought();
-              };
-              return (
-                <div key={i} style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "flex-start", padding: "0 6px" }}>
-                  <span style={{ fontSize: 14, lineHeight: "20px" }}>🧙</span>
-                  <div style={{
-                    maxWidth: "82%",
-                    padding: "8px 10px",
-                    borderRadius: 10,
-                    background: "#FFF8E1",
-                    border: "1px solid #FCD34D",
-                    fontSize: 12,
-                    color: "#78350F",
-                    lineHeight: 1.4,
-                    wordBreak: "break-word",
-                  }}>
-                    <div style={{ fontSize: 9.5, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>⏰ Seguimiento</div>
-                    <div style={{ marginBottom: 8 }}>{m.text}</div>
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                      <button onClick={closeAndComplete} style={{ padding: "3px 9px", borderRadius: 5, background: "#fff", color: "#065F46", border: "1px solid #86EFAC", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>✓ Cerrado</button>
-                      <button onClick={reactivate}      style={{ padding: "3px 9px", borderRadius: 5, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>↩ Necesita acción</button>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-            const isUser = m.role === "user";
-            return (
-              <div key={i} style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", gap: 6, alignItems: "flex-start", padding: "0 6px" }}>
-                {!isUser && <span style={{ fontSize: 14, lineHeight: "20px" }}>🧙</span>}
-                <div style={{
-                  maxWidth: "82%",
-                  padding: "7px 10px",
-                  borderRadius: 10,
-                  background: isUser ? "#F0F0F0" : "#F0F7FF",
-                  border: `0.5px solid ${isUser ? "#E5E7EB" : "#BFDBFE"}`,
-                  fontSize: 12,
-                  color: "#111827",
-                  whiteSpace: "pre-wrap",
-                  lineHeight: 1.4,
-                  wordBreak: "break-word",
-                }}>{m.text}</div>
-              </div>
-            );
-          })}
-          {chatLoading && (
-            <div style={{ display: "flex", gap: 6, padding: "0 6px" }}>
-              <span style={{ fontSize: 14, lineHeight: "20px" }}>🧙</span>
-              <div style={{ padding: "7px 10px", borderRadius: 10, background: "#F0F7FF", border: "0.5px solid #BFDBFE", fontSize: 12, color: "#6B7280", fontStyle: "italic" }}>Héctor está pensando…</div>
-            </div>
-          )}
-        </div>
-
-        {/* Input bar */}
-        <form onSubmit={handleSubmit} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <input
-            type="text"
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            placeholder="Escribe una orden a Héctor…"
-            disabled={chatLoading}
-            style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 12.5, fontFamily: "inherit", outline: "none", background: chatLoading ? "#F9FAFB" : "#fff" }}
-          />
-          <button
-            type="button"
-            onClick={startListening}
-            title={isListening ? "Detener dictado" : "Dictar por voz"}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 8,
-              background: isListening ? "#FEE2E2" : "#fff",
-              color: isListening ? "#B91C1C" : "#6B7280",
-              border: `1px solid ${isListening ? "#FCA5A5" : "#D1D5DB"}`,
-              fontSize: 14,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 0,
-              fontFamily: "inherit",
-              animation: isListening ? "hp-mic-pulse 1.2s infinite" : "none",
-            }}
-          >🎤</button>
-          <button
-            type="submit"
-            disabled={chatLoading || !inputMessage.trim()}
-            style={{ padding: "8px 14px", borderRadius: 8, background: chatLoading || !inputMessage.trim() ? "#E5E7EB" : "#1D9E75", color: chatLoading || !inputMessage.trim() ? "#9CA3AF" : "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: chatLoading || !inputMessage.trim() ? "not-allowed" : "pointer", fontFamily: "inherit" }}
-          >Enviar</button>
-        </form>
-      </div>
+      {/* Input fijo (60px) */}
+      <form onSubmit={handleSubmit} style={{ height: 60, padding: "0 12px", display: "flex", gap: 6, alignItems: "center", borderTop: "0.5px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
+        <input
+          type="text"
+          value={inputMessage}
+          onChange={(e) => setInputMessage(e.target.value)}
+          placeholder="Escribe una orden a Héctor..."
+          disabled={chatLoading}
+          style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 12.5, fontFamily: "inherit", outline: "none", background: chatLoading ? "#F9FAFB" : "#fff" }}
+        />
+        <button
+          type="button"
+          onClick={startListening}
+          title={isListening ? "Detener dictado" : "Dictar por voz"}
+          style={{ width: 36, height: 36, borderRadius: 8, background: isListening ? "#FEE2E2" : "#fff", color: isListening ? "#B91C1C" : "#6B7280", border: `1px solid ${isListening ? "#FCA5A5" : "#D1D5DB"}`, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, fontFamily: "inherit", animation: isListening ? "hp-mic-pulse 1.2s infinite" : "none" }}
+        >🎤</button>
+        <button
+          type="submit"
+          disabled={chatLoading || !inputMessage.trim()}
+          style={{ padding: "9px 14px", borderRadius: 8, background: chatLoading || !inputMessage.trim() ? "#E5E7EB" : "#1D9E75", color: chatLoading || !inputMessage.trim() ? "#9CA3AF" : "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: chatLoading || !inputMessage.trim() ? "not-allowed" : "pointer", fontFamily: "inherit" }}
+        >Enviar</button>
+      </form>
     </div>
   );
 }
