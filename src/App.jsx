@@ -24,6 +24,7 @@ import BriefingMatinal from "./components/BriefingMatinal.jsx";
 import CierreDia from "./components/CierreDia.jsx";
 import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
+import FinanceView from "./components/Finanzas/FinanceView.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
@@ -9137,6 +9138,7 @@ export default function TaskFlow(){
           {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:true},
           {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false},
           {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:true},
+          {id:"finance",    icon:"💰", label:"Finanzas",     shortcut:"",    onClick:()=>{setActiveTab("finance");}, adminOnly:false, requiresPermission:"finance"},
           {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}, adminOnly:true},
           {id:"dashboard",  icon:"📊", label:"Dashboard analítico", shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:true},
           {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:true},
@@ -9423,6 +9425,15 @@ export default function TaskFlow(){
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission}/>}
+          {activeTab==="finance"   &&(()=>{
+            const myMember = (data.members||[]).find(x=>x.id===activeMember);
+            const canView = hasPermission(myMember, "finance", "view", data.permissions);
+            const canEdit = hasPermission(myMember, "finance", "edit", data.permissions);
+            if(!canView){
+              return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>🔒 Sin permisos para acceder al módulo de Finanzas. Contacta con el admin global.</div>;
+            }
+            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement}/>;
+          })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
           {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} onTransferProject={transferTaskToProject} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={(id,cid,upd)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) updateTask(id,cid,upd); else updateTaskAnywhere(id,upd); }} onMove={moveTask} onAddTask={addTask} onDeleteTask={(id,cid)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) deleteTask(id,cid); else deleteTaskAnywhere(id); }}/>}
