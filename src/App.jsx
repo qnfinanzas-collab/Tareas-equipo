@@ -25,6 +25,7 @@ import CierreDia from "./components/CierreDia.jsx";
 import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import FinanceView from "./components/Finanzas/FinanceView.jsx";
+import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
@@ -2213,7 +2214,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
 }
 
 // ── Task Modal ────────────────────────────────────────────────────────────────
-function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,onTransferProject,onClose,onUpdate,onMove,onDelete}){
+function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,onTransferProject,onAddTimelineEntry,onToggleMilestone,onClose,onUpdate,onMove,onDelete}){
   const [editing,setEditing]=useState(false);
   const [draft,setDraft]=useState({...task});
   const [comment,setComment]=useState("");
@@ -2337,7 +2338,23 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
           {!editing&&<RefBadge code={task.ref}/>}
           {editing
             ?<input value={draft.title} onChange={e=>set("title",e.target.value)} style={{flex:1,fontSize:15,fontWeight:600,border:"none",outline:"2px solid #7F77DD",borderRadius:6,padding:"4px 8px",fontFamily:"inherit"}}/>
-            :<div style={{flex:1,fontWeight:600,fontSize:15}}>{task.title}</div>
+            :(()=>{
+                // Última actualización: el timestamp más reciente del timeline.
+                const tl = task.timeline || [];
+                const latest = tl.reduce((a,e)=> (a===null || new Date(e.timestamp)>new Date(a.timestamp)) ? e : a, null);
+                let label = "";
+                if (latest) {
+                  const ms = Date.now() - new Date(latest.timestamp).getTime();
+                  const h = Math.floor(ms/3600000), d = Math.floor(ms/86400000), m = Math.floor(ms/60000);
+                  label = ms < 60000 ? "ahora" : m < 60 ? `hace ${m} min` : h < 24 ? `hace ${h}h` : `hace ${d}d`;
+                }
+                return (
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{task.title}</div>
+                    {latest && <div style={{fontSize:10.5,color:"#6B7280",marginTop:2}}>Última actualización: {label}</div>}
+                  </div>
+                );
+              })()
           }
           <div style={{display:"flex",gap:6}}>
             {!editing
@@ -2381,8 +2398,8 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
         {avatarOpen&&<AvatarModal task={task} members={members} connectedAgents={(agents||[]).filter(a=>(task.agentIds||[]).includes(a.id))} ceoMemory={ceoMemory} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})} onMutateTask={newTask=>onUpdate(task.id,colId,newTask)}/>}
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
-          {[["detail","Detalle"],["subtasks","Subtareas"],["links","Enlaces"],["time","Tiempo"],["comments","Comentarios"],["documents","Documentos"]].map(([k,l])=>(
-            <div key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400,marginBottom:-0.5}}>{l}{k==="subtasks"&&subs.length>0?` ${subsDone}/${subs.length}`:""}{k==="links"&&links.length>0?` (${links.length})`:""}{k==="time"&&totalLogged>0?` · ${fmtH(totalLogged)}`:""}{k==="comments"&&task.comments.length>0?` (${task.comments.length})`:""}{k==="documents"&&(task.documents||[]).length>0?` (${(task.documents||[]).length})`:""}</div>
+          {[["detail","Detalle"],["subtasks","Subtareas"],["links","Enlaces"],["time","Tiempo"],["timeline","Avance"],["documents","Documentos"]].map(([k,l])=>(
+            <div key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400,marginBottom:-0.5}}>{l}{k==="subtasks"&&subs.length>0?` ${subsDone}/${subs.length}`:""}{k==="links"&&links.length>0?` (${links.length})`:""}{k==="time"&&totalLogged>0?` · ${fmtH(totalLogged)}`:""}{k==="timeline"&&(task.timeline||[]).length>0?` (${task.timeline.length})`:""}{k==="documents"&&(task.documents||[]).length>0?` (${(task.documents||[]).length})`:""}</div>
           ))}
         </div>
         <div style={{padding:20}}>
@@ -2678,19 +2695,14 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
               )}
             </>
           )}
-          {tab==="comments"&&(
-            <>
-              <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:14}}>
-                {task.comments.length===0&&<span style={{fontSize:12,color:"#9ca3af"}}>Sin comentarios aun.</span>}
-                {task.comments.map((c,i)=>{ const m=members.find(x=>x.id===c.author); const mp2=MP[c.author]||MP[0]; return <div key={i} style={{display:"flex",gap:10}}><div style={{width:30,height:30,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{m?.initials}</div><div style={{flex:1,background:"#f9fafb",borderRadius:10,padding:"8px 12px",borderLeft:`3px solid ${mp2.solid}`}}><div style={{fontSize:12,fontWeight:600,marginBottom:2,color:mp2.solid}}>{m?.name}</div><div style={{fontSize:13,color:"#4b5563",lineHeight:1.5}}>{c.text}</div><div style={{fontSize:11,color:"#9ca3af",marginTop:3}}>{c.time}</div></div></div>; })}
-              </div>
-              <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-                <div style={{width:30,height:30,borderRadius:"50%",background:(MP[activeMemberId]||MP[0]).solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{members.find(x=>x.id===activeMemberId)?.initials}</div>
-                <textarea rows={2} value={comment} onChange={e=>setComment(e.target.value)} placeholder="Escribe un comentario..." onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();addComment();}}} style={{flex:1,padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"none",fontFamily:"inherit",outline:"none"}}/>
-                <VoiceMicButton size="sm" color="#7F77DD" title="Dictar comentario" initialText={comment} onInterim={t=>setComment(t)} onFinal={t=>setComment(t)}/>
-                <button onClick={addComment} style={{padding:"8px 14px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:500}}>Enviar</button>
-              </div>
-            </>
+          {tab==="timeline"&&(
+            <TaskTimeline
+              task={task}
+              members={members}
+              currentMember={members.find(x=>x.id===activeMemberId)}
+              onAddEntry={onAddTimelineEntry}
+              onToggleMilestone={onToggleMilestone}
+            />
           )}
           {tab==="documents"&&(
             <DocumentUploader
@@ -3044,14 +3056,14 @@ function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
       {est>0&&totalLogged>0&&<div style={{marginBottom:6}}><div style={{height:4,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(Math.round(totalLogged/est*100),100)}%`,background:totalLogged>est?"#E24B4A":totalLogged/est>0.8?"#EF9F27":"#1D9E75",borderRadius:20}}/></div></div>}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex"}}>{task.assignees.map((mid,i)=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} title={m?.name} style={{marginLeft:i>0?-7:0,zIndex:task.assignees.length-i,position:"relative",width:24,height:24,borderRadius:"50%",background:mp2.solid,color:"#fff",border:"2px solid #fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{m?.initials||"?"}</div>; })}</div>
-        <div style={{display:"flex",alignItems:"center",gap:5}}><PriBadge p={task.priority}/>{subs.length>0&&<span title={`${subDone}/${subs.length} subtareas`} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:subAllDone?"#E1F5EE":"#f3f4f6",color:subAllDone?"#085041":"#6b7280",fontWeight:600,border:`0.5px solid ${subAllDone?"#1D9E75":"#e5e7eb"}`}}>☑ {subDone}/{subs.length}</span>}{(task.links||[]).length>0&&<span title={`${task.links.length} enlace${task.links.length>1?"s":""}`} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:"#EEEDFE",color:"#3C3489",fontWeight:600,border:"0.5px solid #AFA9EC"}}>🔗 {task.links.length}</span>}{task.comments.length>0&&<span style={{fontSize:11,color:"#9ca3af"}}>{task.comments.length}</span>}</div>
+        <div style={{display:"flex",alignItems:"center",gap:5}}><PriBadge p={task.priority}/>{subs.length>0&&<span title={`${subDone}/${subs.length} subtareas`} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:subAllDone?"#E1F5EE":"#f3f4f6",color:subAllDone?"#085041":"#6b7280",fontWeight:600,border:`0.5px solid ${subAllDone?"#1D9E75":"#e5e7eb"}`}}>☑ {subDone}/{subs.length}</span>}{(task.links||[]).length>0&&<span title={`${task.links.length} enlace${task.links.length>1?"s":""}`} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:"#EEEDFE",color:"#3C3489",fontWeight:600,border:"0.5px solid #AFA9EC"}}>🔗 {task.links.length}</span>}{(task.timeline||[]).length>0&&<span title={`${task.timeline.length} actualizacion${task.timeline.length>1?"es":""}`} style={{fontSize:11,color:"#9ca3af"}}>💬 {task.timeline.length}</span>}</div>
       </div>
     </div>
   );
 }
 
 // ── Board View ────────────────────────────────────────────────────────────────
-function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,onTransferProject,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask,onDeleteTask}){
+function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,onTransferProject,onAddTimelineEntry,onToggleMilestone,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask,onDeleteTask}){
   const [openTaskId,setOpenTaskId]=useState(null);
   useEffect(()=>{
     if(externalOpenTaskId){
@@ -3083,7 +3095,7 @@ function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,wor
           </div>
         ))}
       </div>
-      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} agents={agents||[]} ceoMemory={ceoMemory} canDelete={canDelete || (openModal.t.assignees||[]).length===0} projects={projects} onNavigateProject={onNavigateProject} onTransferProject={onTransferProject?(newPid)=>{ onTransferProject(openModal.t.id, newPid); setOpenTaskId(null); }:undefined} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}} onDelete={onDeleteTask}/>}
+      {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} agents={agents||[]} ceoMemory={ceoMemory} canDelete={canDelete || (openModal.t.assignees||[]).length===0} projects={projects} onNavigateProject={onNavigateProject} onTransferProject={onTransferProject?(newPid)=>{ onTransferProject(openModal.t.id, newPid); setOpenTaskId(null); }:undefined} onAddTimelineEntry={onAddTimelineEntry} onToggleMilestone={onToggleMilestone} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}} onDelete={onDeleteTask}/>}
     </>
   );
 }
@@ -9189,6 +9201,8 @@ export default function TaskFlow(){
                 projects={data.projects}
                 onNavigateProject={pid=>{const i=data.projects.findIndex(x=>x.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}}
                 onTransferProject={newPid=>{ transferTaskToProject(t.id, newPid); setOverlayTaskId(null); }}
+                onAddTimelineEntry={(taskId,entry)=>addTimelineEntry(taskId,{...entry,authorId:entry.authorId??activeMember,author:entry.author||(data.members.find(m=>m.id===activeMember)?.name)})}
+                onToggleMilestone={toggleTimelineMilestone}
                 onClose={()=>setOverlayTaskId(null)}
                 onUpdate={(id,_cid,upd)=>updateTaskAnywhere(id,upd)}
                 onMove={(id,from,to)=>{moveTaskAnywhere(id,from,to);setOverlayTaskId(null);}}
@@ -9523,7 +9537,7 @@ export default function TaskFlow(){
           })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
-          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} onTransferProject={transferTaskToProject} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={(id,cid,upd)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) updateTask(id,cid,upd); else updateTaskAnywhere(id,upd); }} onMove={moveTask} onAddTask={addTask} onDeleteTask={(id,cid)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) deleteTask(id,cid); else deleteTaskAnywhere(id); }}/>}
+          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} onTransferProject={transferTaskToProject} onAddTimelineEntry={(taskId,entry)=>addTimelineEntry(taskId,{...entry,authorId:entry.authorId??activeMember,author:entry.author||(data.members.find(m=>m.id===activeMember)?.name)})} onToggleMilestone={toggleTimelineMilestone} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={(id,cid,upd)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) updateTask(id,cid,upd); else updateTaskAnywhere(id,upd); }} onMove={moveTask} onAddTask={addTask} onDeleteTask={(id,cid)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) deleteTask(id,cid); else deleteTaskAnywhere(id); }}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
           {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile} onUpdateTask={updateTaskAnywhere}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
