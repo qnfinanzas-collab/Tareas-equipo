@@ -4461,9 +4461,10 @@ function MemberEditModal({member, allMembers, onClose, onSave, onDelete}){
 }
 
 // ── Users View (vista de todos los usuarios del sistema) ──────────────────────
-function UsersView({members,projects,onEdit,onCreate,onDelete}){
+function UsersView({members,projects,permissions,onEdit,onCreate,onDelete,onSetPermission}){
   const [search,setSearch]=useState("");
   const [pendingDel,setPendingDel]=useState(null); // id del usuario pendiente de confirmar
+  const [tab,setTab]=useState("users"); // "users" | "permissions"
 
   const filtered=members.filter(m=>
     m.name.toLowerCase().includes(search.toLowerCase())||
@@ -4475,14 +4476,23 @@ function UsersView({members,projects,onEdit,onCreate,onDelete}){
 
   return(
     <div style={{padding:20}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:10}}>
         <div>
-          <div style={{fontSize:16,fontWeight:700,marginBottom:2}}>Usuarios del sistema</div>
-          <div style={{fontSize:12,color:"#6b7280"}}>{members.length} usuarios registrados</div>
+          <div style={{fontSize:16,fontWeight:700,marginBottom:2}}>{tab==="users"?"Usuarios del sistema":"Gestión de permisos"}</div>
+          <div style={{fontSize:12,color:"#6b7280"}}>{tab==="users"?`${members.length} usuarios registrados`:"Acceso granular por miembro y módulo"}</div>
         </div>
-        <button onClick={onCreate} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo usuario</button>
+        {tab==="users" && <button onClick={onCreate} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo usuario</button>}
       </div>
-
+      {/* Tabs */}
+      <div style={{display:"flex",gap:6,marginBottom:16,borderBottom:"0.5px solid #E5E7EB"}}>
+        {[["users","👤 Usuarios"],["permissions","🔐 Permisos por módulo"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setTab(k)} style={{padding:"8px 14px",background:"transparent",border:"none",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",fontSize:13,fontWeight:tab===k?600:500,color:tab===k?"#7F77DD":"#6B7280",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+        ))}
+      </div>
+      {tab==="permissions" && (
+        <PermissionsTable members={members} permissions={permissions} onSetPermission={onSetPermission}/>
+      )}
+      {tab==="users" && (<>
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por nombre, email o rol..." style={{width:"100%",padding:"9px 14px",borderRadius:10,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit",marginBottom:16,boxSizing:"border-box"}}/>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
@@ -4547,6 +4557,69 @@ function UsersView({members,projects,onEdit,onCreate,onDelete}){
           <div style={{fontSize:11,color:"#9ca3af",textAlign:"center"}}>Añade un nuevo miembro al sistema</div>
         </div>
       </div>
+      </>)}
+    </div>
+  );
+}
+
+// ── Permissions Table ────────────────────────────────────────────────────────
+// Tabla de permisos granulares por miembro y feature. Se renderiza dentro
+// de UsersView ▸ Permisos. Solo accesible para admin global (UsersView ya
+// está admin-gated por adminOnly:true en el sidebar).
+const PERMISSION_FEATURES = [
+  { key: "finance", label: "Finanzas", icon: "💰", desc: "Tesorería, dashboard financiero, KPIs" },
+];
+
+function PermissionsTable({ members, permissions, onSetPermission }) {
+  return (
+    <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "grid", gridTemplateColumns: `minmax(220px, 1fr) repeat(${PERMISSION_FEATURES.length}, minmax(280px, 1fr))`, background: "#FAFAFA", borderBottom: "1px solid #E5E7EB", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+        <div style={{ padding: "12px 14px" }}>Miembro</div>
+        {PERMISSION_FEATURES.map(f => (
+          <div key={f.key} style={{ padding: "12px 14px" }} title={f.desc}>{f.icon} {f.label}</div>
+        ))}
+      </div>
+      {(members || []).map(m => {
+        const isAdminGlobal = m.accountRole === "admin";
+        const mp = MP[m.id] || MP[0];
+        return (
+          <div key={m.id} style={{ display: "grid", gridTemplateColumns: `minmax(220px, 1fr) repeat(${PERMISSION_FEATURES.length}, minmax(280px, 1fr))`, borderBottom: "0.5px solid #F3F4F6", alignItems: "center" }}>
+            <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              <div style={{ width: 30, height: 30, borderRadius: "50%", background: mp.solid, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{m.initials}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
+                <div style={{ fontSize: 10.5, color: "#6B7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.email}</div>
+              </div>
+            </div>
+            {PERMISSION_FEATURES.map(f => {
+              if (isAdminGlobal) {
+                return (
+                  <div key={f.key} style={{ padding: "12px 14px", fontSize: 11.5, color: "#065F46" }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 12, background: "#DCFCE7", border: "1px solid #86EFAC", fontWeight: 600 }}>✓ Admin global</span>
+                    <div style={{ fontSize: 10.5, color: "#6B7280", marginTop: 4 }}>(acceso total automático)</div>
+                  </div>
+                );
+              }
+              const fp = permissions?.[m.id]?.[f.key] || { view: false, edit: false, admin: false };
+              return (
+                <div key={f.key} style={{ padding: "12px 14px", display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#374151" }}>
+                  {[["view", "Ver"], ["edit", "Editar"], ["admin", "Admin"]].map(([level, label]) => (
+                    <label key={level} style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer", userSelect: "none" }}>
+                      <input
+                        type="checkbox"
+                        checked={!!fp[level]}
+                        onChange={(e) => onSetPermission?.(m.id, f.key, level, e.target.checked)}
+                        style={{ cursor: "pointer", accentColor: "#7F77DD" }}
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -9349,7 +9422,7 @@ export default function TaskFlow(){
           {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
-          {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember}/>}
+          {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission}/>}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
           {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} onTransferProject={transferTaskToProject} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={(id,cid,upd)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) updateTask(id,cid,upd); else updateTaskAnywhere(id,upd); }} onMove={moveTask} onAddTask={addTask} onDeleteTask={(id,cid)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) deleteTask(id,cid); else deleteTaskAnywhere(id); }}/>}
