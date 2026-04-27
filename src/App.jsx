@@ -3859,7 +3859,8 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
     const proj = (projects||[]).find(p=>p.id===Number(pid));
     cols.forEach(col=>col.tasks.forEach(t=>{
       if(!t.assignees?.includes(activeMember)) return;
-      myTasks.push({...t, colId:col.id, colName:col.name, projId:Number(pid), projName:proj?.name||"", projColor:proj?.color||"#7F77DD", projEmoji:proj?.emoji||"📋", projCode:proj?.code});
+      const assigneeNames = (t.assignees||[]).map(id=>(members||[]).find(m=>m.id===id)?.name).filter(Boolean);
+      myTasks.push({...t, colId:col.id, colName:col.name, projId:Number(pid), projName:proj?.name||"", projColor:proj?.color||"#7F77DD", projEmoji:proj?.emoji||"📋", projCode:proj?.code, assigneeNames, assigneeName:assigneeNames[0]||null});
     }));
   });
   const active = myTasks.filter(t=>t.colName!=="Hecho");
@@ -9251,7 +9252,8 @@ export default function TaskFlow(){
           cols.forEach(col=>col.tasks.forEach(t=>{
             if(!t.assignees?.includes(activeMember)) return;
             if(col.name==="Hecho") return;
-            myActive.push({...t, colName:col.name, projId:Number(pid), projName:projObj?.name||""});
+            const assigneeNames = (t.assignees||[]).map(id=>(data.members||[]).find(m=>m.id===id)?.name).filter(Boolean);
+            myActive.push({...t, colName:col.name, projId:Number(pid), projName:projObj?.name||"", assigneeNames, assigneeName:assigneeNames[0]||null});
           }));
         });
         return(

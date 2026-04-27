@@ -86,6 +86,14 @@ const buildTasksWithContext = (tasks, now) => {
       else                     urgency = `VENCE EN ${diffDays} DÍAS`;
       daysOverdue = diffDays < 0 ? Math.abs(diffDays) : 0;
     }
+    // Resolver assignee: el modelo de tareas tiene assignees:[memberId] y
+    // members:[{id,name}] — preferir el nombre si tasksRef trae snapshot
+    // enriquecido (assigneeName), si no devolver el primer ID o null.
+    const assignedTo = t.assigneeName
+      || (Array.isArray(t.assigneeNames) && t.assigneeNames[0])
+      || (typeof t.assignedTo === "string" ? t.assignedTo : null)
+      || (t.assignedTo && t.assignedTo.name)
+      || null;
     return {
       id: t.id,
       title: t.title,
@@ -94,6 +102,9 @@ const buildTasksWithContext = (tasks, now) => {
       urgency,
       daysOverdue,
       diffDays,
+      startDate: t.startDate || null,
+      dueDate: t.dueDate || null,
+      assignedTo,
       deadlineRaw: deadline && !isNaN(deadline.getTime()) ? deadline.toLocaleDateString("es-ES") : null,
       colName: t.colName || null,
     };
@@ -339,8 +350,9 @@ export default function HectorPanel({
         + (memBlock ? ("\n\n---\n" + memBlock) : "")
         + "\n\nIMPORTANTE: en este turno responde ÚNICAMENTE con JSON válido sin markdown ni prosa. USA EL CAMPO \"urgency\" tal cual viene calculado — NO recalcules fechas absolutas y NO menciones la fecha cruda; siempre habla en términos relativos al momento actual.";
 
-      // Lista enriquecida — Héctor recibe id, ref, título, proyecto y la
-      // urgency PRE-CALCULADA. Le pedimos que copie estos campos tal cual.
+      // Lista enriquecida — Héctor recibe id, ref, título, proyecto, fechas
+      // ISO, prioridad, asignado y la urgency PRE-CALCULADA. Le pedimos que
+      // copie estos campos tal cual al JSON de respuesta.
       const tasksForPrompt = tasksWithContext.slice(0, 20).map((t) => ({
         taskId: t.id,
         ref: t.ref || null,
@@ -349,6 +361,9 @@ export default function HectorPanel({
         priority: t.priority,
         urgency: t.urgency,
         daysOverdue: t.daysOverdue,
+        startDate: t.startDate,
+        dueDate: t.dueDate,
+        assignedTo: t.assignedTo,
       }));
       const userPrompt = `Hora: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}.
 Día: ${now.toLocaleDateString("es-ES", { weekday: "long" })} (${now.toLocaleDateString("es-ES")}).
@@ -375,7 +390,11 @@ Devuelve JSON ESTRUCTURADO con esta forma exacta (sin markdown, sin prosa fuera 
       "urgency": "<copia el campo urgency tal cual>",
       "urgencyLevel": "critical|high|medium",
       "action": "frase imperativa de 1 línea de qué hacer",
-      "timeframe": "ahora|hoy|esta semana"
+      "timeframe": "ahora|hoy|esta semana",
+      "startDate": "<copia startDate de la lista>",
+      "dueDate": "<copia dueDate de la lista>",
+      "priority": "high|medium|low",
+      "assignedTo": "<copia assignedTo de la lista o null>"
     }
   ],
   "summary": "frase de cierre estratégica de 1 línea"
@@ -384,8 +403,9 @@ Devuelve JSON ESTRUCTURADO con esta forma exacta (sin markdown, sin prosa fuera 
 Reglas:
 - Selecciona 1-5 tareas que el CEO debe atender. Vencidas y high-priority primero.
 - urgencyLevel: "critical" si está vencida o vence en horas; "high" si vence hoy/mañana o priority alta; "medium" en el resto.
+- priority: usa el de la lista. Mapea "alta"→"high", "media"→"medium", "baja"→"low".
 - NO inventes taskId — usa solo los de la lista.
-- NO recalcules fechas — usa el campo urgency provisto.`;
+- NO recalcules fechas — usa los campos urgency, startDate, dueDate, assignedTo TAL CUAL.`;
 
       const r = await fetch("/api/agent", {
         method: "POST",
@@ -413,6 +433,10 @@ Reglas:
           urgencyLevel: ["critical","high","medium"].includes(t.urgencyLevel) ? t.urgencyLevel : "medium",
           action: (t.action || "").trim(),
           timeframe: (t.timeframe || "").trim(),
+          startDate: t.startDate || null,
+          dueDate: t.dueDate || null,
+          priority: ["high","medium","low"].includes(t.priority) ? t.priority : null,
+          assignedTo: t.assignedTo || null,
         })) : [],
       };
       setCurrentThought(analysis.thought || analysis.summary || "");
@@ -706,24 +730,55 @@ Reglas para block_task:
     { key: "medium",   label: "🟡 ESTA SEMANA", fg: "#854D0E", border: "#FDE68A", urgencyColor: "#A16207" },
   ];
 
-  const renderTaskCard = (t, key, onView, onComplete, onPostpone, urgencyColor, border) => (
-    <div key={key} style={{ background: "#fff", border: `1px solid ${border}`, borderLeft: `4px solid ${border}`, borderRadius: 8, padding: "7px 9px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3, flexWrap: "wrap" }}>
-        {t.ref && (
-          <button onClick={() => onView(t.taskId, t.title)} title={`Ir a ${t.ref}`} style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 4, background: "#F3F4F6", color: "#374151", border: "0.5px solid #E5E7EB", fontFamily: "ui-monospace,monospace", fontWeight: 700, cursor: "pointer" }}>{t.ref}</button>
-        )}
-        <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-        {t.board && <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 10, background: "#EEEDFE", color: "#3C3489", border: "0.5px solid #AFA9EC", fontWeight: 600, flexShrink: 0 }}>{t.board}</span>}
+  // Formatea ISO/string a "DD mmm" en castellano. Devuelve "Sin fecha" si
+  // la entrada es falsy o inválida — evita "Invalid Date" en el card.
+  const formatDate = (dateStr) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+  };
+
+  const PRIO_LABEL = (p) => {
+    const x = (p || "").toLowerCase();
+    if (x === "high" || x === "alta")   return "Alta";
+    if (x === "medium" || x === "media") return "Media";
+    if (x === "low" || x === "baja")    return "Baja";
+    return p || "—";
+  };
+
+  const renderTaskCard = (t, key, onView, onComplete, onPostpone, urgencyColor, border) => {
+    const startTxt = formatDate(t.startDate);
+    const endTxt   = formatDate(t.dueDate);
+    return (
+      <div key={key} style={{ background: "#fff", border: `1px solid ${border}`, borderLeft: `4px solid ${border}`, borderRadius: 8, padding: "8px 10px" }}>
+        {/* Línea 1: ref + título + badge proyecto */}
+        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3, flexWrap: "wrap" }}>
+          {t.ref && (
+            <button onClick={() => onView(t.taskId, t.title)} title={`Ir a ${t.ref}`} style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 4, background: "#F3F4F6", color: "#374151", border: "0.5px solid #E5E7EB", fontFamily: "ui-monospace,monospace", fontWeight: 700, cursor: "pointer" }}>{t.ref}</button>
+          )}
+          <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+          {t.board && <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 10, background: "#EEEDFE", color: "#3C3489", border: "0.5px solid #AFA9EC", fontWeight: 600, flexShrink: 0 }}>{t.board}</span>}
+        </div>
+        {/* Línea 2: urgencia */}
+        <div style={{ fontSize: 10.5, color: urgencyColor, fontWeight: 600, marginBottom: 4 }}>{t.urgency}</div>
+        {/* Línea 3: metadata (fechas + prioridad + asignado) */}
+        <div style={{ display: "flex", gap: 12, fontSize: 10.5, color: "#666", margin: "2px 0 4px", flexWrap: "wrap", alignItems: "center" }}>
+          <span>📅 {startTxt || "Sin inicio"} → {endTxt || "Sin fin"}</span>
+          <span>⚡ {PRIO_LABEL(t.priority)}</span>
+          <span>👤 {t.assignedTo || "Sin asignar"}</span>
+        </div>
+        {/* Línea 4: acción imperativa */}
+        {t.action && <div style={{ fontSize: 11, color: "#374151", fontStyle: "italic", marginBottom: 6 }}>{t.action}</div>}
+        {/* Línea 5: botones */}
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          <button onClick={() => onView(t.taskId, t.title)}      style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#1E40AF", border: "1px solid #BFDBFE", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>→ Ver tarea</button>
+          <button onClick={() => onComplete(t.taskId, t.title)}  style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#065F46", border: "1px solid #86EFAC", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>✓ Hecho</button>
+          <button onClick={() => onPostpone(t.taskId, t.title)}  style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>⏸ Posponer</button>
+        </div>
       </div>
-      <div style={{ fontSize: 10.5, color: urgencyColor, fontWeight: 600, marginBottom: 4 }}>{t.urgency}</div>
-      {t.action && <div style={{ fontSize: 11, color: "#374151", fontStyle: "italic", marginBottom: 6 }}>{t.action}</div>}
-      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-        <button onClick={() => onView(t.taskId, t.title)}      style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#1E40AF", border: "1px solid #BFDBFE", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>→ Ver tarea</button>
-        <button onClick={() => onComplete(t.taskId, t.title)}  style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#065F46", border: "1px solid #86EFAC", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>✓ Hecho</button>
-        <button onClick={() => onPostpone(t.taskId, t.title)}  style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>⏸ Posponer</button>
-      </div>
-    </div>
-  );
+    );
+  };
 
   const renderAnalysisGroups = (analysis, onView, onComplete, onPostpone) => (
     <>
