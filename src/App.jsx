@@ -4120,20 +4120,55 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
     setPostponeReason(null);
   };
 
+  // Chips de KPIs en el header (mismas heurísticas que RiesgosPanel pero
+  // calculadas aquí para mostrar el contador junto al saludo).
+  const overdueColdCount = active.filter(t=>{
+    if(!t.dueDate||daysUntil(t.dueDate)>=0) return false;
+    const lastLog = (t.timeLogs||[]).slice(-1)[0]?.date || t.startDate;
+    const days = lastLog ? Math.floor((Date.now()-new Date(lastLog).getTime())/86400000) : 999;
+    return days>=2;
+  }).length;
+  const coldNegsCount = (negotiations||[]).filter(n=>{
+    if(n.status!=="active" && n.status!=="open" && n.status!=="negotiating") return false;
+    const ts = n.updatedAt ? new Date(n.updatedAt).getTime() : 0;
+    if(!ts) return false;
+    return (Date.now()-ts) > 5*86400000;
+  }).length;
+  const waitingCount = active.filter(t=>(t.timeline||t.comments||[]).some(c=>/esperando respuesta/i.test((c.text||c.content||"")))).length;
+
   return(
     <div style={{padding:"20px 22px",maxWidth:1280,margin:"0 auto"}}>
       {/* Cabecera */}
       <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginBottom:18,gap:12,flexWrap:"wrap"}}>
-        <div>
+        <div style={{flex:1,minWidth:0}}>
           <div style={{fontSize:11,fontWeight:700,color:"#7F77DD",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>🎯 Sala de Mando</div>
           <div style={{fontSize:22,fontWeight:700,color:"#111827"}}>Hola{me?`, ${me.name.split(" ")[0]}`:""}</div>
-          <div style={{fontSize:12,color:"#6B7280",marginTop:2}}>{active.length} tarea{active.length!==1?"s":""} activa{active.length!==1?"s":""} · {now.toLocaleString("es-ES",{weekday:"long",day:"numeric",month:"long"})}</div>
+          <div style={{fontSize:12,color:"#6B7280",marginTop:2,marginBottom:10}}>{active.length} tarea{active.length!==1?"s":""} activa{active.length!==1?"s":""} · {now.toLocaleString("es-ES",{weekday:"long",day:"numeric",month:"long"})}</div>
+          {/* KPIs como chips clicables */}
+          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+            <button
+              onClick={()=>onGoMytasks?.("overdue")}
+              title="Tareas vencidas sin actividad reciente"
+              style={{padding:"6px 12px",borderRadius:20,background:"#FFF0F0",color:"#E74C3C",border:"1px solid #E74C3C",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
+            >🔴 Vencidas: {overdueColdCount}</button>
+            <button
+              onClick={()=>onGoDealRoom?.("cold")}
+              title="Negociaciones sin actividad >5 días"
+              style={{padding:"6px 12px",borderRadius:20,background:"#F0F7FF",color:"#3498DB",border:"1px solid #3498DB",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
+            >🧊 Frías: {coldNegsCount}</button>
+            <button
+              onClick={()=>onGoMytasks?.("waiting")}
+              title="Tareas esperando respuesta de alguien"
+              style={{padding:"6px 12px",borderRadius:20,background:"#FFF8E7",color:"#F39C12",border:"1px solid #F39C12",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
+            >📨 Esperan: {waitingCount}</button>
+          </div>
         </div>
         <button onClick={onGoDashboard} style={{padding:"6px 12px",borderRadius:8,background:"#fff",color:"#6B7280",border:"1px solid #E5E7EB",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📊 Dashboard analítico →</button>
       </div>
 
-      {/* Foco del Momento — sube al top, primera tarjeta tras el saludo */}
-      <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 280px",gap:16,marginBottom:16}}>
+      {/* Foco del Momento — primera tarjeta tras el saludo, ahora full-width
+          porque los riesgos están en chips en el header. */}
+      <div style={{marginBottom:16}}>
         <div style={{background:"#fff",border:"2px solid #7F77DD33",borderRadius:14,padding:"24px 26px",minHeight:280,display:"flex",flexDirection:"column"}}>
           <div style={{fontSize:11,fontWeight:700,color:"#7F77DD",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
             <span>🎯 Foco del momento</span>
@@ -4172,7 +4207,6 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
               </>
           }
         </div>
-        <RiesgosPanel active={active} negotiations={negotiations} onGoMytasks={onGoMytasks} onGoDealRoom={onGoDealRoom}/>
       </div>
 
       {/* HectorPanel — análisis proactivo */}
