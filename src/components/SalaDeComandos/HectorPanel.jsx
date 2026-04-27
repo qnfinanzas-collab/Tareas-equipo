@@ -148,6 +148,10 @@ export default function HectorPanel({
   // Contexto financiero opcional. Si llega, se inyecta en el prompt para
   // que Héctor pondere recomendaciones según runway y caja disponible.
   financeContext,
+  // Callback para publicar entradas de IA en el timeline de una tarea.
+  // Disparado al recomendar tareas críticas y al ejecutar acciones desde
+  // las cards (complete/postpone/view). Firma: (taskId, entry).
+  onAddTimelineEntry,
 }) {
   const STORAGE_KEY = `soulbaric.hector.recs.${userId ?? "anon"}`;
   const CHAT_KEY = `soulbaric.hector.chat.${userId ?? "anon"}`;
@@ -513,6 +517,25 @@ Reglas:
       setState("recommending");
       // Voz: lee el summary (más estratégico que cada acción individual).
       if (analysis.summary) speakRecommendation(analysis.summary);
+      // Publica en el timeline de cada tarea CRÍTICA recomendada. Una
+      // entrada por tarea, agrupadas con un mismo relatedRecommendationId
+      // (firma del análisis) para poder filtrar/dedupar más adelante. Solo
+      // nivel critical para no spamear timelines con high/medium.
+      if (onAddTimelineEntry) {
+        const recId = `rec_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+        analysis.tasks
+          .filter(t => t.urgencyLevel === "critical" && t.taskId)
+          .forEach(t => {
+            onAddTimelineEntry(t.taskId, {
+              type: "ai",
+              author: "Héctor",
+              authorId: "hector",
+              authorAvatar: "🧙",
+              text: t.action ? `${t.action}\nMotivo: ${t.urgency || ""}` : (t.urgency || ""),
+              relatedRecommendationId: recId,
+            });
+          });
+      }
     } catch (e) {
       if (cancelledRef.current) return;
       console.warn("[HectorPanel] generateHectorThought fallo:", e?.message);
@@ -744,9 +767,15 @@ Reglas para block_task:
 
   // Wrappers de acciones para el tab Análisis: ejecutan + dejan rastro en
   // el chat + cambian al tab Chat para que el CEO vea la confirmación.
+  // También publican en el timeline de la tarea — el CEO ve más adelante
+  // el rastro de la decisión sin entrar al chat.
   const switchToChatWithMessage = (text) => {
     setActiveTab("chat");
     if (text) setChatHistory((prev) => [...prev, { role: "hector", text, ts: Date.now() }].slice(-CHAT_MAX));
+  };
+  const publishTimeline = (taskId, text) => {
+    if (!onAddTimelineEntry || !taskId) return;
+    onAddTimelineEntry(taskId, { type: "ai", author: "Héctor", authorId: "hector", authorAvatar: "🧙", text });
   };
   const handleViewTaskFromCard = (taskId, title) => {
     goToTask(taskId, title);
@@ -755,10 +784,12 @@ Reglas para block_task:
   const handleCompleteFromCard = (taskId, title) => {
     completeFromCard(taskId, title);
     switchToChatWithMessage(`✓ Marcada como hecha: "${title}".`);
+    publishTimeline(taskId, `Marcada como hecha desde la Sala de Mando.`);
   };
   const handlePostponeFromCard = (taskId, title) => {
     postponeFromCard(taskId, title);
     switchToChatWithMessage(`⏸ Pospuesta +1d: "${title}".`);
+    publishTimeline(taskId, `Pospuesta 1 día desde la Sala de Mando.`);
   };
 
   // Sincroniza el contador de no-leídos cuando el tab Chat está activo.
@@ -1053,10 +1084,12 @@ Reglas para block_task:
                   completeFromCard(m.taskId);
                   removeBlockedTask(m.taskId);
                   setChatHistory((prev) => [...prev, { role: "hector", text: "✓ Cerrada y archivada.", ts: Date.now() }].slice(-CHAT_MAX));
+                  publishTimeline(m.taskId, `Cerrada tras seguimiento del bloqueo. La gestión quedó resuelta.`);
                 };
                 const reactivate = () => {
                   removeBlockedTask(m.taskId);
                   setChatHistory((prev) => [...prev, { role: "hector", text: "Vale, la dejo activa para volver a recomendártela.", ts: Date.now() }].slice(-CHAT_MAX));
+                  publishTimeline(m.taskId, `Reactivada tras seguimiento — el bloqueo no resolvió la situación.`);
                   lastCallTime.current = 0;
                   generateHectorThought();
                 };

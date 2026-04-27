@@ -84,6 +84,7 @@ export default function HectorFloat({
   onArchiveTask,
   onOpenTask,
   financeContext,
+  onAddTimelineEntry,
 }) {
   const borderColor = STATE_BORDER[hectorState] || STATE_BORDER.listening;
   const pendingCount = lastRecommendation ? 1 : 0;
@@ -229,6 +230,7 @@ export default function HectorFloat({
                 onArchiveTask={onArchiveTask}
                 onOpenTask={onOpenTask}
                 financeContext={financeContext}
+                onAddTimelineEntry={onAddTimelineEntry}
               />
             </div>
           </div>
