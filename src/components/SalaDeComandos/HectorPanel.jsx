@@ -55,6 +55,23 @@ const speakRecommendation = (text) => {
   catch (e) { console.warn("[HectorPanel] speak fallo:", e?.message); }
 };
 
+// Convierte "HH:MM" (hora local del día actual) a timestamp ms. Si la
+// hora ya pasó devuelve null — no tiene sentido bloquear hacia atrás.
+// Acepta también valores "h:mm", "9:5", etc.
+const parseBlockUntil = (timeStr) => {
+  if (!timeStr || typeof timeStr !== "string") return null;
+  const m = timeStr.trim().match(/^(\d{1,2}):(\d{1,2})$/);
+  if (!m) return null;
+  const hours = Number(m[1]);
+  const minutes = Number(m[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  const blockDate = new Date();
+  blockDate.setHours(hours, minutes, 0, 0);
+  if (blockDate.getTime() < Date.now()) return null;
+  return blockDate.getTime();
+};
+
 // Calcula urgencia REAL en tiempo real para cada tarea pendiente. Devuelve
 // objetos enriquecidos con `urgency` legible (VENCIDA HACE N DÍAS / VENCE
 // HOY en Xh / VENCE EN N DÍAS) y `daysOverdue` numérico para ordenar. Se
@@ -122,6 +139,7 @@ export default function HectorPanel({
 }) {
   const STORAGE_KEY = `soulbaric.hector.recs.${userId ?? "anon"}`;
   const CHAT_KEY = `soulbaric.hector.chat.${userId ?? "anon"}`;
+  const SESSION_KEY = `soulbaric.hector.session.${userId ?? "anon"}`;
 
   const [hectorState, setHectorState] = useState("listening");
   const [currentThought, setCurrentThought] = useState("Esperando contexto del día…");
@@ -141,6 +159,19 @@ export default function HectorPanel({
       return Array.isArray(parsed) ? parsed.slice(-CHAT_MAX) : [];
     } catch { return []; }
   });
+  // sessionMemory: estado runtime que sobrevive reloads. blockedTasks
+  // contiene { taskId, blockReason, blockUntil(ts|null), followUpAt(ts|null),
+  // followUpDone(bool), ts }.
+  const [sessionMemory, setSessionMemory] = useState(() => {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (!raw) return { blockedTasks: [] };
+      const parsed = JSON.parse(raw);
+      return {
+        blockedTasks: Array.isArray(parsed?.blockedTasks) ? parsed.blockedTasks : [],
+      };
+    } catch { return { blockedTasks: [] }; }
+  });
   const [inputMessage, setInputMessage] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
@@ -159,6 +190,7 @@ export default function HectorPanel({
   const memoryRef = useRef(ceoMemory);
   const chatHistoryRef = useRef(chatHistory);
   const recommendationsRef = useRef(recommendations);
+  const sessionRef = useRef(sessionMemory);
   tasksRef.current = tasks;
   riesgosRef.current = riesgos;
   focusRef.current = currentFocus;
@@ -166,6 +198,7 @@ export default function HectorPanel({
   memoryRef.current = ceoMemory;
   chatHistoryRef.current = chatHistory;
   recommendationsRef.current = recommendations;
+  sessionRef.current = sessionMemory;
 
   // Guards anti-bucle (proactive thought)
   const lastCallTime = useRef(0);
@@ -193,6 +226,75 @@ export default function HectorPanel({
     } catch {}
   }, [chatHistory, CHAT_KEY]);
 
+  // Persistencia: sessionMemory (bloqueos activos del día).
+  useEffect(() => {
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify(sessionMemory));
+    } catch {}
+  }, [sessionMemory, SESSION_KEY]);
+
+  // Helpers para mutar sessionMemory.blockedTasks
+  const addBlockedTask = (entry) => {
+    setSessionMemory((prev) => ({
+      ...prev,
+      blockedTasks: [
+        ...prev.blockedTasks.filter((b) => b.taskId !== entry.taskId),
+        entry,
+      ],
+    }));
+  };
+  const removeBlockedTask = (taskId) => {
+    setSessionMemory((prev) => ({
+      ...prev,
+      blockedTasks: prev.blockedTasks.filter((b) => b.taskId !== taskId),
+    }));
+  };
+  const markFollowUpDone = (taskId) => {
+    setSessionMemory((prev) => ({
+      ...prev,
+      blockedTasks: prev.blockedTasks.map((b) => b.taskId === taskId ? { ...b, followUpDone: true } : b),
+    }));
+  };
+
+  // Devuelve los taskIds activamente bloqueados (blockUntil null o futuro).
+  const computeBlockedTaskIds = () => {
+    const now = Date.now();
+    return (sessionRef.current?.blockedTasks || [])
+      .filter((b) => !b.blockUntil || now < b.blockUntil)
+      .map((b) => b.taskId);
+  };
+
+  // Follow-up automático: revisa cada minuto si algún bloqueo cumple su
+  // followUpAt y si todavía no se notificó. Cuando dispara, inyecta un
+  // mensaje de Héctor en el chat con la opción de cerrar/reactivar la
+  // tarea, y lee la pregunta en voz alta. Marca followUpDone=true.
+  useEffect(() => {
+    const checkFollowUps = () => {
+      const now = Date.now();
+      const sess = sessionRef.current || { blockedTasks: [] };
+      sess.blockedTasks.forEach((b) => {
+        if (!b.followUpAt || b.followUpDone) return;
+        if (now < b.followUpAt) return;
+        const tasksList = tasksRef.current || [];
+        const task = tasksList.find((t) => String(t.id) === String(b.taskId));
+        const taskTitle = task?.title || b.blockReason || "esa gestión";
+        setChatHistory((prev) => [...prev, {
+          role: "hector",
+          isFollowUp: true,
+          taskId: b.taskId,
+          text: `¿Cómo fue la gestión de "${taskTitle}"? ¿Quedó cerrado o necesita acción?`,
+          ts: Date.now(),
+        }].slice(-CHAT_MAX));
+        speakRecommendation("¿Cómo fue la gestión? ¿Quedó cerrado o necesita acción?");
+        markFollowUpDone(b.taskId);
+      });
+    };
+    checkFollowUps();
+    const id = setInterval(checkFollowUps, 60 * 1000);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-scroll al último mensaje
   useEffect(() => {
     const el = chatScrollRef.current;
@@ -217,7 +319,11 @@ export default function HectorPanel({
       const mem = memoryRef.current;
       const now = new Date();
       const energyLevel = getEnergyLevel(now.getHours());
-      const tasksWithContext = buildTasksWithContext(tasksNow, now);
+      // Filtra tareas que el CEO bloqueó hasta una hora futura — Héctor
+      // no debe recomendarlas hasta que el bloqueo expire.
+      const blockedIds = new Set(computeBlockedTaskIds().map(String));
+      const tasksWithContext = buildTasksWithContext(tasksNow, now)
+        .filter((t) => !blockedIds.has(String(t.id)));
       const top3 = tasksWithContext.slice(0, 3);
       const criticalRisks = riesgosNow.filter((r) => r.level === "critical");
 
@@ -379,6 +485,21 @@ Reglas:
       onPostponeTask?.(task);
     } else if (parsed.action === "assign_task") {
       onAssignTask?.(task, parsed.assigneeId);
+    } else if (parsed.action === "block_task") {
+      // Bloqueo temporal: blockUntil/followUpAt vienen como "HH:MM" desde
+      // Héctor. parseBlockUntil convierte a timestamp (null si la hora ya
+      // pasó). Si blockUntil es null y la cadena venía vacía, el bloqueo
+      // no tiene fin temporal y dura hasta que el CEO lo libere.
+      const blockUntilTs = parseBlockUntil(parsed.blockUntil);
+      const followUpAtTs = parseBlockUntil(parsed.followUpAt);
+      addBlockedTask({
+        taskId: task.id,
+        blockReason: (parsed.blockReason || "").trim() || "Bloqueada por el CEO",
+        blockUntil: blockUntilTs,
+        followUpAt: followUpAtTs,
+        followUpDone: false,
+        ts: Date.now(),
+      });
     }
   };
 
@@ -429,6 +550,10 @@ Reglas:
       const tasksList = tasksWithContext.slice(0, 30).map((t) => `- ${t.id} :: ${t.title} · proyecto ${t.project} · prio ${t.priority} · ${t.urgency}`).join("\n") || "(ninguna)";
       const histLines = (chatHistoryRef.current || []).slice(-8).map((m) => `${m.role === "user" ? "CEO" : "Héctor"}: ${m.text}`).join("\n");
 
+      const blockedActive = (sessionRef.current?.blockedTasks || []).filter((b) => !b.blockUntil || Date.now() < b.blockUntil);
+      const blockedSummary = blockedActive.length
+        ? blockedActive.map((b) => `- ${b.taskId} bloqueada${b.blockUntil ? ` hasta ${new Date(b.blockUntil).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}` : ""}: ${b.blockReason || "(sin razón)"}`).join("\n")
+        : "(ninguna)";
       const userPrompt = `Hora: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })} (${now.toLocaleDateString("es-ES")}).
 Última recomendación tuya: ${recsNow[0]?.title || "(ninguna)"}.
 Tarea en foco: ${focusNow?.title || "Ninguna"}.
@@ -436,6 +561,9 @@ Riesgos críticos: ${riesgosNow.filter((r) => r.level === "critical").length}.
 
 TAREAS DISPONIBLES (id :: título · proyecto · prio · urgency):
 ${tasksList}
+
+TAREAS BLOQUEADAS (no las re-sugieras hasta que el bloqueo expire):
+${blockedSummary}
 
 CONVERSACIÓN PREVIA (últimos turnos):
 ${histLines || "(sin turnos previos)"}
@@ -445,8 +573,17 @@ EL CEO TE DICE AHORA:
 
 Devuelve JSON estricto. Si solo es conversación:
 {"reply":"tu respuesta breve","action":"none"}
-Si pide ejecutar algo (marcar hecho, posponer, asignar) usa una acción y referencia la tarea por id real:
-{"reply":"confirmación verbal corta","action":"complete_task|postpone_task|assign_task","taskId":"id de la tarea","taskTitle":"título","message":"detalle de lo hecho"}`;
+
+Si pide marcar hecho, posponer o asignar:
+{"reply":"confirmación verbal corta","action":"complete_task|postpone_task|assign_task","taskId":"id real","taskTitle":"título","message":"detalle"}
+
+Si pide BLOQUEAR una tarea (gestionará offline, fuera de la app, en una reunión, etc.) y menciona una hora exacta tipo "11:00" / "a las 9:30" / "esta tarde a las 16":
+{"reply":"confirmación verbal corta","action":"block_task","taskId":"id real","blockReason":"resumen de por qué se bloquea","blockUntil":"HH:MM o null si no dijo hora concreta","followUpAt":"HH:MM 5 minutos después de blockUntil para hacer seguimiento, o null"}
+
+Reglas para block_task:
+- blockUntil debe ser una hora en formato "HH:MM" (24h) o null. Nunca pongas "end_of_day" ni texto libre.
+- followUpAt debe ser ~5 min después de blockUntil para preguntar al CEO cómo fue. Si no hay blockUntil, followUpAt también null.
+- Si la hora indicada por el CEO ya ha pasado, NO bloquees: responde con action:"none" y un comentario.`;
 
       const r = await fetch("/api/agent", {
         method: "POST",
@@ -691,6 +828,45 @@ Si pide ejecutar algo (marcar hecho, posponer, asignar) usa una acción y refere
                     {m.analysis.summary && (
                       <div style={{ fontSize: 11.5, color: "#1E3A8A", fontWeight: 600, marginTop: 6, paddingTop: 6, borderTop: "0.5px dashed #BFDBFE" }}>{m.analysis.summary}</div>
                     )}
+                  </div>
+                </div>
+              );
+            }
+            // Mensaje de follow-up: chat normal de Héctor + 2 botones de
+            // respuesta rápida (cerrar tarea / reactivar bloqueo).
+            if (m.role === "hector" && m.isFollowUp) {
+              const closeAndComplete = () => {
+                completeFromCard(m.taskId);
+                removeBlockedTask(m.taskId);
+                setChatHistory((prev) => [...prev, { role: "hector", text: "✓ Cerrada y archivada.", ts: Date.now() }].slice(-CHAT_MAX));
+              };
+              const reactivate = () => {
+                removeBlockedTask(m.taskId);
+                setChatHistory((prev) => [...prev, { role: "hector", text: "Vale, la dejo activa para volver a recomendártela.", ts: Date.now() }].slice(-CHAT_MAX));
+                // Trigger inmediato del análisis para que la tarea reaparezca.
+                lastCallTime.current = 0;
+                generateHectorThought();
+              };
+              return (
+                <div key={i} style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "flex-start", padding: "0 6px" }}>
+                  <span style={{ fontSize: 14, lineHeight: "20px" }}>🧙</span>
+                  <div style={{
+                    maxWidth: "82%",
+                    padding: "8px 10px",
+                    borderRadius: 10,
+                    background: "#FFF8E1",
+                    border: "1px solid #FCD34D",
+                    fontSize: 12,
+                    color: "#78350F",
+                    lineHeight: 1.4,
+                    wordBreak: "break-word",
+                  }}>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>⏰ Seguimiento</div>
+                    <div style={{ marginBottom: 8 }}>{m.text}</div>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      <button onClick={closeAndComplete} style={{ padding: "3px 9px", borderRadius: 5, background: "#fff", color: "#065F46", border: "1px solid #86EFAC", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>✓ Cerrado</button>
+                      <button onClick={reactivate}      style={{ padding: "3px 9px", borderRadius: 5, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>↩ Necesita acción</button>
+                    </div>
                   </div>
                 </div>
               );
