@@ -1646,6 +1646,66 @@ function PrintButton({size="sm", label="Imprimir"}){
   );
 }
 
+// Convierte palabras de números (es) a dígitos. Soporta compuestos
+// "cuarenta y cinco" → "45". Cubre 0–100 — suficiente para refs tipo
+// T-40 / INV-002. Lo usamos en el Command Palette para que "cuarenta"
+// matchee con "T40" y "t cuarenta" con "T-40".
+function numbersWordsToDigits(text){
+  const map = {
+    "cero":"0","uno":"1","dos":"2","tres":"3","cuatro":"4","cinco":"5","seis":"6","siete":"7","ocho":"8","nueve":"9","diez":"10","once":"11","doce":"12","trece":"13","catorce":"14","quince":"15","dieciseis":"16","diecisiete":"17","dieciocho":"18","diecinueve":"19","veinte":"20","veintiuno":"21","veintidos":"22","veintitres":"23","veinticuatro":"24","veinticinco":"25","veintiseis":"26","veintisiete":"27","veintiocho":"28","veintinueve":"29","treinta":"30","cuarenta":"40","cincuenta":"50","sesenta":"60","setenta":"70","ochenta":"80","noventa":"90","cien":"100","ciento":"100",
+  };
+  let result = String(text||"").toLowerCase();
+  // Compuestos: "cuarenta y cinco" → "45"
+  result = result.replace(/(treinta|cuarenta|cincuenta|sesenta|setenta|ochenta|noventa)\s+y\s+(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)/g, (m,decena,unidad)=>{
+    return String(parseInt(map[decena],10)+parseInt(map[unidad],10));
+  });
+  // Simples (con \b — solo palabras completas)
+  Object.keys(map).forEach(word=>{
+    result = result.replace(new RegExp("\\b"+word+"\\b","g"), map[word]);
+  });
+  return result;
+}
+
+// Normaliza para comparación tolerante: minúsculas + sin acentos +
+// sin espacios/guiones/underscores + números en palabras → dígitos.
+// Resultado: "T-40", "t 40", "T40", "cuarenta" → todos a "40" (o "t40").
+function normalizeQuery(text){
+  return numbersWordsToDigits(String(text||""))
+    .toLowerCase()
+    .replace(/[\s\-_]/g, "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+// Match flexible para tareas en el Command Palette. Acierta si el query
+// (normalizado) aparece como substring en ref/title/projName/desc, o si
+// el query es solo un número y coincide con el número del ref de la
+// tarea (e.g. "40" matchea "T40", "T-040", "INV040" — leading zeros
+// ignorados al comparar como Number).
+function matchTask(task, queryRaw){
+  const q = normalizeQuery(queryRaw);
+  if(!q) return true;
+  const ref = normalizeQuery(task.ref || task.code || "");
+  const title = normalizeQuery(task.title || "");
+  const project = normalizeQuery(task.projName || (task.project && (task.project.name || task.project)) || "");
+  const description = normalizeQuery(task.desc || task.description || "");
+  if (ref.includes(q) || title.includes(q) || project.includes(q) || description.includes(q)) return true;
+  const queryNum = q.match(/\d+/)?.[0];
+  const refNum = ref.match(/\d+/)?.[0];
+  if (queryNum && refNum && Number(refNum) === Number(queryNum)) return true;
+  return false;
+}
+
+// Match para entidades con código corto (proyectos, workspaces): code,
+// name y desc, todos normalizados.
+function matchItemByCode(item, queryRaw){
+  const q = normalizeQuery(queryRaw);
+  if(!q) return true;
+  const code = normalizeQuery(item.code || "");
+  const name = normalizeQuery(item.name || "");
+  const desc = normalizeQuery(item.desc || item.description || "");
+  return code.includes(q) || name.includes(q) || desc.includes(q);
+}
+
 // Fuzzy subsequence match + highlight para el Command Palette.
 function fuzzyMatch(text,query){
   if(!query) return true;
@@ -5110,14 +5170,14 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
         projects:[],
       };
     }
-    // Permite buscar tareas también por su ref (SHM-001) o por código de
-    // proyecto (SHM lista todas sus tareas), y proyectos por código.
-    const qUpper = q.toUpperCase();
+    // Búsqueda tolerante: matchTask normaliza acentos, espacios, guiones
+    // y números escritos a palabras (es). Cubre formas tipo "T40", "t-40",
+    // "t 40", "40", "cuarenta", "T cuarenta" sobre tareas con ref T-40.
     return {
-      tasks:      allTasks.filter(t=>fuzzyMatch(t.title,q) || (t.ref&&t.ref.toUpperCase().includes(qUpper))).slice(0,10),
-      actions:    actions.filter(a=>fuzzyMatch(a.label,q)),
-      workspaces: (data.workspaces||[]).filter(w=>fuzzyMatch(w.name,q) || (w.code&&w.code.toUpperCase().includes(qUpper))).slice(0,6),
-      projects:   data.projects.filter(p=>fuzzyMatch(p.name,q) || (p.code&&p.code.toUpperCase().includes(qUpper))).slice(0,6),
+      tasks:      allTasks.filter(t=>matchTask(t, q)).slice(0,10),
+      actions:    actions.filter(a=>fuzzyMatch(a.label, q)),
+      workspaces: (data.workspaces||[]).filter(w=>matchItemByCode(w, q)).slice(0,6),
+      projects:   data.projects.filter(p=>matchItemByCode(p, q)).slice(0,6),
     };
   },[query,data,actions]);
 
