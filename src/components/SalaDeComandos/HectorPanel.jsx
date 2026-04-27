@@ -765,7 +765,7 @@ Reglas para block_task:
     const startTxt = formatDate(t.startDate);
     const endTxt   = formatDate(t.dueDate);
     return (
-      <div key={key} style={{ background: "#fff", border: `1px solid ${border}`, borderLeft: `4px solid ${border}`, borderRadius: 8, padding: "8px 10px" }}>
+      <div key={key} style={{ background: "#fff", border: `1px solid ${border}`, borderLeft: `4px solid ${border}`, borderRadius: 8, padding: "8px 10px", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden" }}>
         {/* Línea 1: ref + título + badge proyecto (board) */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, flexWrap: "wrap" }}>
           {t.ref && (
@@ -790,7 +790,7 @@ Reglas para block_task:
           )}
           <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
           {t.board && (
-            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: "#EEEDFE", color: "#3C3489", border: "1px solid #AFA9EC", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>{t.board}</span>
+            <span title={t.board} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: "#EEEDFE", color: "#3C3489", border: "1px solid #AFA9EC", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.board}</span>
           )}
         </div>
         {/* Línea 2: urgencia */}
@@ -847,7 +847,9 @@ Reglas para block_task:
       flexDirection: "column",
       height: "100%",
       minHeight: 560,
+      maxWidth: "100%",
       overflow: "hidden",
+      boxSizing: "border-box",
     }}>
       <style>{`
         @keyframes hp-fade-tab { from { opacity: 0; } to { opacity: 1; } }
@@ -907,7 +909,7 @@ Reglas para block_task:
       </div>
 
       {/* Contenido (flex: 1, scroll único) */}
-      <div key={activeTab} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 14, animation: "hp-fade-tab .2s ease", minHeight: 0 }}>
+      <div key={activeTab} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 14, animation: "hp-fade-tab .2s ease", minHeight: 0, maxWidth: "100%", boxSizing: "border-box" }}>
         {activeTab === "analysis" ? (
           <>
             {/* Pensamiento actual */}
@@ -932,10 +934,29 @@ Reglas para block_task:
             </div>
             {latestAnalysis && latestAnalysis.tasks && latestAnalysis.tasks.length > 0 ? (
               <>
-                {renderAnalysisGroups(latestAnalysis, handleViewTaskFromCard, handleCompleteFromCard, handlePostponeFromCard)}
+                {/* Summary como banner destacado encima de las cards */}
                 {latestAnalysis.summary && (
-                  <div style={{ fontSize: 11.5, color: "#1E3A8A", fontWeight: 600, marginTop: 6, paddingTop: 8, borderTop: "0.5px dashed #BFDBFE" }}>{latestAnalysis.summary}</div>
+                  <div style={{
+                    backgroundColor: "#1A252F",
+                    color: "white",
+                    borderRadius: 8,
+                    padding: "14px 18px",
+                    marginBottom: 16,
+                    fontSize: 13,
+                    fontStyle: "italic",
+                    lineHeight: 1.6,
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "flex-start",
+                    maxWidth: "100%",
+                    boxSizing: "border-box",
+                    wordBreak: "break-word",
+                  }}>
+                    <span style={{ fontSize: 16, color: "white", flexShrink: 0 }}>💭</span>
+                    <span style={{ flex: 1 }}>{latestAnalysis.summary}</span>
+                  </div>
                 )}
+                {renderAnalysisGroups(latestAnalysis, handleViewTaskFromCard, handleCompleteFromCard, handlePostponeFromCard)}
               </>
             ) : (
               <div style={{ fontSize: 12, color: "#9CA3AF", fontStyle: "italic", padding: "20px 8px", textAlign: "center" }}>Héctor está observando — el primer análisis llegará en cuanto tenga contexto suficiente.</div>
@@ -952,12 +973,31 @@ Reglas para block_task:
                   <div key={i} style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "flex-start" }}>
                     <span style={{ fontSize: 14, lineHeight: "20px", flexShrink: 0 }}>🧙</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ padding: "10px 12px", background: "#F0F7FF", border: "0.5px solid #BFDBFE", borderRadius: "12px 12px 12px 0" }}>
+                      <div style={{ padding: "10px 12px", background: "#F0F7FF", border: "0.5px solid #BFDBFE", borderRadius: "12px 12px 12px 0", maxWidth: "100%", boxSizing: "border-box" }}>
                         {m.analysis.thought && <div style={{ fontSize: 11, fontStyle: "italic", color: "#1E3A8A", marginBottom: 8 }}>💭 {m.analysis.thought}</div>}
-                        {renderAnalysisGroups(m.analysis, handleViewTaskFromCard, handleCompleteFromCard, handlePostponeFromCard)}
+                        {/* Summary como banner destacado arriba de las cards */}
                         {m.analysis.summary && (
-                          <div style={{ fontSize: 11.5, color: "#1E3A8A", fontWeight: 600, marginTop: 6, paddingTop: 6, borderTop: "0.5px dashed #BFDBFE" }}>{m.analysis.summary}</div>
+                          <div style={{
+                            backgroundColor: "#1A252F",
+                            color: "white",
+                            borderRadius: 8,
+                            padding: "14px 18px",
+                            marginBottom: 16,
+                            fontSize: 13,
+                            fontStyle: "italic",
+                            lineHeight: 1.6,
+                            display: "flex",
+                            gap: 10,
+                            alignItems: "flex-start",
+                            maxWidth: "100%",
+                            boxSizing: "border-box",
+                            wordBreak: "break-word",
+                          }}>
+                            <span style={{ fontSize: 16, color: "white", flexShrink: 0 }}>💭</span>
+                            <span style={{ flex: 1 }}>{m.analysis.summary}</span>
+                          </div>
                         )}
+                        {renderAnalysisGroups(m.analysis, handleViewTaskFromCard, handleCompleteFromCard, handlePostponeFromCard)}
                       </div>
                       <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4 }}>{fmtTs(m.ts)}</div>
                     </div>
