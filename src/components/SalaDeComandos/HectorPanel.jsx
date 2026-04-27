@@ -94,10 +94,21 @@ const buildTasksWithContext = (tasks, now) => {
       || (typeof t.assignedTo === "string" ? t.assignedTo : null)
       || (t.assignedTo && t.assignedTo.name)
       || null;
+    // Resolver "board" en el orden que el modelo de datos lo expone:
+    // - projName (enriquecido en App.jsx para tareas de myTasks/myActive)
+    // - project.name si vino como objeto
+    // - project como string suelto
+    // colName queda como detalle adicional (columna del kanban dentro del
+    // board), no se usa como board principal.
+    const boardName = t.projName
+      || (t.project && (t.project.name || (typeof t.project === "string" ? t.project : "")))
+      || "";
     return {
       id: t.id,
+      ref: t.ref || null,         // canon SHM-001 — antes se perdía aquí
       title: t.title,
-      project: (t.project && (t.project.name || t.project)) || t.projName || "",
+      project: boardName,
+      projCode: t.projCode || null,
       priority: t.priority || "media",
       urgency,
       daysOverdue,
@@ -355,9 +366,10 @@ export default function HectorPanel({
       // copie estos campos tal cual al JSON de respuesta.
       const tasksForPrompt = tasksWithContext.slice(0, 20).map((t) => ({
         taskId: t.id,
-        ref: t.ref || null,
+        ref: t.ref || null,                      // p.ej. "SHM-001"
         title: t.title,
-        board: t.project || "(sin proyecto)",
+        board: t.project || "(sin proyecto)",     // p.ej. "Inversores"
+        projCode: t.projCode || null,             // p.ej. "INV"
         priority: t.priority,
         urgency: t.urgency,
         daysOverdue: t.daysOverdue,
@@ -404,6 +416,8 @@ Reglas:
 - Selecciona 1-5 tareas que el CEO debe atender. Vencidas y high-priority primero.
 - urgencyLevel: "critical" si está vencida o vence en horas; "high" si vence hoy/mañana o priority alta; "medium" en el resto.
 - priority: usa el de la lista. Mapea "alta"→"high", "media"→"medium", "baja"→"low".
+- ref: COPIA el campo "ref" de la lista TAL CUAL (es el código tipo "SHM-001"). Si la lista trae null, deja null.
+- board: COPIA el campo "board" de la lista TAL CUAL (es el nombre del tablero/proyecto, p.ej. "Inversores"). NO inventes nombres.
 - NO inventes taskId — usa solo los de la lista.
 - NO recalcules fechas — usa los campos urgency, startDate, dueDate, assignedTo TAL CUAL.`;
 
@@ -752,13 +766,32 @@ Reglas para block_task:
     const endTxt   = formatDate(t.dueDate);
     return (
       <div key={key} style={{ background: "#fff", border: `1px solid ${border}`, borderLeft: `4px solid ${border}`, borderRadius: 8, padding: "8px 10px" }}>
-        {/* Línea 1: ref + título + badge proyecto */}
-        <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3, flexWrap: "wrap" }}>
+        {/* Línea 1: ref + título + badge proyecto (board) */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, flexWrap: "wrap" }}>
           {t.ref && (
-            <button onClick={() => onView(t.taskId, t.title)} title={`Ir a ${t.ref}`} style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 4, background: "#F3F4F6", color: "#374151", border: "0.5px solid #E5E7EB", fontFamily: "ui-monospace,monospace", fontWeight: 700, cursor: "pointer" }}>{t.ref}</button>
+            <button
+              onClick={() => onView(t.taskId, t.title)}
+              title={`Ir a ${t.ref}`}
+              style={{
+                backgroundColor: "#2C3E50",
+                color: "white",
+                borderRadius: 4,
+                padding: "2px 8px",
+                fontSize: 11,
+                fontWeight: "bold",
+                marginRight: 2,
+                border: "none",
+                fontFamily: "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
+                letterSpacing: "0.04em",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >{t.ref}</button>
           )}
           <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-          {t.board && <span style={{ fontSize: 9.5, padding: "1px 6px", borderRadius: 10, background: "#EEEDFE", color: "#3C3489", border: "0.5px solid #AFA9EC", fontWeight: 600, flexShrink: 0 }}>{t.board}</span>}
+          {t.board && (
+            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: "#EEEDFE", color: "#3C3489", border: "1px solid #AFA9EC", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>{t.board}</span>
+          )}
         </div>
         {/* Línea 2: urgencia */}
         <div style={{ fontSize: 10.5, color: urgencyColor, fontWeight: 600, marginBottom: 4 }}>{t.urgency}</div>
