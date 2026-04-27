@@ -4104,6 +4104,9 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
   // Acciones del Foco. Empezar/Hecho mutan el board mediante callbacks
   // ya existentes en App; Posponer pide razón inline y mueve la fecha 1 día.
   const [postponeReason,setPostponeReason] = useState(null); // null | string en edición
+  // Kanban del día colapsado por defecto — el CEO normalmente no lo
+  // necesita expandido al entrar; ocupa pantalla útil. Se expande al click.
+  const [kanbanExpanded,setKanbanExpanded] = useState(false);
   const startFocus = ()=>{
     if(!focusTask) return;
     onOpenTask?.(focusTask.id, focusTask.projId);
@@ -4268,8 +4271,30 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
       })()}
       {/* Pulso del Día — timeline horizontal extraído a componente */}
       <PulsoDinamico active={active} negotiations={negotiations} onOpenTask={onOpenTask} RefBadge={RefBadge}/>
-      {/* Mini-Kanban del día con tareas agrupadas por columna */}
-      <TaskKanban myTasks={myTasks} onOpenTask={onOpenTask} RefBadge={RefBadge}/>
+      {/* Kanban del día — colapsado por defecto. Cuando se expande
+          renderizamos el componente TaskKanban con su propia card + header
+          y un botón flotante para colapsar al final. */}
+      {!kanbanExpanded ? (
+        <div style={{background:"#fff",border:"1px solid #E5E7EB",borderRadius:12,marginBottom:16,overflow:"hidden"}}>
+          <button
+            onClick={()=>setKanbanExpanded(true)}
+            style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",background:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit"}}
+          >
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:13,fontWeight:700,color:"#374151"}}>📋 Kanban del Día</span>
+              <span style={{fontSize:11,padding:"2px 9px",borderRadius:10,background:"#F3F4F6",color:"#6B7280",fontWeight:600}}>{myTasks.length} tarea{myTasks.length!==1?"s":""}</span>
+            </div>
+            <span style={{fontSize:12,color:"#6B7280",fontWeight:600}}>▼ Ver</span>
+          </button>
+        </div>
+      ) : (
+        <div>
+          <TaskKanban myTasks={myTasks} onOpenTask={onOpenTask} RefBadge={RefBadge}/>
+          <div style={{display:"flex",justifyContent:"center",marginTop:-10,marginBottom:16}}>
+            <button onClick={()=>setKanbanExpanded(false)} style={{padding:"6px 14px",borderRadius:8,background:"transparent",color:"#6B7280",border:"1px solid #E5E7EB",fontSize:11.5,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>▲ Colapsar Kanban</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
