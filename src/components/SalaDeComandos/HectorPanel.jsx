@@ -26,7 +26,7 @@ const STATE_LABEL = {
   analyzing:   { label: "Analizando…",  bg: "#FEF3C7", fg: "#92400E", border: "#F59E0B" },
   recommending:{ label: "Recomendando", bg: "#DCFCE7", fg: "#065F46", border: "#10B981" },
   listening:   { label: "Escuchando",   bg: "#DBEAFE", fg: "#1E40AF", border: "#3B82F6" },
-  paused:      { label: "Pausado",      bg: "#F3F4F6", fg: "#6B7280", border: "#9CA3AF" },
+  paused:      { label: "⏸ Pausado",   bg: "#F3F4F6", fg: "#6B7280", border: "#9CA3AF" },
 };
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
@@ -158,7 +158,7 @@ export default function HectorPanel({
   const SESSION_KEY = `soulbaric.hector.session.${userId ?? "anon"}`;
 
   const [hectorState, setHectorState] = useState("listening");
-  const [currentThought, setCurrentThought] = useState("Esperando contexto del día…");
+  const [currentThought, setCurrentThought] = useState("");
   const [recommendations, setRecommendations] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -986,25 +986,48 @@ Reglas para block_task:
       <div key={activeTab} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 14, animation: "hp-fade-tab .2s ease", minHeight: 0, maxWidth: "100%", boxSizing: "border-box" }}>
         {activeTab === "analysis" ? (
           <>
-            {/* Pensamiento actual */}
+            {/* Pensamiento actual — variantes según estado:
+                - analyzing: spinner + "Héctor está analizando tu día…"
+                - paused:    razón posible + botón Reintentar
+                - resto:     pensamiento real o placeholder neutral */}
             <div key={thoughtFlash} style={{
-              background: "#F0F7FF",
-              border: "2px solid #3498DB",
+              background: hectorState === "paused" ? "#F3F4F6" : "#F0F7FF",
+              border: `2px solid ${hectorState === "paused" ? "#9CA3AF" : "#3498DB"}`,
               borderRadius: 10,
               padding: "10px 14px",
               fontSize: 12.5,
-              color: "#1E3A8A",
+              color: hectorState === "paused" ? "#374151" : "#1E3A8A",
               lineHeight: 1.5,
               animation: "hp-fade .35s ease",
               display: "flex",
               gap: 8,
               alignItems: "flex-start",
               marginBottom: 12,
-              maxHeight: 60,
               overflow: "hidden",
             }}>
-              <span style={{ fontSize: 14 }}>💭</span>
-              <span style={{ flex: 1, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{currentThought || "—"}</span>
+              {hectorState === "analyzing" || isThinking ? (
+                <>
+                  <span style={{ fontSize: 14, animation: "hp-pulse-dot 1.2s infinite" }}>⏳</span>
+                  <span style={{ flex: 1 }}>Héctor está analizando tu día…</span>
+                </>
+              ) : hectorState === "paused" ? (
+                <>
+                  <span style={{ fontSize: 14 }}>⏸</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 2 }}>Héctor está pausado</div>
+                    <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 6 }}>Sin créditos API o error de conexión.</div>
+                    <button
+                      onClick={() => { lastCallTime.current = 0; generateHectorThought(); }}
+                      style={{ padding: "4px 10px", borderRadius: 6, background: "#fff", color: "#374151", border: "1px solid #D1D5DB", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+                    >↺ Reintentar</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 14 }}>💭</span>
+                  <span style={{ flex: 1, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", maxHeight: 40 }}>{currentThought || "Héctor está observando — el primer pensamiento llegará en breve."}</span>
+                </>
+              )}
             </div>
             {latestAnalysis && latestAnalysis.tasks && latestAnalysis.tasks.length > 0 ? (
               <>
