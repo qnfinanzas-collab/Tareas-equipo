@@ -80,3 +80,47 @@ export function fmtFileSize(bytes){
   if(bytes < 1024*1024) return `${(bytes/1024).toFixed(1)} KB`;
   return `${(bytes/1024/1024).toFixed(1)} MB`;
 }
+
+// Convierte data: URL (base64) a File para poder pasarla a uploadDocument.
+// Útil para migrar documentos legacy que se guardaron como base64 dentro
+// del JSONB de taskflow_state.
+export function dataUrlToFile(dataUrl, fileName, fallbackType = "application/octet-stream") {
+  if (!dataUrl) return null;
+  try {
+    const [header, b64] = dataUrl.split(",");
+    const mime = (header.match(/data:([^;]+)/) || [])[1] || fallbackType;
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new File([bytes], fileName || "documento", { type: mime });
+  } catch { return null; }
+}
+
+// Upload directo desde data URL — atajo cuando el componente ya tiene el
+// base64 (drag&drop con FileReader.readAsDataURL). Devuelve el mismo
+// payload que uploadDocument: {storagePath, name, type, size}.
+export async function uploadFromDataUrl(dataUrl, fileName, ownerKey) {
+  const file = dataUrlToFile(dataUrl, fileName);
+  if (!file) throw new Error("Data URL inválida");
+  return uploadDocument(file, ownerKey);
+}
+
+// Caché de signed URLs en memoria. createSignedUrl es barata pero la URL
+// expira; cachearla 50 minutos (TTL Supabase 60min) evita re-llamar al
+// API en cada render. El componente puede ignorar la caché y forzar
+// refresh con `getSignedUrlCached(path, {force:true})`.
+const _signedUrlCache = new Map(); // path → {url, expiresAt}
+export async function getSignedUrlCached(storagePath, opts = {}) {
+  const { force = false, expiresIn = 3600 } = opts;
+  const now = Date.now();
+  const cached = _signedUrlCache.get(storagePath);
+  if (!force && cached && cached.expiresAt > now) return cached.url;
+  const url = await getSignedUrl(storagePath, expiresIn);
+  // Cacheamos un poco antes del expiry real para evitar carrera.
+  _signedUrlCache.set(storagePath, { url, expiresAt: now + (expiresIn - 60) * 1000 });
+  return url;
+}
+export function clearSignedUrlCache(path) {
+  if (path) _signedUrlCache.delete(path);
+  else _signedUrlCache.clear();
+}
