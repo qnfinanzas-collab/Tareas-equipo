@@ -1090,6 +1090,15 @@ function _migrate(d){
     if (!Array.isArray(d.governance.alerts))      d.governance.alerts      = [];
     if (!Array.isArray(d.governance.documents))   d.governance.documents   = [];
   }
+  // Vault personal y familiar: cada `space` agrupa documentos privados
+  // (DNI, IRPF, escrituras, seguros…) de una persona. El admin (CEO) crea
+  // espacios para él y para familiares. Cada space tiene accessToken y
+  // PIN para compartir acceso aislado por URL sin login SoulBaric.
+  if (!d.vault || typeof d.vault !== "object") {
+    d.vault = { spaces: [] };
+  } else if (!Array.isArray(d.vault.spaces)) {
+    d.vault.spaces = [];
+  }
   return d;
 }
 function _loadData(){
@@ -8800,7 +8809,7 @@ export default function TaskFlow(){
   //   non-admin aunque tengan algún permiso.
   // - TAB_REQUIRES_PERM: tabs gateados por permission flag. Si el miembro
   //   tiene permission "view" en ese feature, puede entrar; si no, redirect.
-  const ADMIN_ONLY_TABS  = new Set(["planner","users"]);
+  const ADMIN_ONLY_TABS  = new Set(["planner","users","vault"]);
   const TAB_REQUIRES_PERM = {
     workspaces: "workspaces",
     dashboard:  "dashboard",
@@ -10106,6 +10115,7 @@ export default function TaskFlow(){
           {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:false, requiresPermission:"briefings"},
           {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:false, requiresPermission:"memory"},
           {id:"gobernanza", icon:"🏛️", label:"Gobernanza",   shortcut:"⌘⇧G", onClick:()=>{setActiveTab("gobernanza");}, adminOnly:false, requiresPermission:"gobernanza"},
+          {id:"vault",      icon:"🔐", label:"Vault Personal", shortcut:"⌘⇧V", onClick:()=>{setActiveTab("vault");}, adminOnly:true},
           {id:"users",      icon:"👥", label:"Usuarios",     shortcut:"⌘⇧U", onClick:()=>{setActiveTab("users");}, adminOnly:true},
         ];
         // Filtrado del sidebar: admin global ve todo. Para no-admins:
