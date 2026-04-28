@@ -124,3 +124,69 @@ export function clearSignedUrlCache(path) {
   if (path) _signedUrlCache.delete(path);
   else _signedUrlCache.clear();
 }
+
+// ── Migración de documentos legacy base64 → bucket ────────────────────────
+// Recorre data.governance.documents[] y data.vault.spaces[*].documents[]
+// buscando entradas con `fileUrl` que empiece por "data:" y SIN `storagePath`.
+// Sube cada una al bucket bajo el prefijo correcto y devuelve un nuevo objeto
+// `data` con storagePath en lugar de fileUrl. Procesamiento en SERIE para no
+// saturar; cap configurable (`maxPerRun`) para repartir migraciones grandes
+// entre sesiones. Devuelve {migrated, errors, nextData}.
+//
+// Esta función NO muta el data original: trabaja sobre una copia y el caller
+// decide cuándo persistir (setData + push a Supabase).
+export async function migrateBase64DocsInData(data, opts = {}) {
+  if (!supa) return { migrated: 0, errors: 0, nextData: data, skipped: 0 };
+  const { maxPerRun = 10, onProgress } = opts;
+  // Clonamos solo lo que vamos a tocar.
+  const next = { ...data };
+  let migrated = 0, errors = 0, skipped = 0;
+
+  // Helper: sube un doc legacy y devuelve la versión actualizada.
+  const upgradeDoc = async (doc, ownerKey) => {
+    if (!doc?.fileUrl || !doc.fileUrl.startsWith("data:") || doc.storagePath) {
+      return doc; // ya migrado o sin archivo
+    }
+    if (migrated + errors >= maxPerRun) { skipped++; return doc; }
+    try {
+      const file = dataUrlToFile(doc.fileUrl, doc.fileName || "documento");
+      if (!file) { errors++; return doc; }
+      const meta = await uploadDocument(file, ownerKey);
+      migrated++;
+      onProgress?.({ migrated, errors, lastFile: doc.fileName });
+      return { ...doc, storagePath: meta.storagePath, fileUrl: null };
+    } catch (e) {
+      console.warn("[migrate] upload fallo:", doc.fileName, e?.message);
+      errors++;
+      return doc;
+    }
+  };
+
+  // Governance documents
+  if (next.governance?.documents) {
+    const out = [];
+    for (const d of next.governance.documents) {
+      if (migrated + errors >= maxPerRun) { out.push(d); skipped++; continue; }
+      const ownerKey = `governance/${d.companyId || "_orphan"}`;
+      out.push(await upgradeDoc(d, ownerKey));
+    }
+    next.governance = { ...next.governance, documents: out };
+  }
+
+  // Vault spaces
+  if (next.vault?.spaces) {
+    const outSpaces = [];
+    for (const sp of next.vault.spaces) {
+      const docsOut = [];
+      for (const d of (sp.documents || [])) {
+        if (migrated + errors >= maxPerRun) { docsOut.push(d); skipped++; continue; }
+        const ownerKey = `vault/${sp.id}`;
+        docsOut.push(await upgradeDoc(d, ownerKey));
+      }
+      outSpaces.push({ ...sp, documents: docsOut });
+    }
+    next.vault = { ...next.vault, spaces: outSpaces };
+  }
+
+  return { migrated, errors, skipped, nextData: next };
+}

@@ -13,7 +13,7 @@ import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
 import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents } from "./lib/auth.js";
-import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
+import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME, migrateBase64DocsInData } from "./lib/storage.js";
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel } from "./lib/agent.js";
 import { PresenceProvider, usePresence } from "./lib/presence.jsx";
@@ -9441,6 +9441,52 @@ export default function TaskFlow(){
       },
     }));
   },[]);
+  // Migración de docs legacy base64 → bucket Supabase. Corre una sola vez
+  // por sesión cuando hay docs legacy detectados. Procesa en serie con
+  // tope de 10 por ejecución; si quedan más, la siguiente recarga termina
+  // el trabajo. No bloquea la UI: arranca tras 3s para no competir con
+  // el primer pintado.
+  const migrationStartedRef = useRef(false);
+  useEffect(()=>{
+    if (migrationStartedRef.current) return;
+    if (!storageEnabled() || !syncReady) return;
+    const hasLegacy = (() => {
+      const govDocs = data.governance?.documents || [];
+      if (govDocs.some(d => d.fileUrl && d.fileUrl.startsWith?.("data:") && !d.storagePath)) return true;
+      for (const sp of (data.vault?.spaces || [])) {
+        if ((sp.documents || []).some(d => d.fileUrl && d.fileUrl.startsWith?.("data:") && !d.storagePath)) return true;
+      }
+      return false;
+    })();
+    if (!hasLegacy) return;
+    migrationStartedRef.current = true;
+    const t = setTimeout(async ()=>{
+      try {
+        const res = await migrateBase64DocsInData(dataRef.current, {
+          maxPerRun: 10,
+          onProgress: ({migrated, lastFile})=>{
+            console.log(`[migrate] ${migrated} subido${migrated!==1?"s":""} (último: ${lastFile})`);
+          },
+        });
+        if (res.migrated > 0) {
+          setData(prev => ({
+            ...prev,
+            governance: res.nextData.governance,
+            vault: res.nextData.vault,
+          }));
+          addToast(`📦 ${res.migrated} documento${res.migrated!==1?"s":""} migrado${res.migrated!==1?"s":""} a Supabase Storage${res.skipped>0?` (${res.skipped} pendientes para próxima sesión)`:""}`, "info", {ttl:6000});
+        }
+        if (res.errors > 0) {
+          console.warn(`[migrate] ${res.errors} errores`);
+        }
+      } catch (e) {
+        console.warn("[migrate] fallo:", e?.message);
+      }
+    }, 3000);
+    return ()=>clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[syncReady]);
+
   // Vault: setter genérico que merge el patch sobre data.vault.
   const updateVault = useCallback((patch)=>{
     setData(prev=>({
