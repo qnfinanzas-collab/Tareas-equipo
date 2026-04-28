@@ -28,6 +28,7 @@ import FinanceView from "./components/Finanzas/FinanceView.jsx";
 import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
 import VaultGuestView, { parseVaultGuestPath } from "./components/Vault/VaultGuestView.jsx";
+import { generatePersonalDocuments } from "./components/Vault/personalTemplates.js";
 import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
@@ -1101,6 +1102,37 @@ function _migrate(d){
   } else if (!Array.isArray(d.vault.spaces)) {
     d.vault.spaces = [];
   }
+  // Auto-creación del space del CEO si no existe ninguno. Usamos el
+  // primer admin global de members[] como titular. PIN inicial 0000 —
+  // el CEO debe cambiarlo en Ajustes del espacio. La plantilla de docs
+  // se siembra para que arranque con sus 35+ documentos pendientes.
+  if (d.vault.spaces.length === 0) {
+    const admin = (d.members || []).find(m => m.accountRole === "admin") || (d.members || [])[0];
+    if (admin) {
+      const genId = () => (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `vs_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+      const genToken = () => (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, "") : `tk${Date.now()}${Math.random().toString(36).slice(2,12)}`;
+      d.vault.spaces = [{
+        id: genId(),
+        name: admin.name,
+        relationship: "CEO",
+        email: admin.email || "",
+        pin: "0000",
+        accessToken: genToken(),
+        createdBy: admin.id,
+        createdAt: new Date().toISOString(),
+        privacyLevel: "private",
+        documents: generatePersonalDocuments(),
+      }];
+    }
+  }
+  // Backfill defensivo: si algún space pre-existente tiene documents=[]
+  // (creado antes de la auto-siembra), sembramos su plantilla. Idempotente.
+  d.vault.spaces = d.vault.spaces.map(sp => {
+    if (Array.isArray(sp.documents) && sp.documents.length === 0) {
+      return { ...sp, documents: generatePersonalDocuments() };
+    }
+    return sp;
+  });
   return d;
 }
 function _loadData(){
