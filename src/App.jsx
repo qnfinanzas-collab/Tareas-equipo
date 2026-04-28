@@ -10278,7 +10278,107 @@ export default function TaskFlow(){
       }],boards:{...prev.boards,[id]:cols}};
     });
     addToast("✓ Proyecto creado");
+    return id; // útil para callers que necesitan el id (agentActions)
   },[addToast, activeMember]);
+
+  // Versión "directa" de addTask que opera sobre cualquier proyecto por
+  // id (no contra el proj activo). Pensada para flujos de ejecución de
+  // agentes IA donde el proyecto puede haber sido creado en la misma
+  // tanda. Coloca la tarea en la primera columna del board.
+  const addTaskToProject = useCallback((projId, payload)=>{
+    setData(prev=>{
+      const cols = prev.boards[projId];
+      if (!cols || cols.length === 0) return prev;
+      const targetCol = cols[0]; // "Por hacer"
+      const projObj = prev.projects.find(p => p.id === projId);
+      const ref = projObj?.code ? computeNextTaskRef(projObj.code, cols) : null;
+      const id = "t" + nextId++;
+      const newTask = {
+        id, ref,
+        title: payload.title || "Tarea sin título",
+        tags: Array.isArray(payload.tags) ? payload.tags : [],
+        assignees: Array.isArray(payload.assignees) ? payload.assignees : [],
+        priority: payload.priority || "media",
+        startDate: fmt(new Date()),
+        dueDate: payload.dueDate || "",
+        dueTime: "",
+        estimatedHours: 0,
+        timeLogs: [],
+        desc: payload.desc || "",
+        comments: [],
+        timeline: Array.isArray(payload.timeline) ? payload.timeline : [],
+        projectId: projId,
+        linkedProjects: [], links: [], agentIds: [], refs: [], documents: [],
+        archived: false,
+      };
+      const newCols = cols.map(c => c.id === targetCol.id ? {...c, tasks: [...c.tasks, newTask]} : c);
+      return { ...prev, boards: { ...prev.boards, [projId]: newCols } };
+    });
+  },[]);
+
+  // Orchestrator de acciones propuestas por agentes. Se pasa como prop al
+  // chat (HectorPanel, GobernanzaView, etc) y delega en agentActions.js
+  // que mapea cada acción a la función de mutación adecuada.
+  // Devuelve {results} para que el caller muestre toasts.
+  const runAgentActions = useCallback(async (selectedActions)=>{
+    const { executeAgentActions } = await import("./lib/agentActions.js");
+    const d = dataRef.current || data;
+    const adminMemberId = (d.members||[]).find(m=>m.accountRole==="admin")?.id ?? activeMember;
+    // Two-pass: primero create_project (obtenemos ids), después create_tasks/etc.
+    // Para acciones que requieren findProjectByCode, leemos dataRef tras el flush.
+    const helpers = {
+      data: d,
+      adminMemberId,
+      allMembers: d.members || [],
+      createProject,
+      addTaskToProject,
+      createNegotiation,
+      addFinanceMovement,
+      findProjectByCode: (code) => (dataRef.current?.projects || []).find(p => p.code === code),
+    };
+    // Pasada 1: crear proyectos. Esto encola setData. Esperamos al flush
+    // con un microtask antes de meter las tareas.
+    const projectActions = selectedActions.filter(a => a.type === "create_project");
+    const otherActions   = selectedActions.filter(a => a.type !== "create_project");
+
+    const results1 = executeAgentActions(projectActions, helpers);
+    // Esperamos un tick para que setData de createProject haga commit y
+    // findProjectByCode lo encuentre. dataRef se actualiza vía useEffect.
+    await new Promise(r => setTimeout(r, 50));
+
+    // Para cada proyecto recién creado, ejecutamos sus tareas pendientes.
+    for (const r of results1) {
+      if (r.type === "project" && r.code && Array.isArray(r.pendingTasks) && r.pendingTasks.length > 0) {
+        const proj = (dataRef.current?.projects || []).find(p => p.code === r.code);
+        if (proj) {
+          for (const task of r.pendingTasks) {
+            const { resolveDueDate, resolveAssignees } = await import("./lib/agentActions.js");
+            const memberIds = resolveAssignees(task.assignees || ["admin"], dataRef.current?.members || [], adminMemberId);
+            // Si la acción tenía assignees a nivel proyecto y la tarea no
+            // los tiene, heredamos del proyecto.
+            const finalAssignees = memberIds.length > 0 ? memberIds : (r.assignees || [adminMemberId]);
+            addTaskToProject(proj.id, {
+              title: task.title,
+              desc: task.description || "",
+              priority: task.priority || "media",
+              dueDate: resolveDueDate(task.dueDate),
+              assignees: finalAssignees,
+              tags: (task.tags || []).map(l => ({ l, c: "purple" })),
+              timeline: [{
+                id: `tl_agent_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+                type: "ai", author: r._agentName || "Agente IA", authorId: null, authorAvatar: "🤖",
+                text: "Tarea creada automáticamente como parte del plan propuesto.",
+                timestamp: new Date().toISOString(), isMilestone: false,
+              }],
+            });
+          }
+        }
+      }
+    }
+    // Pasada 2: resto de acciones (negotiation, create_tasks sobre code existente, movement)
+    const results2 = executeAgentActions(otherActions, helpers);
+    return { results: [...results1, ...results2] };
+  },[createProject, addTaskToProject, createNegotiation, addFinanceMovement, activeMember, data]);
   const editProject = useCallback((idx,{name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility})=>{
     setData(prev=>{
       const p=prev.projects[idx];
