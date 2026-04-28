@@ -4898,11 +4898,23 @@ function UsersView({members,projects,permissions,onEdit,onCreate,onDelete,onSetP
 }
 
 // ── Permissions Table ────────────────────────────────────────────────────────
-// Tabla de permisos granulares por miembro y feature. Se renderiza dentro
+// Tabla de permisos granulares por miembro y módulo. Se renderiza dentro
 // de UsersView ▸ Permisos. Solo accesible para admin global (UsersView ya
 // está admin-gated por adminOnly:true en el sidebar).
+//
+// NOTA: Sala de Mando, Home y Mis tareas son siempre accesibles — no
+// aparecen aquí porque no son gateables. Proyectos y Deal Room aparecen
+// en la tabla por consistencia visual y futura granularidad, pero hoy NO
+// llevan `requiresPermission` en el sidebar (acceso abierto: cada miembro
+// ve sus propios proyectos/deals filtrados por canViewProject/canViewDeal).
 const PERMISSION_FEATURES = [
-  { key: "finance", label: "Finanzas", icon: "💰", desc: "Tesorería, dashboard financiero, KPIs" },
+  { key: "finance",    label: "Finanzas",   icon: "💰", desc: "Tesorería, dashboard financiero, KPIs" },
+  { key: "dealroom",   label: "Deal Room",  icon: "🤝", desc: "Negociaciones, sesiones, documentos" },
+  { key: "projects",   label: "Proyectos",  icon: "📁", desc: "Tableros Kanban, miembros, columnas" },
+  { key: "dashboard",  label: "Dashboard",  icon: "📊", desc: "Analítica global del equipo" },
+  { key: "briefings",  label: "Briefings",  icon: "🧠", desc: "Briefings IA del equipo y proyectos" },
+  { key: "memory",     label: "Memoria",    icon: "🧬", desc: "Memoria del CEO y agentes" },
+  { key: "workspaces", label: "Workspaces", icon: "📦", desc: "Workspaces de cliente con credenciales" },
 ];
 // Agentes IA disponibles. Definición canónica usada por la pestaña
 // "🤖 Agentes" de UsersView. Si añades un nuevo agente al sistema multi-
@@ -4912,58 +4924,68 @@ const AGENT_PERMISSIONS = [
   { key: "jorge",  label: "Jorge Finanzas",     emoji: "📊", color: "#B45309", desc: "Modelos financieros, ROI, waterfall, sensibilidades" },
   { key: "alvaro", label: "Álvaro Inmobiliario", emoji: "🏠", color: "#E67E22", desc: "Alquileres LAU, fiscalidad, inversión, alquiler turístico" },
 ];
-const PERM_GRID = `minmax(220px, 1fr) repeat(${PERMISSION_FEATURES.length}, minmax(280px, 1fr))`;
+// Cada columna de módulo tiene su propio ancho mínimo (200px) para que
+// quepan los 3 toggles V/E/A sin compresión. La 1ª columna (Miembro) usa
+// `position:sticky;left:0` para que sea ancla mientras se hace scroll
+// horizontal — el admin sigue viendo a quién pertenece cada fila.
+const COL_W_MEMBER = 220;
+const COL_W_MOD    = 200;
 
 function PermissionsTable({ members, permissions, onSetPermission }) {
-  return (
-    <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "grid", gridTemplateColumns: PERM_GRID, background: "#FAFAFA", borderBottom: "1px solid #E5E7EB", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-        <div style={{ padding: "12px 14px" }}>Miembro</div>
-        {PERMISSION_FEATURES.map(f => (
-          <div key={f.key} style={{ padding: "12px 14px" }} title={f.desc}>{f.icon} {f.label}</div>
+  const totalWidth = COL_W_MEMBER + (COL_W_MOD * PERMISSION_FEATURES.length);
+  const renderCell = (m, f, isAdminGlobal) => {
+    if (isAdminGlobal) {
+      return (
+        <div key={f.key} style={{ padding: "12px 14px", fontSize: 11.5, color: "#065F46", boxSizing: "border-box", width: COL_W_MOD, flexShrink: 0 }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 12, background: "#DCFCE7", border: "1px solid #86EFAC", fontWeight: 600, whiteSpace: "nowrap" }}>✓ Admin</span>
+        </div>
+      );
+    }
+    const fp = permissions?.[m.id]?.[f.key] || { view: false, edit: false, admin: false };
+    return (
+      <div key={f.key} style={{ padding: "12px 14px", display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#374151", boxSizing: "border-box", width: COL_W_MOD, flexShrink: 0 }}>
+        {[["view", "Ver"], ["edit", "Editar"], ["admin", "Admin"]].map(([level, label]) => (
+          <label key={level} style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer", userSelect: "none" }}>
+            <input
+              type="checkbox"
+              checked={!!fp[level]}
+              onChange={(e) => onSetPermission?.(m.id, f.key, level, e.target.checked)}
+              style={{ cursor: "pointer", accentColor: "#7F77DD" }}
+            />
+            <span>{label}</span>
+          </label>
         ))}
       </div>
-      {(members || []).map(m => {
-        const isAdminGlobal = m.accountRole === "admin";
-        const mp = MP[m.id] || MP[0];
-        return (
-          <div key={m.id} style={{ display: "grid", gridTemplateColumns: PERM_GRID, borderBottom: "0.5px solid #F3F4F6", alignItems: "center" }}>
-            <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <div style={{ width: 30, height: 30, borderRadius: "50%", background: mp.solid, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{m.initials}</div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
-                <div style={{ fontSize: 10.5, color: "#6B7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.email}</div>
-              </div>
-            </div>
-            {PERMISSION_FEATURES.map(f => {
-              if (isAdminGlobal) {
-                return (
-                  <div key={f.key} style={{ padding: "12px 14px", fontSize: 11.5, color: "#065F46" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 12, background: "#DCFCE7", border: "1px solid #86EFAC", fontWeight: 600 }}>✓ Admin global</span>
-                    <div style={{ fontSize: 10.5, color: "#6B7280", marginTop: 4 }}>(acceso total automático)</div>
-                  </div>
-                );
-              }
-              const fp = permissions?.[m.id]?.[f.key] || { view: false, edit: false, admin: false };
-              return (
-                <div key={f.key} style={{ padding: "12px 14px", display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#374151" }}>
-                  {[["view", "Ver"], ["edit", "Editar"], ["admin", "Admin"]].map(([level, label]) => (
-                    <label key={level} style={{ display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer", userSelect: "none" }}>
-                      <input
-                        type="checkbox"
-                        checked={!!fp[level]}
-                        onChange={(e) => onSetPermission?.(m.id, f.key, level, e.target.checked)}
-                        style={{ cursor: "pointer", accentColor: "#7F77DD" }}
-                      />
-                      <span>{label}</span>
-                    </label>
-                  ))}
+    );
+  };
+  return (
+    <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, overflow: "auto" }}>
+      <div style={{ minWidth: totalWidth }}>
+        {/* Header */}
+        <div style={{ display: "flex", background: "#FAFAFA", borderBottom: "1px solid #E5E7EB", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          <div style={{ padding: "12px 14px", width: COL_W_MEMBER, flexShrink: 0, position: "sticky", left: 0, background: "#FAFAFA", zIndex: 2, borderRight: "1px solid #E5E7EB", boxSizing: "border-box" }}>Miembro</div>
+          {PERMISSION_FEATURES.map(f => (
+            <div key={f.key} style={{ padding: "12px 14px", width: COL_W_MOD, flexShrink: 0, boxSizing: "border-box" }} title={f.desc}>{f.icon} {f.label}</div>
+          ))}
+        </div>
+        {/* Rows */}
+        {(members || []).map(m => {
+          const isAdminGlobal = m.accountRole === "admin";
+          const mp = MP[m.id] || MP[0];
+          return (
+            <div key={m.id} style={{ display: "flex", borderBottom: "0.5px solid #F3F4F6", alignItems: "center", background: "#fff" }}>
+              <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, minWidth: 0, width: COL_W_MEMBER, flexShrink: 0, position: "sticky", left: 0, background: "#fff", zIndex: 1, borderRight: "1px solid #F3F4F6", boxSizing: "border-box" }}>
+                <div style={{ width: 30, height: 30, borderRadius: "50%", background: mp.solid, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{m.initials}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
+                  <div style={{ fontSize: 10.5, color: "#6B7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.email}</div>
                 </div>
-              );
-            })}
-          </div>
-        );
-      })}
+              </div>
+              {PERMISSION_FEATURES.map(f => renderCell(m, f, isAdminGlobal))}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -8647,18 +8669,30 @@ export default function TaskFlow(){
   };
   // Si no eres admin y estás en un tab admin-only, te redirigimos a "mytasks".
   // Evita que un member acceda a vistas restringidas con la URL/atajos.
-  // "projects"/"board"/"team"/"reports"/"eisenhower"/"dealroom" salen de la
-  // lista: ahora cualquier autenticado puede tener proyectos y negociaciones
-  // propias (la edición sigue gateada por canEditProject/canEditDeal en cada
-  // mutación). Mantenerlos aquí causaba un flash de la vista completa antes
-  // del redirect.
-  const ADMIN_ONLY_TABS = new Set(["workspaces","dashboard","briefings","memory","planner","users"]);
+  // - ADMIN_ONLY_TABS: tabs reservados solo para admin (gestión de
+  //   usuarios/permisos, planificador IA global). Sin via de acceso para
+  //   non-admin aunque tengan algún permiso.
+  // - TAB_REQUIRES_PERM: tabs gateados por permission flag. Si el miembro
+  //   tiene permission "view" en ese feature, puede entrar; si no, redirect.
+  const ADMIN_ONLY_TABS  = new Set(["planner","users"]);
+  const TAB_REQUIRES_PERM = {
+    workspaces: "workspaces",
+    dashboard:  "dashboard",
+    briefings:  "briefings",
+    memory:     "memory",
+    finance:    "finance",
+  };
   useEffect(()=>{
     if(authReady && authSession && authMemberInfo?.member && !isAdmin){
-      if(ADMIN_ONLY_TABS.has(activeTab)) setActiveTab("mytasks");
+      if(ADMIN_ONLY_TABS.has(activeTab)) { setActiveTab("mytasks"); return; }
+      const reqFeature = TAB_REQUIRES_PERM[activeTab];
+      if(reqFeature){
+        const me = (data.members||[]).find(m=>m.id===activeMember);
+        if(!hasPermission(me, reqFeature, "view", data.permissions)) setActiveTab("mytasks");
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[isAdmin, activeTab, authReady, authSession]);
+  },[isAdmin, activeTab, authReady, authSession, data.permissions, activeMember]);
   const enableLegacyMode = ()=>{
     setLegacyMode(true);
     try { localStorage.setItem("soulbaric.legacyMode","1"); } catch {}
@@ -9879,10 +9913,10 @@ export default function TaskFlow(){
           {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false},
           {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:false},
           {id:"finance",    icon:"💰", label:"Finanzas",     shortcut:"",    onClick:()=>{setActiveTab("finance");}, adminOnly:false, requiresPermission:"finance"},
-          {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}, adminOnly:true},
-          {id:"dashboard",  icon:"📊", label:"Dashboard analítico", shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:true},
-          {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:true},
-          {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:true},
+          {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}, adminOnly:false, requiresPermission:"workspaces"},
+          {id:"dashboard",  icon:"📊", label:"Dashboard analítico", shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:false, requiresPermission:"dashboard"},
+          {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:false, requiresPermission:"briefings"},
+          {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:false, requiresPermission:"memory"},
           {id:"users",      icon:"👥", label:"Usuarios",     shortcut:"⌘⇧U", onClick:()=>{setActiveTab("users");}, adminOnly:true},
         ];
         // Filtrado del sidebar: admin global ve todo. Para no-admins:
