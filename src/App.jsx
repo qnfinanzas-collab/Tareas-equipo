@@ -5805,6 +5805,7 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
   const [currency,setCurrency] = useState(negotiation?.currency||"EUR");
   const [description,setDesc]  = useState(negotiation?.description||"");
   const [ownerId,setOwnerId]   = useState(negotiation?.ownerId??(members[0]?.id??0));
+  const [visibility,setVisibility] = useState(negotiation?.visibility || "private");
   // Multi-proyecto (FASE 1.5)
   const [relatedProjects,setRelatedProjects] = useState(negotiation?.relatedProjects||[]);
   const [relationships,setRelationships]     = useState(negotiation?.relationships||[]);
@@ -5812,14 +5813,14 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
   const [agentId,setAgentId] = useState(negotiation?.agentId??"");
   const [pendingDel,setPendingDel] = useState(false);
   const [pendingClose,setPendingClose] = useState(false);
-  const [initialSnap]=useState(()=>JSON.stringify({title:negotiation?.title||"",counterparty:negotiation?.counterparty||"",status:negotiation?.status||"en_curso",value:negotiation?.value??"",currency:negotiation?.currency||"EUR",description:negotiation?.description||"",ownerId:negotiation?.ownerId??(members[0]?.id??0),relatedProjects:negotiation?.relatedProjects||[],relationships:negotiation?.relationships||[],stakeholders:negotiation?.stakeholders||[],agentId:negotiation?.agentId??""}));
-  const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,ownerId,relatedProjects,relationships,stakeholders,agentId})!==initialSnap;
+  const [initialSnap]=useState(()=>JSON.stringify({title:negotiation?.title||"",counterparty:negotiation?.counterparty||"",status:negotiation?.status||"en_curso",value:negotiation?.value??"",currency:negotiation?.currency||"EUR",description:negotiation?.description||"",ownerId:negotiation?.ownerId??(members[0]?.id??0),visibility:negotiation?.visibility||"private",relatedProjects:negotiation?.relatedProjects||[],relationships:negotiation?.relationships||[],stakeholders:negotiation?.stakeholders||[],agentId:negotiation?.agentId??""}));
+  const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,ownerId,visibility,relatedProjects,relationships,stakeholders,agentId})!==initialSnap;
   const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
   useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
   const [showCloseFlow,setShowCloseFlow] = useState(false);
   const buildPayload = ()=>{
     const primaryProjectId = relatedProjects[0]?.projectId ?? null;
-    return {title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),projectId:primaryProjectId,agentId:agentId===""?null:Number(agentId),relatedProjects,relationships,stakeholders};
+    return {title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),visibility,projectId:primaryProjectId,agentId:agentId===""?null:Number(agentId),relatedProjects,relationships,stakeholders};
   };
   const save=()=>{
     if(!title.trim()||!counterparty.trim()) return;
@@ -5911,6 +5912,29 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
           </select>
           <FL c="Descripción"/>
           <textarea value={description} onChange={e=>setDesc(e.target.value)} rows={3} placeholder="Contexto, objetivo, contraparte, plazos…" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+
+          {/* Visibilidad — controla quién puede VER la negociación. La edición
+              sigue gateada por canEditDeal (owner/miembros/admin) en server. */}
+          <FL c="Visibilidad"/>
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:8}}>
+            {[
+              {key:"private", icon:"🔒", label:"Privada", desc:"Solo tú y los miembros invitados"},
+              {key:"team",    icon:"👥", label:"Equipo",  desc:"Todos pueden ver, solo miembros editan"},
+              {key:"public",  icon:"🌍", label:"Pública", desc:"Visible para toda la organización"},
+            ].map(opt=>{
+              const active = visibility===opt.key;
+              return (
+                <label key={opt.key} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 11px",borderRadius:8,border:`1.5px solid ${active?"#3B82F6":"#e5e7eb"}`,background:active?"#3B82F610":"#fff",cursor:"pointer"}}>
+                  <input type="radio" name="neg-visibility" value={opt.key} checked={active} onChange={()=>setVisibility(opt.key)} style={{margin:0,accentColor:"#3B82F6"}}/>
+                  <span style={{fontSize:14}}>{opt.icon}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:active?700:500,color:active?"#1E40AF":"#374151"}}>{opt.label}</div>
+                    <div style={{fontSize:11,color:"#7F8C8D"}}>{opt.desc}</div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
 
           {/* Proyectos relacionados (múltiple) */}
           <div style={{marginTop:18,paddingTop:14,borderTop:"1px solid #E5E7EB"}}>
@@ -6183,6 +6207,21 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
   );
   const filtered = filter==="all" ? visibleNegotiations : visibleNegotiations.filter(n=>n.status===filter);
   const counts = NEG_STATUSES.reduce((o,s)=>{o[s.id]=visibleNegotiations.filter(n=>n.status===s.id).length;return o;},{all:visibleNegotiations.length});
+  // Empty state prominente cuando el miembro no ve ninguna negociación —
+  // CTA dedicado en lugar del banner dashed dentro del listado.
+  if (visibleNegotiations.length === 0) {
+    return (
+      <div style={{padding:"60px 20px",textAlign:"center",maxWidth:480,margin:"0 auto"}}>
+        <div style={{fontSize:48,marginBottom:16}}>🤝</div>
+        <div style={{fontSize:18,fontWeight:700,color:"#111827",marginBottom:8}}>No tienes negociaciones activas</div>
+        <div style={{fontSize:13,color:"#7F8C8D",marginBottom:24,lineHeight:1.5}}>Crea tu primera negociación para empezar a gestionar tus deals. Será privada por defecto: solo tú y los miembros que invites podrán verla.</div>
+        <button
+          onClick={onCreate}
+          style={{background:"#3498DB",color:"#fff",padding:"12px 24px",borderRadius:8,fontSize:14,fontWeight:600,border:"none",cursor:"pointer",fontFamily:"inherit"}}
+        >+ Nueva negociación</button>
+      </div>
+    );
+  }
 
   // Alerts automáticas: opera SOLO sobre negociaciones visibles para no
   // filtrar por título datos privados ajenos.
@@ -8959,6 +8998,20 @@ export default function TaskFlow(){
   },[addToast]);
 
   // ── Deal Room mutations ──
+  // Gate centralizado: comprueba con canEditDeal si el activeMember puede
+  // mutar la negociación cuyo id se pasa. Si no, dispara toast y devuelve
+  // false. Lee de dataRef para evitar race con setData async.
+  const ensureCanEditDeal = useCallback((negId)=>{
+    const d = dataRef.current || data;
+    const deal = (d.negotiations||[]).find(n=>n.id===negId);
+    const me = (d.members||[]).find(m=>m.id===activeMember);
+    if (!canEditDeal(me, deal)) {
+      addToast("No tienes permisos para editar esta negociación","error");
+      return false;
+    }
+    return true;
+  },[activeMember, addToast, data]);
+
   const createNegotiation = useCallback((payload)=>{
     const id=_uid("neg"); const now=new Date().toISOString();
     setData(prev=>{
@@ -8986,6 +9039,7 @@ export default function TaskFlow(){
     addToast("✓ Negociación creada");
   },[addToast, activeMember]);
   const updateNegotiation = useCallback((negId,patch)=>{
+    if(!ensureCanEditDeal(negId)) return;
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,...patch,updatedAt:new Date().toISOString()}:n)}));
     addToast("✓ Negociación actualizada");
     // Si el patch trae result (cierre con learnings), dispara extracción
@@ -9036,49 +9090,59 @@ export default function TaskFlow(){
         }
       })();
     }
-  },[addToast]);
+  },[addToast, ensureCanEditDeal]);
   const deleteNegotiation = useCallback((negId)=>{
+    if(!ensureCanEditDeal(negId)) return;
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).filter(n=>n.id!==negId)}));
     addToast("Negociación eliminada","info");
-  },[addToast]);
+  },[addToast, ensureCanEditDeal]);
   const addSession = useCallback((negId,payload)=>{
+    if(!ensureCanEditDeal(negId)) return;
     const id=_uid("sess"); const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,sessions:[...(n.sessions||[]),{id,...payload,entries:[],summary:"",createdAt:now,updatedAt:now}],updatedAt:now}:n)}));
     addToast("✓ Sesión añadida");
-  },[addToast]);
+  },[addToast, ensureCanEditDeal]);
   const updateSession = useCallback((negId,sessId,patch)=>{
+    if(!ensureCanEditDeal(negId)) return;
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,sessions:n.sessions.map(s=>s.id===sessId?{...s,...patch,updatedAt:now}:s),updatedAt:now}:n)}));
-  },[]);
+  },[ensureCanEditDeal]);
   const deleteSession = useCallback((negId,sessId)=>{
+    if(!ensureCanEditDeal(negId)) return;
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,sessions:n.sessions.filter(s=>s.id!==sessId),updatedAt:new Date().toISOString()}:n)}));
     addToast("Sesión eliminada","info");
-  },[addToast]);
+  },[addToast, ensureCanEditDeal]);
   const addNote = useCallback((negId,sessId,payload)=>{
+    if(!ensureCanEditDeal(negId)) return;
     const id=_uid("ent"); const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,entries:[...(s.entries||[]),{id,type:"manual_note",authorId:activeMember,createdAt:now,...payload}],updatedAt:now}:s)}:n)}));
-  },[activeMember]);
+  },[activeMember, ensureCanEditDeal]);
   const updateNote = useCallback((negId,sessId,noteId,patch)=>{
+    if(!ensureCanEditDeal(negId)) return;
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,entries:s.entries.map(e=>e.id===noteId?{...e,...patch}:e),updatedAt:now}:s)}:n)}));
-  },[]);
+  },[ensureCanEditDeal]);
   const deleteNote = useCallback((negId,sessId,noteId)=>{
+    if(!ensureCanEditDeal(negId)) return;
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,entries:s.entries.filter(e=>e.id!==noteId),updatedAt:now}:s)}:n)}));
-  },[]);
+  },[ensureCanEditDeal]);
   const updateSummary = useCallback((negId,sessId,summary)=>{
+    if(!ensureCanEditDeal(negId)) return;
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,updatedAt:now,sessions:n.sessions.map(s=>s.id===sessId?{...s,summary,updatedAt:now}:s)}:n)}));
-  },[]);
+  },[ensureCanEditDeal]);
   const setNegBriefing = useCallback((negId,briefing)=>{
+    if(!ensureCanEditDeal(negId)) return;
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,briefing,updatedAt:now}:n)}));
     addToast("✓ Briefing guardado en la negociación");
-  },[addToast]);
+  },[addToast, ensureCanEditDeal]);
   const setNegDocuments = useCallback((negId,documents)=>{
+    if(!ensureCanEditDeal(negId)) return;
     const now=new Date().toISOString();
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,documents,updatedAt:now}:n)}));
-  },[]);
+  },[ensureCanEditDeal]);
   // Memoria: añade items deduplicados. sections = {preferences?, keyFacts?,
   // decisions?, lessons?}. Cada valor es array de strings. Devuelve nº
   // añadidos sincrónicamente (computado contra dataRef, no dependiendo
