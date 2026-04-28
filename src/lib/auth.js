@@ -101,3 +101,23 @@ export function canViewProject(member, project){
   if (project.visibility === "public") return true;
   return false;
 }
+
+// Permisos de negociación. Misma semántica que canEditProject/canViewProject:
+// edit ⊃ view, "private" exige pertenencia explícita (owner o miembro de la
+// negociación), "team"/"public" relajan la visibilidad pero NO la edición.
+// Admin global tiene paso libre.
+export function canEditDeal(member, deal){
+  if (!member || !deal) return false;
+  if (member.accountRole === "admin") return true;
+  if (deal.ownerId === member.id) return true;
+  if (Array.isArray(deal.members) && deal.members.includes(member.id)) return true;
+  return false;
+}
+
+export function canViewDeal(member, deal){
+  if (canEditDeal(member, deal)) return true;
+  if (!deal) return false;
+  if (deal.visibility === "team")   return true;
+  if (deal.visibility === "public") return true;
+  return false;
+}

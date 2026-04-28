@@ -12,7 +12,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
-import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject } from "./lib/auth.js";
+import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel } from "./lib/agent.js";
@@ -6168,19 +6168,31 @@ function AddNoteModal({initialNote,onClose,onSave,onDelete}){
 }
 
 // Vista principal: lista de negociaciones con filtros.
-function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilter,onCreate,onOpen,onEdit}){
-  const filtered = filter==="all" ? negotiations : negotiations.filter(n=>n.status===filter);
-  const counts = NEG_STATUSES.reduce((o,s)=>{o[s.id]=negotiations.filter(n=>n.status===s.id).length;return o;},{all:negotiations.length});
+function DealRoomView({negotiations,members,projects,workspaces,currentMember,filter,onSetFilter,onCreate,onOpen,onEdit}){
+  // Guard: hasta tener miembro resuelto, no rendereamos nada — evita el
+  // flash de negociaciones ajenas que ocurría con el redirect tardío.
+  if (!currentMember) {
+    return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>Cargando negociaciones…</div>;
+  }
+  // Filtrado de visibilidad SÍNCRONO con useMemo. canViewDeal aplica reglas
+  // de admin/owner/miembro/visibility. Todas las counts y alertas operan
+  // sobre la lista ya filtrada — el non-admin nunca ve datos ajenos.
+  const visibleNegotiations = React.useMemo(
+    ()=>(negotiations||[]).filter(n=>canViewDeal(currentMember, n)),
+    [negotiations, currentMember]
+  );
+  const filtered = filter==="all" ? visibleNegotiations : visibleNegotiations.filter(n=>n.status===filter);
+  const counts = NEG_STATUSES.reduce((o,s)=>{o[s.id]=visibleNegotiations.filter(n=>n.status===s.id).length;return o;},{all:visibleNegotiations.length});
 
-  // Alerts automáticas: bloqueada >7d, sesión sin seguimiento >3d sin resumen,
-  // stakeholder repetido en varias negociaciones activas.
+  // Alerts automáticas: opera SOLO sobre negociaciones visibles para no
+  // filtrar por título datos privados ajenos.
   const alerts = React.useMemo(()=>{
     const out=[];
     const now=Date.now();
-    const byId = new Map(negotiations.map(n=>[n.id,n]));
-    negotiations.forEach(n=>{
+    const byId = new Map(visibleNegotiations.map(n=>[n.id,n]));
+    visibleNegotiations.forEach(n=>{
       const daysSince = n.updatedAt ? Math.floor((now-new Date(n.updatedAt))/86400000) : 0;
-      const blockedBy = negotiations.filter(x=>(x.relationships||[]).some(r=>r.negotiationId===n.id&&r.type==="blocks"));
+      const blockedBy = visibleNegotiations.filter(x=>(x.relationships||[]).some(r=>r.negotiationId===n.id&&r.type==="blocks"));
       if(n.status==="en_curso" && blockedBy.length>0 && daysSince>7){
         out.push({id:`blk-${n.id}`,level:"critical",title:`${n.title} bloqueada hace ${daysSince}d`,description:`Bloqueada por: ${blockedBy.map(x=>x.title).join(", ")}`,negId:n.id});
       }
@@ -6195,7 +6207,7 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
     });
     // stakeholders repetidos
     const stkMap=new Map();
-    negotiations.forEach(n=>{
+    visibleNegotiations.forEach(n=>{
       if(n.status!=="en_curso") return;
       (n.stakeholders||[]).forEach(s=>{
         const key=s.name.trim().toLowerCase();
@@ -6212,13 +6224,13 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
     }
     const order={critical:0,warning:1,info:2};
     return out.sort((a,b)=>order[a.level]-order[b.level]);
-  },[negotiations]);
+  },[visibleNegotiations]);
   return(
     <div style={{maxWidth:1000,margin:"0 auto",padding:"30px 20px"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <div>
           <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>🤝 Deal Room</div>
-          <div style={{fontSize:13,color:"#6b7280"}}>{negotiations.length} negociación{negotiations.length!==1?"es":""} · Timeline de sesiones, notas y resúmenes</div>
+          <div style={{fontSize:13,color:"#6b7280"}}>{visibleNegotiations.length} negociación{visibleNegotiations.length!==1?"es":""} · Timeline de sesiones, notas y resúmenes</div>
         </div>
         <button onClick={onCreate} style={{padding:"10px 18px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva negociación</button>
       </div>
@@ -6249,8 +6261,8 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
       {filtered.length===0
         ? <div style={{textAlign:"center",padding:"60px 20px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:12}}>
             <div style={{fontSize:32,marginBottom:10}}>🤝</div>
-            <div style={{fontSize:14,color:"#6b7280",marginBottom:14}}>{negotiations.length===0?"Aún no hay negociaciones. Crea la primera para empezar.":`Sin negociaciones ${getNegStatus(filter).label.toLowerCase()}.`}</div>
-            {negotiations.length===0&&<button onClick={onCreate} style={{padding:"9px 18px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva negociación</button>}
+            <div style={{fontSize:14,color:"#6b7280",marginBottom:14}}>{visibleNegotiations.length===0?"Aún no hay negociaciones. Crea la primera para empezar.":`Sin negociaciones ${getNegStatus(filter).label.toLowerCase()}.`}</div>
+            {visibleNegotiations.length===0&&<button onClick={onCreate} style={{padding:"9px 18px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva negociación</button>}
           </div>
         : <div style={{display:"flex",flexDirection:"column",gap:14}}>
             {filtered.map(n=>{
@@ -6258,8 +6270,8 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
               const owner=members.find(m=>m.id===n.ownerId);
               const mp2=MP[owner?.id]||MP[0];
               const lastSession = (n.sessions||[]).slice().sort((a,b)=>b.date.localeCompare(a.date))[0];
-              const blocksList     = (n.relationships||[]).filter(r=>r.type==="blocks").map(r=>negotiations.find(x=>x.id===r.negotiationId)).filter(Boolean);
-              const blockedByList  = negotiations.filter(x=>(x.relationships||[]).some(r=>r.negotiationId===n.id&&r.type==="blocks"));
+              const blocksList     = (n.relationships||[]).filter(r=>r.type==="blocks").map(r=>visibleNegotiations.find(x=>x.id===r.negotiationId)).filter(Boolean);
+              const blockedByList  = visibleNegotiations.filter(x=>(x.relationships||[]).some(r=>r.negotiationId===n.id&&r.type==="blocks"));
               const influencesList = (n.relationships||[]).filter(r=>r.type==="influences"||r.type==="depends_on").slice(0,2);
               const daysSince = n.updatedAt ? Math.floor((Date.now()-new Date(n.updatedAt))/86400000) : 0;
               const alertLevel = blockedByList.length>0 && daysSince>7 ? "critical" : blockedByList.length>0 && daysSince>3 ? "warning" : null;
@@ -6301,7 +6313,7 @@ function DealRoomView({negotiations,members,projects,workspaces,filter,onSetFilt
                   {influencesList.length>0&&(
                     <div style={{fontSize:11.5,padding:"7px 10px",background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:8,marginTop:6}}>
                       <div style={{fontWeight:600,color:"#1E3A8A"}}>🔗 Relacionada con:</div>
-                      {influencesList.map(r=>{ const t=negotiations.find(x=>x.id===r.negotiationId); const rt=getRelType(r.type); return t?<div key={r.id} style={{color:"#1E40AF",marginTop:2,display:"flex",alignItems:"center",gap:6}}>{rt.icon} <RefBadge code={t.code}/>{t.title}</div>:null; })}
+                      {influencesList.map(r=>{ const t=visibleNegotiations.find(x=>x.id===r.negotiationId); const rt=getRelType(r.type); return t?<div key={r.id} style={{color:"#1E40AF",marginTop:2,display:"flex",alignItems:"center",gap:6}}>{rt.icon} <RefBadge code={t.code}/>{t.title}</div>:null; })}
                     </div>
                   )}
 
@@ -9775,6 +9787,7 @@ export default function TaskFlow(){
             return <DealRoomView
               negotiations={data.negotiations||[]} members={data.members}
               projects={data.projects} workspaces={data.workspaces||[]}
+              currentMember={(data.members||[]).find(m=>m.id===activeMember)}
               filter={negFilter} onSetFilter={setNegFilter}
               onCreate={()=>setNegModal("create")}
               onOpen={id=>{setActiveNegId(id);setActiveSessId(null);}}
