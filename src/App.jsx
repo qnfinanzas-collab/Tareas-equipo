@@ -3834,7 +3834,7 @@ function TimeReportsView({boards,members,projects}){
 }
 
 // ── Project Modal ─────────────────────────────────────────────────────────────
-function ProjectModal({project,members,workspaces,allProjects,onClose,onSave}){
+function ProjectModal({project,members,workspaces,allProjects,currentMember,onClose,onSave,onTransferOwnership}){
   const isEdit=!!project;
   const [name,setName]=useState(project?.name||"");
   const [desc,setDesc]=useState(project?.desc||"");
@@ -3843,17 +3843,23 @@ function ProjectModal({project,members,workspaces,allProjects,onClose,onSave}){
   const [code,setCode]=useState(project?.code||"");
   const [sel,setSel]=useState(project?.members||[]);
   const [workspaceId,setWorkspaceId]=useState(project?.workspaceId??null);
+  const [visibility,setVisibility]=useState(project?.visibility || "private");
   const [cols,setCols]=useState(["Por hacer","En progreso","Revision","Hecho"]);
   const [newCol,setNewCol]=useState("");
   const [pendingClose,setPendingClose]=useState(false);
+  const [transferOpen,setTransferOpen]=useState(false);
+  const [transferTarget,setTransferTarget]=useState("");
   const [initialSnap]=useState(()=>JSON.stringify({
     name:project?.name||"", desc:project?.desc||"",
     color:project?.color||PROJECT_COLORS[0], emoji:project?.emoji||"🚀",
     code:project?.code||"",
     sel:project?.members||[], workspaceId:project?.workspaceId??null,
+    visibility: project?.visibility || "private",
     cols:["Por hacer","En progreso","Revision","Hecho"], newCol:"",
   }));
-  const isDirty=JSON.stringify({name,desc,color,emoji,code,sel,workspaceId,cols,newCol})!==initialSnap;
+  const isDirty=JSON.stringify({name,desc,color,emoji,code,sel,workspaceId,visibility,cols,newCol})!==initialSnap;
+  const owner = isEdit ? (members||[]).find(m=>m.id===project.ownerId) : null;
+  const isOwner = isEdit && currentMember && (currentMember.id === project.ownerId || currentMember.accountRole === "admin");
   const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
   useEffect(()=>{
     const onKey=e=>{ if(e.key==="Escape") handleClose(); };
@@ -3874,7 +3880,7 @@ function ProjectModal({project,members,workspaces,allProjects,onClose,onSave}){
   const canSave = !!name.trim() && !codeError;
   const save=()=>{
     if(!canSave) return;
-    onSave({name:name.trim(),desc,color,emoji,code,members:sel,columns:cols,workspaceId});
+    onSave({name:name.trim(),desc,color,emoji,code,members:sel,columns:cols,workspaceId,visibility});
     onClose();
   };
   return(
@@ -3947,6 +3953,56 @@ function ProjectModal({project,members,workspaces,allProjects,onClose,onSave}){
             <option value="">— Sin workspace —</option>
             {(workspaces||[]).map(w=><option key={w.id} value={w.id}>{w.emoji} {w.name}</option>)}
           </select>
+          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Visibilidad del proyecto</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+            {[
+              {key:"private", icon:"🔒", label:"Privado", desc:"Solo tú y los miembros invitados"},
+              {key:"team",    icon:"👥", label:"Equipo",  desc:"Todos pueden verlo, solo miembros editan"},
+              {key:"public",  icon:"🌍", label:"Público", desc:"Visible para toda la organización"},
+            ].map(opt=>{
+              const active = visibility===opt.key;
+              return (
+                <label key={opt.key} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:8,border:`1.5px solid ${active?color:"#e5e7eb"}`,background:active?`${color}10`:"#fff",cursor:"pointer"}}>
+                  <input type="radio" name="visibility" value={opt.key} checked={active} onChange={()=>setVisibility(opt.key)} style={{margin:0,accentColor:color}}/>
+                  <span style={{fontSize:14}}>{opt.icon}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:active?700:500,color:active?color:"#374151"}}>{opt.label}</div>
+                    <div style={{fontSize:11,color:"#7F8C8D"}}>{opt.desc}</div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+          {isEdit && owner && (
+            <div style={{padding:"10px 12px",borderRadius:8,background:"#F9FAFB",border:"0.5px solid #E5E7EB",marginBottom:16,fontSize:12}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.06em"}}>Propiedad</div>
+                  <div style={{fontSize:13,color:"#111827",marginTop:2}}>👤 <b>{owner.name}</b> {owner.id===currentMember?.id ? <span style={{color:"#1D9E75"}}>(tú)</span> : null}</div>
+                  {project?.createdAt && (
+                    <div style={{fontSize:10.5,color:"#6B7280",marginTop:2}}>Creado el {new Date(project.createdAt).toLocaleDateString("es-ES",{day:"numeric",month:"short",year:"numeric"})}</div>
+                  )}
+                </div>
+                {isOwner && onTransferOwnership && !transferOpen && (
+                  <button onClick={()=>setTransferOpen(true)} style={{padding:"5px 10px",borderRadius:6,background:"transparent",border:"1px solid #D1D5DB",fontSize:11.5,fontWeight:600,cursor:"pointer",color:"#6B7280",fontFamily:"inherit"}}>Transferir propiedad</button>
+                )}
+              </div>
+              {transferOpen && (
+                <div style={{marginTop:10,paddingTop:10,borderTop:"0.5px dashed #E5E7EB",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                  <select value={transferTarget} onChange={e=>setTransferTarget(e.target.value)} style={{flex:1,minWidth:160,padding:"5px 8px",borderRadius:6,border:"0.5px solid #D1D5DB",fontSize:12,fontFamily:"inherit",background:"#fff"}}>
+                    <option value="">— Selecciona nuevo owner —</option>
+                    {(members||[]).filter(m=>m.id!==project.ownerId).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                  <button
+                    disabled={!transferTarget}
+                    onClick={()=>{ onTransferOwnership(project.id, Number(transferTarget)); setTransferOpen(false); setTransferTarget(""); onClose(); }}
+                    style={{padding:"5px 10px",borderRadius:6,background:transferTarget?"#E24B4A":"#E5E7EB",color:transferTarget?"#fff":"#9CA3AF",border:"none",fontSize:11.5,fontWeight:600,cursor:transferTarget?"pointer":"default",fontFamily:"inherit"}}
+                  >Confirmar transferencia</button>
+                  <button onClick={()=>{setTransferOpen(false);setTransferTarget("");}} style={{padding:"5px 10px",borderRadius:6,background:"transparent",border:"1px solid #D1D5DB",fontSize:11.5,cursor:"pointer",color:"#6B7280",fontFamily:"inherit"}}>Cancelar</button>
+                </div>
+              )}
+            </div>
+          )}
           <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Miembros</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:8,marginBottom:20}}>
             {members.map(m=>{ const mp2=MP[m.id]||MP[0]; const active=sel.includes(m.id); return <div key={m.id} onClick={()=>toggleM(m.id)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:10,border:`1.5px solid ${active?mp2.solid:"#e5e7eb"}`,background:active?mp2.light:"#f9fafb",cursor:"pointer"}}><div style={{width:30,height:30,borderRadius:"50%",background:active?mp2.solid:"#d1d5db",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,flexShrink:0}}>{m.initials}</div><div style={{flex:1,minWidth:0}}><div style={{fontSize:12,fontWeight:active?600:400,color:active?mp2.solid:"#374151"}}>{m.name}</div><div style={{fontSize:10,color:"#9ca3af"}}>{m.role}</div></div></div>; })}
@@ -9205,14 +9261,15 @@ export default function TaskFlow(){
     });
     addToast("✓ Proyecto creado");
   },[addToast, activeMember]);
-  const editProject = useCallback((idx,{name,desc,color,emoji,code,members:mems,columns,workspaceId})=>{
+  const editProject = useCallback((idx,{name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility})=>{
     setData(prev=>{
       const p=prev.projects[idx];
       // Solo aceptamos cambio de código si es válido y no colisiona con
       // otro proyecto distinto. En caso contrario, mantenemos el actual.
       const codeIsFree = isValidProjectCode(code) && !prev.projects.some((x,i)=>i!==idx && x.code===code);
       const finalCode = codeIsFree ? code : p.code;
-      const projects=prev.projects.map((x,i)=>i===idx?{...x,name,desc,color,emoji,code:finalCode,codeAuto:finalCode===p.code?x.codeAuto:false,members:mems,workspaceId:workspaceId??null}:x);
+      const finalVisibility = (visibility==="private"||visibility==="team"||visibility==="public") ? visibility : p.visibility;
+      const projects=prev.projects.map((x,i)=>i===idx?{...x,name,desc,color,emoji,code:finalCode,codeAuto:finalCode===p.code?x.codeAuto:false,members:mems,workspaceId:workspaceId??null,visibility:finalVisibility}:x);
       const existing=prev.boards[p.id]||[];
       const existNames=existing.map(c=>c.name);
       const newCols=columns.filter(n=>!existNames.includes(n)).map(n=>({id:`nc${nextColId++}`,name:n,tasks:[]}));
@@ -9220,6 +9277,23 @@ export default function TaskFlow(){
       return{...prev,projects,boards:{...prev.boards,[p.id]:merged.length>0?merged:existing}};
     });
     addToast("✓ Proyecto actualizado");
+  },[addToast]);
+  // Transferencia de propiedad del proyecto. Solo dispara si el caller ya
+  // ha confirmado en UI; no validamos aquí porque la única ruta que llama
+  // aquí es ProjectModal con isOwner=true. Asegura que el nuevo owner sea
+  // miembro (auto-añade si no estaba) para no dejar el proyecto en estado
+  // inconsistente.
+  const transferProjectOwnership = useCallback((projId, newOwnerId)=>{
+    setData(prev=>({
+      ...prev,
+      projects: prev.projects.map(p=>{
+        if(p.id!==projId) return p;
+        const ms = Array.isArray(p.members) ? p.members : [];
+        const nextMembers = ms.includes(newOwnerId) ? ms : [...ms, newOwnerId];
+        return {...p, ownerId:newOwnerId, members:nextMembers};
+      }),
+    }));
+    addToast("✓ Propiedad transferida","success");
   },[addToast]);
   const createWorkspace = useCallback((payload)=>{
     const id=nextWsId++;
@@ -9672,8 +9746,8 @@ export default function TaskFlow(){
       <EmailToast emails={emailQueue} onDismiss={i=>setEQ(q=>q.filter((_,j)=>j!==i))}/>
       <Toast toasts={toasts}/>
       {profileMember&&<ProfileModal member={profileMember} onClose={()=>setPM(null)} onSave={avail=>{saveMemberProfile(profileMember.id,avail);setPM(null);}}/>}
-      {projectModal==="create"&&<ProjectModal members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} onClose={()=>setProjModal(null)} onSave={createProject}/>}
-      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)}/>}
+      {projectModal==="create"&&<ProjectModal members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setProjModal(null)} onSave={createProject}/>}
+      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)} onTransferOwnership={transferProjectOwnership}/>}
       {memberModal==="create"&&<MemberEditModal allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={createMember}/>}
       {memberModal&&memberModal!=="create"&&<MemberEditModal member={memberModal} allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={d=>updateMember(d,memberModal.id)} onDelete={id=>{deleteMember(id);setMemberModal(null);}}/>}
       {agentModal==="create"&&<AgentEditModal onClose={()=>setAgentModal(null)} onSave={createAgent}/>}
