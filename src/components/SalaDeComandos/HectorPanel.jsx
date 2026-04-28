@@ -19,7 +19,7 @@
 //     Héctor para que verbalice la confirmación y ejecute la acción.
 import React, { useEffect, useState, useRef } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
-import { PLAIN_TEXT_RULE, getEnergyLevel, buildSkillsBlock } from "../../lib/agent.js";
+import { PLAIN_TEXT_RULE, getEnergyLevel, buildSkillsBlock, detectSkills } from "../../lib/agent.js";
 import { formatCeoMemoryForPrompt } from "../../lib/memory.js";
 
 const STATE_LABEL = {
@@ -32,6 +32,27 @@ const STATE_LABEL = {
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const HECTOR_VOICE = { gender: "male", rate: 1.1, pitch: 0.9 };
 const CHAT_MAX = 50;
+
+// Mapas de presentación para los chips de skills detectados. Los keys
+// coinciden 1:1 con SKILL_TRIGGERS de lib/agent.js.
+const SKILL_LABELS = {
+  finanzas:   "💰 Finanzas",
+  negociador: "🤝 Negociador",
+  comercial:  "📈 Ventas",
+  analista:   "📊 Analista",
+  estratega:  "🎯 Estratega",
+  personas:   "👥 Personas",
+  legal:      "⚖️ Legal",
+};
+const SKILL_COLORS = {
+  finanzas:   "#27AE60",
+  negociador: "#9B59B6",
+  comercial:  "#3498DB",
+  analista:   "#16A085",
+  estratega:  "#E67E22",
+  personas:   "#E91E63",
+  legal:      "#34495E",
+};
 
 const speakRecommendation = (text) => {
   if (typeof window === "undefined" || !window.speechSynthesis) return;
@@ -200,6 +221,7 @@ export default function HectorPanel({
   // Cuando el usuario entra en el tab Chat, sincronizamos lastSeenChatLength
   // con chatHistory.length → unread vuelve a 0. Se persiste solo en memoria.
   const [activeTab, setActiveTab] = useState("analysis");
+  const [activeSkills, setActiveSkills] = useState([]);
   const [lastSeenChatLength, setLastSeenChatLength] = useState(() => {
     try {
       const raw = localStorage.getItem(CHAT_KEY);
@@ -376,6 +398,8 @@ export default function HectorPanel({
         ...(riesgosNow.slice(0, 5).map((r) => r.title || r.label || r.msg || "")),
       ].filter(Boolean).join(" | ");
       const skillsBlock = buildSkillsBlock(skillsSignal);
+      // Refleja en UI los expertos detectados — chips visibles para el CEO.
+      setActiveSkills(detectSkills(skillsSignal));
       const system = baseSystem
         + (memBlock ? ("\n\n---\n" + memBlock) : "")
         + skillsBlock
@@ -652,6 +676,9 @@ Reglas:
         recsNow[0]?.title,
         focusNow?.title,
       );
+      // En el chat el dominio lo marca sobre todo el mensaje del CEO; lo
+      // reflejamos en los chips para que vea qué experto está tirando Héctor.
+      setActiveSkills(detectSkills([userMessage, recsNow[0]?.title, focusNow?.title].filter(Boolean).join(" | ")));
       const system = baseSystem
         + (memBlock ? ("\n\n---\n" + memBlock) : "")
         + skillsBlock
@@ -949,6 +976,7 @@ Reglas para block_task:
         @keyframes hp-fade { from { opacity: 0; transform: translateY(2px);} to { opacity: 1; transform: translateY(0);} }
         @keyframes hp-pulse-dot { 0%,100% { opacity:1;} 50% { opacity:0.4;} }
         @keyframes hp-mic-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(231,76,60,0.55);} 50% { box-shadow: 0 0 0 6px rgba(231,76,60,0);} }
+        @keyframes fadeInSkills { from { opacity: 0; transform: translateY(-4px);} to { opacity: 1; transform: translateY(0);} }
       `}</style>
 
       {/* Header (64px fijo) */}
@@ -964,6 +992,42 @@ Reglas para block_task:
           {stateInfo.label}
         </span>
       </div>
+
+      {/* Chips de skills consultados — visible cuando Héctor detecta expertos */}
+      {activeSkills.length > 0 && (
+        <div
+          key={activeSkills.join("|")}
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 6,
+            padding: "8px 12px",
+            backgroundColor: "#F8F9FA",
+            borderBottom: "0.5px solid #ECF0F1",
+            fontSize: 11,
+            flexShrink: 0,
+            animation: "fadeInSkills 0.3s ease-out",
+          }}
+        >
+          <span style={{ color: "#7F8C8D", fontWeight: 600 }}>🧙 Consultando expertos:</span>
+          {activeSkills.map((skill) => (
+            <span
+              key={skill}
+              title={`Skill ${SKILL_LABELS[skill] || skill} activo en este análisis`}
+              style={{
+                backgroundColor: SKILL_COLORS[skill] || "#95A5A6",
+                color: "white",
+                padding: "3px 10px",
+                borderRadius: 12,
+                fontWeight: 600,
+                fontSize: 10,
+                letterSpacing: "0.3px",
+              }}
+            >{SKILL_LABELS[skill] || skill}</span>
+          ))}
+        </div>
+      )}
 
       {/* Tab bar (40px fijo) */}
       <div style={{ height: 40, display: "flex", borderBottom: "0.5px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
