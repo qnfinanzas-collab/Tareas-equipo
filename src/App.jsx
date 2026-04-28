@@ -4380,11 +4380,36 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
   const total=pid=>(boards[pid]||[]).flatMap(c=>c.tasks).length;
   const done=pid=>(boards[pid]||[]).filter(c=>c.name==="Hecho").flatMap(c=>c.tasks).length;
   const [pendingDel,setPendingDel]=useState(null);
+  // Guard: si todavía no resolvimos el miembro activo, NO renderizamos
+  // nada. Antes había un flash con todos los proyectos "team" porque
+  // canViewProject(undefined, p) devolvía true para visibility "team"/
+  // "public". Mejor mostrar skeleton vacío que filtrar contenido sensible.
+  if (!currentMember) {
+    return (
+      <div style={{padding:20,textAlign:"center",color:"#9CA3AF",fontSize:13}}>Cargando proyectos…</div>
+    );
+  }
   // Filtro de visibilidad usando canViewProject de lib/auth.js. Mantiene el
   // índice del array maestro (i) para que setActiveProject/edit/delete sigan
   // apuntando al proyecto correcto.
   const isVisible = (p) => canViewProject(currentMember, p);
   const visibleCount = (projects||[]).filter(isVisible).length;
+  // Empty state con CTA prominente cuando el miembro no ve ningún proyecto.
+  // Mejor que mostrar el grid vacío con la dashed tile suelta — invita
+  // explícitamente a crear el primer proyecto.
+  if (visibleCount === 0) {
+    return (
+      <div style={{padding:"60px 20px",textAlign:"center",maxWidth:480,margin:"0 auto"}}>
+        <div style={{fontSize:48,marginBottom:16}}>📁</div>
+        <div style={{fontSize:18,fontWeight:700,color:"#111827",marginBottom:8}}>No tienes proyectos todavía</div>
+        <div style={{fontSize:13,color:"#7F8C8D",marginBottom:24,lineHeight:1.5}}>Crea tu primer proyecto para empezar a organizar tus tareas. Será privado por defecto: solo tú y los miembros que invites podrán verlo.</div>
+        <button
+          onClick={onCreateProject}
+          style={{background:"#3498DB",color:"#fff",padding:"12px 24px",borderRadius:8,fontSize:14,fontWeight:600,border:"none",cursor:"pointer",fontFamily:"inherit"}}
+        >+ Crear mi primer proyecto</button>
+      </div>
+    );
+  }
   return(
     <div style={{padding:20}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
@@ -8289,7 +8314,11 @@ export default function TaskFlow(){
   };
   // Si no eres admin y estás en un tab admin-only, te redirigimos a "mytasks".
   // Evita que un member acceda a vistas restringidas con la URL/atajos.
-  const ADMIN_ONLY_TABS = new Set(["dealroom","projects","workspaces","dashboard","briefings","memory","board","planner","team","reports","eisenhower","users"]);
+  // "projects"/"board"/"team"/"reports"/"eisenhower" salen de la lista: ahora
+  // cualquier autenticado puede tener proyectos propios y navegar dentro de
+  // ellos (la edición sigue gateada por canEditProject en cada mutación).
+  // Mantenerlos aquí causaba un flash de la vista completa antes del redirect.
+  const ADMIN_ONLY_TABS = new Set(["dealroom","workspaces","dashboard","briefings","memory","planner","users"]);
   useEffect(()=>{
     if(authReady && authSession && authMemberInfo?.member && !isAdmin){
       if(ADMIN_ONLY_TABS.has(activeTab)) setActiveTab("mytasks");
