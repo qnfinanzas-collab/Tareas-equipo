@@ -25,6 +25,7 @@ import CierreDia from "./components/CierreDia.jsx";
 import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import FinanceView from "./components/Finanzas/FinanceView.jsx";
+import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
@@ -1076,6 +1077,17 @@ function _migrate(d){
   }
   // Movimientos financieros (módulo Finanzas). Lista plana de movimientos.
   if (!Array.isArray(d.financeMovements)) d.financeMovements = [];
+  // Gobernanza empresarial: estructura societaria + obligaciones fiscales
+  // + alertas. Inicialización idempotente. Las obligaciones por defecto
+  // se generan vacías; el admin las puebla manualmente o usando la
+  // plantilla estándar (modelo 200/202/303/111/347/390/720/115).
+  if (!d.governance || typeof d.governance !== "object") {
+    d.governance = { companies: [], obligations: [], alerts: [] };
+  } else {
+    if (!Array.isArray(d.governance.companies))   d.governance.companies   = [];
+    if (!Array.isArray(d.governance.obligations)) d.governance.obligations = [];
+    if (!Array.isArray(d.governance.alerts))      d.governance.alerts      = [];
+  }
   return d;
 }
 function _loadData(){
@@ -5014,6 +5026,7 @@ const PERMISSION_FEATURES = [
   { key: "briefings",  label: "Briefings",  icon: "🧠", desc: "Briefings IA del equipo y proyectos" },
   { key: "memory",     label: "Memoria",    icon: "🧬", desc: "Memoria del CEO y agentes" },
   { key: "workspaces", label: "Workspaces", icon: "📦", desc: "Workspaces de cliente con credenciales" },
+  { key: "gobernanza", label: "Gobernanza", icon: "🏛️", desc: "Estructura societaria, calendario fiscal, Gonzalo" },
 ];
 // Agentes IA disponibles. Definición canónica usada por la pestaña
 // "🤖 Agentes" de UsersView. Si añades un nuevo agente al sistema multi-
@@ -8784,6 +8797,7 @@ export default function TaskFlow(){
     briefings:  "briefings",
     memory:     "memory",
     finance:    "finance",
+    gobernanza: "gobernanza",
   };
   useEffect(()=>{
     if(authReady && authSession && authMemberInfo?.member && !isAdmin){
@@ -9355,6 +9369,31 @@ export default function TaskFlow(){
     });
     addToast("✓ Permisos actualizados");
   },[addToast]);
+  // Gobernanza: setter genérico que merge un patch sobre data.governance.
+  // El componente GobernanzaView usa onUpdateGovernance(patch) para mutar
+  // companies / obligations / alerts sin tocar otras claves de data.
+  const updateGovernance = useCallback((patch)=>{
+    setData(prev=>({
+      ...prev,
+      governance: {
+        companies:   patch.companies   ?? prev.governance?.companies   ?? [],
+        obligations: patch.obligations ?? prev.governance?.obligations ?? [],
+        alerts:      patch.alerts      ?? prev.governance?.alerts      ?? [],
+      },
+    }));
+  },[]);
+  // Llamada directa a Gonzalo desde la sección Gobernanza ▸ tab Chat.
+  // El componente pasa {messages, system?} y devuelve la respuesta del LLM.
+  // Usa el promptBase de Gonzalo del agentes data + PLAIN_TEXT_RULE.
+  const callGonzaloDirect = useCallback(async ({messages, extraSystem}={})=>{
+    const gonzalo = (dataRef.current?.agents||[]).find(a=>a.name==="Gonzalo Gobernanza");
+    if(!gonzalo) throw new Error("Gonzalo no está en agents");
+    const system = (gonzalo.promptBase||`Eres Gonzalo, estratega de gobernanza empresarial.`)
+      + "\n\n" + PLAIN_TEXT_RULE
+      + (extraSystem ? `\n\n${extraSystem}` : "");
+    const out = await callAgentSafe({system, messages: messages||[], max_tokens: 1200});
+    return out;
+  },[]);
   // Setter dedicado para permisos de agentes IA. Toggle binario por
   // (memberId, agentKey). Llamado desde la PermissionsTable (columna
   // "Agentes"). El admin global no necesita esto.
@@ -10020,6 +10059,7 @@ export default function TaskFlow(){
           {id:"dashboard",  icon:"📊", label:"Dashboard analítico", shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:false, requiresPermission:"dashboard"},
           {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:false, requiresPermission:"briefings"},
           {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:false, requiresPermission:"memory"},
+          {id:"gobernanza", icon:"🏛️", label:"Gobernanza",   shortcut:"⌘⇧G", onClick:()=>{setActiveTab("gobernanza");}, adminOnly:false, requiresPermission:"gobernanza"},
           {id:"users",      icon:"👥", label:"Usuarios",     shortcut:"⌘⇧U", onClick:()=>{setActiveTab("users");}, adminOnly:true},
         ];
         // Filtrado del sidebar: admin global ve todo. Para no-admins:
@@ -10316,6 +10356,14 @@ export default function TaskFlow(){
             return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement}/>;
           })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
+          {activeTab==="gobernanza"&&(()=>{
+            const myMember = (data.members||[]).find(x=>x.id===activeMember);
+            const canView  = hasPermission(myMember, "gobernanza", "view", data.permissions);
+            if(!canView){
+              return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>🔒 Sin permisos para acceder al módulo de Gobernanza. Contacta con el admin global.</div>;
+            }
+            return <GobernanzaView data={data} currentMember={myMember} onUpdateGovernance={updateGovernance} onCallAgent={callGonzaloDirect}/>;
+          })()}
           {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
           {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} onTransferProject={transferTaskToProject} onAddTimelineEntry={(taskId,entry)=>addTimelineEntry(taskId,{...entry,authorId:entry.authorId??activeMember,author:entry.author||(data.members.find(m=>m.id===activeMember)?.name)})} onToggleMilestone={toggleTimelineMilestone} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={(id,cid,upd)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) updateTask(id,cid,upd); else updateTaskAnywhere(id,upd); }} onMove={moveTask} onAddTask={addTask} onDeleteTask={(id,cid)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) deleteTask(id,cid); else deleteTaskAnywhere(id); }}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
