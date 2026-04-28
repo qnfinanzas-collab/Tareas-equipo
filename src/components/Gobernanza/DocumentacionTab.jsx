@@ -1,7 +1,8 @@
 // DocumentacionTab — gestión de documentación societaria por empresa.
 // Lista agrupada por categoría con estado visual (✅❌🟡⚪) y filtros.
-// La subida de archivos, gestión de versiones y compartir llegan en
-// commits siguientes — este commit cierra la UI base de visualización.
+// Zona de drop única arriba: el CEO suelta cualquier archivo y Gonzalo lo
+// clasifica automáticamente, asignándolo al documento correcto. Las filas
+// individuales mantienen un botón "Adjuntar" como vía manual de respaldo.
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { CATEGORY_LABELS, CATEGORY_ORDER, computeDocStats } from "./documentTemplates.js";
 
@@ -132,6 +133,92 @@ export default function DocumentacionTab({ governance, currentMember, onUpdateGo
     setTimeout(() => setToast(null), 2000);
   };
 
+  // Estado del drop zone único: archivos en cola, archivo en proceso,
+  // resultados recientes (últimos 5 con feedback visual del CEO).
+  const [isDragOverGlobal, setIsDragOverGlobal] = useState(false);
+  const [processingFile, setProcessingFile] = useState(null);
+  const [recentResults, setRecentResults] = useState([]);
+  const globalFileInputRef = useRef(null);
+
+  const onGlobalPick = () => globalFileInputRef.current?.click();
+  const onGlobalDrop = (e) => {
+    e.preventDefault();
+    setIsDragOverGlobal(false);
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length) processFiles(files);
+  };
+  const onGlobalDragOver = (e) => { e.preventDefault(); setIsDragOverGlobal(true); };
+  const onGlobalDragLeave = () => setIsDragOverGlobal(false);
+  const onGlobalChange = (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length) processFiles(files);
+  };
+
+  // Procesa una lista de archivos secuencialmente: clasifica con Gonzalo,
+  // adjunta al documento que matchea (o crea uno nuevo en "otros"), y
+  // muestra el resultado en el panel de feedback.
+  const processFiles = async (files) => {
+    for (const file of files) {
+      if (file.size > MAX_FILE_BYTES) {
+        setRecentResults(r => [{ file: file.name, ok: false, msg: `Excede ${MAX_FILE_BYTES / (1024*1024)}MB`, ts: Date.now() }, ...r].slice(0, 5));
+        continue;
+      }
+      setProcessingFile(file.name);
+      try {
+        const cls = await classifyDocumentWithGonzalo(file, companyDocs, company);
+        const dataUrl = await readFileAsDataUrl(file);
+        const filePayload = {
+          status: "attached",
+          fileUrl: dataUrl,
+          fileName: file.name,
+          fileType: file.type || "",
+          fileSize: file.size,
+          uploadedBy: currentMember?.id ?? null,
+          uploadedAt: new Date().toISOString(),
+        };
+        let docsUpdated;
+        let resultLabel;
+        if (cls.match && companyDocs.find(d => d.id === cls.match)) {
+          // Match: adjuntamos al documento existente, archivamos versión previa.
+          docsUpdated = allDocs.map(d => {
+            if (d.id !== cls.match) return d;
+            const versions = Array.isArray(d.versions) ? d.versions.slice() : [];
+            if (d.fileUrl) {
+              versions.unshift({ fileUrl: d.fileUrl, fileName: d.fileName, fileType: d.fileType, fileSize: d.fileSize, uploadedBy: d.uploadedBy, uploadedAt: d.uploadedAt, archivedAt: new Date().toISOString() });
+            }
+            return { ...d, ...filePayload, versions };
+          });
+          const matchedName = companyDocs.find(d => d.id === cls.match)?.name || "documento";
+          resultLabel = `→ ${matchedName}`;
+        } else {
+          // No match: creamos un documento nuevo en la categoría sugerida.
+          const newDoc = {
+            id: `doc_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
+            companyId: company.id,
+            category: cls.category || "otros",
+            subcategory: cls.subcategory || null,
+            name: cls.newDocName || file.name.replace(/\.[^.]+$/, ""),
+            description: cls.summary || "",
+            required: false,
+            ...filePayload,
+            expiresAt: null, dueDate: null,
+            versions: [], notes: "",
+            createdAt: new Date().toISOString(),
+          };
+          docsUpdated = [...allDocs, newDoc];
+          resultLabel = `→ nuevo: ${newDoc.name} (${CATEGORY_LABELS[newDoc.category] || newDoc.category})`;
+        }
+        onUpdateGovernance?.({ documents: docsUpdated });
+        setRecentResults(r => [{ file: file.name, ok: true, msg: resultLabel, confidence: cls.confidence, ts: Date.now() }, ...r].slice(0, 5));
+      } catch (e) {
+        setRecentResults(r => [{ file: file.name, ok: false, msg: e.message || "Error clasificando", ts: Date.now() }, ...r].slice(0, 5));
+      } finally {
+        setProcessingFile(null);
+      }
+    }
+  };
+
   // Agrupa por categoría respetando CATEGORY_ORDER. Las cuentas anuales y
   // fiscal se sub-agrupan por subcategory (año / trimestre).
   const grouped = useMemo(() => {
@@ -183,6 +270,56 @@ export default function DocumentacionTab({ governance, currentMember, onUpdateGo
           </div>
         </div>
       </div>
+
+      {/* Zona de drop ÚNICA: el CEO suelta cualquier archivo y Gonzalo
+          lo lee, lo clasifica y lo adjunta al documento correcto. */}
+      <div
+        onDrop={onGlobalDrop}
+        onDragOver={onGlobalDragOver}
+        onDragLeave={onGlobalDragLeave}
+        onClick={!processingFile ? onGlobalPick : undefined}
+        style={{
+          border: `2px dashed ${isDragOverGlobal ? "#8E44AD" : "#BDC3C7"}`,
+          borderRadius: 12,
+          padding: "32px 24px",
+          textAlign: "center",
+          backgroundColor: isDragOverGlobal ? "#F5EEFA" : "#FAFAFA",
+          cursor: processingFile ? "wait" : "pointer",
+          transition: "all 0.2s",
+        }}
+      >
+        {processingFile ? (
+          <div>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🏛️</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>Gonzalo está analizando "{processingFile}"…</div>
+            <div style={{ fontSize: 12, color: "#7F8C8D", marginTop: 4 }}>Identificando tipo y clasificando</div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📎</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>Arrastra documentos aquí o haz clic</div>
+            <div style={{ fontSize: 12, color: "#7F8C8D", marginTop: 4 }}>Gonzalo los leerá y clasificará automáticamente</div>
+          </div>
+        )}
+        <input ref={globalFileInputRef} type="file" multiple accept={ACCEPTED_TYPES} onChange={onGlobalChange} style={{ display: "none" }} />
+      </div>
+
+      {/* Resultados recientes de clasificación */}
+      {recentResults.length > 0 && (
+        <div style={{ background: "#fff", border: "0.5px solid #E5E7EB", borderRadius: 10, padding: "8px 14px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>Clasificaciones recientes</div>
+          {recentResults.map(r => (
+            <div key={r.ts} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12 }}>
+              <span>{r.ok ? "✅" : "⚠️"}</span>
+              <span style={{ color: "#111827", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}>{r.file}</span>
+              <span style={{ color: r.ok ? "#374151" : "#B91C1C", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.msg}</span>
+              {typeof r.confidence === "number" && r.ok && (
+                <span style={{ fontSize: 10, color: "#9CA3AF" }}>conf. {Math.round(r.confidence * 100)}%</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Filtros */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -266,6 +403,84 @@ function readFileAsDataUrl(file) {
   });
 }
 
+// Lee un File como texto plano (para .txt). Para PDF/DOCX/imagen leeremos
+// como base64 y dejaremos que Claude API lo procese vía bloque "document"
+// o "image".
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error("read error"));
+    reader.readAsText(file);
+  });
+}
+
+function dataUrlToBase64(dataUrl) {
+  const idx = dataUrl.indexOf(",");
+  return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+}
+
+// Pregunta a Gonzalo qué documento es. Devuelve {match, category, confidence,
+// summary}. match es un id de companyDocs o null si no hay match. La llamada
+// se hace contra /api/agent con el file como adjunto (PDF/imagen) o texto.
+async function classifyDocumentWithGonzalo(file, companyDocs, company) {
+  const dataUrl = await readFileAsDataUrl(file);
+  const base64 = dataUrlToBase64(dataUrl);
+  const docList = companyDocs.map(d => `[${d.id}] ${d.name} (categoría: ${d.category}${d.subcategory ? ` / ${d.subcategory}` : ""})`).join("\n");
+  const promptText = `Eres Gonzalo, especialista en gobernanza empresarial. He adjuntado un archivo (${file.name}, ${file.type || "tipo desconocido"}). Analízalo brevemente y dime qué documento societario es para clasificarlo en el archivo digital de "${company?.name || "la sociedad"}".
+
+LISTA DE DOCUMENTOS DE LA EMPRESA (id entre corchetes, no inventes ids fuera de esta lista):
+${docList || "(sin documentos registrados)"}
+
+Responde EXACTAMENTE con este JSON sin texto extra:
+{"match":"<id de la lista o null si no encaja con ninguno>","category":"<constitucion|gobierno|cuentas_anuales|fiscal|laboral|contratos|proteccion_datos|patrimonio|otros>","subcategory":"<año o trimestre si aplica, si no null>","newDocName":"<nombre sugerido si match=null>","summary":"<resumen 1 frase>","confidence":0.0}
+
+Reglas:
+- match debe ser un id de la lista o null. NUNCA inventes ids.
+- Si el documento encaja con uno de la lista, devuelve su id en match.
+- Si no encaja con ninguno (porque el documento es nuevo para esta empresa), match=null y rellena newDocName + category.
+- confidence 0-1. Si <0.6 y no hay match claro, prefiere match=null.`;
+
+  let attachments = [];
+  if (file.type === "application/pdf") {
+    attachments = [{ kind: "pdf", media_type: "application/pdf", data: base64 }];
+  } else if (file.type === "image/jpeg" || file.type === "image/png") {
+    attachments = [{ kind: "image", media_type: file.type, data: base64 }];
+  } else if (file.type === "text/plain") {
+    const text = await readFileAsText(file);
+    attachments = [{ kind: "text", name: file.name, text: text.slice(0, 50000) }];
+  } else {
+    // DOCX y otros: no soportados directamente por Claude. Intentamos como texto extraído del nombre + tipo.
+    return { match: null, category: "otros", subcategory: null, newDocName: file.name.replace(/\.[^.]+$/, ""), summary: `Archivo ${file.type || "desconocido"} sin parser disponible — clasificado en Otros`, confidence: 0.3 };
+  }
+  const res = await fetch("/api/agent", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      system: "Eres un clasificador documental experto. Responde SOLO con JSON válido sin markdown ni prosa.",
+      messages: [{ role: "user", content: promptText }],
+      attachments,
+      max_tokens: 600,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  const raw = (data.text || "").trim();
+  // Tolerar respuesta envuelta en markdown si el modelo se desvía.
+  const jsonStr = raw.replace(/^```json\s*|\s*```$/g, "").replace(/^```\s*|\s*```$/g, "");
+  let parsed;
+  try { parsed = JSON.parse(jsonStr); }
+  catch { throw new Error("Respuesta no parseable como JSON: " + raw.slice(0, 200)); }
+  return {
+    match: parsed.match || null,
+    category: parsed.category || "otros",
+    subcategory: parsed.subcategory || null,
+    newDocName: parsed.newDocName || file.name,
+    summary: parsed.summary || "",
+    confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0,
+  };
+}
+
 function formatBytes(n) {
   if (!n || n < 1024) return `${n || 0} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -338,7 +553,6 @@ function printDocument(doc) {
 function DocumentRow({ doc, onUpdate, currentMember, company, showToast }) {
   const eff = effectiveStatus(doc);
   const meta = STATUS_META[eff] || STATUS_META.pending;
-  const [isDragOver, setIsDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
   const fileInputRef = useRef(null);
@@ -390,9 +604,6 @@ function DocumentRow({ doc, onUpdate, currentMember, company, showToast }) {
 
   const onPick = () => fileInputRef.current?.click();
   const onPickChange = (e) => { handleFiles(e.target.files); e.target.value = ""; };
-  const onDrop = (e) => { e.preventDefault(); setIsDragOver(false); handleFiles(e.dataTransfer.files); };
-  const onDragOver = (e) => { e.preventDefault(); setIsDragOver(true); };
-  const onDragLeave = () => setIsDragOver(false);
 
   const removeFile = () => {
     if (!confirm("¿Quitar el archivo? El documento volverá a quedar pendiente. (La versión anterior se conserva en el historial.)")) return;
@@ -477,23 +688,11 @@ function DocumentRow({ doc, onUpdate, currentMember, company, showToast }) {
               <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES} onChange={onPickChange} style={{ display: "none" }} />
             </div>
           ) : (
-            <div
-              onDragOver={onDragOver}
-              onDragLeave={onDragLeave}
-              onDrop={onDrop}
-              onClick={onPick}
-              style={{
-                padding: "16px 14px",
-                background: isDragOver ? "#F5EEFA" : "#FAFAFA",
-                border: `1.5px dashed ${isDragOver ? "#8E44AD" : "#D1D5DB"}`,
-                borderRadius: 8,
-                textAlign: "center",
-                cursor: busy ? "wait" : "pointer",
-                transition: "background .15s ease, border-color .15s ease",
-              }}
-            >
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 4 }}>📎 {busy ? "Subiendo…" : "Adjuntar documento"}</div>
-              <div style={{ fontSize: 11, color: "#9CA3AF" }}>Arrastra el archivo aquí o haz clic. PDF, DOCX, JPG, PNG · máx 10 MB.</div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <button onClick={onPick} disabled={busy} style={iconBtn} title="Adjuntar archivo manualmente a este documento">
+                {busy ? "⏳ Subiendo…" : "📎 Adjuntar a este documento"}
+              </button>
+              <span style={{ fontSize: 11, color: "#9CA3AF" }}>· o suelta cualquier archivo en la zona superior y Gonzalo lo clasifica</span>
               <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES} onChange={onPickChange} style={{ display: "none" }} />
             </div>
           )}
