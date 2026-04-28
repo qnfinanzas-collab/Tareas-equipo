@@ -3,8 +3,14 @@
 // Zona de drop única arriba: el CEO suelta cualquier archivo y Gonzalo lo
 // clasifica automáticamente, asignándolo al documento correcto. Las filas
 // individuales mantienen un botón "Adjuntar" como vía manual de respaldo.
+//
+// PERSISTENCIA: archivos en bucket Supabase Storage "documents" bajo el
+// prefijo "governance/{companyId}/". El JSON solo guarda metadatos
+// (storagePath, fileName, fileType, fileSize, expiresAt). Los documentos
+// legacy con fileUrl base64 siguen funcionando por compatibilidad.
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { CATEGORY_LABELS, CATEGORY_ORDER, computeDocStats } from "./documentTemplates.js";
+import { uploadDocument as uploadToBucket, getSignedUrlCached, deleteDocument as deleteFromBucket, storageEnabled } from "../../lib/storage.js";
 
 // Sincroniza alertas de gobernanza con el estado de documentación. Por
 // cada documento required pendiente o vencido genera una entrada en
@@ -166,33 +172,48 @@ export default function DocumentacionTab({ governance, currentMember, onUpdateGo
       }
       setProcessingFile(file.name);
       try {
+        // 1. Clasificar (Gonzalo lee el archivo y propone match)
         const cls = await classifyDocumentWithGonzalo(file, companyDocs, company);
-        const dataUrl = await readFileAsDataUrl(file);
+        // 2. Subir al bucket Supabase. Si no hay Supabase configurado,
+        // caemos al modo legacy (base64 en JSON) para no romper el flujo.
+        let storagePayload;
+        if (storageEnabled()) {
+          const meta = await uploadToBucket(file, `governance/${company.id}`);
+          storagePayload = {
+            storagePath: meta.storagePath,
+            fileUrl: null,
+            fileName: meta.name,
+            fileType: meta.type,
+            fileSize: meta.size,
+          };
+        } else {
+          const dataUrl = await readFileAsDataUrl(file);
+          storagePayload = { storagePath: null, fileUrl: dataUrl, fileName: file.name, fileType: file.type || "", fileSize: file.size };
+        }
         const filePayload = {
+          ...storagePayload,
           status: "attached",
-          fileUrl: dataUrl,
-          fileName: file.name,
-          fileType: file.type || "",
-          fileSize: file.size,
           uploadedBy: currentMember?.id ?? null,
           uploadedAt: new Date().toISOString(),
         };
         let docsUpdated;
         let resultLabel;
         if (cls.match && companyDocs.find(d => d.id === cls.match)) {
-          // Match: adjuntamos al documento existente, archivamos versión previa.
+          // Match: adjuntamos al doc existente. La versión previa pasa a
+          // versions[]; si era del bucket, mantenemos su storagePath
+          // archivado (NO la borramos del bucket: "Restaurar" debería
+          // poder recuperarla).
           docsUpdated = allDocs.map(d => {
             if (d.id !== cls.match) return d;
             const versions = Array.isArray(d.versions) ? d.versions.slice() : [];
-            if (d.fileUrl) {
-              versions.unshift({ fileUrl: d.fileUrl, fileName: d.fileName, fileType: d.fileType, fileSize: d.fileSize, uploadedBy: d.uploadedBy, uploadedAt: d.uploadedAt, archivedAt: new Date().toISOString() });
+            if (d.fileUrl || d.storagePath) {
+              versions.unshift({ storagePath: d.storagePath || null, fileUrl: d.fileUrl || null, fileName: d.fileName, fileType: d.fileType, fileSize: d.fileSize, uploadedBy: d.uploadedBy, uploadedAt: d.uploadedAt, archivedAt: new Date().toISOString() });
             }
             return { ...d, ...filePayload, versions };
           });
           const matchedName = companyDocs.find(d => d.id === cls.match)?.name || "documento";
           resultLabel = `→ ${matchedName}`;
         } else {
-          // No match: creamos un documento nuevo en la categoría sugerida.
           const newDoc = {
             id: `doc_${Date.now()}_${Math.random().toString(36).slice(2,8)}`,
             companyId: company.id,
@@ -420,6 +441,38 @@ function dataUrlToBase64(dataUrl) {
   return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
 }
 
+// Resuelve la URL "viva" de un documento. Prioridad:
+//   1) Si tiene storagePath → signed URL del bucket (cacheada 50 min)
+//   2) Fallback legacy: fileUrl (base64) directo
+// Devuelve null si no hay forma de obtener la URL.
+async function resolveDocUrl(doc) {
+  if (!doc) return null;
+  if (doc.storagePath) {
+    try { return await getSignedUrlCached(doc.storagePath); }
+    catch (e) { console.warn("[gov] signed URL fallo:", e?.message); return null; }
+  }
+  return doc.fileUrl || null;
+}
+
+// Hook que resuelve la URL viva al montar y la mantiene en state. Pensado
+// para componentes que necesitan la URL solo cuando se abren (preview,
+// download). Re-resuelve si cambia doc.storagePath o doc.fileUrl.
+function useDocUrl(doc) {
+  const [url, setUrl] = useState(null);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    if (!doc) { setUrl(null); return; }
+    if (!doc.storagePath && !doc.fileUrl) { setUrl(null); return; }
+    setLoading(true);
+    resolveDocUrl(doc).then(u => {
+      if (!cancelled) { setUrl(u); setLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [doc?.storagePath, doc?.fileUrl, doc?.id]);
+  return { url, loading };
+}
+
 // Pregunta a Gonzalo qué documento es. Devuelve {match, category, confidence,
 // summary}. match es un id de companyDocs o null si no hay match. La llamada
 // se hace contra /api/agent con el file como adjunto (PDF/imagen) o texto.
@@ -515,10 +568,12 @@ function dataUrlToBlobUrl(dataUrl) {
 
 async function shareViaEmail(doc, company, sender) {
   const companyName = company?.name || "Sociedad";
+  const url = await resolveDocUrl(doc);
   // 1. Web Share API con archivo — móvil y algunos desktop
-  if (typeof navigator !== "undefined" && navigator.share && navigator.canShare && doc.fileUrl) {
+  if (typeof navigator !== "undefined" && navigator.share && navigator.canShare && url) {
     try {
-      const blob = dataUrlToBlob(doc.fileUrl);
+      // Para signed URL HTTPS hacemos fetch + blob; para data URL convertimos directo.
+      const blob = url.startsWith("data:") ? dataUrlToBlob(url) : await fetch(url).then(r => r.blob());
       if (blob) {
         const file = new File([blob], doc.fileName || "documento", { type: doc.fileType || blob.type });
         if (navigator.canShare({ files: [file] })) {
@@ -553,10 +608,11 @@ ${sender?.name || ""}`
 
 async function shareViaWhatsApp(doc, company) {
   const companyName = company?.name || "Sociedad";
+  const url = await resolveDocUrl(doc);
   // 1. Web Share API con archivo
-  if (typeof navigator !== "undefined" && navigator.share && navigator.canShare && doc.fileUrl) {
+  if (typeof navigator !== "undefined" && navigator.share && navigator.canShare && url) {
     try {
-      const blob = dataUrlToBlob(doc.fileUrl);
+      const blob = url.startsWith("data:") ? dataUrlToBlob(url) : await fetch(url).then(r => r.blob());
       if (blob) {
         const file = new File([blob], doc.fileName || "documento", { type: doc.fileType || blob.type });
         if (navigator.canShare({ files: [file] })) {
@@ -597,6 +653,45 @@ async function copyDataUrlToClipboard(dataUrl) {
     return true;
   } catch { return false; }
 }
+// printDocumentViaUrl: variante que recibe la URL ya resuelta. Útil para
+// signed URLs del bucket (no convertibles a blob URL en algunos navegadores)
+// y data URLs legacy. Mantiene la misma lógica por tipo.
+function printDocumentViaUrl(doc, url) {
+  if (!url) return;
+  if (doc.fileType === "application/pdf") {
+    // signed URLs HTTPS funcionan directo en window.open + print del visor.
+    // data URLs legacy se convierten primero a blob URL.
+    let openUrl = url;
+    let blobUrlCreated = null;
+    if (url.startsWith("data:")) {
+      blobUrlCreated = (() => {
+        try {
+          const [h, b] = url.split(",");
+          const mime = (h.match(/data:([^;]+)/) || [])[1] || "application/pdf";
+          const bin = atob(b);
+          const u8 = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+          return URL.createObjectURL(new Blob([u8], { type: mime }));
+        } catch { return null; }
+      })();
+      openUrl = blobUrlCreated || url;
+    }
+    const w = window.open(openUrl);
+    if (blobUrlCreated) setTimeout(() => URL.revokeObjectURL(blobUrlCreated), 60000);
+    return;
+  }
+  if (doc.fileType?.startsWith("image/")) {
+    const w = window.open("");
+    if (!w) return;
+    w.document.write(`<!doctype html><html><head><title>${doc.name||""}</title></head><body style="margin:0;display:flex;justify-content:center;align-items:center;background:#fff"><img src="${url}" style="max-width:100%;max-height:100vh" onload="window.focus();window.print()" /></body></html>`);
+    w.document.close();
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = url; a.download = doc.fileName || "documento";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
 function printDocument(doc) {
   if (!doc.fileUrl) return;
   // PDF: window.print() falla sobre data URLs en Chrome/Safari. Convertimos
@@ -637,15 +732,18 @@ function DocumentPreviewModal({ doc, onClose }) {
   const isPdf   = doc.fileType === "application/pdf";
   const isImage = doc.fileType?.startsWith("image/");
   const isText  = doc.fileType === "text/plain";
-  // Blob URL solo para PDFs. Las imágenes y texto se renderizan bien
-  // directamente desde data URL. Cleanup al desmontar.
+  // resolvedUrl es la URL "viva" — signed URL del bucket o data URL legacy.
+  // pdfBlobUrl solo se calcula cuando la URL viva es data: (Chrome bloquea
+  // data URLs en iframes); para signed URLs HTTPS no hace falta convertir.
+  const { url: resolvedUrl } = useDocUrl(doc);
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
   useEffect(() => {
-    if (!isPdf || !doc.fileUrl) return;
-    const url = dataUrlToBlobUrl(doc.fileUrl);
+    if (!isPdf || !resolvedUrl) return;
+    if (!resolvedUrl.startsWith("data:")) { setPdfBlobUrl(resolvedUrl); return; }
+    const url = dataUrlToBlobUrl(resolvedUrl);
     setPdfBlobUrl(url);
     return () => { if (url) URL.revokeObjectURL(url); };
-  }, [isPdf, doc.fileUrl]);
+  }, [isPdf, resolvedUrl]);
   return (
     <div onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 4000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div style={{ background: "#fff", borderRadius: 12, width: "92vw", maxWidth: 1100, height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 40px rgba(0,0,0,0.25)" }}>
@@ -654,7 +752,7 @@ function DocumentPreviewModal({ doc, onClose }) {
             <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</div>
             <div style={{ fontSize: 11, color: "#6B7280", fontFamily: "ui-monospace,monospace" }}>📎 {doc.fileName || "(sin nombre)"} · {doc.fileType || "tipo desconocido"}</div>
           </div>
-          <a href={doc.fileUrl} download={doc.fileName} title="Descargar" style={{ ...iconBtn, textDecoration: "none" }}>📥 Descargar</a>
+          {resolvedUrl && <a href={resolvedUrl} download={doc.fileName} title="Descargar" style={{ ...iconBtn, textDecoration: "none" }}>📥 Descargar</a>}
           <button onClick={onClose} title="Cerrar" style={{ background: "transparent", border: "none", fontSize: 22, cursor: "pointer", color: "#6B7280", padding: "0 4px", fontFamily: "inherit" }}>×</button>
         </div>
         <div style={{ flex: 1, minHeight: 0, overflow: "auto", background: isPdf ? "#fff" : "#F9FAFB" }}>
@@ -665,11 +763,13 @@ function DocumentPreviewModal({ doc, onClose }) {
           )}
           {isImage && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 20, height: "100%" }}>
-              <img src={doc.fileUrl} alt={doc.name} style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }} />
+              {resolvedUrl
+                ? <img src={resolvedUrl} alt={doc.name} style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }} />
+                : <div style={{ color: "#9CA3AF", fontSize: 12 }}>Cargando…</div>}
             </div>
           )}
-          {isText && (
-            <PreText dataUrl={doc.fileUrl} />
+          {isText && resolvedUrl && (
+            <PreText dataUrl={resolvedUrl} />
           )}
           {!isPdf && !isImage && !isText && (
             <div style={{ padding: 40, textAlign: "center", color: "#6B7280", fontSize: 13 }}>
@@ -718,32 +818,28 @@ function DocumentRow({ doc, onUpdate, currentMember, company, showToast }) {
     }
     setBusy(true);
     try {
-      const dataUrl = await readFileAsDataUrl(file);
-      // Si ya había un archivo, lo movemos al historial.
+      // Mismo patrón que el dropzone global: bucket si está disponible,
+      // base64 en JSON como fallback legacy.
+      let payload;
+      if (storageEnabled()) {
+        const ownerKey = doc.companyId ? `governance/${doc.companyId}` : `governance/_orphan`;
+        const meta = await uploadToBucket(file, ownerKey);
+        payload = { storagePath: meta.storagePath, fileUrl: null, fileName: meta.name, fileType: meta.type, fileSize: meta.size };
+      } else {
+        const dataUrl = await readFileAsDataUrl(file);
+        payload = { storagePath: null, fileUrl: dataUrl, fileName: file.name, fileType: file.type || "", fileSize: file.size };
+      }
       const versions = Array.isArray(doc.versions) ? doc.versions.slice() : [];
-      if (doc.fileUrl) {
+      if (doc.fileUrl || doc.storagePath) {
         versions.unshift({
-          fileUrl: doc.fileUrl,
-          fileName: doc.fileName,
-          fileType: doc.fileType,
-          fileSize: doc.fileSize,
-          uploadedBy: doc.uploadedBy,
-          uploadedAt: doc.uploadedAt,
-          archivedAt: new Date().toISOString(),
+          storagePath: doc.storagePath || null, fileUrl: doc.fileUrl || null,
+          fileName: doc.fileName, fileType: doc.fileType, fileSize: doc.fileSize,
+          uploadedBy: doc.uploadedBy, uploadedAt: doc.uploadedAt, archivedAt: new Date().toISOString(),
         });
       }
-      onUpdate(doc.id, {
-        status: "attached",
-        fileUrl: dataUrl,
-        fileName: file.name,
-        fileType: file.type || "",
-        fileSize: file.size,
-        uploadedBy: currentMember?.id ?? null,
-        uploadedAt: new Date().toISOString(),
-        versions,
-      });
+      onUpdate(doc.id, { ...payload, status: "attached", uploadedBy: currentMember?.id ?? null, uploadedAt: new Date().toISOString(), versions });
     } catch (e) {
-      alert(`No se pudo leer el archivo: ${e.message || e}`);
+      alert(`No se pudo subir el archivo: ${e.message || e}`);
     } finally {
       setBusy(false);
     }
@@ -755,14 +851,15 @@ function DocumentRow({ doc, onUpdate, currentMember, company, showToast }) {
   const removeFile = () => {
     if (!confirm("¿Quitar el archivo? El documento volverá a quedar pendiente. (La versión anterior se conserva en el historial.)")) return;
     const versions = Array.isArray(doc.versions) ? doc.versions.slice() : [];
-    if (doc.fileUrl) {
+    if (doc.fileUrl || doc.storagePath) {
       versions.unshift({
-        fileUrl: doc.fileUrl, fileName: doc.fileName, fileType: doc.fileType, fileSize: doc.fileSize,
+        storagePath: doc.storagePath || null, fileUrl: doc.fileUrl || null,
+        fileName: doc.fileName, fileType: doc.fileType, fileSize: doc.fileSize,
         uploadedBy: doc.uploadedBy, uploadedAt: doc.uploadedAt, archivedAt: new Date().toISOString(),
       });
     }
     onUpdate(doc.id, {
-      status: "pending", fileUrl: null, fileName: null, fileType: null, fileSize: null,
+      status: "pending", storagePath: null, fileUrl: null, fileName: null, fileType: null, fileSize: null,
       uploadedBy: null, uploadedAt: null, versions,
     });
   };
@@ -772,22 +869,31 @@ function DocumentRow({ doc, onUpdate, currentMember, company, showToast }) {
     const v = versions[idx];
     if (!v) return;
     versions.splice(idx, 1);
-    if (doc.fileUrl) {
+    if (doc.fileUrl || doc.storagePath) {
       versions.unshift({
-        fileUrl: doc.fileUrl, fileName: doc.fileName, fileType: doc.fileType, fileSize: doc.fileSize,
+        storagePath: doc.storagePath || null, fileUrl: doc.fileUrl || null,
+        fileName: doc.fileName, fileType: doc.fileType, fileSize: doc.fileSize,
         uploadedBy: doc.uploadedBy, uploadedAt: doc.uploadedAt, archivedAt: new Date().toISOString(),
       });
     }
     onUpdate(doc.id, {
       status: "attached",
-      fileUrl: v.fileUrl, fileName: v.fileName, fileType: v.fileType, fileSize: v.fileSize,
+      storagePath: v.storagePath || null, fileUrl: v.fileUrl || null,
+      fileName: v.fileName, fileType: v.fileType, fileSize: v.fileSize,
       uploadedBy: v.uploadedBy, uploadedAt: v.uploadedAt, versions,
     });
     setShowVersions(false);
   };
 
-  const hasFile = doc.status === "attached" && doc.fileUrl;
+  const hasFile = doc.status === "attached" && (doc.fileUrl || doc.storagePath);
   const versionsCount = (doc.versions || []).length;
+  // Resuelve la URL real (signed URL si bucket, data URL si legacy) para
+  // los botones que necesitan navegar/descargar el archivo en el momento.
+  const resolveAndOpen = async (action) => {
+    const url = await resolveDocUrl(doc);
+    if (!url) { alert("No se pudo obtener la URL del archivo."); return; }
+    action(url);
+  };
 
   return (
     <div style={{ borderTop: "0.5px solid #F3F4F6" }}>
@@ -823,11 +929,11 @@ function DocumentRow({ doc, onUpdate, currentMember, company, showToast }) {
           {hasFile ? (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
               <button onClick={() => setShowPreview(true)} style={iconBtn} title="Previsualizar sin descargar">👁️ Ver</button>
-              <a href={doc.fileUrl} download={doc.fileName} style={iconBtn} title="Descargar">📥 Descargar</a>
+              <button onClick={() => resolveAndOpen(url => { const a = document.createElement("a"); a.href = url; a.download = doc.fileName || "documento"; a.click(); })} style={iconBtn} title="Descargar">📥 Descargar</button>
               <button onClick={() => shareViaEmail(doc, company, currentMember)} style={iconBtn} title="Compartir por email (con adjunto si el dispositivo lo soporta)">📧 Email</button>
               <button onClick={() => shareViaWhatsApp(doc, company)} style={iconBtn} title="Compartir por WhatsApp (con adjunto si el dispositivo lo soporta)">💬 WhatsApp</button>
-              <button onClick={async () => { const ok = await copyDataUrlToClipboard(doc.fileUrl); showToast?.(ok ? "Link copiado al portapapeles (válido 7 días)" : "No se pudo copiar el link"); }} style={iconBtn} title="Copiar link del documento">🔗 Copiar link</button>
-              <button onClick={() => printDocument(doc)} style={iconBtn} title="Imprimir">🖨️ Imprimir</button>
+              <button onClick={async () => { const url = await resolveDocUrl(doc); const ok = url ? await copyDataUrlToClipboard(url) : false; showToast?.(ok ? "Link copiado al portapapeles" : "No se pudo copiar el link"); }} style={iconBtn} title="Copiar link del documento">🔗 Copiar link</button>
+              <button onClick={() => resolveAndOpen(url => printDocumentViaUrl(doc, url))} style={iconBtn} title="Imprimir">🖨️ Imprimir</button>
               <button onClick={onPick} style={iconBtn} title="Reemplazar archivo">✏️ Reemplazar</button>
               <button onClick={removeFile} style={iconBtnDanger} title="Eliminar archivo">🗑️ Eliminar</button>
               {versionsCount > 0 && (
