@@ -504,6 +504,15 @@ function dataUrlToBlob(dataUrl) {
   } catch { return null; }
 }
 
+// data: URL → blob: URL. Necesario para PDFs e iframes: Chrome bloquea
+// el render de application/pdf en data URLs por sandboxing y window.print
+// no funciona sobre ellas. El caller debe revocar la URL al desmontar
+// con URL.revokeObjectURL para evitar fuga de memoria.
+function dataUrlToBlobUrl(dataUrl) {
+  const blob = dataUrlToBlob(dataUrl);
+  return blob ? URL.createObjectURL(blob) : null;
+}
+
 async function shareViaEmail(doc, company, sender) {
   const companyName = company?.name || "Sociedad";
   // 1. Web Share API con archivo — móvil y algunos desktop
@@ -590,30 +599,53 @@ async function copyDataUrlToClipboard(dataUrl) {
 }
 function printDocument(doc) {
   if (!doc.fileUrl) return;
-  // Abre el archivo en una pestaña nueva con auto-print. Funciona bien
-  // con PDF e imágenes; con .docx el navegador descargará el archivo.
-  const w = window.open();
-  if (!w) return;
-  if (doc.fileType?.startsWith("image/")) {
-    w.document.write(`<img src="${doc.fileUrl}" style="max-width:100%" onload="window.print()" />`);
-  } else if (doc.fileType === "application/pdf") {
-    w.document.write(`<iframe src="${doc.fileUrl}" style="width:100%;height:100vh;border:0" onload="this.contentWindow && this.contentWindow.print && this.contentWindow.print()"></iframe>`);
-  } else {
-    // Para otros tipos: descargar y avisar.
-    const a = w.document.createElement("a");
-    a.href = doc.fileUrl;
-    a.download = doc.fileName || "documento";
-    w.document.body.appendChild(a);
-    a.click();
+  // PDF: window.print() falla sobre data URLs en Chrome/Safari. Convertimos
+  // a blob URL primero y la abrimos en pestaña nueva — el visor de PDF
+  // nativo del navegador renderiza y permite imprimir. Revocamos la URL
+  // tras 60s (más que suficiente para que el visor cargue).
+  if (doc.fileType === "application/pdf") {
+    const blobUrl = dataUrlToBlobUrl(doc.fileUrl);
+    if (!blobUrl) return;
+    const w = window.open(blobUrl);
+    if (!w) { URL.revokeObjectURL(blobUrl); return; }
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    return;
   }
+  // Imagen: documento HTML envolvente con <img onload=window.print()>. La
+  // imagen sí funciona como data URL embebida en src directamente.
+  if (doc.fileType?.startsWith("image/")) {
+    const w = window.open("");
+    if (!w) return;
+    w.document.write(`<!doctype html><html><head><title>${doc.name||""}</title></head><body style="margin:0;display:flex;justify-content:center;align-items:center;background:#fff"><img src="${doc.fileUrl}" style="max-width:100%;max-height:100vh" onload="window.focus();window.print()" /></body></html>`);
+    w.document.close();
+    return;
+  }
+  // Texto u otros: descargamos directamente — no se imprime bien sin
+  // tipografía propia. El usuario puede imprimir desde su editor.
+  const a = document.createElement("a");
+  a.href = doc.fileUrl;
+  a.download = doc.fileName || "documento";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
-// Modal de previsualización del documento. PDF en iframe, imagen como
+// Modal de previsualización del documento. PDF en iframe (con blob URL —
+// Chrome no renderiza data URLs en iframes por sandboxing), imagen como
 // <img>, texto plano con <pre>. Cualquier otro tipo cae a "descarga".
 function DocumentPreviewModal({ doc, onClose }) {
   const isPdf   = doc.fileType === "application/pdf";
   const isImage = doc.fileType?.startsWith("image/");
   const isText  = doc.fileType === "text/plain";
+  // Blob URL solo para PDFs. Las imágenes y texto se renderizan bien
+  // directamente desde data URL. Cleanup al desmontar.
+  const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
+  useEffect(() => {
+    if (!isPdf || !doc.fileUrl) return;
+    const url = dataUrlToBlobUrl(doc.fileUrl);
+    setPdfBlobUrl(url);
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [isPdf, doc.fileUrl]);
   return (
     <div onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 4000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div style={{ background: "#fff", borderRadius: 12, width: "92vw", maxWidth: 1100, height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 40px rgba(0,0,0,0.25)" }}>
@@ -627,7 +659,9 @@ function DocumentPreviewModal({ doc, onClose }) {
         </div>
         <div style={{ flex: 1, minHeight: 0, overflow: "auto", background: isPdf ? "#fff" : "#F9FAFB" }}>
           {isPdf && (
-            <iframe src={doc.fileUrl} title={doc.name} style={{ width: "100%", height: "100%", border: 0 }} />
+            pdfBlobUrl
+              ? <iframe src={pdfBlobUrl} title={doc.name} style={{ width: "100%", height: "100%", minHeight: "70vh", border: 0 }} />
+              : <div style={{ padding: 40, textAlign: "center", color: "#9CA3AF", fontSize: 12 }}>Cargando previsualización…</div>
           )}
           {isImage && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 20, height: "100%" }}>
