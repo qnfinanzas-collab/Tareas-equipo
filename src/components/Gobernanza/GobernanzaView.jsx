@@ -8,6 +8,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import DocumentacionTab from "./DocumentacionTab.jsx";
+import { generateDocumentsForCompany } from "./documentTemplates.js";
 
 const TAB_DEFS = [
   { key: "dashboard", label: "🏛️ Dashboard" },
@@ -91,19 +92,29 @@ function GovDashboardTab({ governance, onUpdateGovernance }) {
 
   const onSaveCompany = (company) => {
     const list = companies.slice();
+    let documents = governance.documents || [];
     if (editingCompany && editingCompany.id) {
       const idx = list.findIndex(c => c.id === editingCompany.id);
       if (idx >= 0) list[idx] = { ...list[idx], ...company };
     } else {
       const id = `co_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
-      list.push({ id, participation: 100, ...company });
+      const newCompany = { id, participation: 100, ...company };
+      list.push(newCompany);
+      // Auto-genera la lista de documentos canónica para esta empresa.
+      // Si ya existían docs (caso raro: ID reusado), no duplicamos.
+      const hasExisting = documents.some(d => d.companyId === id);
+      if (!hasExisting) {
+        documents = [...documents, ...generateDocumentsForCompany(newCompany)];
+      }
     }
-    onUpdateGovernance?.({ companies: list });
+    onUpdateGovernance?.({ companies: list, documents });
     setEditingCompany(null);
     setAdding(false);
   };
   const onDeleteCompany = (id) => {
-    onUpdateGovernance?.({ companies: companies.filter(c => c.id !== id) });
+    // Borramos también documentos asociados a la empresa eliminada.
+    const docs = (governance.documents || []).filter(d => d.companyId !== id);
+    onUpdateGovernance?.({ companies: companies.filter(c => c.id !== id), documents: docs });
     setEditingCompany(null);
   };
 
