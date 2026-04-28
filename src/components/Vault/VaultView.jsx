@@ -7,7 +7,25 @@
 // DocumentacionTab; aquí las redeclaramos en miniatura para no acoplar
 // los dos módulos. La clasificación llama directamente a /api/agent.
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { PERSONAL_CATEGORY_LABELS, PERSONAL_CATEGORY_ORDER, computePersonalStats } from "./personalTemplates.js";
+import { PERSONAL_CATEGORY_LABELS, PERSONAL_CATEGORY_ORDER, computePersonalStats, generatePersonalDocuments } from "./personalTemplates.js";
+
+const RELATIONSHIPS = [
+  { key: "CEO",        label: "Yo (titular principal)" },
+  { key: "Cónyuge",    label: "Cónyuge / Pareja" },
+  { key: "Hijo/a",     label: "Hijo/a" },
+  { key: "Padre/Madre", label: "Padre / Madre" },
+  { key: "Hermano/a",  label: "Hermano/a" },
+  { key: "Socio",      label: "Socio" },
+  { key: "Allegado",   label: "Allegado" },
+  { key: "Otro",       label: "Otro" },
+];
+
+function genId() {
+  return (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `vs_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+}
+function genToken() {
+  return (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, "") : `tk${Date.now()}${Math.random().toString(36).slice(2,12)}`;
+}
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const ACCEPTED_TYPES = "application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain";
@@ -124,9 +142,43 @@ Reglas:
 export default function VaultView({ data, currentMember, onUpdateVault }) {
   const spaces = data?.vault?.spaces || [];
   const [activeSpaceId, setActiveSpaceId] = useState(spaces[0]?.id || null);
+  const [editing, setEditing] = useState(null); // null | "new" | space (objeto)
   const activeSpace = spaces.find(s => s.id === activeSpaceId) || spaces[0];
 
-  // El render del shell con sus tabs; el cuerpo activo se delega a SpaceContent.
+  const onSaveSpace = (data) => {
+    let nextSpaces;
+    if (editing && editing !== "new" && editing.id) {
+      // Edit existente
+      nextSpaces = spaces.map(s => s.id === editing.id ? { ...s, ...data, updatedAt: new Date().toISOString() } : s);
+    } else {
+      // Nuevo
+      const id = genId();
+      const newSpace = {
+        id,
+        name: data.name,
+        relationship: data.relationship,
+        email: data.email || "",
+        pin: data.pin || "0000",
+        accessToken: genToken(),
+        createdBy: currentMember?.id ?? null,
+        createdAt: new Date().toISOString(),
+        privacyLevel: data.privacyLevel || "private",
+        documents: generatePersonalDocuments(),
+      };
+      nextSpaces = [...spaces, newSpace];
+      setActiveSpaceId(id);
+    }
+    onUpdateVault?.({ spaces: nextSpaces });
+    setEditing(null);
+  };
+  const onDeleteSpace = (id) => {
+    if (!confirm("¿Eliminar este espacio personal y TODOS sus documentos? Acción irreversible.")) return;
+    const next = spaces.filter(s => s.id !== id);
+    onUpdateVault?.({ spaces: next });
+    if (activeSpaceId === id) setActiveSpaceId(next[0]?.id || null);
+    setEditing(null);
+  };
+
   return (
     <div style={{ padding: 20, maxWidth: 1100, margin: "0 auto" }}>
       <div style={{ marginBottom: 16 }}>
@@ -138,35 +190,130 @@ export default function VaultView({ data, currentMember, onUpdateVault }) {
         </div>
       </div>
 
-      {/* Tabs por espacio */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 16, borderBottom: "0.5px solid #E5E7EB", flexWrap: "wrap" }}>
+      {/* Tabs por espacio + botón añadir */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, borderBottom: "0.5px solid #E5E7EB", flexWrap: "wrap", alignItems: "stretch" }}>
         {spaces.map(s => {
           const active = activeSpaceId === s.id;
           const isMine = s.createdBy === currentMember?.id && s.relationship === "CEO";
           return (
-            <button key={s.id} onClick={() => setActiveSpaceId(s.id)} style={{
-              padding: "9px 14px", background: "transparent", border: "none",
-              borderBottom: active ? "2px solid #1D9E75" : "2px solid transparent",
-              fontSize: 13, fontWeight: active ? 700 : 500,
-              color: active ? "#0E7C5A" : "#6B7280",
-              cursor: "pointer", fontFamily: "inherit",
-            }}>👤 {s.name}{isMine ? " (tú)" : ""}</button>
+            <div key={s.id} style={{ display: "flex", alignItems: "stretch" }}>
+              <button onClick={() => setActiveSpaceId(s.id)} style={{
+                padding: "9px 14px", background: "transparent", border: "none",
+                borderBottom: active ? "2px solid #1D9E75" : "2px solid transparent",
+                fontSize: 13, fontWeight: active ? 700 : 500,
+                color: active ? "#0E7C5A" : "#6B7280",
+                cursor: "pointer", fontFamily: "inherit",
+              }}>👤 {s.name}{isMine ? " (tú)" : ""}</button>
+              {active && (
+                <button onClick={() => setEditing(s)} title="Editar espacio" style={{ background: "transparent", border: "none", borderBottom: "2px solid #1D9E75", padding: "9px 8px", fontSize: 13, cursor: "pointer", color: "#6B7280", fontFamily: "inherit" }}>⚙️</button>
+              )}
+            </div>
           );
         })}
-        {/* "+ Añadir" se cablea en el siguiente commit (gestión de espacios) */}
+        <button onClick={() => setEditing("new")} title="Añadir nuevo espacio" style={{
+          padding: "9px 14px", background: "transparent", border: "none", borderBottom: "2px dashed #BDC3C7",
+          fontSize: 13, fontWeight: 500, color: "#1D9E75", cursor: "pointer", fontFamily: "inherit",
+        }}>+ Añadir espacio</button>
       </div>
 
       {!activeSpace ? (
         <div style={{ background: "#fff", border: "1px dashed #E5E7EB", borderRadius: 12, padding: "60px 20px", textAlign: "center" }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>🔐</div>
           <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>Aún no tienes ningún espacio personal</div>
-          <div style={{ fontSize: 12, color: "#6B7280", marginTop: 6 }}>Tu vault personal se crea automáticamente al iniciar sesión.</div>
+          <div style={{ fontSize: 12, color: "#6B7280", marginTop: 6, marginBottom: 16 }}>Crea tu primer espacio para empezar a guardar tu documentación privada.</div>
+          <button onClick={() => setEditing("new")} style={{ padding: "10px 22px", borderRadius: 8, background: "#1D9E75", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>+ Crear mi vault personal</button>
         </div>
       ) : (
         <SpaceContent space={activeSpace} currentMember={currentMember} onUpdateVault={onUpdateVault} spaces={spaces} />
       )}
+
+      {editing && (
+        <SpaceModal
+          space={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onSave={onSaveSpace}
+          onDelete={editing !== "new" ? () => onDeleteSpace(editing.id) : null}
+        />
+      )}
     </div>
   );
+}
+
+function SpaceModal({ space, onClose, onSave, onDelete }) {
+  const isNew = !space;
+  const [name, setName]                 = useState(space?.name || "");
+  const [relationship, setRelationship] = useState(space?.relationship || "Cónyuge");
+  const [email, setEmail]               = useState(space?.email || "");
+  const [pin, setPin]                   = useState(space?.pin || "0000");
+  const [privacyLevel, setPrivacyLevel] = useState(space?.privacyLevel || "private");
+  const canSave = !!name.trim() && /^\d{4}$/.test(pin);
+  const handleSave = () => canSave && onSave({ name: name.trim(), relationship, email: email.trim(), pin, privacyLevel });
+  return (
+    <div onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ background: "#fff", borderRadius: 14, width: 460, maxWidth: "94vw", borderTop: "4px solid #1D9E75", overflow: "hidden" }}>
+        <div style={{ padding: "14px 18px", borderBottom: "0.5px solid #E5E7EB", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{isNew ? "+ Nuevo espacio personal" : `Editar espacio: ${space.name}`}</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6B7280" }}>×</button>
+        </div>
+        <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+          <Field label="Nombre">
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Ej: María Díaz" style={fieldStyle} />
+          </Field>
+          <Field label="Relación">
+            <select value={relationship} onChange={e => setRelationship(e.target.value)} style={fieldStyle}>
+              {RELATIONSHIPS.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Email (opcional)">
+            <input value={email} onChange={e => setEmail(e.target.value)} placeholder="maria@ejemplo.com" style={fieldStyle} />
+          </Field>
+          <Field label="PIN de acceso (4 dígitos)">
+            <input value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="0000" maxLength={4} style={{ ...fieldStyle, letterSpacing: 4, fontFamily: "ui-monospace,monospace", textAlign: "center", width: 120 }} />
+          </Field>
+          <Field label="Privacidad">
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <label style={privacyLabel(privacyLevel === "private")}>
+                <input type="radio" name="privacy" checked={privacyLevel === "private"} onChange={() => setPrivacyLevel("private")} />
+                <span>🔒 Solo el titular ve sus documentos</span>
+              </label>
+              <label style={privacyLabel(privacyLevel === "shared")}>
+                <input type="radio" name="privacy" checked={privacyLevel === "shared"} onChange={() => setPrivacyLevel("shared")} />
+                <span>🔓 CEO también puede ver</span>
+              </label>
+            </div>
+          </Field>
+          <div style={{ display: "flex", gap: 8, justifyContent: "space-between", marginTop: 8 }}>
+            {!isNew && onDelete && (
+              <button onClick={onDelete} style={{ padding: "8px 14px", borderRadius: 8, background: "transparent", border: "1px solid #FCA5A5", color: "#B91C1C", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Eliminar espacio</button>
+            )}
+            <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+              <button onClick={onClose} style={{ padding: "8px 14px", borderRadius: 8, background: "transparent", border: "1px solid #D1D5DB", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>Cancelar</button>
+              <button onClick={handleSave} disabled={!canSave} style={{ padding: "8px 18px", borderRadius: 8, background: canSave ? "#1D9E75" : "#E5E7EB", color: canSave ? "#fff" : "#9CA3AF", border: "none", fontSize: 12, fontWeight: 600, cursor: canSave ? "pointer" : "default", fontFamily: "inherit" }}>{isNew ? "Crear espacio" : "Guardar"}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const fieldStyle = { width: "100%", padding: "8px 10px", borderRadius: 8, border: "0.5px solid #D1D5DB", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" };
+function Field({ label, children }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+function privacyLabel(active) {
+  return {
+    display: "flex", alignItems: "center", gap: 8,
+    padding: "8px 12px", borderRadius: 8,
+    border: `1.5px solid ${active ? "#1D9E75" : "#E5E7EB"}`,
+    background: active ? "#F0FDF4" : "#fff",
+    cursor: "pointer", fontSize: 12.5, fontWeight: active ? 600 : 500, color: "#374151",
+  };
 }
 
 // ── contenido de un space individual ──
