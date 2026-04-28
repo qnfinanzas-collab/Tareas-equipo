@@ -298,15 +298,196 @@ function formatEur(n) {
   return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(n);
 }
 
-// ── TAB 2: Calendario fiscal (placeholder, contenido en siguiente commit) ──
+// ── TAB 2: Calendario fiscal ──
+// Plantilla anual de obligaciones fiscales/societarias españolas según skill
+// de Gobernanza. Se siembra automáticamente al primer uso. El admin puede
+// marcar como presentado, añadir notas, o crear obligaciones custom.
+const MONTHS_ES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+const MONTHS_FULL = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+// Plantilla canónica de obligaciones fiscales/societarias estándar para una
+// SL en España. Se aplica al año en curso si data.governance.obligations
+// está vacío. Cada entrada tiene mes (0-11), día, modelo y descripción.
+const FISCAL_TEMPLATE = [
+  { month: 0, day: 30, model: "Mod 184", concept: "Declaración entidades en régimen atribución de rentas" },
+  { month: 0, day: 30, model: "Mod 390", concept: "Resumen Anual IVA" },
+  { month: 0, day: 30, model: "Mod 190", concept: "Resumen Anual Retenciones IRPF" },
+  { month: 0, day: 30, model: "Mod 180", concept: "Resumen Anual Retenciones Alquileres" },
+  { month: 0, day: 20, model: "Mod 111", concept: "IRPF Retenciones 4T" },
+  { month: 0, day: 20, model: "Mod 115", concept: "Retenciones Alquileres 4T" },
+  { month: 0, day: 30, model: "Mod 303", concept: "IVA Trimestral 4T" },
+  { month: 1, day: 28, model: "Mod 347", concept: "Operaciones con Terceros >€3.005,06" },
+  { month: 1, day: 28, model: "Mod 720", concept: "Bienes en el extranjero (>€50k)" },
+  { month: 3, day: 20, model: "Mod 111", concept: "IRPF Retenciones 1T" },
+  { month: 3, day: 20, model: "Mod 115", concept: "Retenciones Alquileres 1T" },
+  { month: 3, day: 20, model: "Mod 303", concept: "IVA Trimestral 1T" },
+  { month: 3, day: 20, model: "Mod 202", concept: "Pago fraccionado IS 1P" },
+  { month: 5, day: 30, model: "Junta",    concept: "Junta General Ordinaria (6 meses post-cierre)" },
+  { month: 6, day: 25, model: "Mod 200",  concept: "Impuesto Sociedades anual" },
+  { month: 6, day: 20, model: "Mod 111",  concept: "IRPF Retenciones 2T" },
+  { month: 6, day: 20, model: "Mod 115",  concept: "Retenciones Alquileres 2T" },
+  { month: 6, day: 20, model: "Mod 303",  concept: "IVA Trimestral 2T" },
+  { month: 6, day: 30, model: "Cuentas",  concept: "Depósito Cuentas Anuales (1 mes post-junta)" },
+  { month: 9, day: 20, model: "Mod 111",  concept: "IRPF Retenciones 3T" },
+  { month: 9, day: 20, model: "Mod 115",  concept: "Retenciones Alquileres 3T" },
+  { month: 9, day: 20, model: "Mod 303",  concept: "IVA Trimestral 3T" },
+  { month: 9, day: 20, model: "Mod 202",  concept: "Pago fraccionado IS 2P" },
+  { month: 11, day: 20, model: "Mod 202", concept: "Pago fraccionado IS 3P" },
+];
+
+function buildFiscalYear(year){
+  return FISCAL_TEMPLATE.map((t, idx) => ({
+    id: `fy${year}_${idx}`,
+    year,
+    model: t.model,
+    concept: t.concept,
+    dueDate: new Date(year, t.month, t.day).toISOString().slice(0,10),
+    status: "pending",
+    filedAt: null,
+    notes: "",
+  }));
+}
+
 function GovCalendarTab({ governance, onUpdateGovernance }) {
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [selMonth, setSelMonth] = useState(new Date().getMonth());
+  const obligations = governance.obligations || [];
+  const yearObs = obligations.filter(o => Number(o.year || (o.dueDate||"").slice(0,4)) === year);
+
+  const seedYear = () => {
+    const list = obligations.slice();
+    const seeded = buildFiscalYear(year);
+    onUpdateGovernance?.({ obligations: [...list, ...seeded] });
+  };
+  const updateObligation = (id, patch) => {
+    const list = obligations.map(o => o.id === id ? { ...o, ...patch } : o);
+    onUpdateGovernance?.({ obligations: list });
+  };
+
+  // Conteos por mes con estado dominante para colorear el header.
+  const today = new Date();
+  const stateOf = (o) => {
+    if (o.status === "filed") return "filed";
+    const due = new Date(o.dueDate);
+    if (isNaN(due.getTime())) return "pending";
+    const diffDays = Math.floor((due - today) / 86400000);
+    if (diffDays < 0) return "overdue";
+    if (diffDays <= 14) return "soon";
+    return "pending";
+  };
+  const monthsAgg = MONTHS_ES.map((_, m) => {
+    const items = yearObs.filter(o => new Date(o.dueDate).getMonth() === m);
+    const states = items.map(stateOf);
+    const dominant = states.includes("overdue") ? "overdue"
+      : states.includes("soon") ? "soon"
+      : items.length > 0 && states.every(s => s === "filed") ? "filed"
+      : items.length > 0 ? "pending" : "empty";
+    return { count: items.length, state: dominant };
+  });
+  const stateColor = {
+    filed:   { bg: "#DCFCE7", border: "#86EFAC", icon: "✅" },
+    soon:    { bg: "#FEF3C7", border: "#FCD34D", icon: "🟡" },
+    overdue: { bg: "#FEE2E2", border: "#FCA5A5", icon: "🔴" },
+    pending: { bg: "#F3F4F6", border: "#D1D5DB", icon: "⏳" },
+    empty:   { bg: "#FAFAFA", border: "#E5E7EB", icon: "·" },
+  };
+
+  const monthItems = yearObs.filter(o => new Date(o.dueDate).getMonth() === selMonth)
+    .slice().sort((a,b) => new Date(a.dueDate) - new Date(b.dueDate));
+
   return (
-    <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 20 }}>
-      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Calendario fiscal</div>
-      <div style={{ fontSize: 12, color: "#9CA3AF" }}>Obligaciones mes a mes — disponible en breve.</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Header con año + acciones */}
+      <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button onClick={() => setYear(y => y - 1)} style={navBtn}>‹</button>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>📅 Calendario Fiscal {year}</div>
+          <button onClick={() => setYear(y => y + 1)} style={navBtn}>›</button>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {yearObs.length === 0 && (
+            <button onClick={seedYear} style={{ padding: "7px 14px", borderRadius: 8, background: "#8E44AD", color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>+ Generar plantilla {year}</button>
+          )}
+        </div>
+      </div>
+
+      {/* Grid mensual */}
+      <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 6 }}>
+          {MONTHS_ES.map((label, m) => {
+            const agg = monthsAgg[m];
+            const palette = stateColor[agg.state];
+            const isSelected = selMonth === m;
+            return (
+              <button
+                key={m}
+                onClick={() => setSelMonth(m)}
+                title={`${MONTHS_FULL[m]} ${year} · ${agg.count} obligación${agg.count !== 1 ? "es" : ""}`}
+                style={{
+                  background: palette.bg,
+                  border: `1.5px solid ${isSelected ? "#8E44AD" : palette.border}`,
+                  borderRadius: 8,
+                  padding: "10px 6px",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 2,
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{agg.count}</div>
+                <div style={{ fontSize: 10 }}>{palette.icon}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Detalle mes seleccionado */}
+      <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 18 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, color: "#111827" }}>
+          {MONTHS_FULL[selMonth]} {year} · {monthItems.length} obligación{monthItems.length !== 1 ? "es" : ""}
+        </div>
+        {monthItems.length === 0 ? (
+          <div style={{ padding: "20px 14px", textAlign: "center", color: "#9CA3AF", fontSize: 12, fontStyle: "italic" }}>Sin obligaciones registradas para este mes.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {monthItems.map(o => {
+              const state = stateOf(o);
+              const palette = stateColor[state];
+              const due = new Date(o.dueDate);
+              const dayLabel = isNaN(due.getTime()) ? "—" : `${due.getDate()} ${MONTHS_ES[due.getMonth()].toLowerCase()}`;
+              const stateLabel = state === "filed" ? "Presentado"
+                : state === "overdue" ? "Vencido"
+                : state === "soon" ? "Próximo (≤14d)"
+                : "Pendiente";
+              return (
+                <div key={o.id} style={{ background: palette.bg, border: `1px solid ${palette.border}`, borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ minWidth: 70, fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5 }}>{dayLabel}</div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#1F2937" }}>{o.model}</span>
+                    <span style={{ fontSize: 12.5, color: "#374151", overflow: "hidden", textOverflow: "ellipsis" }}>{o.concept}</span>
+                  </div>
+                  <span style={{ fontSize: 10.5, fontWeight: 600, padding: "2px 8px", borderRadius: 10, background: "#fff", border: `1px solid ${palette.border}`, color: "#374151" }}>{palette.icon} {stateLabel}</span>
+                  {state !== "filed" && (
+                    <button onClick={() => updateObligation(o.id, { status: "filed", filedAt: new Date().toISOString() })} style={{ padding: "4px 10px", borderRadius: 6, background: "#8E44AD", color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Marcar presentado</button>
+                  )}
+                  {state === "filed" && (
+                    <button onClick={() => updateObligation(o.id, { status: "pending", filedAt: null })} style={{ padding: "4px 10px", borderRadius: 6, background: "transparent", border: "1px solid #D1D5DB", fontSize: 11, color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>Reabrir</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
+const navBtn = { padding: "4px 10px", borderRadius: 8, border: "0.5px solid #D1D5DB", background: "#fff", fontSize: 14, cursor: "pointer", fontFamily: "inherit", color: "#374151" };
 
 // ── TAB 3: Chat con Gonzalo (placeholder, contenido en siguiente commit) ──
 function GovChatTab({ currentMember, onCallAgent }) {
