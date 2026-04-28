@@ -1058,21 +1058,22 @@ function _migrate(d){
   // y no necesita entradas aquí. Idempotente: si existe se respeta.
   if (!d.permissions || typeof d.permissions !== "object") d.permissions = {};
   // Permisos de agentes IA por miembro: data.permissions[memberId].agents =
-  // {mario, jorge, alvaro}. Admin global pasa libre vía canUseAgent. Para
-  // miembros no-admin sin entrada, fallamos cerrado (no acceso). Esta
+  // {mario, jorge, alvaro, gonzalo}. Admin global pasa libre vía canUseAgent.
+  // Para miembros no-admin sin entrada, fallamos cerrado (no acceso). Esta
   // migración SOLO crea la sub-clave .agents si falta — no asume defaults
   // optimistas para no liberar acceso por accidente.
   for (const m of (d.members||[])) {
     if (m.accountRole === "admin") continue;
     if (!d.permissions[m.id]) d.permissions[m.id] = {};
     if (!d.permissions[m.id].agents || typeof d.permissions[m.id].agents !== "object") {
-      d.permissions[m.id].agents = { mario: false, jorge: false, alvaro: false };
+      d.permissions[m.id].agents = { mario: false, jorge: false, alvaro: false, gonzalo: false };
     } else {
       // Idempotente: backfill solo de las claves que falten.
       const cur = d.permissions[m.id].agents;
-      if (cur.mario  === undefined) cur.mario  = false;
-      if (cur.jorge  === undefined) cur.jorge  = false;
-      if (cur.alvaro === undefined) cur.alvaro = false;
+      if (cur.mario   === undefined) cur.mario   = false;
+      if (cur.jorge   === undefined) cur.jorge   = false;
+      if (cur.alvaro  === undefined) cur.alvaro  = false;
+      if (cur.gonzalo === undefined) cur.gonzalo = false;
     }
   }
   // Movimientos financieros (módulo Finanzas). Lista plana de movimientos.
@@ -5032,9 +5033,10 @@ const PERMISSION_FEATURES = [
 // "🤖 Agentes" de UsersView. Si añades un nuevo agente al sistema multi-
 // agente (Mario/Jorge/Álvaro/...), añádelo aquí para exponer el toggle.
 const AGENT_PERMISSIONS = [
-  { key: "mario",  label: "Mario Legal",        emoji: "⚖️", color: "#3C3489", desc: "Contratos, cláusulas, compliance, jurisprudencia" },
-  { key: "jorge",  label: "Jorge Finanzas",     emoji: "📊", color: "#B45309", desc: "Modelos financieros, ROI, waterfall, sensibilidades" },
-  { key: "alvaro", label: "Álvaro Inmobiliario", emoji: "🏠", color: "#E67E22", desc: "Alquileres LAU, fiscalidad, inversión, alquiler turístico" },
+  { key: "mario",   label: "Mario Legal",          emoji: "⚖️", color: "#3C3489", desc: "Contratos, cláusulas, compliance, jurisprudencia" },
+  { key: "jorge",   label: "Jorge Finanzas",       emoji: "📊", color: "#B45309", desc: "Modelos financieros, ROI, waterfall, sensibilidades" },
+  { key: "alvaro",  label: "Álvaro Inmobiliario",  emoji: "🏠", color: "#E67E22", desc: "Alquileres LAU, fiscalidad, inversión, alquiler turístico" },
+  { key: "gonzalo", label: "Gonzalo Gobernanza",   emoji: "🏛️", color: "#8E44AD", desc: "Estructura societaria, holdings, calendario fiscal, sucesión" },
 ];
 // Cada columna de módulo tiene su propio ancho mínimo (200px) para que
 // quepan los 3 toggles V/E/A sin compresión. La 1ª columna (Miembro) usa
@@ -9408,7 +9410,7 @@ export default function TaskFlow(){
     setData(prev=>{
       const perms = {...(prev.permissions||{})};
       const memberPerms = {...(perms[memberId]||{})};
-      const agentPerms = {...(memberPerms.agents||{mario:false,jorge:false,alvaro:false})};
+      const agentPerms = {...(memberPerms.agents||{mario:false,jorge:false,alvaro:false,gonzalo:false})};
       agentPerms[agentKey] = !!value;
       memberPerms.agents = agentPerms;
       perms[memberId] = memberPerms;
