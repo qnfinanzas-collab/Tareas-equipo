@@ -27,6 +27,7 @@ import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import FinanceView from "./components/Finanzas/FinanceView.jsx";
 import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
+import VaultGuestView, { parseVaultGuestPath } from "./components/Vault/VaultGuestView.jsx";
 import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
@@ -8677,6 +8678,11 @@ function UserSelectionModal({members,onSelectUser}){
 
 // ── Main App ──────────────────────────────────────────────────────────────────
 export default function TaskFlow(){
+  // Acceso invitado al vault: si la URL es /vault/:token rendereamos
+  // VaultGuestView en pantalla completa, SIN sidebar ni resto de la app.
+  // Persiste mutaciones contra el state principal para que el CEO vea los
+  // cambios cuando vuelva a abrir la app normal.
+  const guestVaultToken = typeof window !== "undefined" ? parseVaultGuestPath(window.location.pathname) : null;
   const [data,setData]             = useState(_saved);
   // Espejo de `data` en ref para leer estado actual desde callbacks sin
   // depender del timing de setState (útil en flujos async como auto-learn
@@ -10037,6 +10043,14 @@ export default function TaskFlow(){
   const totalTasks=board.reduce((s,c)=>s+c.tasks.length,0);
   const doneTasks =board.filter(c=>c.name==="Hecho").reduce((s,c)=>s+c.tasks.length,0);
   const TABS=[{key:"board",l:"Tablero"},{key:"eisenhower",l:"Matriz"},{key:"reports",l:"Tiempos"},{key:"team",l:"Equipo"}];
+
+  // Acceso invitado: si la URL es /vault/:token, salimos antes que el
+  // auth-gate de SoulBaric. El invitado solo necesita el PIN del space,
+  // no tiene cuenta en SoulBaric. Así un familiar abre su vault desde
+  // un link en WhatsApp sin tener que registrarse.
+  if(guestVaultToken){
+    return <VaultGuestView token={guestVaultToken} data={data} onUpdateVault={updateVault}/>;
+  }
 
   // Auth gate: cuando Supabase Auth está disponible y el usuario no está
   // en modo demo, mostramos LoginScreen hasta que tenga sesión válida con

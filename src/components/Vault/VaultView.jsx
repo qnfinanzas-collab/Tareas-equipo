@@ -246,8 +246,20 @@ function SpaceModal({ space, onClose, onSave, onDelete }) {
   const [email, setEmail]               = useState(space?.email || "");
   const [pin, setPin]                   = useState(space?.pin || "0000");
   const [privacyLevel, setPrivacyLevel] = useState(space?.privacyLevel || "private");
+  const [showShare, setShowShare] = useState(false);
   const canSave = !!name.trim() && /^\d{4}$/.test(pin);
   const handleSave = () => canSave && onSave({ name: name.trim(), relationship, email: email.trim(), pin, privacyLevel });
+  const shareUrl = !isNew && space?.accessToken && typeof window !== "undefined"
+    ? `${window.location.origin}/vault/${space.accessToken}`
+    : "";
+  const copyShareUrl = async () => {
+    try { await navigator.clipboard.writeText(shareUrl); alert("Link copiado al portapapeles"); } catch { alert("No se pudo copiar"); }
+  };
+  const shareViaWhatsApp = () => {
+    if (!shareUrl) return;
+    const text = encodeURIComponent(`🔐 Acceso a tu vault personal de SoulBaric.\n\nLink: ${shareUrl}\nPIN: ${pin}\n\nAccede desde aquí para subir, ver y compartir tus documentos.`);
+    window.open(`https://wa.me/?text=${text}`, "_blank", "noopener,noreferrer");
+  };
   return (
     <div onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div style={{ background: "#fff", borderRadius: 14, width: 460, maxWidth: "94vw", borderTop: "4px solid #1D9E75", overflow: "hidden" }}>
@@ -282,6 +294,31 @@ function SpaceModal({ space, onClose, onSave, onDelete }) {
               </label>
             </div>
           </Field>
+
+          {/* Compartir acceso (solo en edición, cuando ya hay accessToken) */}
+          {!isNew && space?.accessToken && (
+            <div style={{ marginTop: 4, padding: "12px 14px", background: "#F0FDF4", border: "1px solid #86EFAC", borderRadius: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#065F46", marginBottom: 2 }}>🔗 Compartir acceso con {name || space.name}</div>
+                  <div style={{ fontSize: 11, color: "#0E7C5A" }}>Link privado + PIN. Solo accede a su vault, no a SoulBaric.</div>
+                </div>
+                <button onClick={() => setShowShare(v => !v)} style={{ padding: "5px 12px", borderRadius: 6, background: "#1D9E75", color: "#fff", border: "none", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>{showShare ? "Ocultar" : "Mostrar enlace"}</button>
+              </div>
+              {showShare && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: "0.5px dashed #86EFAC", display: "flex", flexDirection: "column", gap: 8 }}>
+                  <input value={shareUrl} readOnly onClick={(e) => e.target.select()} style={{ ...fieldStyle, background: "#fff", fontFamily: "ui-monospace,monospace", fontSize: 11.5 }} />
+                  <div style={{ fontSize: 11, color: "#065F46" }}>PIN actual: <b style={{ fontFamily: "ui-monospace,monospace", letterSpacing: 2 }}>{pin}</b></div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={copyShareUrl} style={{ padding: "6px 10px", borderRadius: 6, background: "#fff", border: "1px solid #86EFAC", color: "#065F46", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>📋 Copiar link</button>
+                    <button onClick={shareViaWhatsApp} style={{ padding: "6px 10px", borderRadius: 6, background: "#fff", border: "1px solid #86EFAC", color: "#065F46", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>💬 WhatsApp</button>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: "#92400E" }}>⚠️ Este link da acceso SOLO al vault personal de {name || space.name}, no al resto de SoulBaric.</div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ display: "flex", gap: 8, justifyContent: "space-between", marginTop: 8 }}>
             {!isNew && onDelete && (
               <button onClick={onDelete} style={{ padding: "8px 14px", borderRadius: 8, background: "transparent", border: "1px solid #FCA5A5", color: "#B91C1C", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Eliminar espacio</button>
