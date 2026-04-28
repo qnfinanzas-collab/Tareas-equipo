@@ -19,7 +19,7 @@
 //     Héctor para que verbalice la confirmación y ejecute la acción.
 import React, { useEffect, useState, useRef } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
-import { PLAIN_TEXT_RULE, getEnergyLevel } from "../../lib/agent.js";
+import { PLAIN_TEXT_RULE, getEnergyLevel, buildSkillsBlock } from "../../lib/agent.js";
 import { formatCeoMemoryForPrompt } from "../../lib/memory.js";
 
 const STATE_LABEL = {
@@ -367,8 +367,18 @@ export default function HectorPanel({
         ? ag.promptBase + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Chief of Staff estratégico. Conciso, directo, accionable. " + PLAIN_TEXT_RULE;
       const memBlock = formatCeoMemoryForPrompt(mem);
+      // Detecta skills relevantes a partir de títulos de tareas activas,
+      // foco actual y riesgos — Héctor "carga" el framework adecuado para
+      // este análisis (finanzas, comercial, etc.) sin tener que generalizar.
+      const skillsSignal = [
+        focusNow?.title,
+        ...(tasksWithContext.slice(0, 10).map((t) => t.title)),
+        ...(riesgosNow.slice(0, 5).map((r) => r.title || r.label || r.msg || "")),
+      ].filter(Boolean).join(" | ");
+      const skillsBlock = buildSkillsBlock(skillsSignal);
       const system = baseSystem
         + (memBlock ? ("\n\n---\n" + memBlock) : "")
+        + skillsBlock
         + "\n\nIMPORTANTE: en este turno responde ÚNICAMENTE con JSON válido sin markdown ni prosa. USA EL CAMPO \"urgency\" tal cual viene calculado — NO recalcules fechas absolutas y NO menciones la fecha cruda; siempre habla en términos relativos al momento actual.";
 
       // Lista enriquecida — Héctor recibe id, ref, título, proyecto, fechas
@@ -634,8 +644,17 @@ Reglas:
         ? ag.promptBase + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE;
       const memBlock = formatCeoMemoryForPrompt(mem);
+      // Skills detectados a partir del mensaje del CEO + última recomendación
+      // + foco — el chat es donde más útil resulta porque el CEO formula
+      // explícitamente el dominio (ej. "prepara la negociación con X").
+      const skillsBlock = buildSkillsBlock(
+        userMessage,
+        recsNow[0]?.title,
+        focusNow?.title,
+      );
       const system = baseSystem
         + (memBlock ? ("\n\n---\n" + memBlock) : "")
+        + skillsBlock
         + "\n\nIMPORTANTE: en este turno responde ÚNICAMENTE con JSON válido sin markdown ni prosa. USA EL CAMPO \"urgency\" de cada tarea tal cual viene calculado — NO recalcules fechas absolutas; habla en términos relativos al momento actual.";
 
       // Tareas con urgencia calculada en tiempo real para que Héctor no

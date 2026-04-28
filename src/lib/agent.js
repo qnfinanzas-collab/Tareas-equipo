@@ -8,6 +8,74 @@ import { stripMarkdown } from "./voice.js";
 // se rendericen limpias en UI y suenen bien al TTS sin leer "asterisco".
 export const PLAIN_TEXT_RULE = "FORMATO OBLIGATORIO: Responde en texto plano sin ningún formato. Prohibido usar asteriscos, almohadillas, guiones como viñetas, listas numeradas, o cualquier sintaxis markdown. Escribe como si hablaras: frases naturales, párrafos cortos, sin decoración. Usa saltos de línea para separar ideas, nada más.";
 
+// Sistema de skills de Héctor. Detecta el contexto del turno (texto del CEO,
+// títulos de tareas activas, recomendación reciente) y devuelve los skills
+// que aplican. Para cada skill activo se inyecta un resumen operativo en el
+// system prompt — Héctor ya tiene su promptBase general; este mecanismo le
+// recuerda qué framework usar SIN duplicar conocimiento de los .md de
+// .claude/skills/. Pensado para 1-2 skills por turno (no más, evita ruido).
+export const SKILL_TRIGGERS = {
+  finanzas:    ["factura", "facturas", "gasto", "gastos", "ingreso", "ingresos", "cobro", "cobros", "pago", "pagos", "iva", "irpf", "tesoreria", "tesorería", "runway", "burn", "fiscal", "hacienda", "contable", "contabilidad", "balance", "p&l", "pyl", "margen", "ebitda", "financiero", "presupuesto", "modelo 303", "modelo 111", "modelo 200", "pgc"],
+  negociador:  ["negocia", "negociar", "negociación", "negociacion", "contraoferta", "batna", "zopa", "anclaje", "deal", "contrato", "partner", "proveedor", "inversor", "acuerdo", "concesión", "concesion", "mesa de negociación", "cierre de deal"],
+  comercial:   ["venta", "ventas", "vender", "prospect", "prospecto", "demo", "propuesta comercial", "lead", "leads", "cliente potencial", "pipeline", "win rate", "forecast comercial", "objeciones", "discovery call", "outbound", "inbound"],
+  analista:    ["kpi", "kpis", "métrica", "metrica", "métricas", "metricas", "análisis", "analisis", "tendencia", "cohorte", "cohortes", "conversión", "conversion", "churn", "ltv", "cac", "mrr", "arr", "nrr", "dashboard", "reporte", "reporting", "forecasting", "forecast"],
+  estratega:   ["estrategia", "estratégico", "estrategico", "prioridad", "priorización", "priorizacion", "decisión", "decision", "visión", "vision", "okr", "okrs", "roadmap", "pivot", "foco", "eisenhower", "rice", "north star", "trade-off", "tradeoff", "rumbo"],
+  personas:    ["contratar", "contratación", "contratacion", "despedir", "despido", "equipo", "conflicto", "1:1", "evaluación", "evaluacion", "motivación", "motivacion", "onboarding", "salario", "cultura", "manager", "rrhh", "talento", "fit cultural", "performance"],
+};
+
+// Detecta qué skills aplican a un texto. Devuelve array ordenado por nº de
+// matches descendente, máx 2 skills (más causa ruido en el prompt). El
+// matching es case-insensitive y comprueba palabra completa cuando es
+// posible para evitar falsos positivos (ej. "iva" no debe matchear "viva").
+export function detectSkills(text){
+  if (!text || typeof text !== "string") return [];
+  const lower = text.toLowerCase();
+  const scores = [];
+  for (const [skill, kws] of Object.entries(SKILL_TRIGGERS)){
+    let hits = 0;
+    for (const kw of kws){
+      // Matcheo por palabra: si el keyword es una sola palabra usamos
+      // límites de palabra; si tiene espacios o símbolos, includes simple.
+      if (/^[a-záéíóúñ]+$/i.test(kw)){
+        const re = new RegExp(`\\b${kw}\\b`, "i");
+        if (re.test(lower)) hits++;
+      } else {
+        if (lower.includes(kw)) hits++;
+      }
+    }
+    if (hits > 0) scores.push([skill, hits]);
+  }
+  scores.sort((a,b) => b[1] - a[1]);
+  return scores.slice(0, 2).map(([s]) => s);
+}
+
+// Devuelve un resumen operativo del skill para inyectar en el prompt de
+// Héctor. Resúmenes deliberadamente cortos: el promptBase ya da contexto
+// general, esto solo "activa" el framework específico para el turno.
+export function loadSkillContext(skill){
+  const skillSummaries = {
+    finanzas: `MODO FINANZAS: Aplica fiscalidad española (IVA 21/10/4%, modelos 303 trimestral, 111 IRPF, 200 IS, 347/349) y PGC. Cuida tesorería (cash flow, runway, burn rate) y KPIs financieros (margen bruto, EBITDA, LTV/CAC, payback). Habla con cifras concretas y respeta plazos Hacienda.`,
+    negociador: `MODO NEGOCIADOR: Aplica frameworks Harvard — BATNA (mejor alternativa), ZOPA (zona de acuerdo), MESO (3 ofertas equivalentes), anclaje (primera cifra con argumento). Concesiones siempre con contrapartida y decrecientes. Distingue posición de interés. Usa Cialdini/Voss para persuasión, no para manipulación.`,
+    comercial: `MODO COMERCIAL: Razona por etapas del pipeline (prospect → cualificado → discovery → propuesta → negociación → ganado/perdido). Mide conversion rate, win rate y sales cycle. Discovery antes de demo. Maneja objeciones reformulando, cierra cuando hay señales de compra. Foco en velocidad y calidad del pipeline.`,
+    analista: `MODO ANALISTA: Convierte datos en decisiones. KPIs por área (MRR/ARR, churn, NRR, CAC, LTV, LTV/CAC>3, payback). Cohortes, funnels, segmentación. Forecasting con escenarios. Storytelling con datos: insight + causa raíz + acción recomendada. Sin acción, el análisis no vale.`,
+    estratega: `MODO ESTRATEGA: Piensa como CEO. Frameworks Eisenhower (urgente/importante), RICE, ICE, weighted scoring. Pensamiento sistémico (segundo orden, opportunity cost). North star metric y OKRs. Foco en "importante no urgente". Distingue movimiento de progreso, evita atrapamiento operativo.`,
+    personas: `MODO PERSONAS: Gestión de capital humano. Contratación basada en misión + outcomes + fit cultural. 1:1s estructurados, feedback continuo, evaluaciones objetivas. Motivación: Maslow / Herzberg / Pink (autonomía-maestría-propósito). Liderazgo situacional. Conflictos: directo primero, mediación después, salida digna si imposible.`,
+  };
+  return skillSummaries[skill] || "";
+}
+
+// Construye el bloque de skills activos para añadir al system prompt. Si
+// hay matches devuelve un bloque legible; si no, string vacío. Combina
+// señales de varios contextos (texto CEO, recomendación, tareas activas).
+export function buildSkillsBlock(...sources){
+  const text = sources.filter(Boolean).join(" \n ");
+  const skills = detectSkills(text);
+  if (!skills.length) return "";
+  const blocks = skills.map(s => loadSkillContext(s)).filter(Boolean);
+  if (!blocks.length) return "";
+  return "\n\n--- SKILLS ACTIVOS PARA ESTE TURNO ---\n" + blocks.join("\n\n");
+}
+
 // Curva de energía esperada del CEO según la hora local. La usan tanto
 // decideFocus (Sala de Mando) como HectorPanel para que las recomendaciones
 // adapten su tipo a la franja del día. Origen único → evita divergencias.
