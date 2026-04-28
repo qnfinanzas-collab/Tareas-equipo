@@ -2,8 +2,64 @@
 // Lista agrupada por categoría con estado visual (✅❌🟡⚪) y filtros.
 // La subida de archivos, gestión de versiones y compartir llegan en
 // commits siguientes — este commit cierra la UI base de visualización.
-import React, { useMemo, useState, useRef } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import { CATEGORY_LABELS, CATEGORY_ORDER, computeDocStats } from "./documentTemplates.js";
+
+// Sincroniza alertas de gobernanza con el estado de documentación. Por
+// cada documento required pendiente o vencido genera una entrada en
+// governance.alerts. Re-ejecuta solo cuando cambian los documentos.
+function syncDocAlerts(documents, companies, onUpdateGovernance, existingAlerts) {
+  const dynamic = [];
+  const today = new Date();
+  for (const d of documents || []) {
+    if (!d.required) continue;
+    const company = (companies || []).find(c => c.id === d.companyId);
+    const companyName = company?.name || "(empresa)";
+    if (d.status === "pending") {
+      dynamic.push({
+        id: `doc-pending-${d.id}`,
+        level: "warning",
+        title: `Falta documento: ${d.name}`,
+        message: `${companyName} — documento obligatorio pendiente de subir`,
+        source: "documents",
+        docId: d.id,
+        companyId: d.companyId,
+      });
+    } else if (d.status === "overdue") {
+      dynamic.push({
+        id: `doc-overdue-${d.id}`,
+        level: "critical",
+        title: `Documento vencido: ${d.name}`,
+        message: `${companyName} — supera la fecha límite, regulariza cuanto antes`,
+        source: "documents",
+        docId: d.id,
+        companyId: d.companyId,
+      });
+    } else if (d.expiresAt) {
+      const days = Math.floor((new Date(d.expiresAt) - today) / 86400000);
+      if (days >= 0 && days <= 90) {
+        dynamic.push({
+          id: `doc-expiring-${d.id}`,
+          level: "info",
+          title: `${d.name} caduca en ${days}d`,
+          message: `${companyName} — renueva antes de ${d.expiresAt.slice(0,10)}`,
+          source: "documents",
+          docId: d.id,
+          companyId: d.companyId,
+        });
+      }
+    }
+  }
+  // Mantenemos las alertas que NO vienen de documents (manuales) y
+  // sustituimos las dinámicas por la lista recién calculada.
+  const manual = (existingAlerts || []).filter(a => a.source !== "documents");
+  const next = [...manual, ...dynamic];
+  // Igualdad por id — si la lista coincide, no escribimos para no entrar
+  // en bucle infinito de useEffect.
+  const sameLen = next.length === (existingAlerts || []).length;
+  const sameIds = sameLen && next.every(a => (existingAlerts || []).some(b => b.id === a.id));
+  if (!sameIds) onUpdateGovernance?.({ alerts: next });
+}
 
 const STATUS_META = {
   attached:       { icon: "✅", label: "Adjuntado",   color: "#0E7C5A", bg: "#F0FDF4", border: "#86EFAC" },
@@ -55,6 +111,14 @@ export default function DocumentacionTab({ governance, currentMember, onUpdateGo
   const companyDocs = useMemo(() => allDocs.filter(d => d.companyId === company.id), [allDocs, company.id]);
   const stats = useMemo(() => computeDocStats(companyDocs), [companyDocs]);
 
+  // Sincroniza alertas dinámicas de governance basadas en el estado de
+  // documentos. Se ejecuta sobre TODOS los docs (no solo de la empresa
+  // seleccionada) para que Gonzalo vea el cuadro completo en su contexto.
+  useEffect(() => {
+    syncDocAlerts(allDocs, companies, onUpdateGovernance, governance?.alerts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allDocs.length, allDocs.map(d => d.status).join("|")]);
+
   // Aplica filtro al listado. "expiring" mira el estado efectivo.
   const filtered = useMemo(() => {
     if (filter === "all") return companyDocs;
@@ -100,12 +164,23 @@ export default function DocumentacionTab({ governance, currentMember, onUpdateGo
             {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
-        {/* Resumen stats */}
-        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", paddingTop: 10, borderTop: "0.5px solid #F3F4F6" }}>
-          <StatPill icon="✅" label={`${stats.attached}/${stats.total}`} sub="adjuntados" color="#0E7C5A" />
-          {stats.pending > 0 && <StatPill icon="❌" label={String(stats.pending)} sub="faltan" color="#B91C1C" />}
-          {stats.overdue > 0 && <StatPill icon="🔴" label={String(stats.overdue)} sub="vencidos" color="#991B1B" />}
-          {stats.expiringSoon > 0 && <StatPill icon="🟡" label={String(stats.expiringSoon)} sub="próximos" color="#92400E" />}
+        {/* Resumen stats con barra de progreso */}
+        <div style={{ paddingTop: 10, borderTop: "0.5px solid #F3F4F6" }}>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+            <StatPill icon="✅" label={`${stats.attached}/${stats.total}`} sub="adjuntados" color="#0E7C5A" />
+            {stats.pending > 0 && <StatPill icon="❌" label={String(stats.pending)} sub="faltan" color="#B91C1C" />}
+            {stats.overdue > 0 && <StatPill icon="🔴" label={String(stats.overdue)} sub="vencidos" color="#991B1B" />}
+            {stats.expiringSoon > 0 && <StatPill icon="🟡" label={String(stats.expiringSoon)} sub="próximos" color="#92400E" />}
+            <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: stats.pct >= 90 ? "#0E7C5A" : stats.pct >= 60 ? "#92400E" : "#B91C1C" }}>{stats.pct}% completado</span>
+          </div>
+          <div style={{ height: 6, background: "#F3F4F6", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{
+              width: `${stats.pct}%`,
+              height: "100%",
+              background: stats.pct >= 90 ? "#10B981" : stats.pct >= 60 ? "#F59E0B" : "#E24B4A",
+              transition: "width .3s ease",
+            }} />
+          </div>
         </div>
       </div>
 

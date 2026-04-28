@@ -9399,8 +9399,43 @@ export default function TaskFlow(){
   const callGonzaloDirect = useCallback(async ({messages, extraSystem}={})=>{
     const gonzalo = (dataRef.current?.agents||[]).find(a=>a.name==="Gonzalo Gobernanza");
     if(!gonzalo) throw new Error("Gonzalo no está en agents");
+    // Inyecta contexto vivo de gobernanza: empresas registradas + documentos
+    // faltantes + alertas activas. Permite que Gonzalo razone sobre el
+    // estado real sin que el usuario tenga que copiar/pegar nada.
+    const gov = dataRef.current?.governance || {};
+    const companies = gov.companies || [];
+    const docs = gov.documents || [];
+    const missing = docs.filter(d => d.required && (d.status === "pending" || d.status === "overdue"));
+    const alerts = gov.alerts || [];
+    let govContext = "";
+    if (companies.length > 0 || missing.length > 0 || alerts.length > 0) {
+      const lines = ["CONTEXTO VIVO DE GOBERNANZA:"];
+      if (companies.length > 0) {
+        lines.push(`Empresas registradas (${companies.length}):`);
+        companies.slice(0, 8).forEach(c => lines.push(`  · ${c.name} [${c.type}]${c.cif ? ` ${c.cif}` : ""}`));
+      }
+      if (missing.length > 0) {
+        lines.push(`\nDocumentos obligatorios pendientes (${missing.length}):`);
+        const byCompany = {};
+        for (const d of missing) {
+          const cName = companies.find(c => c.id === d.companyId)?.name || "(sin empresa)";
+          (byCompany[cName] ||= []).push(d.name);
+        }
+        Object.entries(byCompany).slice(0, 6).forEach(([name, list]) => {
+          lines.push(`  · ${name}: ${list.slice(0,5).join(", ")}${list.length > 5 ? `, +${list.length - 5} más` : ""}`);
+        });
+      }
+      if (alerts.length > 0) {
+        const critical = alerts.filter(a => a.level === "critical").length;
+        const warning  = alerts.filter(a => a.level === "warning").length;
+        lines.push(`\nAlertas activas: ${critical} críticas, ${warning} warnings.`);
+      }
+      lines.push("\nSi el CEO te pregunta qué falta, sé concreto: cita las empresas y los documentos por nombre.");
+      govContext = lines.join("\n");
+    }
     const system = (gonzalo.promptBase||`Eres Gonzalo, estratega de gobernanza empresarial.`)
       + "\n\n" + PLAIN_TEXT_RULE
+      + (govContext ? `\n\n${govContext}` : "")
       + (extraSystem ? `\n\n${extraSystem}` : "");
     const out = await callAgentSafe({system, messages: messages||[], max_tokens: 1200});
     return out;
