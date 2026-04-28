@@ -4796,7 +4796,7 @@ function MemberEditModal({member, allMembers, onClose, onSave, onDelete}){
 function UsersView({members,projects,permissions,onEdit,onCreate,onDelete,onSetPermission,onSetAgentPermission}){
   const [search,setSearch]=useState("");
   const [pendingDel,setPendingDel]=useState(null); // id del usuario pendiente de confirmar
-  const [tab,setTab]=useState("users"); // "users" | "permissions"
+  const [tab,setTab]=useState("users"); // "users" | "permissions" | "agents"
 
   const filtered=members.filter(m=>
     m.name.toLowerCase().includes(search.toLowerCase())||
@@ -4810,19 +4810,22 @@ function UsersView({members,projects,permissions,onEdit,onCreate,onDelete,onSetP
     <div style={{padding:20}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:10}}>
         <div>
-          <div style={{fontSize:16,fontWeight:700,marginBottom:2}}>{tab==="users"?"Usuarios del sistema":"Gestión de permisos"}</div>
-          <div style={{fontSize:12,color:"#6b7280"}}>{tab==="users"?`${members.length} usuarios registrados`:"Acceso granular por miembro y módulo"}</div>
+          <div style={{fontSize:16,fontWeight:700,marginBottom:2}}>{tab==="users"?"Usuarios del sistema":tab==="agents"?"Agentes IA por miembro":"Gestión de permisos"}</div>
+          <div style={{fontSize:12,color:"#6b7280"}}>{tab==="users"?`${members.length} usuarios registrados`:tab==="agents"?"Asigna qué agentes IA puede usar cada miembro":"Acceso granular por miembro y módulo"}</div>
         </div>
         {tab==="users" && <button onClick={onCreate} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo usuario</button>}
       </div>
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,borderBottom:"0.5px solid #E5E7EB"}}>
-        {[["users","👤 Usuarios"],["permissions","🔐 Permisos por módulo"]].map(([k,l])=>(
+        {[["users","👤 Miembros"],["permissions","🔐 Permisos por módulo"],["agents","🤖 Agentes"]].map(([k,l])=>(
           <button key={k} onClick={()=>setTab(k)} style={{padding:"8px 14px",background:"transparent",border:"none",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",fontSize:13,fontWeight:tab===k?600:500,color:tab===k?"#7F77DD":"#6B7280",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
         ))}
       </div>
       {tab==="permissions" && (
-        <PermissionsTable members={members} permissions={permissions} onSetPermission={onSetPermission} onSetAgentPermission={onSetAgentPermission}/>
+        <PermissionsTable members={members} permissions={permissions} onSetPermission={onSetPermission}/>
+      )}
+      {tab==="agents" && (
+        <AgentsPermissionsTable members={members} permissions={permissions} onSetAgentPermission={onSetAgentPermission}/>
       )}
       {tab==="users" && (<>
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por nombre, email o rol..." style={{width:"100%",padding:"9px 14px",borderRadius:10,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit",marginBottom:16,boxSizing:"border-box"}}/>
@@ -4901,17 +4904,17 @@ function UsersView({members,projects,permissions,onEdit,onCreate,onDelete,onSetP
 const PERMISSION_FEATURES = [
   { key: "finance", label: "Finanzas", icon: "💰", desc: "Tesorería, dashboard financiero, KPIs" },
 ];
-// Agentes IA disponibles. La columna "Agentes" en la tabla muestra un
-// toggle por cada uno; admin global tiene acceso libre y no aparecen los
-// toggles en su fila.
+// Agentes IA disponibles. Definición canónica usada por la pestaña
+// "🤖 Agentes" de UsersView. Si añades un nuevo agente al sistema multi-
+// agente (Mario/Jorge/Álvaro/...), añádelo aquí para exponer el toggle.
 const AGENT_PERMISSIONS = [
-  { key: "mario",  label: "Mario",  emoji: "⚖️", desc: "Mario Legal — contratos, compliance" },
-  { key: "jorge",  label: "Jorge",  emoji: "📊", desc: "Jorge Finanzas — modelos, ROI, waterfall" },
-  { key: "alvaro", label: "Álvaro", emoji: "🏠", desc: "Álvaro Inmobiliario — alquileres, LAU, inversión" },
+  { key: "mario",  label: "Mario Legal",        emoji: "⚖️", color: "#3C3489", desc: "Contratos, cláusulas, compliance, jurisprudencia" },
+  { key: "jorge",  label: "Jorge Finanzas",     emoji: "📊", color: "#B45309", desc: "Modelos financieros, ROI, waterfall, sensibilidades" },
+  { key: "alvaro", label: "Álvaro Inmobiliario", emoji: "🏠", color: "#E67E22", desc: "Alquileres LAU, fiscalidad, inversión, alquiler turístico" },
 ];
-const PERM_GRID = `minmax(220px, 1fr) repeat(${PERMISSION_FEATURES.length}, minmax(280px, 1fr)) minmax(260px, 1fr)`;
+const PERM_GRID = `minmax(220px, 1fr) repeat(${PERMISSION_FEATURES.length}, minmax(280px, 1fr))`;
 
-function PermissionsTable({ members, permissions, onSetPermission, onSetAgentPermission }) {
+function PermissionsTable({ members, permissions, onSetPermission }) {
   return (
     <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, overflow: "hidden" }}>
       <div style={{ display: "grid", gridTemplateColumns: PERM_GRID, background: "#FAFAFA", borderBottom: "1px solid #E5E7EB", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>
@@ -4919,7 +4922,6 @@ function PermissionsTable({ members, permissions, onSetPermission, onSetAgentPer
         {PERMISSION_FEATURES.map(f => (
           <div key={f.key} style={{ padding: "12px 14px" }} title={f.desc}>{f.icon} {f.label}</div>
         ))}
-        <div style={{ padding: "12px 14px" }} title="Agentes IA disponibles">🤖 Agentes</div>
       </div>
       {(members || []).map(m => {
         const isAdminGlobal = m.accountRole === "admin";
@@ -4959,26 +4961,72 @@ function PermissionsTable({ members, permissions, onSetPermission, onSetAgentPer
                 </div>
               );
             })}
-            {/* Columna Agentes IA. Admin global → "Todos (admin global)". Resto
-                → toggles por agente. */}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Tabla dedicada de agentes IA por miembro. Vive en UsersView ▸ pestaña
+// "🤖 Agentes". Una fila por miembro con toggles por cada agente
+// disponible. Admin global muestra el badge "Todos activos" sin toggles.
+function AgentsPermissionsTable({ members, permissions, onSetAgentPermission }) {
+  const AGENT_GRID = `minmax(220px, 1fr) minmax(420px, 2fr)`;
+  return (
+    <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, overflow: "hidden" }}>
+      <div style={{ display: "grid", gridTemplateColumns: AGENT_GRID, background: "#FAFAFA", borderBottom: "1px solid #E5E7EB", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+        <div style={{ padding: "12px 14px" }}>Miembro</div>
+        <div style={{ padding: "12px 14px" }}>Agentes disponibles</div>
+      </div>
+      {(members || []).map(m => {
+        const isAdminGlobal = m.accountRole === "admin";
+        const mp = MP[m.id] || MP[0];
+        return (
+          <div key={m.id} style={{ display: "grid", gridTemplateColumns: AGENT_GRID, borderBottom: "0.5px solid #F3F4F6", alignItems: "center" }}>
+            <div style={{ padding: "14px 14px", display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              <div style={{ width: 34, height: 34, borderRadius: "50%", background: mp.solid, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{m.initials}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
+                <div style={{ fontSize: 10.5, color: "#6B7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.email}</div>
+              </div>
+            </div>
             {isAdminGlobal ? (
-              <div style={{ padding: "12px 14px", fontSize: 11.5, color: "#065F46" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 12, background: "#DCFCE7", border: "1px solid #86EFAC", fontWeight: 600 }}>✓ Todos los agentes</span>
-                <div style={{ fontSize: 10.5, color: "#6B7280", marginTop: 4 }}>(admin global)</div>
+              <div style={{ padding: "14px 14px" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 12px", borderRadius: 14, background: "#DCFCE7", border: "1px solid #86EFAC", color: "#065F46", fontSize: 12, fontWeight: 600 }}>✓ Admin global — todos los agentes activos</span>
               </div>
             ) : (
-              <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6, fontSize: 12, color: "#374151" }}>
+              <div style={{ padding: "14px 14px", display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {AGENT_PERMISSIONS.map(a => {
                   const checked = !!permissions?.[m.id]?.agents?.[a.key];
                   return (
-                    <label key={a.key} title={a.desc} style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
+                    <label
+                      key={a.key}
+                      title={a.desc}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "8px 14px",
+                        borderRadius: 10,
+                        border: `1.5px solid ${checked ? a.color : "#E5E7EB"}`,
+                        background: checked ? `${a.color}10` : "#FAFAFA",
+                        cursor: "pointer",
+                        userSelect: "none",
+                        fontSize: 13,
+                        fontWeight: checked ? 600 : 500,
+                        color: checked ? a.color : "#6B7280",
+                        transition: "background .15s ease, border-color .15s ease",
+                      }}
+                    >
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={(e) => onSetAgentPermission?.(m.id, a.key, e.target.checked)}
-                        style={{ cursor: "pointer", accentColor: "#7F77DD" }}
+                        style={{ cursor: "pointer", accentColor: a.color, margin: 0 }}
                       />
-                      <span>{a.emoji} {a.label}</span>
+                      <span style={{ fontSize: 16 }}>{a.emoji}</span>
+                      <span>{a.label}</span>
                     </label>
                   );
                 })}
