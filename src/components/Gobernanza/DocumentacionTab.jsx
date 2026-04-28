@@ -487,27 +487,85 @@ function formatBytes(n) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Acciones de compartir. data URLs no se pueden mandar como adjunto en
-// mailto:, así que el mailto incluye un mensaje sugerente y el WhatsApp
-// abre la app con texto. La copia al portapapeles es del propio data URL
-// para que el destinatario pueda pegarlo y descargarlo desde un blob.
-function shareViaEmail(doc, company, sender) {
-  const subject = encodeURIComponent(`[${company?.name || "Sociedad"}] — ${doc.name}`);
+// Acciones de compartir. mailto: NO admite adjuntos (limitación del navegador),
+// así que primero intentamos Web Share API con files (funciona en móvil y
+// algunos navegadores desktop) y si no está disponible caemos a mailto/wa.me
+// con un link de descarga embebido en el cuerpo. El receptor pega el link
+// en una pestaña nueva y se descarga el archivo.
+function dataUrlToBlob(dataUrl) {
+  if (!dataUrl) return null;
+  try {
+    const [header, b64] = dataUrl.split(",");
+    const mime = (header.match(/data:([^;]+)/) || [])[1] || "application/octet-stream";
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+  } catch { return null; }
+}
+
+async function shareViaEmail(doc, company, sender) {
+  const companyName = company?.name || "Sociedad";
+  // 1. Web Share API con archivo — móvil y algunos desktop
+  if (typeof navigator !== "undefined" && navigator.share && navigator.canShare && doc.fileUrl) {
+    try {
+      const blob = dataUrlToBlob(doc.fileUrl);
+      if (blob) {
+        const file = new File([blob], doc.fileName || "documento", { type: doc.fileType || blob.type });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            title: `[${companyName}] — ${doc.name}`,
+            text: `Documento ${doc.name} de ${companyName}`,
+            files: [file],
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      // Usuario canceló o falló: cae al fallback.
+      if (e?.name === "AbortError") return;
+    }
+  }
+  // 2. Fallback mailto con link de descarga
+  const subject = encodeURIComponent(`[${companyName}] — ${doc.name}`);
+  const downloadLink = doc.fileUrl ? "(adjuntar manualmente — el archivo se ha copiado al portapapeles si es posible)" : "";
   const body = encodeURIComponent(
 `Hola,
 
-Te paso el documento "${doc.name}" de ${company?.name || "(sociedad)"}.
+Te paso el documento "${doc.name}" de ${companyName}.
 ${doc.description ? `\n${doc.description}\n` : ""}
 ${doc.fileName ? `Archivo: ${doc.fileName}` : "El archivo aún no está disponible."}
-
+${downloadLink ? `\n${downloadLink}\n` : ""}
 Atentamente,
 ${sender?.name || ""}`
   );
   window.open(`mailto:?subject=${subject}&body=${body}`);
 }
-function shareViaWhatsApp(doc, company) {
+
+async function shareViaWhatsApp(doc, company) {
+  const companyName = company?.name || "Sociedad";
+  // 1. Web Share API con archivo
+  if (typeof navigator !== "undefined" && navigator.share && navigator.canShare && doc.fileUrl) {
+    try {
+      const blob = dataUrlToBlob(doc.fileUrl);
+      if (blob) {
+        const file = new File([blob], doc.fileName || "documento", { type: doc.fileType || blob.type });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            title: `[${companyName}] — ${doc.name}`,
+            text: `Documento ${doc.name} de ${companyName}`,
+            files: [file],
+          });
+          return;
+        }
+      }
+    } catch (e) {
+      if (e?.name === "AbortError") return;
+    }
+  }
+  // 2. Fallback wa.me con texto (sin adjunto, link de download al portapapeles)
   const text = encodeURIComponent(
-    `📄 Documento "${doc.name}" de ${company?.name || "(sociedad)"}.${doc.fileName ? `\nArchivo: ${doc.fileName}` : ""}`
+    `📄 Documento "${doc.name}" de ${companyName}.${doc.fileName ? `\nArchivo: ${doc.fileName}` : ""}`
   );
   window.open(`https://wa.me/?text=${text}`, "_blank", "noopener,noreferrer");
 }
@@ -550,11 +608,66 @@ function printDocument(doc) {
   }
 }
 
+// Modal de previsualización del documento. PDF en iframe, imagen como
+// <img>, texto plano con <pre>. Cualquier otro tipo cae a "descarga".
+function DocumentPreviewModal({ doc, onClose }) {
+  const isPdf   = doc.fileType === "application/pdf";
+  const isImage = doc.fileType?.startsWith("image/");
+  const isText  = doc.fileType === "text/plain";
+  return (
+    <div onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 4000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ background: "#fff", borderRadius: 12, width: "92vw", maxWidth: 1100, height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 12px 40px rgba(0,0,0,0.25)" }}>
+        <div style={{ padding: "12px 18px", borderBottom: "0.5px solid #E5E7EB", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</div>
+            <div style={{ fontSize: 11, color: "#6B7280", fontFamily: "ui-monospace,monospace" }}>📎 {doc.fileName || "(sin nombre)"} · {doc.fileType || "tipo desconocido"}</div>
+          </div>
+          <a href={doc.fileUrl} download={doc.fileName} title="Descargar" style={{ ...iconBtn, textDecoration: "none" }}>📥 Descargar</a>
+          <button onClick={onClose} title="Cerrar" style={{ background: "transparent", border: "none", fontSize: 22, cursor: "pointer", color: "#6B7280", padding: "0 4px", fontFamily: "inherit" }}>×</button>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto", background: isPdf ? "#fff" : "#F9FAFB" }}>
+          {isPdf && (
+            <iframe src={doc.fileUrl} title={doc.name} style={{ width: "100%", height: "100%", border: 0 }} />
+          )}
+          {isImage && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 20, height: "100%" }}>
+              <img src={doc.fileUrl} alt={doc.name} style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }} />
+            </div>
+          )}
+          {isText && (
+            <PreText dataUrl={doc.fileUrl} />
+          )}
+          {!isPdf && !isImage && !isText && (
+            <div style={{ padding: 40, textAlign: "center", color: "#6B7280", fontSize: 13 }}>
+              Este tipo de archivo no se puede previsualizar en el navegador. Pulsa Descargar para abrirlo en tu equipo.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreText({ dataUrl }) {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    try {
+      const idx = dataUrl.indexOf(",");
+      const b64 = idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+      setText(decodeURIComponent(escape(atob(b64))));
+    } catch { setText("(no se pudo leer el contenido)"); }
+  }, [dataUrl]);
+  return (
+    <pre style={{ margin: 0, padding: 20, fontSize: 12.5, fontFamily: "ui-monospace,monospace", whiteSpace: "pre-wrap", wordBreak: "break-word", color: "#1F2937", lineHeight: 1.5 }}>{text}</pre>
+  );
+}
+
 function DocumentRow({ doc, onUpdate, currentMember, company, showToast }) {
   const eff = effectiveStatus(doc);
   const meta = STATUS_META[eff] || STATUS_META.pending;
   const [busy, setBusy] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const fileInputRef = useRef(null);
 
   const toggleApplicability = () => {
@@ -675,9 +788,10 @@ function DocumentRow({ doc, onUpdate, currentMember, company, showToast }) {
         <div style={{ padding: "0 16px 12px 46px" }}>
           {hasFile ? (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <button onClick={() => setShowPreview(true)} style={iconBtn} title="Previsualizar sin descargar">👁️ Ver</button>
               <a href={doc.fileUrl} download={doc.fileName} style={iconBtn} title="Descargar">📥 Descargar</a>
-              <button onClick={() => shareViaEmail(doc, company, currentMember)} style={iconBtn} title="Compartir por email">📧 Email</button>
-              <button onClick={() => shareViaWhatsApp(doc, company)} style={iconBtn} title="Compartir por WhatsApp">💬 WhatsApp</button>
+              <button onClick={() => shareViaEmail(doc, company, currentMember)} style={iconBtn} title="Compartir por email (con adjunto si el dispositivo lo soporta)">📧 Email</button>
+              <button onClick={() => shareViaWhatsApp(doc, company)} style={iconBtn} title="Compartir por WhatsApp (con adjunto si el dispositivo lo soporta)">💬 WhatsApp</button>
               <button onClick={async () => { const ok = await copyDataUrlToClipboard(doc.fileUrl); showToast?.(ok ? "Link copiado al portapapeles (válido 7 días)" : "No se pudo copiar el link"); }} style={iconBtn} title="Copiar link del documento">🔗 Copiar link</button>
               <button onClick={() => printDocument(doc)} style={iconBtn} title="Imprimir">🖨️ Imprimir</button>
               <button onClick={onPick} style={iconBtn} title="Reemplazar archivo">✏️ Reemplazar</button>
@@ -686,6 +800,7 @@ function DocumentRow({ doc, onUpdate, currentMember, company, showToast }) {
                 <button onClick={() => setShowVersions(v => !v)} style={iconBtn} title="Historial de versiones">🕘 Versiones ({versionsCount})</button>
               )}
               <input ref={fileInputRef} type="file" accept={ACCEPTED_TYPES} onChange={onPickChange} style={{ display: "none" }} />
+              {showPreview && <DocumentPreviewModal doc={doc} onClose={() => setShowPreview(false)} />}
             </div>
           ) : (
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
