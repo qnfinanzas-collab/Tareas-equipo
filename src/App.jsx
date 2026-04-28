@@ -281,17 +281,19 @@ REGLA: No mezclo coaching con estrategia en la misma respuesta. Si detecto que e
 const HECTOR_INVOKE_ADDON = `
 
 INVOCACIÓN DE ESPECIALISTAS (sistema multi-agente):
-Cuando una respuesta requiera la ejecución experta de Mario Legal (contratos, cláusulas, compliance, jurisprudencia), Jorge Finanzas (modelos financieros, ROI, waterfall, payback, sensibilidades, márgenes) o Álvaro Inmobiliario (alquileres, contratos LAU, fiscalidad inmobiliaria, inversión inmobiliaria, rentabilidad, comunidades de propietarios, alquiler turístico, zonas tensionadas), termina tu respuesta con una línea especial en este formato exacto:
+Cuando una respuesta requiera la ejecución experta de Mario Legal (contratos, cláusulas, compliance, jurisprudencia), Jorge Finanzas (modelos financieros, ROI, waterfall, payback, sensibilidades, márgenes), Álvaro Inmobiliario (alquileres, contratos LAU, fiscalidad inmobiliaria, inversión inmobiliaria, rentabilidad, comunidades de propietarios, alquiler turístico, zonas tensionadas) o Gonzalo Gobernanza (estructura societaria, holdings, consolidación fiscal, internacionalización, calendario fiscal, planificación sucesoria, reestructuraciones), termina tu respuesta con una línea especial en este formato exacto:
 [INVOCAR:mario:tarea concreta que Mario debe ejecutar]
 o
 [INVOCAR:jorge:tarea concreta que Jorge debe ejecutar]
 o
 [INVOCAR:alvaro:tarea concreta que Álvaro debe ejecutar]
+o
+[INVOCAR:gonzalo:tarea concreta que Gonzalo debe ejecutar]
 
 Reglas estrictas:
-- Solo añade la etiqueta cuando QUIERAS DELEGAR la ejecución a un especialista. Mencionar a Mario, Jorge o Álvaro en el cuerpo del mensaje NO los invoca — únicamente la etiqueta dispara la llamada.
+- Solo añade la etiqueta cuando QUIERAS DELEGAR la ejecución a un especialista. Mencionar a un especialista en el cuerpo del mensaje NO lo invoca — únicamente la etiqueta dispara la llamada.
 - Puedes incluir varias etiquetas (en líneas separadas) si la consulta toca varios dominios.
-- Cada etiqueta debe llevar una tarea operativa concreta entre dos puntos y el corchete de cierre. Ej: [INVOCAR:alvaro:Redacta contrato de alquiler vivienda habitual en Sevilla, 3 años, fianza 1 mes].
+- Cada etiqueta debe llevar una tarea operativa concreta entre dos puntos y el corchete de cierre. Ej: [INVOCAR:gonzalo:Diseña estructura holding óptima para grupo con 3 filiales operativas + 1 patrimonial].
 - La etiqueta se procesa y se elimina antes de mostrar tu respuesta al usuario, así que escríbela tal cual sin disculpas.
 - Si tu respuesta es completa y no necesitas ningún especialista, NO añadas ninguna etiqueta.`;
 // Patch idempotente para Héctor existentes que ya tenían el INVOKE_ADDON
@@ -303,6 +305,15 @@ ESPECIALISTA AÑADIDO — Álvaro Inmobiliario:
 También puedes invocar a Álvaro Inmobiliario (alquileres, contratos LAU, fiscalidad inmobiliaria, inversión, rentabilidad, comunidades de propietarios, alquiler turístico, zonas tensionadas) con la etiqueta:
 [INVOCAR:alvaro:tarea concreta que Álvaro debe ejecutar]
 Mismas reglas que para Mario/Jorge: solo cuando quieras DELEGAR ejecución, una tarea operativa por etiqueta, una etiqueta por línea.`;
+// Patch idempotente para Héctor sin mención de Gonzalo. Misma idea que el
+// patch de Álvaro: si el promptBase ya tenía INVOKE_ADDON pero todavía no
+// nombra "gonzalo:", añadimos el bloque sin reescribir el resto.
+const HECTOR_GONZALO_INVOKE_PATCH = `
+
+ESPECIALISTA AÑADIDO — Gonzalo Gobernanza:
+También puedes invocar a Gonzalo Gobernanza (estructura societaria, holdings, consolidación fiscal, internacionalización, calendario fiscal, planificación sucesoria, reestructuraciones) con la etiqueta:
+[INVOCAR:gonzalo:tarea concreta que Gonzalo debe ejecutar]
+Mismas reglas: solo cuando quieras DELEGAR ejecución, una tarea operativa por etiqueta, una etiqueta por línea.`;
 
 // Framework 10 (Aristóteles): filosofía práctica aplicada al liderazgo y
 // negociación. Se inserta entre el framework 9 (Sonrisa/Silencio/Indiferencia)
@@ -573,6 +584,79 @@ NUNCA:
       ],
       createdAt:new Date().toISOString(),
     },
+    {
+      id:5,
+      name:"Gonzalo Gobernanza",
+      role:"Estratega de Gobernanza Empresarial (25+ años)",
+      emoji:"🏛️",
+      color:"#8E44AD",
+      voice:{gender:"male",rate:1.0,pitch:0.92,tone:"profesional"},
+      specialties:["estructura societaria","holdings","consolidación fiscal","transfer pricing","internacionalización","planificación sucesoria","reestructuraciones","gobierno corporativo"],
+      opener:"Soy Gonzalo, estratega de gobernanza empresarial. Antes de tomar decisión societaria, repasamos estructura, ahorro fiscal real, calendario de obligaciones y riesgo de inspección. Sin sustancia real, no hay optimización legal.",
+      style:"directo, citando ley exacta (LSC, LIS); diagrama de estructura cuando aplique; tabla comparativa con/sin holding; números reales de ahorro",
+      advice:{
+        default:"Toda decisión societaria parte de 4 preguntas: ¿qué estructura óptima (sin estructura / SL / holding+filiales / SPV)? ¿qué ahorro fiscal con números (IS 25% vs participation exemption 95%)? ¿qué obligaciones de compliance dispara? ¿qué impacto en sucesión patrimonial? Sin las cuatro, no se firma nada.",
+        overdue:"Plazo societario o fiscal vencido — recurrente: junta general (6 meses post-cierre), depósito cuentas (1 mes post-junta), IS modelo 200 (25 julio), pagos fraccionados modelo 202 (abril/octubre/diciembre). Notifica inmediatamente al admin, valora autoliquidación complementaria con recargo art.27 LGT vs sanción tributaria.",
+        noDueDate:"Decisión societaria sin fecha es muy peligrosa: la planificación fiscal funciona en años naturales. Fija fecha de cierre del ejercicio anterior y siguiente — la mayoría de optimizaciones (reservas, dividendos, retribución) requieren ejecución antes del 31/12.",
+        noSubtasks:"Operación societaria sin desglose. Estructura mínima: (1) auditoría fiscal/societaria previa, (2) propuesta de estructura con diagrama, (3) cálculo ahorro fiscal real, (4) calendario obligaciones, (5) acta junta + escritura notarial, (6) registro mercantil + Hacienda + bancos.",
+        overBudget:"Sobrecoste en operación societaria. Re-evalúa: ¿la estructura sigue siendo eficiente con el nuevo coste? ¿hay alternativa más simple? Holding solo merece la pena si el ahorro fiscal anual > coste de mantenimiento (~€3-5k/año por sociedad adicional).",
+        q1:"Urgente e importante en gobernanza: probablemente vencimiento fiscal o requerimiento de Hacienda. Antes de actuar, comprueba si es plazo de prescripción (4 años) o de caducidad (no admite recuperación). Notifica al asesor fiscal y abogado mercantil simultáneamente.",
+        q2:"Importante no urgente: zona ideal para revisar estructura (¿necesita holding?), preparar planificación sucesoria (bonificación 95% ISD empresa familiar), aplicar reservas (capitalización 10%, nivelación 10%) o estudiar internacionalización con sustancia real.",
+      },
+      promptBase:`Eres Gonzalo, estratega senior de gobernanza empresarial con 25 años de experiencia en estructura societaria y fiscalidad avanzada.
+
+TU ESPECIALIDAD:
+- Diseño de estructuras societarias (SL, holding, patrimonial, SPV, grupos)
+- Holdings nacionales e internacionales
+- Participation exemption (95% exención dividendos filial→holding, art.21 LIS)
+- Consolidación fiscal de grupos (≥75% participación, art.55 LIS)
+- Transfer pricing y operaciones vinculadas (art.18 LIS, modelo 232)
+- Optimización retribución socio-trabajador (nómina + dividendos)
+- Reserva de capitalización (10%, art.25 LIS) y nivelación (10%, art.105 LIS)
+- Internacionalización (CDIs, CFC rules, sustancia real, BEPS)
+- Jurisdicciones competitivas (Holanda, Irlanda, Luxemburgo, Estonia, Malta, Chipre, Dubai, USA, UK, Singapur)
+- Planificación sucesoria y protocolo familiar (bonificación 95% ISD, art.20.2.c LISD)
+- Reestructuraciones societarias (fusión, escisión, canje valores, neutralidad fiscal LIS)
+- Gobierno corporativo (administradores LSC, responsabilidad, compliance)
+- Calendario COMPLETO de obligaciones fiscales y societarias mes a mes
+- Juntas de socios (ordinaria 6 meses, extraordinaria, universal)
+- Depósito cuentas anuales (1 mes post-junta), legalización libros (4 meses), registro titularidad real
+- RGPD, prevención blanqueo (Ley 10/2010), prevención riesgos laborales
+
+CÓMO ACTÚAS:
+- Siempre citas el artículo exacto aplicable (LSC, LIS 27/2014, LIRPF, LISD)
+- Calculas ahorro fiscal real con números concretos (IS 25%, retención IRPF, dividendos)
+- Comparas escenarios: con holding vs sin, consolidación vs no, retribución mixta
+- Diseñas diagrama de estructura (holding → filiales operativas + patrimonial)
+- Avisas de riesgos legales y de inspección (sustancia real, motivo económico válido)
+- Conoces plazos exactos de TODAS las obligaciones
+- Diferencias decisiones tipo 1 (irreversibles: vender holding, fusionar) de tipo 2 (reversibles)
+- Si Hacienda puede desmontar la estructura por simulación, lo dices CLARAMENTE
+
+FORMATO DE RESPUESTA:
+- Diagrama ASCII de estructura cuando se diseñe grupo
+- Tablas comparativas cuando haya opciones
+- Cálculos con números reales (IS, IRPF, ahorro, ROI)
+- Calendario de acciones con fechas concretas (DD/MM/AAAA)
+- Alertas de riesgo claramente señaladas (🔴/🟡/🟢)
+
+NUNCA:
+- Recomiendas estructuras sin sustancia real (riesgo art.15 LGT, conflicto en aplicación de norma)
+- Ignoras CFC rules o ATAD (Directiva 2016/1164)
+- Propones evasión fiscal (solo optimización legal y motivo económico válido)
+- Olvidas documentar operaciones vinculadas (master file + local file > €45M facturación)
+- Diseñas estructura sin considerar sucesión (bonificación 95% ISD requiere requisitos)
+- Ignoras obligaciones de compliance (DAC6 transfronterizos, modelo 720 bienes extranjero)`,
+      specialtiesExtended:[
+        {name:"Estructura societaria",description:"Diseño de SL, holdings, patrimoniales, SPV, grupos. Comparativa con/sin holding, ahorro fiscal real"},
+        {name:"Optimización fiscal grupo",description:"Participation exemption 95%, consolidación fiscal ≥75%, reserva capitalización/nivelación, transfer pricing"},
+        {name:"Internacionalización",description:"CDIs, CFC rules, sustancia real, jurisdicciones competitivas (Holanda/Irlanda/Estonia/Dubai)"},
+        {name:"Planificación sucesoria",description:"Bonificación 95% ISD empresa familiar, protocolo familiar, pacto sucesorio, holding patrimonial"},
+        {name:"Calendario obligaciones",description:"Modelos 111/200/202/303/347/390/720, junta general, depósito cuentas, legalización libros, auditoría"},
+        {name:"Reestructuraciones",description:"Fusión, escisión, canje valores, aportación no dineraria con neutralidad fiscal LIS"},
+      ],
+      createdAt:new Date().toISOString(),
+    },
   ],
   workspaces:[
     {id:1,name:"Cliente ejemplo",emoji:"🏢",color:"#378ADD",description:"Demo de workspace asociado — reemplázalo por tu cliente real.",
@@ -677,11 +761,26 @@ function _migrate(d){
       d.agents = [...d.agents, {...JSON.parse(JSON.stringify(alvaroSeed)), id: maxId+1, createdAt: new Date().toISOString()}];
     }
   }
+  // Backfill Gonzalo Gobernanza: análogo a los anteriores.
+  if(d.agents.length>0 && !d.agents.some(a=>a.name==="Gonzalo Gobernanza")){
+    const gonzaloSeed = (INITIAL_DATA.agents||[]).find(a=>a.name==="Gonzalo Gobernanza");
+    if(gonzaloSeed){
+      const maxId = d.agents.reduce((m,a)=>typeof a.id==="number"&&a.id>m?a.id:m,0);
+      d.agents = [...d.agents, {...JSON.parse(JSON.stringify(gonzaloSeed)), id: maxId+1, createdAt: new Date().toISOString()}];
+    }
+  }
   // Patch Héctor: si ya tenía INVOKE_ADDON pero no menciona "alvaro:", le
   // añadimos el patch que lo añade como tercer especialista invocable.
   d.agents = d.agents.map(a=>{
     if(a.name==="Héctor" && a.promptBase && a.promptBase.includes("[INVOCAR:") && !a.promptBase.includes("alvaro:")){
       return {...a, promptBase: a.promptBase + HECTOR_ALVARO_INVOKE_PATCH};
+    }
+    return a;
+  });
+  // Patch Héctor: añade Gonzalo si todavía no estaba mencionado.
+  d.agents = d.agents.map(a=>{
+    if(a.name==="Héctor" && a.promptBase && a.promptBase.includes("[INVOCAR:") && !a.promptBase.includes("gonzalo:")){
+      return {...a, promptBase: a.promptBase + HECTOR_GONZALO_INVOKE_PATCH};
     }
     return a;
   });
@@ -7209,12 +7308,13 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           // invocación. Cero falsos positivos por palabras clave en prosa.
           // Sincrónico — sin coste extra por llamada al LLM clasificador.
           const parseSpecialistTags = (text)=>{
-            const mario  = (agents||[]).find(a=>a.name==="Mario Legal");
-            const jorge  = (agents||[]).find(a=>a.name==="Jorge Finanzas");
-            const alvaro = (agents||[]).find(a=>a.name==="Álvaro Inmobiliario");
+            const mario   = (agents||[]).find(a=>a.name==="Mario Legal");
+            const jorge   = (agents||[]).find(a=>a.name==="Jorge Finanzas");
+            const alvaro  = (agents||[]).find(a=>a.name==="Álvaro Inmobiliario");
+            const gonzalo = (agents||[]).find(a=>a.name==="Gonzalo Gobernanza");
             const empty = {cleanContent:String(text||""), specialists:[]};
-            if(!mario && !jorge && !alvaro) return empty;
-            const re = /\[INVOCAR:(mario|jorge|alvaro):([^\]]+)\]/gi;
+            if(!mario && !jorge && !alvaro && !gonzalo) return empty;
+            const re = /\[INVOCAR:(mario|jorge|alvaro|gonzalo):([^\]]+)\]/gi;
             const found = [];
             const seen = new Set();
             let m;
@@ -7233,6 +7333,8 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                 found.push({agentId:jorge.id, name:"Jorge Finanzas", emoji:"📊", task});
               } else if(key==="alvaro" && alvaro){
                 found.push({agentId:alvaro.id, name:"Álvaro Inmobiliario", emoji:"🏠", task});
+              } else if(key==="gonzalo" && gonzalo){
+                found.push({agentId:gonzalo.id, name:"Gonzalo Gobernanza", emoji:"🏛️", task});
               }
             }
             // Eliminar las etiquetas del texto mostrado y colapsar saltos
@@ -7303,8 +7405,8 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           // queda asociada al mensaje en el chat para trazabilidad.
           const handleManualSpecialist = (which)=>{
             if(chatLoading) return;
-            const SPEC_NAMES = {mario:"Mario Legal", jorge:"Jorge Finanzas", alvaro:"Álvaro Inmobiliario"};
-            const SPEC_EMOJIS = {mario:"⚖️", jorge:"📊", alvaro:"🏠"};
+            const SPEC_NAMES = {mario:"Mario Legal", jorge:"Jorge Finanzas", alvaro:"Álvaro Inmobiliario", gonzalo:"Gonzalo Gobernanza"};
+            const SPEC_EMOJIS = {mario:"⚖️", jorge:"📊", alvaro:"🏠", gonzalo:"🏛️"};
             const targetName = SPEC_NAMES[which];
             const ag = (agents||[]).find(a=>a.name===targetName);
             if(!ag){ onAppendHectorMessage(negotiation.id,{role:"assistant",content:`⚠ No encuentro a ${targetName||which} en agentes.`,timestamp:new Date().toISOString()}); return; }
@@ -7617,6 +7719,7 @@ ${taskLines||"(ninguna)"}`;
                 {canUseAgent(currentMember,"mario",permissions) && <button onClick={()=>handleManualSpecialist("mario")} disabled={chatLoading} title="Pedir intervención de Mario Legal" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#1E40AF",border:"1px solid #BFDBFE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>⚖️ Mario</button>}
                 {canUseAgent(currentMember,"jorge",permissions) && <button onClick={()=>handleManualSpecialist("jorge")} disabled={chatLoading} title="Pedir intervención de Jorge Finanzas" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#0E7C5A",border:"1px solid #86EFAC",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>📊 Jorge</button>}
                 {canUseAgent(currentMember,"alvaro",permissions) && <button onClick={()=>handleManualSpecialist("alvaro")} disabled={chatLoading} title="Pedir intervención de Álvaro Inmobiliario" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#92400E",border:"1px solid #FCD34D",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏠 Álvaro</button>}
+                {canUseAgent(currentMember,"gonzalo",permissions) && <button onClick={()=>handleManualSpecialist("gonzalo")} disabled={chatLoading} title="Pedir intervención de Gonzalo Gobernanza" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#6B21A8",border:"1px solid #D8B4FE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏛️ Gonzalo</button>}
                 <div style={{flex:1}}/>
                 <label style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:10,color:"#6B7280",cursor:"pointer"}} title="Cuando está activo, Héctor delega automáticamente en Mario o Jorge si la respuesta lo requiere.">
                   <input type="checkbox" checked={autoSpecialistsOn} onChange={toggleAutoSpecialists} style={{cursor:"pointer"}}/>
