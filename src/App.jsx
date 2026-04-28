@@ -4397,19 +4397,33 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
           const t=total(p.id),d=done(p.id),pct=t>0?Math.round(d/t*100):0;
           const projMs=p.members.map(mid=>members.find(m=>m.id===mid)).filter(Boolean);
           const isPending=pendingDel===i;
+          // Indicadores de propiedad y permisos. visIcon refleja la
+          // visibilidad del proyecto; isMine destaca proyectos cuyo owner es
+          // el miembro activo; readOnly se aplica cuando puede ver pero no
+          // editar (típico de proyectos "team"/"public" sin pertenencia).
+          const visIcon = p.visibility === "private" ? "🔒"
+            : p.visibility === "public" ? "🌍" : "👥";
+          const visTitle = p.visibility === "private" ? "Privado — solo miembros"
+            : p.visibility === "public" ? "Público — toda la organización" : "Equipo — todos pueden verlo";
+          const isMine = currentMember && p.ownerId === currentMember.id;
+          const canEdit = canEditProject(currentMember, p);
+          const readOnly = !canEdit;
           return(
-            <div key={p.id} style={{background:"#fff",border:`0.5px solid ${isPending?"#E24B4A":p.color+"44"}`,borderTop:`4px solid ${isPending?"#E24B4A":p.color}`,borderRadius:12,padding:16,cursor:"pointer"}} onClick={()=>!isPending&&onSelectProject(i)}>
+            <div key={p.id} style={{background:"#fff",border:`0.5px solid ${isPending?"#E24B4A":p.color+"44"}`,borderTop:`4px solid ${isPending?"#E24B4A":p.color}`,borderRadius:12,padding:16,cursor:"pointer",opacity:readOnly?0.92:1}} onClick={()=>!isPending&&onSelectProject(i)}>
               <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:12}}>
                 <div style={{fontSize:26,lineHeight:1}}>{p.emoji||"📋"}</div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
                     <div style={{fontSize:14,fontWeight:700,color:p.color}}>{p.name}</div>
                     <RefBadge code={p.code}/>
+                    <span title={visTitle} style={{fontSize:13,lineHeight:1}}>{visIcon}</span>
+                    {isMine && <span title="Eres el owner de este proyecto" style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:10,background:"#1D9E7518",color:"#0E7C5A",border:"0.5px solid #1D9E7555",textTransform:"uppercase",letterSpacing:"0.04em"}}>Tuyo</span>}
+                    {readOnly && <span title="Solo puedes ver este proyecto" style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:10,background:"#F3F4F6",color:"#6B7280",border:"0.5px solid #D1D5DB",textTransform:"uppercase",letterSpacing:"0.04em"}}>Solo lectura</span>}
                   </div>
                   {p.desc&&<div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.desc}</div>}
                 </div>
                 <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
-                  {!isPending&&<>
+                  {!isPending&&canEdit&&<>
                     <button onClick={()=>onEditProject(i)} style={{width:26,height:26,borderRadius:6,border:"0.5px solid #e5e7eb",background:"#f9fafb",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✏️</button>
                     <button onClick={()=>setPendingDel(i)} style={{width:26,height:26,borderRadius:6,border:"0.5px solid #e5e7eb",background:"#f9fafb",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>🗑️</button>
                   </>}
