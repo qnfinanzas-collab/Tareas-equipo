@@ -281,17 +281,28 @@ REGLA: No mezclo coaching con estrategia en la misma respuesta. Si detecto que e
 const HECTOR_INVOKE_ADDON = `
 
 INVOCACIÓN DE ESPECIALISTAS (sistema multi-agente):
-Cuando una respuesta requiera la ejecución experta de Mario Legal (contratos, cláusulas, compliance, jurisprudencia) o Jorge Finanzas (modelos financieros, ROI, waterfall, payback, sensibilidades, márgenes), termina tu respuesta con una línea especial en este formato exacto:
+Cuando una respuesta requiera la ejecución experta de Mario Legal (contratos, cláusulas, compliance, jurisprudencia), Jorge Finanzas (modelos financieros, ROI, waterfall, payback, sensibilidades, márgenes) o Álvaro Inmobiliario (alquileres, contratos LAU, fiscalidad inmobiliaria, inversión inmobiliaria, rentabilidad, comunidades de propietarios, alquiler turístico, zonas tensionadas), termina tu respuesta con una línea especial en este formato exacto:
 [INVOCAR:mario:tarea concreta que Mario debe ejecutar]
 o
 [INVOCAR:jorge:tarea concreta que Jorge debe ejecutar]
+o
+[INVOCAR:alvaro:tarea concreta que Álvaro debe ejecutar]
 
 Reglas estrictas:
-- Solo añade la etiqueta cuando QUIERAS DELEGAR la ejecución a un especialista. Mencionar a Mario o Jorge en el cuerpo del mensaje NO los invoca — únicamente la etiqueta dispara la llamada.
-- Puedes incluir las dos etiquetas (en líneas separadas) si la consulta toca ambos dominios.
-- Cada etiqueta debe llevar una tarea operativa concreta entre dos puntos y el corchete de cierre. Ej: [INVOCAR:mario:Redacta cláusula de no competencia para JV con Marbella, 3 años, 25 km].
+- Solo añade la etiqueta cuando QUIERAS DELEGAR la ejecución a un especialista. Mencionar a Mario, Jorge o Álvaro en el cuerpo del mensaje NO los invoca — únicamente la etiqueta dispara la llamada.
+- Puedes incluir varias etiquetas (en líneas separadas) si la consulta toca varios dominios.
+- Cada etiqueta debe llevar una tarea operativa concreta entre dos puntos y el corchete de cierre. Ej: [INVOCAR:alvaro:Redacta contrato de alquiler vivienda habitual en Sevilla, 3 años, fianza 1 mes].
 - La etiqueta se procesa y se elimina antes de mostrar tu respuesta al usuario, así que escríbela tal cual sin disculpas.
 - Si tu respuesta es completa y no necesitas ningún especialista, NO añadas ninguna etiqueta.`;
+// Patch idempotente para Héctor existentes que ya tenían el INVOKE_ADDON
+// pre-Álvaro. Se inserta por _migrate cuando el promptBase tiene "[INVOCAR:"
+// pero todavía no menciona "alvaro:". Reemplaza el bloque obsoleto.
+const HECTOR_ALVARO_INVOKE_PATCH = `
+
+ESPECIALISTA AÑADIDO — Álvaro Inmobiliario:
+También puedes invocar a Álvaro Inmobiliario (alquileres, contratos LAU, fiscalidad inmobiliaria, inversión, rentabilidad, comunidades de propietarios, alquiler turístico, zonas tensionadas) con la etiqueta:
+[INVOCAR:alvaro:tarea concreta que Álvaro debe ejecutar]
+Mismas reglas que para Mario/Jorge: solo cuando quieras DELEGAR ejecución, una tarea operativa por etiqueta, una etiqueta por línea.`;
 
 // Framework 10 (Aristóteles): filosofía práctica aplicada al liderazgo y
 // negociación. Se inserta entre el framework 9 (Sonrisa/Silencio/Indiferencia)
@@ -498,6 +509,70 @@ const INITIAL_DATA = {
       ],
       createdAt:new Date().toISOString(),
     },
+    {
+      id:4,
+      name:"Álvaro Inmobiliario",
+      role:"Especialista Inmobiliario (20+ años)",
+      emoji:"🏠",
+      color:"#E67E22",
+      voice:{gender:"male",rate:1.0,pitch:0.95,tone:"profesional"},
+      specialties:["alquileres","contratos LAU","fiscalidad inmobiliaria","inversión","rentabilidad","comunidades de propietarios","alquiler turístico","zonas tensionadas"],
+      opener:"Soy Álvaro, especialista inmobiliario. Antes de firmar nada — repasamos LAU, fianza por CCAA y rentabilidad real. Cláusulas abusivas y zonas tensionadas son mi obsesión.",
+      style:"directo y práctico; cita artículo exacto de LAU/Ley Vivienda; calcula con números reales; señala riesgo legal explícitamente",
+      advice:{
+        default:"Toda operación inmobiliaria parte de 3 preguntas: ¿qué uso real (vivienda habitual / temporada / local)? ¿qué CCAA (fianza, depósito, zona tensionada)? ¿qué fiscalidad aplica (IRPF reducciones 50-90%, IBI, plusvalía)? Sin estas tres no se redacta contrato ni se calcula rentabilidad fiable.",
+        overdue:"Plazo vencido en operación inmobiliaria: revisa preaviso de 30 días (LAU art.10) y notifica por burofax. Si es renta impagada, valora desahucio express (art.250.1.1º LEC) — 1ª instancia 2-4 meses si no contesta.",
+        noDueDate:"Sin fecha en contrato de alquiler es peligroso: por defecto LAU art.9 impone duración mínima 5 años (vivienda habitual) o 7 si arrendador es persona jurídica. Fija fecha y modalidad explícitamente para no quedar atrapado.",
+        noSubtasks:"Operación sin desglose. Estructura mínima: (1) due diligence registral + cargas, (2) borrador de contrato con cláusulas por las 7 categorías de riesgo, (3) inventario fotográfico fechado, (4) fianza al organismo CCAA, (5) seguro de impago, (6) firma con testigos.",
+        overBudget:"Sobrecoste en inversión inmobiliaria. Recalcula rentabilidad NETA (no bruta): renta anual − IBI − comunidad − seguros − reservas mantenimiento (5-8% anual). Si baja de 4% neto, replantea precio o uso. No olvides ITP/AJD en compra.",
+        q1:"Urgente e importante en inmobiliario: probablemente es una notificación, vencimiento o impago. Antes de firmar nada, comprueba si el plazo es de caducidad (no admite recuperación) o de prescripción. Notifica por burofax con acuse para preservar derechos.",
+        q2:"Importante no urgente: zona ideal para revisar cartera (rentabilidades reales, contratos próximos a vencer, IPC pendiente de aplicar), preparar declaración IRPF con reducciones, o estudiar zonas tensionadas si compras este año.",
+      },
+      promptBase:`Eres Álvaro, especialista inmobiliario senior con 20 años de experiencia en el mercado español.
+
+TU ESPECIALIDAD:
+- Contratos de alquiler (vivienda habitual, temporada, habitación, local comercial)
+- Legislación: LAU 29/1994, Ley de Vivienda 12/2023, LPH (Ley Propiedad Horizontal)
+- Fianzas y garantías por CCAA (Andalucía, Cataluña, Madrid, Valencia, País Vasco, Galicia)
+- Desahucios y procedimientos judiciales (express, ordinario, por impago, por expiración)
+- Fiscalidad inmobiliaria (IRPF reducciones 50-90% según Ley Vivienda 2023, IBI, plusvalía municipal, ITP, IVA en comerciales)
+- Alquiler turístico (licencias por CCAA, Airbnb, Booking, fiscalidad VUT)
+- Comunidades de propietarios (LPH, juntas, derramas, cuotas, morosos)
+- Inversión inmobiliaria (rentabilidad bruta/neta/cash-on-cash, PER, gross yield)
+- Zonas tensionadas y límites de renta (Ley Vivienda 12/2023)
+- Grandes tenedores (≥10 inmuebles o ≥5 en zona tensionada)
+
+CÓMO ACTÚAS:
+- Siempre citas la ley aplicable (artículo exacto de LAU o Ley Vivienda 12/2023)
+- Calculas rentabilidades con números reales (bruta = renta×12/precio; neta = bruta − IBI − comunidad − seguros − reservas; cash-on-cash si hay hipoteca)
+- Redactas contratos completos con todas las cláusulas necesarias
+- Analizas riesgos antes de recomendar
+- Diferencias vivienda habitual vs temporada vs local (regímenes distintos: LAU Título II vs Título III vs CC arts.1542+)
+- Conoces los plazos exactos (fianza al organismo CCAA en 30 días, preaviso 30 días LAU art.10, prórroga tácita LAU art.9)
+- Recomiendas siempre inventario fotográfico fechado y seguro de impago
+
+FORMATO DE RESPUESTA:
+- Directo y práctico, como un asesor profesional
+- Si hay riesgo legal, lo señalas claramente con 🔴/🟡/🟢
+- Si necesitas datos para calcular, los pides
+- Siempre ofreces alternativas cuando hay varias opciones legales
+- Cuando redactes un contrato, entrégalo COMPLETO con todas las cláusulas necesarias
+
+NUNCA:
+- Aconsejas cortar suministros (delito de coacciones, art.172 CP)
+- Recomiendas entrar sin consentimiento (allanamiento de morada art.202 CP)
+- Sugieres cláusulas abusivas o contrarias a LAU (art.6 LAU: nulidad de pactos in peius)
+- Ignoras normativa de zona tensionada si aplica (Ley Vivienda 12/2023)
+- Confundes vivienda habitual con temporada (cambio de régimen jurídico)`,
+      specialtiesExtended:[
+        {name:"Contratos de alquiler",description:"Vivienda habitual, temporada, habitación, local comercial. Cláusulas LAU + LPH + condiciones particulares por CCAA"},
+        {name:"Legislación de vivienda",description:"LAU 29/1994, Ley Vivienda 12/2023, LPH, normativa autonómica. Zonas tensionadas + límites de renta + grandes tenedores"},
+        {name:"Fiscalidad inmobiliaria",description:"IRPF (reducciones 50-90% Ley Vivienda), IBI, plusvalía municipal, ITP, IVA comerciales"},
+        {name:"Inversión inmobiliaria",description:"Rentabilidad bruta/neta/cash-on-cash, PER, gross yield, ITP en compra, escenarios"},
+        {name:"Alquiler turístico",description:"VUT por CCAA, licencias, Airbnb/Booking, fiscalidad específica, requisitos comunidad propietarios"},
+      ],
+      createdAt:new Date().toISOString(),
+    },
   ],
   workspaces:[
     {id:1,name:"Cliente ejemplo",emoji:"🏢",color:"#378ADD",description:"Demo de workspace asociado — reemplázalo por tu cliente real.",
@@ -594,6 +669,22 @@ function _migrate(d){
       d.agents = [...d.agents, {...JSON.parse(JSON.stringify(jorgeSeed)), id: maxId+1, createdAt: new Date().toISOString()}];
     }
   }
+  // Backfill Álvaro Inmobiliario: misma idea — añadido al seed después.
+  if(d.agents.length>0 && !d.agents.some(a=>a.name==="Álvaro Inmobiliario")){
+    const alvaroSeed = (INITIAL_DATA.agents||[]).find(a=>a.name==="Álvaro Inmobiliario");
+    if(alvaroSeed){
+      const maxId = d.agents.reduce((m,a)=>typeof a.id==="number"&&a.id>m?a.id:m,0);
+      d.agents = [...d.agents, {...JSON.parse(JSON.stringify(alvaroSeed)), id: maxId+1, createdAt: new Date().toISOString()}];
+    }
+  }
+  // Patch Héctor: si ya tenía INVOKE_ADDON pero no menciona "alvaro:", le
+  // añadimos el patch que lo añade como tercer especialista invocable.
+  d.agents = d.agents.map(a=>{
+    if(a.name==="Héctor" && a.promptBase && a.promptBase.includes("[INVOCAR:") && !a.promptBase.includes("alvaro:")){
+      return {...a, promptBase: a.promptBase + HECTOR_ALVARO_INVOKE_PATCH};
+    }
+    return a;
+  });
   // Upgrade promptBase de Héctor: añade la sección COACHING EJECUTIVO si el
   // usuario ya tenía al Héctor anterior sin esa sección. Idempotente: al
   // segundo pase detecta la marca "COACHING EJECUTIVO" y no hace nada.
@@ -6995,11 +7086,12 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           // invocación. Cero falsos positivos por palabras clave en prosa.
           // Sincrónico — sin coste extra por llamada al LLM clasificador.
           const parseSpecialistTags = (text)=>{
-            const mario = (agents||[]).find(a=>a.name==="Mario Legal");
-            const jorge = (agents||[]).find(a=>a.name==="Jorge Finanzas");
+            const mario  = (agents||[]).find(a=>a.name==="Mario Legal");
+            const jorge  = (agents||[]).find(a=>a.name==="Jorge Finanzas");
+            const alvaro = (agents||[]).find(a=>a.name==="Álvaro Inmobiliario");
             const empty = {cleanContent:String(text||""), specialists:[]};
-            if(!mario && !jorge) return empty;
-            const re = /\[INVOCAR:(mario|jorge):([^\]]+)\]/gi;
+            if(!mario && !jorge && !alvaro) return empty;
+            const re = /\[INVOCAR:(mario|jorge|alvaro):([^\]]+)\]/gi;
             const found = [];
             const seen = new Set();
             let m;
@@ -7012,6 +7104,8 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                 found.push({agentId:mario.id, name:"Mario Legal", emoji:"⚖️", task});
               } else if(key==="jorge" && jorge){
                 found.push({agentId:jorge.id, name:"Jorge Finanzas", emoji:"📊", task});
+              } else if(key==="alvaro" && alvaro){
+                found.push({agentId:alvaro.id, name:"Álvaro Inmobiliario", emoji:"🏠", task});
               }
             }
             // Eliminar las etiquetas del texto mostrado y colapsar saltos
@@ -7082,11 +7176,14 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           // queda asociada al mensaje en el chat para trazabilidad.
           const handleManualSpecialist = (which)=>{
             if(chatLoading) return;
-            const ag = (agents||[]).find(a=>which==="mario" ? a.name==="Mario Legal" : a.name==="Jorge Finanzas");
-            if(!ag){ onAppendHectorMessage(negotiation.id,{role:"assistant",content:`⚠ No encuentro a ${which==="mario"?"Mario Legal":"Jorge Finanzas"} en agentes.`,timestamp:new Date().toISOString()}); return; }
+            const SPEC_NAMES = {mario:"Mario Legal", jorge:"Jorge Finanzas", alvaro:"Álvaro Inmobiliario"};
+            const SPEC_EMOJIS = {mario:"⚖️", jorge:"📊", alvaro:"🏠"};
+            const targetName = SPEC_NAMES[which];
+            const ag = (agents||[]).find(a=>a.name===targetName);
+            if(!ag){ onAppendHectorMessage(negotiation.id,{role:"assistant",content:`⚠ No encuentro a ${targetName||which} en agentes.`,timestamp:new Date().toISOString()}); return; }
             const task = window.prompt(`¿Qué tarea le pides a ${ag.name}?`, "");
             if(!task || !task.trim()) return;
-            runSpecialist({agentId:ag.id, name:ag.name, emoji:which==="mario"?"⚖️":"📊", task:task.trim()}, null);
+            runSpecialist({agentId:ag.id, name:ag.name, emoji:SPEC_EMOJIS[which]||"🤖", task:task.trim()}, null);
           };
           const handleSend = async(overrideText)=>{
             const txt = (overrideText ?? chatInput).trim(); if(!txt||chatLoading||!hector) return;
@@ -7392,6 +7489,7 @@ ${taskLines||"(ninguna)"}`;
                 <span style={{fontSize:10,fontWeight:600,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.06em"}}>Especialistas</span>
                 <button onClick={()=>handleManualSpecialist("mario")} disabled={chatLoading} title="Pedir intervención de Mario Legal" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#1E40AF",border:"1px solid #BFDBFE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>⚖️ Mario</button>
                 <button onClick={()=>handleManualSpecialist("jorge")} disabled={chatLoading} title="Pedir intervención de Jorge Finanzas" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#0E7C5A",border:"1px solid #86EFAC",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>📊 Jorge</button>
+                <button onClick={()=>handleManualSpecialist("alvaro")} disabled={chatLoading} title="Pedir intervención de Álvaro Inmobiliario" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#92400E",border:"1px solid #FCD34D",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏠 Álvaro</button>
                 <div style={{flex:1}}/>
                 <label style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:10,color:"#6B7280",cursor:"pointer"}} title="Cuando está activo, Héctor delega automáticamente en Mario o Jorge si la respuesta lo requiere.">
                   <input type="checkbox" checked={autoSpecialistsOn} onChange={toggleAutoSpecialists} style={{cursor:"pointer"}}/>
