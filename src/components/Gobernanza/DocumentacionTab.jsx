@@ -61,6 +61,13 @@ export default function DocumentacionTab({ governance, currentMember, onUpdateGo
     return companyDocs.filter(d => effectiveStatus(d) === filter);
   }, [companyDocs, filter]);
 
+  // Toast simple para confirmar copia/share. Auto-cierra en 2s.
+  const [toast, setToast] = useState(null);
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2000);
+  };
+
   // Agrupa por categoría respetando CATEGORY_ORDER. Las cuentas anuales y
   // fiscal se sub-agrupan por subcategory (año / trimestre).
   const grouped = useMemo(() => {
@@ -126,10 +133,17 @@ export default function DocumentacionTab({ governance, currentMember, onUpdateGo
           </div>
         ) : (
           CATEGORY_ORDER.filter(cat => grouped[cat]).map(cat => (
-            <CategorySection key={cat} category={cat} subgroups={grouped[cat]} onUpdate={updateDoc} currentMember={currentMember} />
+            <CategorySection key={cat} category={cat} subgroups={grouped[cat]} onUpdate={updateDoc} currentMember={currentMember} company={company} showToast={showToast} />
           ))
         )}
       </div>
+
+      {/* Toast inferior */}
+      {toast && (
+        <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#111827", color: "#fff", padding: "10px 18px", borderRadius: 10, fontSize: 13, fontWeight: 500, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", zIndex: 5000 }}>
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
@@ -144,7 +158,7 @@ function StatPill({ icon, label, sub, color }) {
   );
 }
 
-function CategorySection({ category, subgroups, onUpdate, currentMember }) {
+function CategorySection({ category, subgroups, onUpdate, currentMember, company, showToast }) {
   const label = CATEGORY_LABELS[category] || `📂 ${category}`;
   const subKeys = Object.keys(subgroups).sort((a, b) => b.localeCompare(a)); // recientes primero
   return (
@@ -156,7 +170,7 @@ function CategorySection({ category, subgroups, onUpdate, currentMember }) {
             {sub !== "_" && (
               <div style={{ padding: "6px 16px", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.4 }}>{sub}</div>
             )}
-            {subgroups[sub].map(doc => <DocumentRow key={doc.id} doc={doc} onUpdate={onUpdate} currentMember={currentMember} />)}
+            {subgroups[sub].map(doc => <DocumentRow key={doc.id} doc={doc} onUpdate={onUpdate} currentMember={currentMember} company={company} showToast={showToast} />)}
           </div>
         ))}
       </div>
@@ -183,7 +197,70 @@ function formatBytes(n) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function DocumentRow({ doc, onUpdate, currentMember }) {
+// Acciones de compartir. data URLs no se pueden mandar como adjunto en
+// mailto:, así que el mailto incluye un mensaje sugerente y el WhatsApp
+// abre la app con texto. La copia al portapapeles es del propio data URL
+// para que el destinatario pueda pegarlo y descargarlo desde un blob.
+function shareViaEmail(doc, company, sender) {
+  const subject = encodeURIComponent(`[${company?.name || "Sociedad"}] — ${doc.name}`);
+  const body = encodeURIComponent(
+`Hola,
+
+Te paso el documento "${doc.name}" de ${company?.name || "(sociedad)"}.
+${doc.description ? `\n${doc.description}\n` : ""}
+${doc.fileName ? `Archivo: ${doc.fileName}` : "El archivo aún no está disponible."}
+
+Atentamente,
+${sender?.name || ""}`
+  );
+  window.open(`mailto:?subject=${subject}&body=${body}`);
+}
+function shareViaWhatsApp(doc, company) {
+  const text = encodeURIComponent(
+    `📄 Documento "${doc.name}" de ${company?.name || "(sociedad)"}.${doc.fileName ? `\nArchivo: ${doc.fileName}` : ""}`
+  );
+  window.open(`https://wa.me/?text=${text}`, "_blank", "noopener,noreferrer");
+}
+async function copyDataUrlToClipboard(dataUrl) {
+  if (!dataUrl) return false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(dataUrl);
+      return true;
+    }
+  } catch {}
+  // Fallback: textarea oculto
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = dataUrl;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    return true;
+  } catch { return false; }
+}
+function printDocument(doc) {
+  if (!doc.fileUrl) return;
+  // Abre el archivo en una pestaña nueva con auto-print. Funciona bien
+  // con PDF e imágenes; con .docx el navegador descargará el archivo.
+  const w = window.open();
+  if (!w) return;
+  if (doc.fileType?.startsWith("image/")) {
+    w.document.write(`<img src="${doc.fileUrl}" style="max-width:100%" onload="window.print()" />`);
+  } else if (doc.fileType === "application/pdf") {
+    w.document.write(`<iframe src="${doc.fileUrl}" style="width:100%;height:100vh;border:0" onload="this.contentWindow && this.contentWindow.print && this.contentWindow.print()"></iframe>`);
+  } else {
+    // Para otros tipos: descargar y avisar.
+    const a = w.document.createElement("a");
+    a.href = doc.fileUrl;
+    a.download = doc.fileName || "documento";
+    w.document.body.appendChild(a);
+    a.click();
+  }
+}
+
+function DocumentRow({ doc, onUpdate, currentMember, company, showToast }) {
   const eff = effectiveStatus(doc);
   const meta = STATUS_META[eff] || STATUS_META.pending;
   const [isDragOver, setIsDragOver] = useState(false);
@@ -313,6 +390,10 @@ function DocumentRow({ doc, onUpdate, currentMember }) {
           {hasFile ? (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
               <a href={doc.fileUrl} download={doc.fileName} style={iconBtn} title="Descargar">📥 Descargar</a>
+              <button onClick={() => shareViaEmail(doc, company, currentMember)} style={iconBtn} title="Compartir por email">📧 Email</button>
+              <button onClick={() => shareViaWhatsApp(doc, company)} style={iconBtn} title="Compartir por WhatsApp">💬 WhatsApp</button>
+              <button onClick={async () => { const ok = await copyDataUrlToClipboard(doc.fileUrl); showToast?.(ok ? "Link copiado al portapapeles (válido 7 días)" : "No se pudo copiar el link"); }} style={iconBtn} title="Copiar link del documento">🔗 Copiar link</button>
+              <button onClick={() => printDocument(doc)} style={iconBtn} title="Imprimir">🖨️ Imprimir</button>
               <button onClick={onPick} style={iconBtn} title="Reemplazar archivo">✏️ Reemplazar</button>
               <button onClick={removeFile} style={iconBtnDanger} title="Eliminar archivo">🗑️ Eliminar</button>
               {versionsCount > 0 && (
