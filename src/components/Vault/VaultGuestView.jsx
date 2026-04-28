@@ -7,6 +7,7 @@
 // callback onUpdateVault — exactamente igual que el VaultView del CEO.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PERSONAL_CATEGORY_LABELS, PERSONAL_CATEGORY_ORDER, computePersonalStats } from "./personalTemplates.js";
+import { uploadDocument as uploadToBucket, getSignedUrlCached, storageEnabled } from "../../lib/storage.js";
 
 // (mini-replicas de helpers — duplicación local intencionada para no
 // acoplar VaultGuestView a VaultView vía exports cruzados)
@@ -34,6 +35,25 @@ function effectiveStatus(doc) {
   if (days < 0) return "overdue";
   if (days <= 90) return "expiring";
   return "attached";
+}
+
+async function resolveDocUrl(doc) {
+  if (!doc) return null;
+  if (doc.storagePath) {
+    try { return await getSignedUrlCached(doc.storagePath); }
+    catch { return null; }
+  }
+  return doc.fileUrl || null;
+}
+function useDocUrl(doc) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!doc || (!doc.storagePath && !doc.fileUrl)) { setUrl(null); return; }
+    resolveDocUrl(doc).then(u => { if (!cancelled) setUrl(u); });
+    return () => { cancelled = true; };
+  }, [doc?.storagePath, doc?.fileUrl, doc?.id]);
+  return url;
 }
 
 // Parser del path /vault/:token. Devuelve null si no aplica.
@@ -161,8 +181,18 @@ function GuestVault({ space, data, onUpdateVault, onLogout }) {
         if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
         const raw = (out.text || "").trim().replace(/^```json\s*|\s*```$/g, "").replace(/^```\s*|\s*```$/g, "");
         const cls = JSON.parse(raw);
+        // Subir al bucket. El invitado usa la misma anon key — la RLS del
+        // bucket debe permitir uploads en vault/{spaceId} (pública o por
+        // policy custom). Fallback a base64 si no hay Supabase.
+        let payload;
+        if (storageEnabled()) {
+          const meta = await uploadToBucket(file, `vault/${space.id}`);
+          payload = { storagePath: meta.storagePath, fileUrl: null, fileName: meta.name, fileType: meta.type, fileSize: meta.size };
+        } else {
+          payload = { storagePath: null, fileUrl: dataUrl, fileName: file.name, fileType: file.type, fileSize: file.size };
+        }
         const filePayload = {
-          status: "attached", fileUrl: dataUrl, fileName: file.name, fileType: file.type, fileSize: file.size,
+          ...payload, status: "attached",
           uploadedAt: new Date().toISOString(), expiresAt: cls.detectedExpiry || null,
         };
         let nextDocs; let label;
@@ -262,7 +292,12 @@ function GuestDocRow({ doc, onUpdate }) {
   const eff = effectiveStatus(doc);
   const meta = STATUS_META[eff] || STATUS_META.pending;
   const [showPreview, setShowPreview] = useState(false);
-  const hasFile = doc.status === "attached" && doc.fileUrl;
+  const hasFile = doc.status === "attached" && (doc.fileUrl || doc.storagePath);
+  const downloadDoc = async () => {
+    const url = await resolveDocUrl(doc);
+    if (!url) return;
+    const a = document.createElement("a"); a.href = url; a.download = doc.fileName || "documento"; a.click();
+  };
   return (
     <div style={{ borderTop: "0.5px solid #F3F4F6", padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
       <span style={{ fontSize: 18 }}>{meta.icon}</span>
@@ -274,7 +309,7 @@ function GuestDocRow({ doc, onUpdate }) {
       {hasFile && (
         <>
           <button onClick={() => setShowPreview(true)} style={guestBtn}>👁️ Ver</button>
-          <a href={doc.fileUrl} download={doc.fileName} style={{ ...guestBtn, textDecoration: "none" }}>📥 Descargar</a>
+          <button onClick={downloadDoc} style={guestBtn}>📥 Descargar</button>
           {showPreview && <GuestPreview doc={doc} onClose={() => setShowPreview(false)} />}
         </>
       )}
@@ -285,24 +320,30 @@ function GuestDocRow({ doc, onUpdate }) {
 function GuestPreview({ doc, onClose }) {
   const isPdf = doc.fileType === "application/pdf";
   const isImage = doc.fileType?.startsWith("image/");
+  const resolvedUrl = useDocUrl(doc);
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
   useEffect(() => {
-    if (!isPdf || !doc.fileUrl) return;
-    const u = dataUrlToBlobUrl(doc.fileUrl);
+    if (!isPdf || !resolvedUrl) return;
+    if (!resolvedUrl.startsWith("data:")) { setPdfBlobUrl(resolvedUrl); return; }
+    const u = dataUrlToBlobUrl(resolvedUrl);
     setPdfBlobUrl(u);
     return () => { if (u) URL.revokeObjectURL(u); };
-  }, [isPdf, doc.fileUrl]);
+  }, [isPdf, resolvedUrl]);
   return (
     <div onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 4000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ background: "#fff", borderRadius: 12, width: "92vw", maxWidth: 1100, height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ padding: "12px 18px", borderBottom: "0.5px solid #E5E7EB", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ flex: 1, fontSize: 14, fontWeight: 700 }}>{doc.name}</div>
-          <a href={doc.fileUrl} download={doc.fileName} style={{ ...guestBtn, textDecoration: "none" }}>📥 Descargar</a>
+          {resolvedUrl && <a href={resolvedUrl} download={doc.fileName} style={{ ...guestBtn, textDecoration: "none" }}>📥 Descargar</a>}
           <button onClick={onClose} style={{ background: "transparent", border: "none", fontSize: 22, cursor: "pointer", color: "#6B7280" }}>×</button>
         </div>
         <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-          {isPdf && pdfBlobUrl && <iframe src={pdfBlobUrl} title={doc.name} style={{ width: "100%", height: "100%", minHeight: "70vh", border: 0 }} />}
-          {isImage && <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 20, height: "100%" }}><img src={doc.fileUrl} alt={doc.name} style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }} /></div>}
+          {isPdf && (pdfBlobUrl
+            ? <iframe src={pdfBlobUrl} title={doc.name} style={{ width: "100%", height: "100%", minHeight: "70vh", border: 0 }} />
+            : <div style={{ padding: 40, textAlign: "center", color: "#9CA3AF" }}>Cargando…</div>)}
+          {isImage && (resolvedUrl
+            ? <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 20, height: "100%" }}><img src={resolvedUrl} alt={doc.name} style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }} /></div>
+            : <div style={{ padding: 40, color: "#9CA3AF" }}>Cargando…</div>)}
           {!isPdf && !isImage && <div style={{ padding: 40, textAlign: "center", color: "#6B7280" }}>Pulsa Descargar para abrir.</div>}
         </div>
       </div>

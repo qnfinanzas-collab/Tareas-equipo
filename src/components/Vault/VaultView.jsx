@@ -8,6 +8,7 @@
 // los dos módulos. La clasificación llama directamente a /api/agent.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PERSONAL_CATEGORY_LABELS, PERSONAL_CATEGORY_ORDER, computePersonalStats, generatePersonalDocuments, checkVaultAlerts } from "./personalTemplates.js";
+import { uploadDocument as uploadToBucket, getSignedUrlCached, storageEnabled } from "../../lib/storage.js";
 
 const RELATIONSHIPS = [
   { key: "CEO",        label: "Yo (titular principal)" },
@@ -87,6 +88,26 @@ function effectiveStatus(doc) {
   if (days < 0) return "overdue";
   if (days <= 90) return "expiring";
   return "attached";
+}
+
+// Resuelve URL viva del documento (signed URL si bucket, base64 si legacy).
+async function resolveDocUrl(doc) {
+  if (!doc) return null;
+  if (doc.storagePath) {
+    try { return await getSignedUrlCached(doc.storagePath); }
+    catch (e) { console.warn("[vault] signed URL fallo:", e?.message); return null; }
+  }
+  return doc.fileUrl || null;
+}
+function useDocUrl(doc) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!doc || (!doc.storagePath && !doc.fileUrl)) { setUrl(null); return; }
+    resolveDocUrl(doc).then(u => { if (!cancelled) setUrl(u); });
+    return () => { cancelled = true; };
+  }, [doc?.storagePath, doc?.fileUrl, doc?.id]);
+  return url;
 }
 
 // ── classifier llamando a /api/agent con Gonzalo ──
@@ -421,10 +442,19 @@ function SpaceContent({ space, currentMember, onUpdateVault, spaces }) {
       setProcessingFile(file.name);
       try {
         const cls = await classifyPersonalDocument(file, docs, space.name);
-        const dataUrl = await readFileAsDataUrl(file);
+        // Subir al bucket "documents" bajo prefijo vault/{spaceId}. Si
+        // Supabase no está disponible, fallback a base64 para no bloquear.
+        let storagePayload;
+        if (storageEnabled()) {
+          const meta = await uploadToBucket(file, `vault/${space.id}`);
+          storagePayload = { storagePath: meta.storagePath, fileUrl: null, fileName: meta.name, fileType: meta.type, fileSize: meta.size };
+        } else {
+          const dataUrl = await readFileAsDataUrl(file);
+          storagePayload = { storagePath: null, fileUrl: dataUrl, fileName: file.name, fileType: file.type || "", fileSize: file.size };
+        }
         const filePayload = {
+          ...storagePayload,
           status: "attached",
-          fileUrl: dataUrl, fileName: file.name, fileType: file.type || "", fileSize: file.size,
           uploadedBy: currentMember?.id ?? null, uploadedAt: new Date().toISOString(),
           expiresAt: cls.detectedExpiry || null,
         };
@@ -433,7 +463,7 @@ function SpaceContent({ space, currentMember, onUpdateVault, spaces }) {
           nextDocs = docs.map(d => {
             if (d.id !== cls.match) return d;
             const versions = Array.isArray(d.versions) ? d.versions.slice() : [];
-            if (d.fileUrl) versions.unshift({ fileUrl: d.fileUrl, fileName: d.fileName, fileType: d.fileType, fileSize: d.fileSize, uploadedBy: d.uploadedBy, uploadedAt: d.uploadedAt, archivedAt: new Date().toISOString() });
+            if (d.fileUrl || d.storagePath) versions.unshift({ storagePath: d.storagePath || null, fileUrl: d.fileUrl || null, fileName: d.fileName, fileType: d.fileType, fileSize: d.fileSize, uploadedBy: d.uploadedBy, uploadedAt: d.uploadedAt, archivedAt: new Date().toISOString() });
             return { ...d, ...filePayload, expiresAt: filePayload.expiresAt || d.expiresAt, versions };
           });
           resultLabel = `→ ${docs.find(d => d.id === cls.match)?.name}`;
@@ -577,20 +607,29 @@ function DocumentRow({ doc, onUpdate, currentMember, space }) {
     if (f.size > MAX_FILE_BYTES) { alert("Archivo demasiado grande"); return; }
     setBusy(true);
     try {
-      const dataUrl = await readFileAsDataUrl(f);
+      let payload;
+      if (storageEnabled()) {
+        const ownerKey = space?.id ? `vault/${space.id}` : `vault/_orphan`;
+        const meta = await uploadToBucket(f, ownerKey);
+        payload = { storagePath: meta.storagePath, fileUrl: null, fileName: meta.name, fileType: meta.type, fileSize: meta.size };
+      } else {
+        const dataUrl = await readFileAsDataUrl(f);
+        payload = { storagePath: null, fileUrl: dataUrl, fileName: f.name, fileType: f.type || "", fileSize: f.size };
+      }
       const versions = Array.isArray(doc.versions) ? doc.versions.slice() : [];
-      if (doc.fileUrl) versions.unshift({ fileUrl: doc.fileUrl, fileName: doc.fileName, fileType: doc.fileType, fileSize: doc.fileSize, uploadedBy: doc.uploadedBy, uploadedAt: doc.uploadedAt, archivedAt: new Date().toISOString() });
-      onUpdate(doc.id, { status: "attached", fileUrl: dataUrl, fileName: f.name, fileType: f.type, fileSize: f.size, uploadedBy: currentMember?.id ?? null, uploadedAt: new Date().toISOString(), versions });
-    } finally { setBusy(false); }
+      if (doc.fileUrl || doc.storagePath) versions.unshift({ storagePath: doc.storagePath || null, fileUrl: doc.fileUrl || null, fileName: doc.fileName, fileType: doc.fileType, fileSize: doc.fileSize, uploadedBy: doc.uploadedBy, uploadedAt: doc.uploadedAt, archivedAt: new Date().toISOString() });
+      onUpdate(doc.id, { ...payload, status: "attached", uploadedBy: currentMember?.id ?? null, uploadedAt: new Date().toISOString(), versions });
+    } catch (e) { alert(`No se pudo subir: ${e.message || e}`); }
+    finally { setBusy(false); }
   };
   const removeFile = () => {
     if (!confirm("¿Quitar el archivo?")) return;
     const versions = Array.isArray(doc.versions) ? doc.versions.slice() : [];
-    if (doc.fileUrl) versions.unshift({ fileUrl: doc.fileUrl, fileName: doc.fileName, fileType: doc.fileType, fileSize: doc.fileSize, uploadedBy: doc.uploadedBy, uploadedAt: doc.uploadedAt, archivedAt: new Date().toISOString() });
-    onUpdate(doc.id, { status: "pending", fileUrl: null, fileName: null, fileType: null, fileSize: null, uploadedBy: null, uploadedAt: null, versions });
+    if (doc.fileUrl || doc.storagePath) versions.unshift({ storagePath: doc.storagePath || null, fileUrl: doc.fileUrl || null, fileName: doc.fileName, fileType: doc.fileType, fileSize: doc.fileSize, uploadedBy: doc.uploadedBy, uploadedAt: doc.uploadedAt, archivedAt: new Date().toISOString() });
+    onUpdate(doc.id, { status: "pending", storagePath: null, fileUrl: null, fileName: null, fileType: null, fileSize: null, uploadedBy: null, uploadedAt: null, versions });
   };
 
-  const hasFile = doc.status === "attached" && doc.fileUrl;
+  const hasFile = doc.status === "attached" && (doc.fileUrl || doc.storagePath);
   const expiryLabel = doc.expiresAt ? new Date(doc.expiresAt).toLocaleDateString("es-ES",{day:"numeric",month:"short",year:"numeric"}) : null;
 
   return (
@@ -614,7 +653,7 @@ function DocumentRow({ doc, onUpdate, currentMember, space }) {
         {hasFile ? (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             <button onClick={() => setShowPreview(true)} style={iconBtn} title="Ver">👁️ Ver</button>
-            <a href={doc.fileUrl} download={doc.fileName} style={iconBtn} title="Descargar">📥 Descargar</a>
+            <button onClick={async () => { const u = await resolveDocUrl(doc); if (u) { const a = document.createElement("a"); a.href = u; a.download = doc.fileName || "documento"; a.click(); } }} style={iconBtn} title="Descargar">📥 Descargar</button>
             <button onClick={onPick} style={iconBtn} title="Reemplazar">✏️ Reemplazar</button>
             <button onClick={removeFile} style={iconBtnDanger} title="Eliminar">🗑️ Eliminar</button>
             <input ref={ref} type="file" accept={ACCEPTED_TYPES} onChange={onPickChange} style={{ display: "none" }} />
@@ -637,13 +676,15 @@ function DocumentRow({ doc, onUpdate, currentMember, space }) {
 function PreviewModal({ doc, onClose }) {
   const isPdf   = doc.fileType === "application/pdf";
   const isImage = doc.fileType?.startsWith("image/");
+  const resolvedUrl = useDocUrl(doc);
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
   useEffect(() => {
-    if (!isPdf || !doc.fileUrl) return;
-    const url = dataUrlToBlobUrl(doc.fileUrl);
+    if (!isPdf || !resolvedUrl) return;
+    if (!resolvedUrl.startsWith("data:")) { setPdfBlobUrl(resolvedUrl); return; }
+    const url = dataUrlToBlobUrl(resolvedUrl);
     setPdfBlobUrl(url);
     return () => { if (url) URL.revokeObjectURL(url); };
-  }, [isPdf, doc.fileUrl]);
+  }, [isPdf, resolvedUrl]);
   return (
     <div onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 4000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div style={{ background: "#fff", borderRadius: 12, width: "92vw", maxWidth: 1100, height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -652,14 +693,18 @@ function PreviewModal({ doc, onClose }) {
             <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</div>
             <div style={{ fontSize: 11, color: "#6B7280", fontFamily: "ui-monospace,monospace" }}>📎 {doc.fileName}</div>
           </div>
-          <a href={doc.fileUrl} download={doc.fileName} style={{ ...iconBtn, textDecoration: "none" }}>📥 Descargar</a>
+          {resolvedUrl && <a href={resolvedUrl} download={doc.fileName} style={{ ...iconBtn, textDecoration: "none" }}>📥 Descargar</a>}
           <button onClick={onClose} style={{ background: "transparent", border: "none", fontSize: 22, cursor: "pointer", color: "#6B7280", padding: "0 4px" }}>×</button>
         </div>
         <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-          {isPdf && pdfBlobUrl && <iframe src={pdfBlobUrl} title={doc.name} style={{ width: "100%", height: "100%", minHeight: "70vh", border: 0 }} />}
+          {isPdf && (pdfBlobUrl
+            ? <iframe src={pdfBlobUrl} title={doc.name} style={{ width: "100%", height: "100%", minHeight: "70vh", border: 0 }} />
+            : <div style={{ padding: 40, textAlign: "center", color: "#9CA3AF", fontSize: 12 }}>Cargando previsualización…</div>)}
           {isImage && (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 20, height: "100%" }}>
-              <img src={doc.fileUrl} alt={doc.name} style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }} />
+              {resolvedUrl
+                ? <img src={resolvedUrl} alt={doc.name} style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }} />
+                : <div style={{ color: "#9CA3AF" }}>Cargando…</div>}
             </div>
           )}
           {!isPdf && !isImage && (
