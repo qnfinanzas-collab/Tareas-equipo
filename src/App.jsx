@@ -7619,10 +7619,17 @@ ${taskLines||"(ninguna)"}`;
                       // emoji + nombre + "invocado por Héctor/usuario", y
                       // footer con botón "📎 Guardar en memoria".
                       if(m.role==="specialist"){
-                        const isMario = m.specialistName==="Mario Legal";
-                        const bg = isMario?"#EFF6FF":"#F0FDF4";
-                        const border = isMario?"#BFDBFE":"#86EFAC";
-                        const accent = isMario?"#1E40AF":"#0E7C5A";
+                        // Paleta de color por especialista — mantiene la
+                        // identidad visual de Mario/Jorge/Álvaro/Gonzalo
+                        // dentro del feed del chat de Héctor.
+                        const SPEC_PALETTE = {
+                          "Mario Legal":          {bg:"#EFF6FF",border:"#BFDBFE",accent:"#1E40AF"},
+                          "Jorge Finanzas":       {bg:"#F0FDF4",border:"#86EFAC",accent:"#0E7C5A"},
+                          "Álvaro Inmobiliario":  {bg:"#FFFBEB",border:"#FCD34D",accent:"#92400E"},
+                          "Gonzalo Gobernanza":   {bg:"#F5EEFA",border:"#D8B4FE",accent:"#6B21A8"},
+                        };
+                        const palette = SPEC_PALETTE[m.specialistName] || {bg:"#F3F4F6",border:"#D1D5DB",accent:"#374151"};
+                        const bg = palette.bg, border = palette.border, accent = palette.accent;
                         const saveToMemory = ()=>{
                           const text = `[${m.specialistName||"Especialista"}] ${m.task?`(${m.task}) `:""}${m.content||""}`.slice(0,800);
                           onAddNegMemory?.(negotiation.id, "keyFacts", text);
