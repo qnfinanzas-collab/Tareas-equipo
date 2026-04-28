@@ -6604,7 +6604,7 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onSummarizeAndClearChat,onRouteAutoLearn,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,currentMember,permissions,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onSummarizeAndClearChat,onRouteAutoLearn,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessionsAsc = (negotiation.sessions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -7152,6 +7152,10 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               const key = m[1].toLowerCase();
               if(seen.has(key)) continue;
               seen.add(key);
+              // Gate por permisos: si el miembro activo no tiene acceso a
+              // ese agente, ignoramos la etiqueta (se eliminará igual del
+              // texto, pero no se invoca al especialista).
+              if(!canUseAgent(currentMember, key, permissions)) continue;
               const task = (m[2]||"").trim();
               if(key==="mario" && mario){
                 found.push({agentId:mario.id, name:"Mario Legal", emoji:"⚖️", task});
@@ -7540,9 +7544,9 @@ ${taskLines||"(ninguna)"}`;
               {/* Barra multi-agente: invocación manual + toggle ON/OFF */}
               <div style={{padding:"6px 12px",borderTop:"1px solid #F3F4F6",background:"#FCFCFD",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                 <span style={{fontSize:10,fontWeight:600,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.06em"}}>Especialistas</span>
-                <button onClick={()=>handleManualSpecialist("mario")} disabled={chatLoading} title="Pedir intervención de Mario Legal" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#1E40AF",border:"1px solid #BFDBFE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>⚖️ Mario</button>
-                <button onClick={()=>handleManualSpecialist("jorge")} disabled={chatLoading} title="Pedir intervención de Jorge Finanzas" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#0E7C5A",border:"1px solid #86EFAC",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>📊 Jorge</button>
-                <button onClick={()=>handleManualSpecialist("alvaro")} disabled={chatLoading} title="Pedir intervención de Álvaro Inmobiliario" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#92400E",border:"1px solid #FCD34D",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏠 Álvaro</button>
+                {canUseAgent(currentMember,"mario",permissions) && <button onClick={()=>handleManualSpecialist("mario")} disabled={chatLoading} title="Pedir intervención de Mario Legal" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#1E40AF",border:"1px solid #BFDBFE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>⚖️ Mario</button>}
+                {canUseAgent(currentMember,"jorge",permissions) && <button onClick={()=>handleManualSpecialist("jorge")} disabled={chatLoading} title="Pedir intervención de Jorge Finanzas" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#0E7C5A",border:"1px solid #86EFAC",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>📊 Jorge</button>}
+                {canUseAgent(currentMember,"alvaro",permissions) && <button onClick={()=>handleManualSpecialist("alvaro")} disabled={chatLoading} title="Pedir intervención de Álvaro Inmobiliario" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#92400E",border:"1px solid #FCD34D",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏠 Álvaro</button>}
                 <div style={{flex:1}}/>
                 <label style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:10,color:"#6B7280",cursor:"pointer"}} title="Cuando está activo, Héctor delega automáticamente en Mario o Jorge si la respuesta lo requiere.">
                   <input type="checkbox" checked={autoSpecialistsOn} onChange={toggleAutoSpecialists} style={{cursor:"pointer"}}/>
@@ -10074,6 +10078,8 @@ export default function TaskFlow(){
                 projects={data.projects} workspaces={data.workspaces||[]}
                 agents={data.agents||[]} boards={data.boards}
                 allNegotiations={data.negotiations||[]}
+                currentMember={(data.members||[]).find(m=>m.id===activeMember)}
+                permissions={data.permissions}
                 onBack={()=>setActiveNegId(null)}
                 onEditNeg={n=>setNegModal(n)}
                 onCreateSession={()=>setSessModal("create")}
