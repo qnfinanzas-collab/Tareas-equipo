@@ -696,7 +696,27 @@ function _migrate(d){
     }
     return a;
   });
-  d.projects = (d.projects||[]).map(p=>({...p, workspaceId: p.workspaceId ?? null}));
+  // Backfill estructura del proyecto: workspaceId, propiedad y visibilidad.
+  // - workspaceId: null si no estaba.
+  // - ownerId: primer miembro del proyecto o, si no hay, el admin global
+  //   (id 6 = Antonio) — así los proyectos seed no quedan huérfanos.
+  // - createdBy: si no había, asume mismo que ownerId.
+  // - createdAt: ISO de ahora si no existía.
+  // - visibility: "team" para datos antiguos (mantiene el comportamiento
+  //   previo donde cualquier usuario con sidebar visible accedía). Los
+  //   proyectos nuevos creados desde createProject empiezan en "private".
+  d.projects = (d.projects||[]).map(p=>{
+    const out = {...p, workspaceId: p.workspaceId ?? null};
+    if (out.ownerId == null) {
+      out.ownerId = (Array.isArray(out.members) && out.members.length > 0)
+        ? out.members[0]
+        : 6;
+    }
+    if (out.createdBy == null) out.createdBy = out.ownerId;
+    if (!out.createdAt)        out.createdAt = new Date().toISOString();
+    if (!out.visibility)       out.visibility = "team";
+    return out;
+  });
   // Auth: backfill email + accountRole + supabaseUid en members. Mapping
   // estricto por email para vincular con cuentas de Supabase Auth ya
   // creadas. Si en un estado persistido viejo Albert seguía con
@@ -9134,7 +9154,7 @@ export default function TaskFlow(){
     addToast(`✓ ${tasks.length} tarea${tasks.length!==1?"s":""} creada${tasks.length!==1?"s":""}`);
   },[addToast]);
 
-  const createProject = useCallback(({name,desc,color,emoji,code,members:mems,columns,workspaceId})=>{
+  const createProject = useCallback(({name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility})=>{
     const id=nextProjId++;
     const cols=columns.map(n=>({id:`nc${nextColId++}`,name:n,tasks:[]}));
     setData(prev=>{
@@ -9143,10 +9163,23 @@ export default function TaskFlow(){
       const safeCode = isValidProjectCode(code) && !prev.projects.some(p=>p.code===code)
         ? code
         : autoProjectCode(name, prev.projects.map(p=>p.code).filter(Boolean));
-      return{...prev,projects:[...prev.projects,{id,name,desc,color,emoji,code:safeCode,members:mems,workspaceId:workspaceId??null}],boards:{...prev.boards,[id]:cols}};
+      // El creador es siempre miembro y owner del proyecto. Visibility por
+      // defecto "private": solo lo ven él y los miembros invitados.
+      const memsWithCreator = Array.isArray(mems) && mems.includes(activeMember)
+        ? mems
+        : [...(Array.isArray(mems) ? mems : []), activeMember];
+      return{...prev,projects:[...prev.projects,{
+        id,name,desc,color,emoji,code:safeCode,
+        members: memsWithCreator,
+        workspaceId: workspaceId??null,
+        ownerId: activeMember,
+        createdBy: activeMember,
+        createdAt: new Date().toISOString(),
+        visibility: visibility || "private",
+      }],boards:{...prev.boards,[id]:cols}};
     });
     addToast("✓ Proyecto creado");
-  },[addToast]);
+  },[addToast, activeMember]);
   const editProject = useCallback((idx,{name,desc,color,emoji,code,members:mems,columns,workspaceId})=>{
     setData(prev=>{
       const p=prev.projects[idx];
