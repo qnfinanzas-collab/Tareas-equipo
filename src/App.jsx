@@ -832,6 +832,11 @@ function _migrate(d){
     });
   }
   // Backfill documents[] en negociaciones (upload + informes de análisis).
+  // Backfill propiedad/visibilidad/miembros: para datos antiguos el visibility
+  // queda en "team" (mantener acceso actual del equipo), createdBy = ownerId
+  // si no estaba, members = [] si nunca se asignó. Las negociaciones nuevas
+  // creadas desde createNegotiation arrancan en "private" e incluyen al
+  // creador en members[]. Idempotente.
   d.negotiations = d.negotiations.map(n=>({
     ...n,
     documents: n.documents||[],
@@ -843,6 +848,11 @@ function _migrate(d){
       chatSummaries: Array.isArray(n.memory.chatSummaries) ? n.memory.chatSummaries : [],
       updatedAt:     n.memory.updatedAt || null,
     } : {...emptyNegMemory(), chatSummaries:[]},
+    ownerId:    n.ownerId != null ? n.ownerId : 6,
+    createdBy:  n.createdBy != null ? n.createdBy : (n.ownerId != null ? n.ownerId : 6),
+    createdAt:  n.createdAt || new Date().toISOString(),
+    visibility: n.visibility || "team",
+    members:    Array.isArray(n.members) ? n.members : [],
   }));
   // Memoria global del CEO (nivel app).
   d.ceoMemory = d.ceoMemory ? {
@@ -8940,10 +8950,28 @@ export default function TaskFlow(){
     const id=_uid("neg"); const now=new Date().toISOString();
     setData(prev=>{
       const code = nextSeqCode(NEG_CODE_PREFIX, prev.negotiations||[]);
-      return{...prev,negotiations:[...(prev.negotiations||[]),{id,code,...payload,sessions:[],createdAt:now,updatedAt:now}]};
+      const me = (prev.members||[]).find(m=>m.id===activeMember);
+      const isAdminMe = me?.accountRole === "admin";
+      // Para non-admin forzamos al creador como ownerId (no permitimos
+      // crear deals "en nombre de otro" porque el modelo de permisos
+      // requiere que el ownerId sea quien tiene control). Admin global
+      // puede mantener el ownerId que venga del modal (selector libre).
+      const finalOwnerId = isAdminMe && payload.ownerId != null ? payload.ownerId : activeMember;
+      const baseMembers = Array.isArray(payload.members) ? payload.members : [];
+      const finalMembers = baseMembers.includes(activeMember) ? baseMembers : [activeMember, ...baseMembers];
+      return{...prev,negotiations:[...(prev.negotiations||[]),{
+        id,code,...payload,
+        ownerId:    finalOwnerId,
+        createdBy:  activeMember,
+        createdAt:  now,
+        updatedAt:  now,
+        visibility: payload.visibility || "private",
+        members:    finalMembers,
+        sessions:   [],
+      }]};
     });
     addToast("✓ Negociación creada");
-  },[addToast]);
+  },[addToast, activeMember]);
   const updateNegotiation = useCallback((negId,patch)=>{
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,...patch,updatedAt:new Date().toISOString()}:n)}));
     addToast("✓ Negociación actualizada");
