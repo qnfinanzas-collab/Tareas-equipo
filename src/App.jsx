@@ -5796,7 +5796,7 @@ function NegotiationCloseModal({negotiation, outcomeStatus, onSave, onCancel}){
   );
 }
 
-function NegotiationModal({negotiation,members,workspaces,projects,agents,allNegotiations,onClose,onSave,onDelete}){
+function NegotiationModal({negotiation,members,workspaces,projects,agents,allNegotiations,currentMember,onClose,onSave,onDelete,onTransferOwnership}){
   const isEdit=!!negotiation;
   const [title,setTitle]       = useState(negotiation?.title||"");
   const [counterparty,setCP]   = useState(negotiation?.counterparty||"");
@@ -5804,8 +5804,19 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
   const [value,setValue]       = useState(negotiation?.value??"");
   const [currency,setCurrency] = useState(negotiation?.currency||"EUR");
   const [description,setDesc]  = useState(negotiation?.description||"");
-  const [ownerId,setOwnerId]   = useState(negotiation?.ownerId??(members[0]?.id??0));
+  // Owner es read-only en este modal: para creación se asigna en App.jsx
+  // (createNegotiation fuerza activeMember); para edición solo cambia vía
+  // botón "Transferir propiedad". El selector libre anterior se eliminó.
+  const [ownerId]              = useState(negotiation?.ownerId ?? (currentMember?.id ?? members[0]?.id ?? 0));
   const [visibility,setVisibility] = useState(negotiation?.visibility || "private");
+  // Miembros con permiso de edición (semántica equivalente a project.members).
+  // En creación arrancamos con el currentMember para que el creador siempre
+  // figure como miembro inicial. En edición se respeta lo que ya hubiera.
+  const [selMembers,setSelMembers] = useState(()=>{
+    if (Array.isArray(negotiation?.members)) return negotiation.members;
+    if (currentMember) return [currentMember.id];
+    return [];
+  });
   // Multi-proyecto (FASE 1.5)
   const [relatedProjects,setRelatedProjects] = useState(negotiation?.relatedProjects||[]);
   const [relationships,setRelationships]     = useState(negotiation?.relationships||[]);
@@ -5813,14 +5824,23 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
   const [agentId,setAgentId] = useState(negotiation?.agentId??"");
   const [pendingDel,setPendingDel] = useState(false);
   const [pendingClose,setPendingClose] = useState(false);
-  const [initialSnap]=useState(()=>JSON.stringify({title:negotiation?.title||"",counterparty:negotiation?.counterparty||"",status:negotiation?.status||"en_curso",value:negotiation?.value??"",currency:negotiation?.currency||"EUR",description:negotiation?.description||"",ownerId:negotiation?.ownerId??(members[0]?.id??0),visibility:negotiation?.visibility||"private",relatedProjects:negotiation?.relatedProjects||[],relationships:negotiation?.relationships||[],stakeholders:negotiation?.stakeholders||[],agentId:negotiation?.agentId??""}));
-  const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,ownerId,visibility,relatedProjects,relationships,stakeholders,agentId})!==initialSnap;
+  const [transferOpen,setTransferOpen] = useState(false);
+  const [transferTarget,setTransferTarget] = useState("");
+  const [initialSnap]=useState(()=>JSON.stringify({title:negotiation?.title||"",counterparty:negotiation?.counterparty||"",status:negotiation?.status||"en_curso",value:negotiation?.value??"",currency:negotiation?.currency||"EUR",description:negotiation?.description||"",visibility:negotiation?.visibility||"private",members:Array.isArray(negotiation?.members)?negotiation.members:(currentMember?[currentMember.id]:[]),relatedProjects:negotiation?.relatedProjects||[],relationships:negotiation?.relationships||[],stakeholders:negotiation?.stakeholders||[],agentId:negotiation?.agentId??""}));
+  const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,visibility,members:selMembers,relatedProjects,relationships,stakeholders,agentId})!==initialSnap;
   const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
   useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
   const [showCloseFlow,setShowCloseFlow] = useState(false);
+  const owner = isEdit ? (members||[]).find(m=>m.id===negotiation.ownerId) : null;
+  const isOwner = isEdit && currentMember && (currentMember.id === negotiation.ownerId || currentMember.accountRole === "admin");
+  const toggleMember = (id) => setSelMembers(p=>p.includes(id)?p.filter(x=>x!==id):[...p,id]);
   const buildPayload = ()=>{
     const primaryProjectId = relatedProjects[0]?.projectId ?? null;
-    return {title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),visibility,projectId:primaryProjectId,agentId:agentId===""?null:Number(agentId),relatedProjects,relationships,stakeholders};
+    // Garantiza que el owner siempre esté en members[] para no dejar el deal
+    // huérfano. Si Marc transfiere a Antonio antes de guardar, la transferencia
+    // ya añade a Antonio; si el owner sigue siendo el actual, lo aseguramos.
+    const finalMembers = selMembers.includes(ownerId) ? selMembers : [...selMembers, ownerId];
+    return {title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),visibility,members:finalMembers,projectId:primaryProjectId,agentId:agentId===""?null:Number(agentId),relatedProjects,relationships,stakeholders};
   };
   const save=()=>{
     if(!title.trim()||!counterparty.trim()) return;
@@ -5906,10 +5926,6 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
               <button key={s.id} onClick={()=>setStatus(s.id)} style={{padding:"6px 12px",borderRadius:8,border:`1.5px solid ${status===s.id?s.color:"#e5e7eb"}`,background:status===s.id?s.color+"18":"#fff",color:status===s.id?s.color:"#6b7280",fontSize:12,cursor:"pointer",fontWeight:status===s.id?600:400}}>{s.label}</button>
             ))}
           </div>
-          <FL c="Responsable"/>
-          <select value={ownerId} onChange={e=>setOwnerId(e.target.value)} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff"}}>
-            {members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-          </select>
           <FL c="Descripción"/>
           <textarea value={description} onChange={e=>setDesc(e.target.value)} rows={3} placeholder="Contexto, objetivo, contraparte, plazos…" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
 
@@ -5924,7 +5940,7 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
             ].map(opt=>{
               const active = visibility===opt.key;
               return (
-                <label key={opt.key} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 11px",borderRadius:8,border:`1.5px solid ${active?"#3B82F6":"#e5e7eb"}`,background:active?"#3B82F610":"#fff",cursor:"pointer"}}>
+                <label key={opt.key} style={{display:"flex",alignItems:"center",gap:10,padding:"12px",borderRadius:8,border:`1.5px solid ${active?"#3B82F6":"#ECF0F1"}`,background:active?"#3B82F610":"#fff",cursor:"pointer",marginBottom:4}}>
                   <input type="radio" name="neg-visibility" value={opt.key} checked={active} onChange={()=>setVisibility(opt.key)} style={{margin:0,accentColor:"#3B82F6"}}/>
                   <span style={{fontSize:14}}>{opt.icon}</span>
                   <div style={{flex:1,minWidth:0}}>
@@ -5932,6 +5948,59 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
                     <div style={{fontSize:11,color:"#7F8C8D"}}>{opt.desc}</div>
                   </div>
                 </label>
+              );
+            })}
+          </div>
+
+          {/* Propiedad — read-only en edición. Solo el owner (o admin global)
+              puede transferir a otro miembro. Mismo patrón que ProjectModal. */}
+          {isEdit && owner && (
+            <div style={{padding:"10px 12px",borderRadius:8,background:"#F8F9FA",border:"0.5px solid #ECF0F1",marginBottom:12,fontSize:12}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:10,fontWeight:600,color:"#7F8C8D",textTransform:"uppercase",letterSpacing:1}}>Propiedad</div>
+                  <div style={{fontSize:13,color:"#111827",marginTop:4}}>🧑 <b>{owner.name}</b> {owner.id===currentMember?.id ? <span style={{color:"#1D9E75"}}>(tú)</span> : null}</div>
+                  {negotiation?.createdAt && (
+                    <div style={{fontSize:11,color:"#95A5A6",marginTop:2}}>Creado el {new Date(negotiation.createdAt).toLocaleDateString("es-ES",{day:"numeric",month:"short",year:"numeric"})}</div>
+                  )}
+                </div>
+                {isOwner && onTransferOwnership && !transferOpen && (
+                  <button onClick={()=>setTransferOpen(true)} style={{padding:"6px 14px",borderRadius:6,background:"#fff",border:"1px solid #BDC3C7",fontSize:13,fontWeight:500,cursor:"pointer",color:"#374151",fontFamily:"inherit"}}>Transferir propiedad</button>
+                )}
+              </div>
+              {transferOpen && (
+                <div style={{marginTop:10,paddingTop:10,borderTop:"0.5px dashed #ECF0F1",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                  <select value={transferTarget} onChange={e=>setTransferTarget(e.target.value)} style={{flex:1,minWidth:160,padding:"5px 8px",borderRadius:6,border:"0.5px solid #D1D5DB",fontSize:12,fontFamily:"inherit",background:"#fff"}}>
+                    <option value="">— Selecciona nuevo owner —</option>
+                    {(members||[]).filter(m=>m.id!==negotiation.ownerId).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                  <button
+                    disabled={!transferTarget}
+                    onClick={()=>{ onTransferOwnership(negotiation.id, Number(transferTarget)); setTransferOpen(false); setTransferTarget(""); onClose(); }}
+                    style={{padding:"5px 10px",borderRadius:6,background:transferTarget?"#E24B4A":"#E5E7EB",color:transferTarget?"#fff":"#9CA3AF",border:"none",fontSize:11.5,fontWeight:600,cursor:transferTarget?"pointer":"default",fontFamily:"inherit"}}
+                  >Confirmar transferencia</button>
+                  <button onClick={()=>{setTransferOpen(false);setTransferTarget("");}} style={{padding:"5px 10px",borderRadius:6,background:"transparent",border:"1px solid #D1D5DB",fontSize:11.5,cursor:"pointer",color:"#6B7280",fontFamily:"inherit"}}>Cancelar</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Miembros con permiso de edición — equivalente a project.members.
+              Stakeholders (más abajo) son contactos externos, distinto rol. */}
+          <FL c="Miembros con acceso a editar"/>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:8,marginBottom:8}}>
+            {members.map(m=>{
+              const mp2=MP[m.id]||MP[0];
+              const active=selMembers.includes(m.id);
+              const isOwnerHere = m.id === ownerId;
+              return (
+                <div key={m.id} onClick={()=>!isOwnerHere && toggleMember(m.id)} title={isOwnerHere?"El owner siempre es miembro":""} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:10,border:`1.5px solid ${active?mp2.solid:"#ECF0F1"}`,background:active?mp2.light:"#FAFAFA",cursor:isOwnerHere?"default":"pointer",opacity:isOwnerHere?0.85:1}}>
+                  <div style={{width:32,height:32,borderRadius:"50%",background:active?mp2.solid:"#D1D5DB",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:600,flexShrink:0}}>{m.initials || m.name?.split(" ").map(s=>s[0]).join("").slice(0,2)}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:active?600:500,color:active?mp2.solid:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.name}{isOwnerHere?" 👑":""}</div>
+                    <div style={{fontSize:11,color:"#95A5A6"}}>{m.role||"Editor"}</div>
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -9443,6 +9512,22 @@ export default function TaskFlow(){
     }));
     addToast("✓ Propiedad transferida","success");
   },[addToast]);
+  // Transferencia de propiedad de la negociación. Mismo patrón que en
+  // proyectos: el caller (NegotiationModal) ya gateó por isOwner/isAdmin
+  // en UI, así que aquí solo aseguramos integridad (nuevo owner pasa a
+  // members[] si no estaba) y actualizamos updatedAt.
+  const transferNegotiationOwnership = useCallback((negId, newOwnerId)=>{
+    setData(prev=>({
+      ...prev,
+      negotiations: (prev.negotiations||[]).map(n=>{
+        if(n.id!==negId) return n;
+        const ms = Array.isArray(n.members) ? n.members : [];
+        const nextMembers = ms.includes(newOwnerId) ? ms : [...ms, newOwnerId];
+        return {...n, ownerId:newOwnerId, members:nextMembers, updatedAt:new Date().toISOString()};
+      }),
+    }));
+    addToast("✓ Propiedad transferida","success");
+  },[addToast]);
   const createWorkspace = useCallback((payload)=>{
     const id=nextWsId++;
     setData(prev=>{
@@ -9904,8 +9989,8 @@ export default function TaskFlow(){
       {workspaceModal==="create"&&<WorkspaceModal onClose={()=>setWorkspaceModal(null)} onSave={createWorkspace}/>}
       {workspaceModal&&workspaceModal!=="create"&&<WorkspaceModal workspace={workspaceModal} onClose={()=>setWorkspaceModal(null)} onSave={d=>editWorkspace(workspaceModal.id,d)} onDelete={deleteWorkspace}/>}
 
-      {negModal==="create"&&<NegotiationModal members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} allNegotiations={data.negotiations||[]} onClose={()=>setNegModal(null)} onSave={createNegotiation}/>}
-      {negModal&&negModal!=="create"&&<NegotiationModal negotiation={negModal} members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} allNegotiations={data.negotiations||[]} onClose={()=>setNegModal(null)} onSave={p=>updateNegotiation(negModal.id,p)} onDelete={id=>{ deleteNegotiation(id); if(activeNegId===id){ setActiveNegId(null); setActiveSessId(null); } }}/>}
+      {negModal==="create"&&<NegotiationModal members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} allNegotiations={data.negotiations||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setNegModal(null)} onSave={createNegotiation}/>}
+      {negModal&&negModal!=="create"&&<NegotiationModal negotiation={negModal} members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} allNegotiations={data.negotiations||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setNegModal(null)} onSave={p=>updateNegotiation(negModal.id,p)} onDelete={id=>{ deleteNegotiation(id); if(activeNegId===id){ setActiveNegId(null); setActiveSessId(null); } }} onTransferOwnership={transferNegotiationOwnership}/>}
       {attendeesModalOpen&&activeNegId&&activeSessId&&(()=>{
         const n=(data.negotiations||[]).find(x=>x.id===activeNegId); const s=n?.sessions.find(x=>x.id===activeSessId);
         if(!s) return null;
