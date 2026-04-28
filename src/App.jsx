@@ -1083,11 +1083,12 @@ function _migrate(d){
   // se generan vacías; el admin las puebla manualmente o usando la
   // plantilla estándar (modelo 200/202/303/111/347/390/720/115).
   if (!d.governance || typeof d.governance !== "object") {
-    d.governance = { companies: [], obligations: [], alerts: [] };
+    d.governance = { companies: [], obligations: [], alerts: [], documents: [] };
   } else {
     if (!Array.isArray(d.governance.companies))   d.governance.companies   = [];
     if (!Array.isArray(d.governance.obligations)) d.governance.obligations = [];
     if (!Array.isArray(d.governance.alerts))      d.governance.alerts      = [];
+    if (!Array.isArray(d.governance.documents))   d.governance.documents   = [];
   }
   return d;
 }
@@ -9388,6 +9389,7 @@ export default function TaskFlow(){
         companies:   patch.companies   ?? prev.governance?.companies   ?? [],
         obligations: patch.obligations ?? prev.governance?.obligations ?? [],
         alerts:      patch.alerts      ?? prev.governance?.alerts      ?? [],
+        documents:   patch.documents   ?? prev.governance?.documents   ?? [],
       },
     }));
   },[]);

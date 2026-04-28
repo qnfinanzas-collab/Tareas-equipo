@@ -1,15 +1,18 @@
-// GobernanzaView — sección dedicada de gobernanza empresarial. Tres tabs:
+// GobernanzaView — sección dedicada de gobernanza empresarial. Cuatro tabs:
 //   1) Dashboard societario: estructura del grupo + KPIs + alertas
 //   2) Calendario fiscal: obligaciones mes a mes con estado por color
-//   3) Chat con Gonzalo: conversación 1:1 con el agente especialista
+//   3) Documentación societaria: archivos por empresa con upload y compartir
+//   4) Chat con Gonzalo: conversación 1:1 con el agente especialista
 // La vista se monta cuando activeTab === "gobernanza" y solo es visible
 // para admin global o miembros con permission view en "gobernanza".
 import React, { useState, useRef, useEffect } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
+import DocumentacionTab from "./DocumentacionTab.jsx";
 
 const TAB_DEFS = [
   { key: "dashboard", label: "🏛️ Dashboard" },
-  { key: "calendar",  label: "📅 Calendario Fiscal" },
+  { key: "calendar",  label: "📅 Calendario" },
+  { key: "docs",      label: "📋 Documentación" },
   { key: "chat",      label: "💬 Gonzalo" },
 ];
 
@@ -54,6 +57,7 @@ export default function GobernanzaView({ data, currentMember, onUpdateGovernance
 
       {tab === "dashboard" && <GovDashboardTab governance={governance} onUpdateGovernance={onUpdateGovernance} />}
       {tab === "calendar"  && <GovCalendarTab  governance={governance} onUpdateGovernance={onUpdateGovernance} />}
+      {tab === "docs"      && <DocumentacionTab governance={governance} currentMember={currentMember} onUpdateGovernance={onUpdateGovernance} />}
       {tab === "chat"      && <GovChatTab      currentMember={currentMember} onCallAgent={onCallAgent} />}
     </div>
   );
