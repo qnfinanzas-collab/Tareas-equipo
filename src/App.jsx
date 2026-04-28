@@ -12,7 +12,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
-import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission } from "./lib/auth.js";
+import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel } from "./lib/agent.js";
@@ -4324,20 +4324,10 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
   const total=pid=>(boards[pid]||[]).flatMap(c=>c.tasks).length;
   const done=pid=>(boards[pid]||[]).filter(c=>c.name==="Hecho").flatMap(c=>c.tasks).length;
   const [pendingDel,setPendingDel]=useState(null);
-  // Filtro de visibilidad inline. Mantiene el índice del array maestro (i)
-  // para que setActiveProject/edit/delete sigan apuntando al proyecto
-  // correcto. Lógica: admin → todo; owner → siempre; miembro → siempre;
-  // visibility "team" o "public" → visible para cualquier autenticado;
-  // visibility "private" sin pertenencia → oculto.
-  const isVisible = (p) => {
-    if (!currentMember) return false;
-    if (currentMember.accountRole === "admin") return true;
-    if (p.ownerId === currentMember.id) return true;
-    if (Array.isArray(p.members) && p.members.includes(currentMember.id)) return true;
-    if (p.visibility === "team")   return true;
-    if (p.visibility === "public") return true;
-    return false;
-  };
+  // Filtro de visibilidad usando canViewProject de lib/auth.js. Mantiene el
+  // índice del array maestro (i) para que setActiveProject/edit/delete sigan
+  // apuntando al proyecto correcto.
+  const isVisible = (p) => canViewProject(currentMember, p);
   const visibleCount = (projects||[]).filter(isVisible).length;
   return(
     <div style={{padding:20}}>
@@ -8551,16 +8541,33 @@ export default function TaskFlow(){
     addToast("Usuario eliminado","info");
   },[activeMember,addToast]);
 
+  // Gate centralizado: comprueba con canEditProject si el activeMember puede
+  // mutar el proyecto cuyo id se pasa. Si no, dispara toast y devuelve false.
+  // Lee de dataRef para evitar race con setData async. Toda mutación de
+  // tareas con scope a un proyecto concreto debe pasar por aquí.
+  const ensureCanEditProj = useCallback((projId)=>{
+    const d = dataRef.current || data;
+    const project = (d.projects||[]).find(p=>p.id===projId);
+    const me = (d.members||[]).find(m=>m.id===activeMember);
+    if (!canEditProject(me, project)) {
+      addToast("No tienes permisos para modificar este proyecto","error");
+      return false;
+    }
+    return true;
+  },[activeMember, addToast, data]);
+
   const updateTask = useCallback((taskId,colId,updated)=>{
+    if(!ensureCanEditProj(proj.id)) return;
     setData(prev=>{ const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:col.tasks.map(t=>t.id===taskId?updated:t)}:col); return{...prev,boards:{...prev.boards,[proj.id]:cols}}; });
-  },[proj.id]);
+  },[proj.id, ensureCanEditProj]);
   const updateTaskAnywhere = useCallback((taskId,updated)=>{
     setData(prev=>{ const newBoards={}; for(const pid in prev.boards){ newBoards[pid]=prev.boards[pid].map(col=>({...col,tasks:col.tasks.map(t=>t.id===taskId?updated:t)})); } return{...prev,boards:newBoards}; });
   },[]);
   const moveTask = useCallback((taskId,fromColId,toColId)=>{
+    if(!ensureCanEditProj(proj.id)) return;
     setData(prev=>{ const cols=prev.boards[proj.id]; const fc=cols.find(c=>c.id===fromColId); const task=fc.tasks.find(t=>t.id===taskId); const nc=cols.map(col=>{ if(col.id===fromColId)return{...col,tasks:col.tasks.filter(t=>t.id!==taskId)}; if(col.id===toColId)return{...col,tasks:[...col.tasks,task]}; return col; }); return{...prev,boards:{...prev.boards,[proj.id]:nc}}; });
     addToast("Tarea movida","info");
-  },[proj.id,addToast]);
+  },[proj.id,addToast, ensureCanEditProj]);
   // Acciones cross-project para el Dashboard (Top 5 críticas puede venir de cualquier proyecto).
   const completeTaskAnywhere = useCallback((taskId,projId,fromColId)=>{
     setData(prev=>{
@@ -8660,6 +8667,7 @@ export default function TaskFlow(){
     addToast(`📅 Pospuesta hasta ${label||newDate}`,"info");
   },[addToast]);
   const addTask = useCallback((colId,title)=>{
+    if(!ensureCanEditProj(proj.id)) return;
     setData(prev=>{
       const projObj = prev.projects.find(p=>p.id===proj.id);
       const ref = projObj?.code ? computeNextTaskRef(projObj.code, prev.boards[proj.id]||[]) : null;
@@ -8668,8 +8676,9 @@ export default function TaskFlow(){
       return{...prev,boards:{...prev.boards,[proj.id]:cols}};
     });
     addToast("✓ Tarea creada");
-  },[proj.id,activeMember,addToast]);
+  },[proj.id,activeMember,addToast, ensureCanEditProj]);
   const deleteTask = useCallback((taskId,colId)=>{
+    if(!ensureCanEditProj(proj.id)) return;
     setData(prev=>{
       const cols = prev.boards[proj.id].map(col => col.id===colId
         ? {...col, tasks: col.tasks.filter(t => t.id!==taskId)}
@@ -8677,7 +8686,7 @@ export default function TaskFlow(){
       return {...prev, boards:{...prev.boards, [proj.id]: cols}};
     });
     addToast("Tarea eliminada","info");
-  },[proj.id,addToast]);
+  },[proj.id,addToast, ensureCanEditProj]);
   const deleteTaskAnywhere = useCallback((taskId)=>{
     setData(prev=>{
       const newBoards = {};

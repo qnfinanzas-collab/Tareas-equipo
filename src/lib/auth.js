@@ -78,3 +78,26 @@ export function hasPermission(member, feature, level = "view", permissions = nul
   if (level === "admin") return !!memberPerms.admin;
   return false;
 }
+
+// Permisos de proyecto. Edit ⊃ View. La edición exige pertenencia explícita
+// (owner o miembro). La visibilidad relaja según `project.visibility`:
+//   - "private" : solo owner + miembros (lo mismo que canEditProject).
+//   - "team"    : visible a cualquier autenticado de la organización.
+//   - "public"  : igual que team (placeholder por si en el futuro hay acceso
+//                 externo no autenticado — hoy son equivalentes en lectura).
+// Admin global (accountRole==="admin") tiene paso libre en ambas.
+export function canEditProject(member, project){
+  if (!member || !project) return false;
+  if (member.accountRole === "admin") return true;
+  if (project.ownerId === member.id) return true;
+  if (Array.isArray(project.members) && project.members.includes(member.id)) return true;
+  return false;
+}
+
+export function canViewProject(member, project){
+  if (canEditProject(member, project)) return true;
+  if (!project) return false;
+  if (project.visibility === "team")   return true;
+  if (project.visibility === "public") return true;
+  return false;
+}
