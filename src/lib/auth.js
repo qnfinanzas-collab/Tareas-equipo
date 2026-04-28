@@ -121,3 +121,23 @@ export function canViewDeal(member, deal){
   if (deal.visibility === "public") return true;
   return false;
 }
+
+// Permisos por agente IA. data.permissions[memberId].agents = {mario:bool,
+// jorge:bool, alvaro:bool}. Admin global tiene paso libre. Si no hay entrada,
+// el agente no está disponible (falla cerrado).
+export function canUseAgent(member, agentKey, permissions = null){
+  if (!member) return false;
+  if (member.accountRole === "admin") return true;
+  if (!permissions || !agentKey) return false;
+  const agentPerms = permissions[member.id]?.agents;
+  if (!agentPerms) return false;
+  return agentPerms[agentKey] === true;
+}
+
+// Filtra una lista de agentes a los que el miembro tiene permiso. Cada
+// agente debe traer un campo `key` (mario | jorge | alvaro) que mapea con
+// data.permissions[member.id].agents[key].
+export function getAvailableAgents(member, allAgents, permissions = null){
+  if (!member || !Array.isArray(allAgents)) return [];
+  return allAgents.filter(a => canUseAgent(member, a.key, permissions));
+}

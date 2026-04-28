@@ -12,7 +12,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
-import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal } from "./lib/auth.js";
+import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME } from "./lib/storage.js";
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel } from "./lib/agent.js";
@@ -957,6 +957,24 @@ function _migrate(d){
   // El admin global (accountRole==="admin") tiene acceso total automáticamente
   // y no necesita entradas aquí. Idempotente: si existe se respeta.
   if (!d.permissions || typeof d.permissions !== "object") d.permissions = {};
+  // Permisos de agentes IA por miembro: data.permissions[memberId].agents =
+  // {mario, jorge, alvaro}. Admin global pasa libre vía canUseAgent. Para
+  // miembros no-admin sin entrada, fallamos cerrado (no acceso). Esta
+  // migración SOLO crea la sub-clave .agents si falta — no asume defaults
+  // optimistas para no liberar acceso por accidente.
+  for (const m of (d.members||[])) {
+    if (m.accountRole === "admin") continue;
+    if (!d.permissions[m.id]) d.permissions[m.id] = {};
+    if (!d.permissions[m.id].agents || typeof d.permissions[m.id].agents !== "object") {
+      d.permissions[m.id].agents = { mario: false, jorge: false, alvaro: false };
+    } else {
+      // Idempotente: backfill solo de las claves que falten.
+      const cur = d.permissions[m.id].agents;
+      if (cur.mario  === undefined) cur.mario  = false;
+      if (cur.jorge  === undefined) cur.jorge  = false;
+      if (cur.alvaro === undefined) cur.alvaro = false;
+    }
+  }
   // Movimientos financieros (módulo Finanzas). Lista plana de movimientos.
   if (!Array.isArray(d.financeMovements)) d.financeMovements = [];
   return d;
@@ -9108,6 +9126,21 @@ export default function TaskFlow(){
       if(level==="view"  && !value){ featurePerms.edit = false; featurePerms.admin = false; }
       if(level==="edit"  && !value){ featurePerms.admin = false; }
       memberPerms[feature] = featurePerms;
+      perms[memberId] = memberPerms;
+      return {...prev, permissions: perms};
+    });
+    addToast("✓ Permisos actualizados");
+  },[addToast]);
+  // Setter dedicado para permisos de agentes IA. Toggle binario por
+  // (memberId, agentKey). Llamado desde la PermissionsTable (columna
+  // "Agentes"). El admin global no necesita esto.
+  const setMemberAgentPermission = useCallback((memberId, agentKey, value)=>{
+    setData(prev=>{
+      const perms = {...(prev.permissions||{})};
+      const memberPerms = {...(perms[memberId]||{})};
+      const agentPerms = {...(memberPerms.agents||{mario:false,jorge:false,alvaro:false})};
+      agentPerms[agentKey] = !!value;
+      memberPerms.agents = agentPerms;
       perms[memberId] = memberPerms;
       return {...prev, permissions: perms};
     });
