@@ -21,6 +21,7 @@ export const SKILL_TRIGGERS = {
   analista:    ["kpi", "kpis", "métrica", "metrica", "métricas", "metricas", "análisis", "analisis", "tendencia", "cohorte", "cohortes", "conversión", "conversion", "churn", "ltv", "cac", "mrr", "arr", "nrr", "dashboard", "reporte", "reporting", "forecasting", "forecast"],
   estratega:   ["estrategia", "estratégico", "estrategico", "prioridad", "priorización", "priorizacion", "decisión", "decision", "visión", "vision", "okr", "okrs", "roadmap", "pivot", "foco", "eisenhower", "rice", "north star", "trade-off", "tradeoff", "rumbo"],
   personas:    ["contratar", "contratación", "contratacion", "despedir", "despido", "equipo", "conflicto", "1:1", "evaluación", "evaluacion", "motivación", "motivacion", "onboarding", "salario", "cultura", "manager", "rrhh", "talento", "fit cultural", "performance"],
+  alquileres:  ["alquiler", "arrendamiento", "arrendatario", "arrendador", "inquilino", "renta", "fianza", "desahucio", "lau", "vivienda", "inmueble", "piso", "contrato alquiler", "okupa", "comunidad propietarios", "ibi", "hipoteca", "turistico", "turístico", "airbnb"],
 };
 
 // Detecta qué skills aplican a un texto. Devuelve array ordenado por nº de
@@ -60,6 +61,7 @@ export function loadSkillContext(skill){
     analista: `MODO ANALISTA: Convierte datos en decisiones. KPIs por área (MRR/ARR, churn, NRR, CAC, LTV, LTV/CAC>3, payback). Cohortes, funnels, segmentación. Forecasting con escenarios. Storytelling con datos: insight + causa raíz + acción recomendada. Sin acción, el análisis no vale.`,
     estratega: `MODO ESTRATEGA: Piensa como CEO. Frameworks Eisenhower (urgente/importante), RICE, ICE, weighted scoring. Pensamiento sistémico (segundo orden, opportunity cost). North star metric y OKRs. Foco en "importante no urgente". Distingue movimiento de progreso, evita atrapamiento operativo.`,
     personas: `MODO PERSONAS: Gestión de capital humano. Contratación basada en misión + outcomes + fit cultural. 1:1s estructurados, feedback continuo, evaluaciones objetivas. Motivación: Maslow / Herzberg / Pink (autonomía-maestría-propósito). Liderazgo situacional. Conflictos: directo primero, mediación después, salida digna si imposible.`,
+    alquileres: `MODO ALQUILERES Y VIVIENDA: Aplica LAU 29/1994 y Ley Vivienda 12/2023. Conoce fianzas por CCAA, zonas tensionadas, límites renta, reducciones IRPF (50-90%), procedimientos de desahucio, alquiler turístico por CCAA. Diferencia vivienda habitual vs temporada vs local. Calcula rentabilidad bruta/neta/cash-on-cash.`,
   };
   return skillSummaries[skill] || "";
 }

@@ -43,6 +43,7 @@ const SKILL_LABELS = {
   estratega:  "🎯 Estratega",
   personas:   "👥 Personas",
   legal:      "⚖️ Legal",
+  alquileres: "🏠 Vivienda",
 };
 const SKILL_COLORS = {
   finanzas:   "#27AE60",
@@ -52,6 +53,7 @@ const SKILL_COLORS = {
   estratega:  "#E67E22",
   personas:   "#E91E63",
   legal:      "#34495E",
+  alquileres: "#E67E22",
 };
 
 const speakRecommendation = (text) => {
