@@ -85,6 +85,7 @@ export default function HectorFloat({
   onOpenTask,
   financeContext,
   vaultAlerts,
+  onRunAgentActions,
   onAddTimelineEntry,
 }) {
   const borderColor = STATE_BORDER[hectorState] || STATE_BORDER.listening;
@@ -232,6 +233,7 @@ export default function HectorFloat({
                 onOpenTask={onOpenTask}
                 financeContext={financeContext}
                 vaultAlerts={vaultAlerts}
+                onRunAgentActions={onRunAgentActions}
                 onAddTimelineEntry={onAddTimelineEntry}
               />
             </div>

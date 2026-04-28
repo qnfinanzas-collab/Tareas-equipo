@@ -20,6 +20,8 @@
 import React, { useEffect, useState, useRef } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import { PLAIN_TEXT_RULE, getEnergyLevel, buildSkillsBlock, detectSkills } from "../../lib/agent.js";
+import { parseAgentActions, cleanAgentResponse } from "../../lib/agentActions.js";
+import ActionProposal from "../Shared/ActionProposal.jsx";
 import { formatCeoMemoryForPrompt } from "../../lib/memory.js";
 
 const STATE_LABEL = {
@@ -177,6 +179,10 @@ export default function HectorPanel({
   // Si llegan, Héctor las cita en su análisis para recordar al CEO que
   // renueve documentos antes de que caduquen.
   vaultAlerts = [],
+  // Callback para ejecutar acciones propuestas por Héctor (crear proyecto,
+  // tareas, negociación, movimiento). Firma: (selectedActions) => Promise.
+  // Si no se pasa, los bloques [ACTIONS] no se mostrarán en el chat.
+  onRunAgentActions,
   // Callback para publicar entradas de IA en el timeline de una tarea.
   // Disparado al recomendar tareas críticas y al ejecutar acciones desde
   // las cards (complete/postpone/view). Firma: (taskId, entry).
@@ -765,9 +771,14 @@ Reglas para block_task:
       if (!m) throw new Error("JSON no encontrado");
       const parsedReply = JSON.parse(m[0]);
       const reply = (parsedReply.reply || "").trim();
-      setChatHistory((prev) => [...prev, { role: "hector", text: reply || "(sin respuesta)", ts: Date.now() }].slice(-CHAT_MAX));
+      // Detectar bloque [ACTIONS] en la respuesta. Si lo hay, lo
+      // separamos del texto visible y lo adjuntamos al mensaje para que
+      // ActionProposal lo renderice abajo.
+      const proposal = parseAgentActions(reply);
+      const cleanReply = proposal ? cleanAgentResponse(reply) : reply;
+      setChatHistory((prev) => [...prev, { role: "hector", text: cleanReply || "(sin respuesta)", proposal, ts: Date.now() }].slice(-CHAT_MAX));
       executeAction(parsedReply);
-      if (reply) speakRecommendation(reply);
+      if (cleanReply) speakRecommendation(cleanReply);
     } catch (e) {
       console.warn("[HectorPanel] sendOrderToHector fallo:", e?.message);
       setChatHistory((prev) => [...prev, { role: "hector", text: `⚠ ${e.message || "Error procesando orden"}`, ts: Date.now() }].slice(-CHAT_MAX));
@@ -1245,6 +1256,25 @@ Reglas para block_task:
                       lineHeight: 1.4,
                       wordBreak: "break-word",
                     }}>{m.text}</div>
+                    {/* Si Héctor incluyó un bloque [ACTIONS] en su respuesta,
+                        renderizamos ActionProposal aquí. El CEO confirma o
+                        descarta. El bloque ya viene parseado en m.proposal. */}
+                    {!isUser && m.proposal && onRunAgentActions && (
+                      <ActionProposal
+                        proposal={m.proposal}
+                        agentName="Héctor"
+                        agentEmoji="🧙"
+                        color="#3498DB"
+                        onConfirm={async (selected) => {
+                          await onRunAgentActions(selected);
+                        }}
+                        onCancel={() => {
+                          // Marcamos la propuesta como descartada para no
+                          // volver a renderizar el panel al re-hidratar.
+                          setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x));
+                        }}
+                      />
+                    )}
                     <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4, paddingRight: 4 }}>{fmtTs(m.ts)}</div>
                   </div>
                 </div>

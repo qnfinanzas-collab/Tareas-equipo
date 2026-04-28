@@ -9,6 +9,8 @@ import React, { useState, useRef, useEffect } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import DocumentacionTab from "./DocumentacionTab.jsx";
 import { generateDocumentsForCompany } from "./documentTemplates.js";
+import { parseAgentActions, cleanAgentResponse } from "../../lib/agentActions.js";
+import ActionProposal from "../Shared/ActionProposal.jsx";
 
 const TAB_DEFS = [
   { key: "dashboard", label: "🏛️ Dashboard" },
@@ -17,7 +19,7 @@ const TAB_DEFS = [
   { key: "chat",      label: "💬 Gonzalo" },
 ];
 
-export default function GobernanzaView({ data, currentMember, onUpdateGovernance, onCallAgent }) {
+export default function GobernanzaView({ data, currentMember, onUpdateGovernance, onCallAgent, onRunAgentActions }) {
   const [tab, setTab] = useState("dashboard");
   const governance = data?.governance || { companies: [], obligations: [], alerts: [] };
 
@@ -59,7 +61,7 @@ export default function GobernanzaView({ data, currentMember, onUpdateGovernance
       {tab === "dashboard" && <GovDashboardTab governance={governance} onUpdateGovernance={onUpdateGovernance} />}
       {tab === "calendar"  && <GovCalendarTab  governance={governance} onUpdateGovernance={onUpdateGovernance} />}
       {tab === "docs"      && <DocumentacionTab governance={governance} currentMember={currentMember} onUpdateGovernance={onUpdateGovernance} />}
-      {tab === "chat"      && <GovChatTab      currentMember={currentMember} onCallAgent={onCallAgent} />}
+      {tab === "chat"      && <GovChatTab      currentMember={currentMember} onCallAgent={onCallAgent} onRunAgentActions={onRunAgentActions} />}
     </div>
   );
 }
@@ -512,7 +514,7 @@ const navBtn = { padding: "4px 10px", borderRadius: 8, border: "0.5px solid #D1D
 const GONZALO_VOICE = { gender: "male", rate: 1.0, pitch: 0.92 };
 const CHAT_MAX = 50;
 
-function GovChatTab({ currentMember, onCallAgent }) {
+function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
   const userId = currentMember?.id ?? "anon";
   const storageKey = `soulbaric.gonzalo.chat.${userId}`;
   const [history, setHistory] = useState(() => {
@@ -561,8 +563,12 @@ function GovChatTab({ currentMember, onCallAgent }) {
     try {
       const messages = next.map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.content }));
       const reply = await onCallAgent({ messages });
-      const finalReply = (reply || "").trim() || "(sin respuesta)";
-      const updated = [...next, { role: "assistant", content: finalReply, ts: Date.now() }].slice(-CHAT_MAX);
+      const rawReply = (reply || "").trim() || "(sin respuesta)";
+      // Si Gonzalo incluye [ACTIONS], limpiamos el texto visible y
+      // adjuntamos la propuesta al mensaje para mostrar ActionProposal.
+      const proposal = parseAgentActions(rawReply);
+      const finalReply = proposal ? (cleanAgentResponse(rawReply) || "(sin texto)") : rawReply;
+      const updated = [...next, { role: "assistant", content: finalReply, proposal, ts: Date.now() }].slice(-CHAT_MAX);
       setHistory(updated);
       speakIfUnmuted(finalReply);
     } catch (e) {
@@ -629,20 +635,33 @@ function GovChatTab({ currentMember, onCallAgent }) {
         {history.map((m, i) => {
           const isUser = m.role === "user";
           return (
-            <div key={i} style={{ display: "flex", gap: 8, justifyContent: isUser ? "flex-end" : "flex-start" }}>
-              {!isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : "#8E44AD", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>🏛️</div>}
-              <div style={{
-                maxWidth: "78%",
-                background: isUser ? "#7F77DD" : (m.error ? "#FEE2E2" : "#F5EEFA"),
-                color: isUser ? "#fff" : (m.error ? "#991B1B" : "#1F2937"),
-                border: m.error ? "1px solid #FCA5A5" : "0.5px solid #E5E7EB",
-                borderRadius: 12,
-                padding: "10px 14px",
-                fontSize: 13.5,
-                lineHeight: 1.5,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-              }}>{m.content}</div>
+            <div key={i} style={{ display: "flex", gap: 8, justifyContent: isUser ? "flex-end" : "flex-start", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start", maxWidth: "82%" }}>
+                {!isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : "#8E44AD", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>🏛️</div>}
+                <div style={{
+                  background: isUser ? "#7F77DD" : (m.error ? "#FEE2E2" : "#F5EEFA"),
+                  color: isUser ? "#fff" : (m.error ? "#991B1B" : "#1F2937"),
+                  border: m.error ? "1px solid #FCA5A5" : "0.5px solid #E5E7EB",
+                  borderRadius: 12,
+                  padding: "10px 14px",
+                  fontSize: 13.5,
+                  lineHeight: 1.5,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}>{m.content}</div>
+              </div>
+              {!isUser && m.proposal && onRunAgentActions && (
+                <div style={{ alignSelf: "stretch", paddingLeft: 36 }}>
+                  <ActionProposal
+                    proposal={m.proposal}
+                    agentName="Gonzalo"
+                    agentEmoji="🏛️"
+                    color="#8E44AD"
+                    onConfirm={async (selected) => { await onRunAgentActions(selected); }}
+                    onCancel={() => setHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
+                  />
+                </div>
+              )}
             </div>
           );
         })}

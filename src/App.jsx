@@ -10878,7 +10878,7 @@ export default function TaskFlow(){
             if(!canView){
               return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>🔒 Sin permisos para acceder al módulo de Gobernanza. Contacta con el admin global.</div>;
             }
-            return <GobernanzaView data={data} currentMember={myMember} onUpdateGovernance={updateGovernance} onCallAgent={callGonzaloDirect}/>;
+            return <GobernanzaView data={data} currentMember={myMember} onUpdateGovernance={updateGovernance} onCallAgent={callGonzaloDirect} onRunAgentActions={runAgentActions}/>;
           })()}
           {activeTab==="vault"&&(()=>{
             const myMember = (data.members||[]).find(x=>x.id===activeMember);
@@ -11005,6 +11005,7 @@ export default function TaskFlow(){
             }}
             financeContext={financeContext}
             vaultAlerts={vaultAlertsForHector}
+            onRunAgentActions={runAgentActions}
             onAddTimelineEntry={addTimelineEntry}
           />
         );
