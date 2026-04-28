@@ -1133,7 +1133,238 @@ function _migrate(d){
     }
     return sp;
   });
+  // ── Seed: Proyecto "Registro y Protección SoulBaric" ──────────────────
+  // Idempotente: solo siembra si NO existe proyecto con code="REG". Crea
+  // proyecto + 11 tareas + negociación vinculada en Deal Room. Asignados:
+  // Antonio (admin) y Marc Díaz como members en todo. Reaplicar al limpiar
+  // el code "REG" del seed manualmente — la siguiente carga lo regenera.
+  seedRegistroSoulBaric(d);
   return d;
+}
+
+// Helper de seed para el proyecto de registro de marca y protección IP.
+// Extraído del cuerpo de _migrate para que sea testable y legible. Toda
+// la lógica es síncrona y no toca claves fuera de projects, boards,
+// negotiations.
+function seedRegistroSoulBaric(d){
+  if ((d.projects || []).some(p => p.code === "REG")) return; // ya sembrado
+
+  const admin = (d.members || []).find(m => m.accountRole === "admin")
+              || (d.members || []).find(m => m.email === "qn.finanzas@gmail.com")
+              || (d.members || []).find(m => m.id === 6);
+  const marc  = (d.members || []).find(m => /^marc/i.test(m.name||"") || /(mdiaz|marc)/i.test(m.email||""))
+              || (d.members || []).find(m => m.id === 5);
+  if (!admin || !marc) return; // sin personas no sembramos
+  const adminId = admin.id;
+  const marcId  = marc.id;
+  const workspaceId = (d.workspaces && d.workspaces[0]?.id) || null;
+
+  const PROJ_ID = "proj_reg_soulbaric";
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const offset = (days) => {
+    const d2 = new Date(now); d2.setDate(d2.getDate() + days);
+    return d2.toISOString().slice(0, 10);
+  };
+  const today = now.toISOString().slice(0, 10);
+
+  // Proyecto
+  const newProject = {
+    id: PROJ_ID,
+    name: "Registro y Protección SoulBaric",
+    desc: "Gestión completa del registro de marca, protección de propiedad intelectual, constitución societaria y protección de código fuente",
+    color: "#8E44AD",
+    emoji: "🛡️",
+    code: "REG",
+    members: [adminId, marcId],
+    workspaceId,
+    ownerId: adminId,
+    createdBy: adminId,
+    createdAt: nowIso,
+    visibility: "private",
+  };
+  d.projects = [...(d.projects || []), newProject];
+
+  // Columnas
+  const colTodo = { id: `nc_reg_todo`,  name: "Por hacer",    tasks: [] };
+  const colDoing = { id: `nc_reg_doing`, name: "En progreso", tasks: [] };
+  const colDone = { id: `nc_reg_done`,  name: "Hecho",        tasks: [] };
+
+  // Helper para construir una tarea con timeline opcional de Gonzalo.
+  const mkTask = (n, title, due, priority, desc, tags, gonzaloNote) => {
+    const ref = `REG-${String(n).padStart(3, "0")}`;
+    const taskId = `t_reg_${n}_${Math.random().toString(36).slice(2, 6)}`;
+    const timeline = [];
+    if (gonzaloNote) {
+      timeline.push({
+        id: `tl_reg_${n}_g`,
+        type: "ai",
+        author: "Gonzalo Gobernanza",
+        authorId: null,
+        authorAvatar: "🏛️",
+        text: gonzaloNote,
+        timestamp: nowIso,
+        isMilestone: false,
+        relatedRecommendationId: null,
+      });
+    }
+    return {
+      id: taskId,
+      ref,
+      title,
+      tags: (tags || []).map(l => ({ l, c: "purple" })),
+      assignees: [adminId, marcId],
+      priority,
+      startDate: today,
+      dueDate: due,
+      dueTime: "",
+      estimatedHours: 0,
+      timeLogs: [],
+      desc: desc || "",
+      comments: [],
+      timeline,
+      projectId: PROJ_ID,
+      linkedProjects: [],
+      links: [],
+      agentIds: [],
+      refs: [],
+      documents: [],
+      archived: false,
+    };
+  };
+
+  const tasks = [
+    mkTask(1,
+      "Buscar disponibilidad marca SoulBaric en EUIPO",
+      offset(2), "alta",
+      "Acceder a https://euipo.europa.eu/eSearch y buscar \"SoulBaric\" en clases 9, 35, 42. Verificar que no existe marca igual o similar. Documentar con captura.",
+      ["urgente", "marca"],
+      "ACCIÓN CRÍTICA: Si alguien registra SoulBaric antes, recuperarla costará 5.000-30.000€. Buscar HOY."),
+    mkTask(2,
+      "Registrar dominios soulbaric.com .es .io .app .eu",
+      offset(2), "alta",
+      "Registrar 5 dominios principales (Namecheap, GoDaddy, Arsys). Si alguno no está disponible, documentar quién lo tiene. Coste: 40-60€/año.",
+      ["urgente", "dominios"],
+      "Recuperar dominios cuesta 2.000-10.000€ vía UDRP. Registrar HOY."),
+    mkTask(3,
+      "Solicitar registro marca EUIPO — 3 clases (9, 35, 42)",
+      offset(7), "alta",
+      "Solicitar marca UE \"SoulBaric\".\nClase 9: Software, aplicaciones\nClase 35: Gestión negocios, asesoría\nClase 42: SaaS, desarrollo software\n\nCoste: 850€ (3 clases) + 300-500€ agente marcas\nDuración: 10 años renovables — 27 países UE\n\nOpciones:\nA) Online directo en euipo.europa.eu\nB) Agente de marcas (recomendado)",
+      ["urgente", "marca", "euipo"]),
+    mkTask(4,
+      "Depósito notarial del código fuente y skills",
+      offset(7), "alta",
+      "Preparar USB con:\n- Código fuente (src/)\n- Skills (.claude/skills/)\n- Prompts de agentes\n- CLAUDE.md\n- Capturas de la app\n- README\n\nDepositar ante notario. Coste: 100-200€. Da FECHA CIERTA de autoría.",
+      ["urgente", "ip", "notario"]),
+    mkTask(5,
+      "Constituir SoulBaric Technologies SL",
+      offset(30), "alta",
+      "Capital mínimo 1€ (Ley Crea y Crece).\nObjeto: \"Desarrollo, explotación y licencia de software, plataformas SaaS, servicios asesoría empresarial mediante IA\"\n\nPasos:\n1. Certificación negativa nombre (RM Central)\n2. Cuenta bancaria + depósito capital\n3. Escritura pública notario\n4. CIF provisional\n5. Inscripción RM\n6. Alta censal (036)\n7. Alta SS si empleados\n\nCoste: 300-600€",
+      ["estructura", "sl"]),
+    mkTask(6,
+      "Asignar IP (marca + copyright) a la SL",
+      offset(30), "alta",
+      "Transferir toda la IP a la SL:\n1. Marca EUIPO: cesión titularidad (200-400€)\n2. Copyright código: acta aportación no dineraria\n3. Skills/prompts: activos intangibles sociedad\n4. Dominios: transferir titularidad\n\nLA IP DEBE ESTAR EN LA SL, NO A NOMBRE PERSONAL.",
+      ["ip", "cesion"]),
+    mkTask(7,
+      "Redactar NDAs para colaboradores y equipo",
+      offset(30), "alta",
+      "NDA que incluya:\n- Definición info confidencial (código, skills, prompts, arquitectura, datos)\n- No divulgación\n- No competencia: 2 años post-salida\n- IP: todo lo creado pertenece a la SL\n- Penalización incumplimiento\n\nAplica a: empleados, freelancers, colaboradores, beta-testers.\nCoste: 300-500€",
+      ["legal", "nda"]),
+    mkTask(8,
+      "Registro Propiedad Intelectual del software",
+      offset(60), "media",
+      "Registrar en Registro PI (Ministerio Cultura).\nhttps://culturaydeporte.gob.es/cultura/propiedadintelectual\nCoste: 13€\nDepositar: código + documentación + manual",
+      ["ip", "registro"]),
+    mkTask(9,
+      "Crear Protocolo de Protección de Secretos Empresariales",
+      offset(60), "media",
+      "Documentar medidas protección trade secrets (Ley 1/2019).\n3 requisitos:\na) Skills/prompts son secretos (repo privado)\nb) Valor comercial por ser secretos\nc) Medidas razonables (NDAs, acceso restringido, encriptación)\n\nUn folio firmado por administrador. Coste: 0€",
+      ["legal", "trade-secrets"]),
+    mkTask(10,
+      "Registrar skills y prompts en Safe Creative",
+      offset(60), "media",
+      "Registrar en safecreative.org:\n- 8 Skills (.md)\n- 5 Prompts de agentes\n\nDa timestamp blockchain. Gratuito o 40€/año.",
+      ["ip", "safe-creative"]),
+    mkTask(11,
+      "Evaluar patentabilidad arquitectura multi-agente",
+      offset(180), "baja",
+      "Consultar abogado patentes.\nArgumentos:\n- Método técnico novedoso\n- No software puro, sistema con efecto técnico\n- Sin prior art conocido\n\nCoste consulta: 500-1.000€\nCoste patente (si procede): 2.000-4.000€",
+      ["patente", "ip"]),
+  ];
+  colTodo.tasks = tasks;
+  d.boards = { ...(d.boards || {}), [PROJ_ID]: [colTodo, colDoing, colDone] };
+
+  // Negociación en Deal Room
+  const NEG_ID = "neg-registro-soulbaric";
+  if (!(d.negotiations || []).some(n => n.id === NEG_ID)) {
+    const negCode = (() => {
+      let i = 1;
+      for (const n of (d.negotiations || [])) {
+        if (typeof n.code === "string" && n.code.startsWith("NEG-")) {
+          const num = parseInt(n.code.slice(4), 10);
+          if (Number.isFinite(num) && num >= i) i = num + 1;
+        }
+      }
+      return "NEG-" + String(i).padStart(3, "0");
+    })();
+    const factsList = [
+      "Marca SoulBaric no registrada — riesgo de registro por tercero",
+      "Código fuente y 9 skills sin protección formal",
+      "Presupuesto total: 1.963-3.590€",
+      "Valoración activo a proteger: 300.000-1.500.000€",
+    ];
+    const redFlagsList = [
+      "Marca sin registrar — cualquier tercero puede registrarla",
+      "Skills y prompts accesibles sin NDA firmado",
+    ];
+    const factToItem = (text, idx, source = "manual") => ({
+      id: `kf_reg_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+      text,
+      source,
+      addedAt: nowIso,
+    });
+    const newNeg = {
+      id: NEG_ID,
+      code: negCode,
+      title: "Registro y Protección IP — SoulBaric",
+      counterparty: "Equipo interno SoulBaric",
+      status: "en_curso",
+      value: null,
+      currency: "EUR",
+      description: "Gestión completa protección IP: marca EUIPO, copyright, trade secrets, SL, NDAs, patente.\nPresupuesto: 1.963-3.590€\nPlazo: 3 meses\nResponsables: Antonio Díaz + Marc Díaz",
+      ownerId: adminId,
+      createdBy: adminId,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      visibility: "team",
+      members: [adminId, marcId],
+      projectId: PROJ_ID,
+      agentId: null,
+      relatedProjects: [{ projectId: PROJ_ID, role: "principal", priority: "high" }],
+      relationships: [],
+      stakeholders: [
+        { id: `stk_reg_1_${Math.random().toString(36).slice(2,6)}`, name: "Agente de marcas EUIPO", company: "Por definir", email: "", phone: "", role: "other", influence: "influencer", notes: "Proveedor del registro de marca en EUIPO" },
+        { id: `stk_reg_2_${Math.random().toString(36).slice(2,6)}`, name: "Notario", company: "Por definir", email: "", phone: "", role: "other", influence: "influencer", notes: "Fedatario del depósito notarial del código y constitución de la SL" },
+        { id: `stk_reg_3_${Math.random().toString(36).slice(2,6)}`, name: "Abogado IP", company: "Por definir", email: "", phone: "", role: "other", influence: "decision_maker", notes: "Asesor legal en protección IP, NDAs y evaluación de patente" },
+      ],
+      sessions: [],
+      hectorChat: [],
+      hectorAnalysis: null,
+      briefing: null,
+      relatedTaskIds: tasks.map(t => t.id),
+      documents: [],
+      result: null,
+      memory: {
+        keyFacts:      factsList.map((t, i) => factToItem(t, i, "manual")),
+        agreements:    [],
+        redFlags:      redFlagsList.map((t, i) => factToItem(t, i, "manual")),
+        chatSummaries: [],
+        updatedAt:     nowIso,
+      },
+    };
+    d.negotiations = [...(d.negotiations || []), newNeg];
+  }
 }
 function _loadData(){
   try{ const s=localStorage.getItem(LS_KEY); if(s)return _migrate(JSON.parse(s)); }catch(e){}
