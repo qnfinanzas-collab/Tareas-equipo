@@ -8336,11 +8336,12 @@ export default function TaskFlow(){
   };
   // Si no eres admin y estás en un tab admin-only, te redirigimos a "mytasks".
   // Evita que un member acceda a vistas restringidas con la URL/atajos.
-  // "projects"/"board"/"team"/"reports"/"eisenhower" salen de la lista: ahora
-  // cualquier autenticado puede tener proyectos propios y navegar dentro de
-  // ellos (la edición sigue gateada por canEditProject en cada mutación).
-  // Mantenerlos aquí causaba un flash de la vista completa antes del redirect.
-  const ADMIN_ONLY_TABS = new Set(["dealroom","workspaces","dashboard","briefings","memory","planner","users"]);
+  // "projects"/"board"/"team"/"reports"/"eisenhower"/"dealroom" salen de la
+  // lista: ahora cualquier autenticado puede tener proyectos y negociaciones
+  // propias (la edición sigue gateada por canEditProject/canEditDeal en cada
+  // mutación). Mantenerlos aquí causaba un flash de la vista completa antes
+  // del redirect.
+  const ADMIN_ONLY_TABS = new Set(["workspaces","dashboard","briefings","memory","planner","users"]);
   useEffect(()=>{
     if(authReady && authSession && authMemberInfo?.member && !isAdmin){
       if(ADMIN_ONLY_TABS.has(activeTab)) setActiveTab("mytasks");
@@ -9507,7 +9508,7 @@ export default function TaskFlow(){
         const ALL_PRIMARY=[
           {id:"command",    icon:"🎯", label:"Sala de Mando",shortcut:"",    onClick:()=>{setActiveTab("command");}, adminOnly:false},
           {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}, adminOnly:false},
-          {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:true},
+          {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:false},
           {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false},
           {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:false},
           {id:"finance",    icon:"💰", label:"Finanzas",     shortcut:"",    onClick:()=>{setActiveTab("finance");}, adminOnly:false, requiresPermission:"finance"},
