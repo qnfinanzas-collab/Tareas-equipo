@@ -29,6 +29,7 @@ import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
 import VaultGuestView, { parseVaultGuestPath } from "./components/Vault/VaultGuestView.jsx";
 import { generatePersonalDocuments } from "./components/Vault/personalTemplates.js";
+import { AGENT_ACTIONS_ADDON } from "./lib/agentActions.js";
 import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
@@ -785,6 +786,15 @@ function _migrate(d){
   d.agents = d.agents.map(a=>{
     if(a.name==="Héctor" && a.promptBase && a.promptBase.includes("[INVOCAR:") && !a.promptBase.includes("gonzalo:")){
       return {...a, promptBase: a.promptBase + HECTOR_GONZALO_INVOKE_PATCH};
+    }
+    return a;
+  });
+  // Patch ejecutor: inyecta CAPACIDAD DE EJECUCIÓN en TODOS los agentes
+  // que tengan promptBase. Idempotente: marca por "CAPACIDAD DE EJECUCIÓN".
+  // Permite que cualquier agente proponga crear proyectos, tareas, etc.
+  d.agents = d.agents.map(a=>{
+    if(a.promptBase && !a.promptBase.includes("CAPACIDAD DE EJECUCIÓN")){
+      return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
     }
     return a;
   });
