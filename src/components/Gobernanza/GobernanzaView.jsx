@@ -4,7 +4,8 @@
 //   3) Chat con Gonzalo: conversación 1:1 con el agente especialista
 // La vista se monta cuando activeTab === "gobernanza" y solo es visible
 // para admin global o miembros con permission view en "gobernanza".
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
+import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 
 const TAB_DEFS = [
   { key: "dashboard", label: "🏛️ Dashboard" },
@@ -489,12 +490,168 @@ function GovCalendarTab({ governance, onUpdateGovernance }) {
 
 const navBtn = { padding: "4px 10px", borderRadius: 8, border: "0.5px solid #D1D5DB", background: "#fff", fontSize: 14, cursor: "pointer", fontFamily: "inherit", color: "#374151" };
 
-// ── TAB 3: Chat con Gonzalo (placeholder, contenido en siguiente commit) ──
+// ── TAB 3: Chat con Gonzalo ──
+// Conversación 1:1 con el agente especialista. Mismo stack que el chat de
+// Héctor: Web Speech API para TTS y SpeechRecognition. Persistencia local
+// por userId vía localStorage para que la conversación sobreviva recargas.
+const GONZALO_VOICE = { gender: "male", rate: 1.0, pitch: 0.92 };
+const CHAT_MAX = 50;
+
 function GovChatTab({ currentMember, onCallAgent }) {
+  const userId = currentMember?.id ?? "anon";
+  const storageKey = `soulbaric.gonzalo.chat.${userId}`;
+  const [history, setHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(storageKey) || "[]"); } catch { return []; }
+  });
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [muted, setMuted] = useState(() => {
+    try { return localStorage.getItem("gonzalo_muted") === "1"; } catch { return false; }
+  });
+  const stopListenRef = useRef(null);
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, JSON.stringify(history.slice(-CHAT_MAX))); } catch {}
+  }, [history, storageKey]);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [history, loading]);
+
+  const toggleMute = () => {
+    setMuted(m => {
+      const next = !m;
+      try { localStorage.setItem("gonzalo_muted", next ? "1" : "0"); } catch {}
+      if (next) stopSpeaking();
+      return next;
+    });
+  };
+
+  const speakIfUnmuted = (text) => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    if (muted || !text) return;
+    try { speak(text, GONZALO_VOICE); } catch (e) { console.warn("[gonzalo] speak fallo:", e?.message); }
+  };
+
+  const send = async (overrideText) => {
+    const txt = (overrideText ?? input).trim();
+    if (!txt || loading) return;
+    stopSpeaking();
+    const next = [...history, { role: "user", content: txt, ts: Date.now() }].slice(-CHAT_MAX);
+    setHistory(next);
+    setInput("");
+    setLoading(true);
+    try {
+      const messages = next.map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.content }));
+      const reply = await onCallAgent({ messages });
+      const finalReply = (reply || "").trim() || "(sin respuesta)";
+      const updated = [...next, { role: "assistant", content: finalReply, ts: Date.now() }].slice(-CHAT_MAX);
+      setHistory(updated);
+      speakIfUnmuted(finalReply);
+    } catch (e) {
+      const errMsg = `⚠ Error consultando a Gonzalo: ${e.message || e}`;
+      setHistory(h => [...h, { role: "assistant", content: errMsg, ts: Date.now(), error: true }].slice(-CHAT_MAX));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startListen = () => {
+    if (listening) {
+      try { stopListenRef.current?.(); } catch {}
+      setListening(false);
+      return;
+    }
+    setListening(true);
+    try {
+      const stop = listen({
+        lang: "es-ES",
+        onResult: (text) => {
+          setListening(false);
+          if (text && text.trim()) send(text.trim());
+        },
+        onError: () => setListening(false),
+        onEnd: () => setListening(false),
+      });
+      stopListenRef.current = stop;
+    } catch {
+      setListening(false);
+    }
+  };
+
+  const onKey = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
+
+  const clear = () => {
+    if (!history.length) return;
+    if (window.confirm("¿Borrar el historial de conversación con Gonzalo?")) {
+      setHistory([]);
+      try { localStorage.removeItem(storageKey); } catch {}
+    }
+  };
+
   return (
-    <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 20 }}>
-      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>💬 Gonzalo Gobernanza</div>
-      <div style={{ fontSize: 12, color: "#9CA3AF" }}>Chat 1:1 con Gonzalo — disponible en breve.</div>
+    <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 520 }}>
+      {/* Header del chat */}
+      <div style={{ padding: "12px 16px", borderBottom: "0.5px solid #E5E7EB", display: "flex", alignItems: "center", gap: 10, background: "linear-gradient(90deg,#F5EEFA,#FFFFFF)" }}>
+        <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#8E44AD", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🏛️</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>Gonzalo Gobernanza</div>
+          <div style={{ fontSize: 11, color: "#6B21A8" }}>Estructura societaria, holdings, calendario fiscal, internacionalización</div>
+        </div>
+        <button onClick={toggleMute} title={muted ? "Activar voz" : "Silenciar voz"} style={{ background: "transparent", border: "1px solid #E5E7EB", borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: "pointer", color: muted ? "#9CA3AF" : "#8E44AD" }}>{muted ? "🔇" : "🔊"}</button>
+        <button onClick={clear} title="Borrar conversación" style={{ background: "transparent", border: "1px solid #E5E7EB", borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: "pointer", color: "#6B7280" }}>🗑</button>
+      </div>
+
+      {/* Mensajes */}
+      <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px 16px 8px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {history.length === 0 && (
+          <div style={{ padding: "24px 16px", textAlign: "center", color: "#9CA3AF", fontSize: 13, fontStyle: "italic" }}>
+            Pregúntale a Gonzalo sobre estructura societaria, holdings, consolidación fiscal, calendario de obligaciones, internacionalización o planificación sucesoria.
+          </div>
+        )}
+        {history.map((m, i) => {
+          const isUser = m.role === "user";
+          return (
+            <div key={i} style={{ display: "flex", gap: 8, justifyContent: isUser ? "flex-end" : "flex-start" }}>
+              {!isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : "#8E44AD", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>🏛️</div>}
+              <div style={{
+                maxWidth: "78%",
+                background: isUser ? "#7F77DD" : (m.error ? "#FEE2E2" : "#F5EEFA"),
+                color: isUser ? "#fff" : (m.error ? "#991B1B" : "#1F2937"),
+                border: m.error ? "1px solid #FCA5A5" : "0.5px solid #E5E7EB",
+                borderRadius: 12,
+                padding: "10px 14px",
+                fontSize: 13.5,
+                lineHeight: 1.5,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+              }}>{m.content}</div>
+            </div>
+          );
+        })}
+        {loading && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#8E44AD", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🏛️</div>
+            <div style={{ background: "#F5EEFA", border: "0.5px solid #E5E7EB", borderRadius: 12, padding: "10px 14px", fontSize: 12.5, color: "#6B21A8", fontStyle: "italic" }}>🏛️ Gonzalo está respondiendo…</div>
+          </div>
+        )}
+      </div>
+
+      {/* Input */}
+      <div style={{ padding: 12, borderTop: "0.5px solid #E5E7EB", display: "flex", gap: 8, alignItems: "flex-end" }}>
+        <textarea
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={onKey}
+          placeholder="Pregúntale sobre holdings, consolidación fiscal, calendario, internacionalización…"
+          rows={1}
+          style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "0.5px solid #D1D5DB", fontSize: 13, fontFamily: "inherit", outline: "none", resize: "none", lineHeight: 1.4, maxHeight: 120 }}
+        />
+        <button onClick={startListen} title={listening ? "Detener" : "Hablar"} style={{ width: 38, height: 38, borderRadius: 10, background: listening ? "#E24B4A" : "#fff", color: listening ? "#fff" : "#8E44AD", border: `1px solid ${listening ? "#E24B4A" : "#D8B4FE"}`, cursor: "pointer", fontSize: 16, fontFamily: "inherit" }}>{listening ? "⏹" : "🎤"}</button>
+        <button onClick={() => send()} disabled={!input.trim() || loading} style={{ padding: "9px 16px", borderRadius: 10, background: input.trim() && !loading ? "#8E44AD" : "#E5E7EB", color: input.trim() && !loading ? "#fff" : "#9CA3AF", border: "none", fontSize: 13, fontWeight: 600, cursor: input.trim() && !loading ? "pointer" : "not-allowed", fontFamily: "inherit" }}>{loading ? "…" : "Enviar"}</button>
+      </div>
     </div>
   );
 }
