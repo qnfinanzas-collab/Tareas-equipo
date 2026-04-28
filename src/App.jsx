@@ -4320,18 +4320,34 @@ function CommandRoomView({data,activeMember,onOpenTask,onCompleteTask,onPostpone
 }
 
 // ── Projects Home View ────────────────────────────────────────────────────────
-function ProjectsView({projects,members,boards,onSelectProject,onCreateProject,onEditProject,onDeleteProject}){
+function ProjectsView({projects,members,boards,currentMember,onSelectProject,onCreateProject,onEditProject,onDeleteProject}){
   const total=pid=>(boards[pid]||[]).flatMap(c=>c.tasks).length;
   const done=pid=>(boards[pid]||[]).filter(c=>c.name==="Hecho").flatMap(c=>c.tasks).length;
   const [pendingDel,setPendingDel]=useState(null);
+  // Filtro de visibilidad inline. Mantiene el índice del array maestro (i)
+  // para que setActiveProject/edit/delete sigan apuntando al proyecto
+  // correcto. Lógica: admin → todo; owner → siempre; miembro → siempre;
+  // visibility "team" o "public" → visible para cualquier autenticado;
+  // visibility "private" sin pertenencia → oculto.
+  const isVisible = (p) => {
+    if (!currentMember) return false;
+    if (currentMember.accountRole === "admin") return true;
+    if (p.ownerId === currentMember.id) return true;
+    if (Array.isArray(p.members) && p.members.includes(currentMember.id)) return true;
+    if (p.visibility === "team")   return true;
+    if (p.visibility === "public") return true;
+    return false;
+  };
+  const visibleCount = (projects||[]).filter(isVisible).length;
   return(
     <div style={{padding:20}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
-        <div><div style={{fontSize:16,fontWeight:700,marginBottom:2}}>Todos los proyectos</div><div style={{fontSize:12,color:"#6b7280"}}>{projects.length} proyectos activos</div></div>
+        <div><div style={{fontSize:16,fontWeight:700,marginBottom:2}}>Todos los proyectos</div><div style={{fontSize:12,color:"#6b7280"}}>{visibleCount} proyectos activos</div></div>
         <button onClick={onCreateProject} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo proyecto</button>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
         {projects.map((p,i)=>{
+          if(!isVisible(p)) return null;
           const t=total(p.id),d=done(p.id),pct=t>0?Math.round(d/t*100):0;
           const projMs=p.members.map(mid=>members.find(m=>m.id===mid)).filter(Boolean);
           const isPending=pendingDel===i;
@@ -9327,7 +9343,7 @@ export default function TaskFlow(){
           {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}, adminOnly:false},
           {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:true},
           {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false},
-          {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:true},
+          {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:false},
           {id:"finance",    icon:"💰", label:"Finanzas",     shortcut:"",    onClick:()=>{setActiveTab("finance");}, adminOnly:false, requiresPermission:"finance"},
           {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}, adminOnly:true},
           {id:"dashboard",  icon:"📊", label:"Dashboard analítico", shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:true},
@@ -9613,7 +9629,7 @@ export default function TaskFlow(){
           })()}
           {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
-          {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
+          {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission}/>}
           {activeTab==="finance"   &&(()=>{
             const myMember = (data.members||[]).find(x=>x.id===activeMember);
