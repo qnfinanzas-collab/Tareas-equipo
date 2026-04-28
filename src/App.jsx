@@ -4793,7 +4793,7 @@ function MemberEditModal({member, allMembers, onClose, onSave, onDelete}){
 }
 
 // ── Users View (vista de todos los usuarios del sistema) ──────────────────────
-function UsersView({members,projects,permissions,onEdit,onCreate,onDelete,onSetPermission}){
+function UsersView({members,projects,permissions,onEdit,onCreate,onDelete,onSetPermission,onSetAgentPermission}){
   const [search,setSearch]=useState("");
   const [pendingDel,setPendingDel]=useState(null); // id del usuario pendiente de confirmar
   const [tab,setTab]=useState("users"); // "users" | "permissions"
@@ -4822,7 +4822,7 @@ function UsersView({members,projects,permissions,onEdit,onCreate,onDelete,onSetP
         ))}
       </div>
       {tab==="permissions" && (
-        <PermissionsTable members={members} permissions={permissions} onSetPermission={onSetPermission}/>
+        <PermissionsTable members={members} permissions={permissions} onSetPermission={onSetPermission} onSetAgentPermission={onSetAgentPermission}/>
       )}
       {tab==="users" && (<>
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por nombre, email o rol..." style={{width:"100%",padding:"9px 14px",borderRadius:10,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit",marginBottom:16,boxSizing:"border-box"}}/>
@@ -4901,21 +4901,31 @@ function UsersView({members,projects,permissions,onEdit,onCreate,onDelete,onSetP
 const PERMISSION_FEATURES = [
   { key: "finance", label: "Finanzas", icon: "💰", desc: "Tesorería, dashboard financiero, KPIs" },
 ];
+// Agentes IA disponibles. La columna "Agentes" en la tabla muestra un
+// toggle por cada uno; admin global tiene acceso libre y no aparecen los
+// toggles en su fila.
+const AGENT_PERMISSIONS = [
+  { key: "mario",  label: "Mario",  emoji: "⚖️", desc: "Mario Legal — contratos, compliance" },
+  { key: "jorge",  label: "Jorge",  emoji: "📊", desc: "Jorge Finanzas — modelos, ROI, waterfall" },
+  { key: "alvaro", label: "Álvaro", emoji: "🏠", desc: "Álvaro Inmobiliario — alquileres, LAU, inversión" },
+];
+const PERM_GRID = `minmax(220px, 1fr) repeat(${PERMISSION_FEATURES.length}, minmax(280px, 1fr)) minmax(260px, 1fr)`;
 
-function PermissionsTable({ members, permissions, onSetPermission }) {
+function PermissionsTable({ members, permissions, onSetPermission, onSetAgentPermission }) {
   return (
     <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, overflow: "hidden" }}>
-      <div style={{ display: "grid", gridTemplateColumns: `minmax(220px, 1fr) repeat(${PERMISSION_FEATURES.length}, minmax(280px, 1fr))`, background: "#FAFAFA", borderBottom: "1px solid #E5E7EB", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+      <div style={{ display: "grid", gridTemplateColumns: PERM_GRID, background: "#FAFAFA", borderBottom: "1px solid #E5E7EB", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>
         <div style={{ padding: "12px 14px" }}>Miembro</div>
         {PERMISSION_FEATURES.map(f => (
           <div key={f.key} style={{ padding: "12px 14px" }} title={f.desc}>{f.icon} {f.label}</div>
         ))}
+        <div style={{ padding: "12px 14px" }} title="Agentes IA disponibles">🤖 Agentes</div>
       </div>
       {(members || []).map(m => {
         const isAdminGlobal = m.accountRole === "admin";
         const mp = MP[m.id] || MP[0];
         return (
-          <div key={m.id} style={{ display: "grid", gridTemplateColumns: `minmax(220px, 1fr) repeat(${PERMISSION_FEATURES.length}, minmax(280px, 1fr))`, borderBottom: "0.5px solid #F3F4F6", alignItems: "center" }}>
+          <div key={m.id} style={{ display: "grid", gridTemplateColumns: PERM_GRID, borderBottom: "0.5px solid #F3F4F6", alignItems: "center" }}>
             <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
               <div style={{ width: 30, height: 30, borderRadius: "50%", background: mp.solid, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{m.initials}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -4949,6 +4959,31 @@ function PermissionsTable({ members, permissions, onSetPermission }) {
                 </div>
               );
             })}
+            {/* Columna Agentes IA. Admin global → "Todos (admin global)". Resto
+                → toggles por agente. */}
+            {isAdminGlobal ? (
+              <div style={{ padding: "12px 14px", fontSize: 11.5, color: "#065F46" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 12, background: "#DCFCE7", border: "1px solid #86EFAC", fontWeight: 600 }}>✓ Todos los agentes</span>
+                <div style={{ fontSize: 10.5, color: "#6B7280", marginTop: 4 }}>(admin global)</div>
+              </div>
+            ) : (
+              <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 6, fontSize: 12, color: "#374151" }}>
+                {AGENT_PERMISSIONS.map(a => {
+                  const checked = !!permissions?.[m.id]?.agents?.[a.key];
+                  return (
+                    <label key={a.key} title={a.desc} style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", userSelect: "none" }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => onSetAgentPermission?.(m.id, a.key, e.target.checked)}
+                        style={{ cursor: "pointer", accentColor: "#7F77DD" }}
+                      />
+                      <span>{a.emoji} {a.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
       })}
@@ -10078,7 +10113,7 @@ export default function TaskFlow(){
           {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
-          {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission}/>}
+          {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission} onSetAgentPermission={setMemberAgentPermission}/>}
           {activeTab==="finance"   &&(()=>{
             const myMember = (data.members||[]).find(x=>x.id===activeMember);
             const canView = hasPermission(myMember, "finance", "view", data.permissions);
