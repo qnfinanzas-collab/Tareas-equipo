@@ -26,6 +26,7 @@ import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import FinanceView from "./components/Finanzas/FinanceView.jsx";
 import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
+import VaultView from "./components/Vault/VaultView.jsx";
 import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
@@ -9402,6 +9403,15 @@ export default function TaskFlow(){
       },
     }));
   },[]);
+  // Vault: setter genérico que merge el patch sobre data.vault.
+  const updateVault = useCallback((patch)=>{
+    setData(prev=>({
+      ...prev,
+      vault: {
+        spaces: patch.spaces ?? prev.vault?.spaces ?? [],
+      },
+    }));
+  },[]);
   // Llamada directa a Gonzalo desde la sección Gobernanza ▸ tab Chat.
   // El componente pasa {messages, system?} y devuelve la respuesta del LLM.
   // Usa el promptBase de Gonzalo del agentes data + PLAIN_TEXT_RULE.
@@ -10419,6 +10429,10 @@ export default function TaskFlow(){
               return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>🔒 Sin permisos para acceder al módulo de Gobernanza. Contacta con el admin global.</div>;
             }
             return <GobernanzaView data={data} currentMember={myMember} onUpdateGovernance={updateGovernance} onCallAgent={callGonzaloDirect}/>;
+          })()}
+          {activeTab==="vault"&&(()=>{
+            const myMember = (data.members||[]).find(x=>x.id===activeMember);
+            return <VaultView data={data} currentMember={myMember} onUpdateVault={updateVault}/>;
           })()}
           {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
           {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} onTransferProject={transferTaskToProject} onAddTimelineEntry={(taskId,entry)=>addTimelineEntry(taskId,{...entry,authorId:entry.authorId??activeMember,author:entry.author||(data.members.find(m=>m.id===activeMember)?.name)})} onToggleMilestone={toggleTimelineMilestone} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={(id,cid,upd)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) updateTask(id,cid,upd); else updateTaskAnywhere(id,upd); }} onMove={moveTask} onAddTask={addTask} onDeleteTask={(id,cid)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) deleteTask(id,cid); else deleteTaskAnywhere(id); }}/>}
