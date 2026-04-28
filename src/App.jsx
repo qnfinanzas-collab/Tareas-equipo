@@ -9418,6 +9418,23 @@ export default function TaskFlow(){
       },
     }));
   },[]);
+  // Alertas de vencimiento del vault, computadas para Héctor. Mismo cálculo
+  // que checkVaultAlerts de personalTemplates pero en App.jsx para no
+  // tener que importar el módulo del vault desde aquí.
+  const vaultAlertsForHector = React.useMemo(()=>{
+    const out = [];
+    const today = new Date();
+    for (const sp of (data.vault?.spaces || [])){
+      for (const d of (sp.documents || [])){
+        if (!d.expiresAt || d.status !== "attached") continue;
+        const days = Math.floor((new Date(d.expiresAt) - today) / 86400000);
+        if (days < 0)         out.push({ type:"overdue", spaceName: sp.name, doc: d.name, days: Math.abs(days) });
+        else if (days < 30)   out.push({ type:"urgent",  spaceName: sp.name, doc: d.name, days });
+        else if (days < 90)   out.push({ type:"soon",    spaceName: sp.name, doc: d.name, days });
+      }
+    }
+    return out;
+  },[data.vault]);
   // Llamada directa a Gonzalo desde la sección Gobernanza ▸ tab Chat.
   // El componente pasa {messages, system?} y devuelve la respuesta del LLM.
   // Usa el promptBase de Gonzalo del agentes data + PLAIN_TEXT_RULE.
@@ -10568,6 +10585,7 @@ export default function TaskFlow(){
               setHectorPanelOpen(false);
             }}
             financeContext={financeContext}
+            vaultAlerts={vaultAlertsForHector}
             onAddTimelineEntry={addTimelineEntry}
           />
         );

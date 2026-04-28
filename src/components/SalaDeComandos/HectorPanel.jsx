@@ -173,6 +173,10 @@ export default function HectorPanel({
   // Contexto financiero opcional. Si llega, se inyecta en el prompt para
   // que Héctor pondere recomendaciones según runway y caja disponible.
   financeContext,
+  // Alertas de vencimiento del Vault personal (DNI, pasaporte, ITV, seguros).
+  // Si llegan, Héctor las cita en su análisis para recordar al CEO que
+  // renueve documentos antes de que caduquen.
+  vaultAlerts = [],
   // Callback para publicar entradas de IA en el timeline de una tarea.
   // Disparado al recomendar tareas críticas y al ejecutar acciones desde
   // las cards (complete/postpone/view). Firma: (taskId, entry).
@@ -243,6 +247,7 @@ export default function HectorPanel({
   const chatHistoryRef = useRef(chatHistory);
   const recommendationsRef = useRef(recommendations);
   const sessionRef = useRef(sessionMemory);
+  const vaultAlertsRef = useRef([]);
   const financeRef = useRef(financeContext);
   tasksRef.current = tasks;
   riesgosRef.current = riesgos;
@@ -253,6 +258,7 @@ export default function HectorPanel({
   recommendationsRef.current = recommendations;
   sessionRef.current = sessionMemory;
   financeRef.current = financeContext;
+  vaultAlertsRef.current = vaultAlerts;
 
   // Guards anti-bucle (proactive thought)
   const lastCallTime = useRef(0);
@@ -429,6 +435,8 @@ export default function HectorPanel({
       // financeContext. Las cifras se formatean en EUR español dentro del
       // prompt para que Héctor las cite literales sin recálculo.
       const fin = financeRef.current;
+      const vAlerts = vaultAlertsRef.current || [];
+      const vaultBlock = vAlerts.length > 0 ? `\nDOCUMENTOS PERSONALES CON VENCIMIENTO PRÓXIMO:\n${vAlerts.slice(0, 8).map(a => `- ${a.doc} de ${a.spaceName}: ${a.type === "overdue" ? `VENCIDO hace ${a.days} días` : `vence en ${a.days} días`}`).join("\n")}\n\nMenciónalos en el análisis si están a punto de caducar (DNI, pasaporte, ITV, seguros) — el CEO debe renovarlos antes de la fecha.\n` : "";
       const fmtEur = (n)=> typeof n==="number" ? new Intl.NumberFormat("es-ES",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n) : "—";
       const finBlock = fin ? `\nCONTEXTO FINANCIERO ACTUAL:
 - Saldo: ${fmtEur(fin.currentBalance)}
@@ -450,6 +458,7 @@ Tarea en foco: ${focusNow?.title || "Ninguna"}.
 Tareas pendientes: ${tasksWithContext.length}.
 Riesgos críticos: ${criticalRisks.length}.
 ${finBlock}
+${vaultBlock}
 TAREAS DISPONIBLES (JSON — copia taskId, ref, title, board y urgency TAL CUAL):
 ${JSON.stringify(tasksForPrompt)}
 

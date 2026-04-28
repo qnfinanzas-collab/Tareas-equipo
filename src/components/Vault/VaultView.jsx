@@ -7,7 +7,7 @@
 // DocumentacionTab; aquí las redeclaramos en miniatura para no acoplar
 // los dos módulos. La clasificación llama directamente a /api/agent.
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { PERSONAL_CATEGORY_LABELS, PERSONAL_CATEGORY_ORDER, computePersonalStats, generatePersonalDocuments } from "./personalTemplates.js";
+import { PERSONAL_CATEGORY_LABELS, PERSONAL_CATEGORY_ORDER, computePersonalStats, generatePersonalDocuments, checkVaultAlerts } from "./personalTemplates.js";
 
 const RELATIONSHIPS = [
   { key: "CEO",        label: "Yo (titular principal)" },
@@ -144,6 +144,12 @@ export default function VaultView({ data, currentMember, onUpdateVault }) {
   const [activeSpaceId, setActiveSpaceId] = useState(spaces[0]?.id || null);
   const [editing, setEditing] = useState(null); // null | "new" | space (objeto)
   const activeSpace = spaces.find(s => s.id === activeSpaceId) || spaces[0];
+  // Alertas globales de vencimiento (todos los spaces). Se muestran en el
+  // header del vault y también las consume Héctor vía window.__vaultAlerts.
+  const allAlerts = useMemo(() => checkVaultAlerts(spaces), [spaces]);
+  const overdueAlerts = allAlerts.filter(a => a.type === "overdue");
+  const urgentAlerts  = allAlerts.filter(a => a.type === "urgent");
+  const soonAlerts    = allAlerts.filter(a => a.type === "soon");
 
   const onSaveSpace = (data) => {
     let nextSpaces;
@@ -189,6 +195,30 @@ export default function VaultView({ data, currentMember, onUpdateVault }) {
           Tu documentación privada y la de tu familia. Cada espacio es independiente y se accede con PIN.
         </div>
       </div>
+
+      {/* Banner de alertas de vencimiento — agregado para todos los spaces */}
+      {(overdueAlerts.length + urgentAlerts.length + soonAlerts.length) > 0 && (
+        <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 }}>⚠️ Vencimientos pendientes ({allAlerts.length})</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {overdueAlerts.slice(0, 3).map(a => (
+              <div key={a.docId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "#FEE2E2", border: "1px solid #FCA5A5", borderRadius: 8, fontSize: 12 }}>
+                <span>🔴</span><span style={{ fontWeight: 600 }}>{a.doc}</span><span style={{ color: "#6B7280" }}>de {a.spaceName}</span><span style={{ marginLeft: "auto", color: "#991B1B", fontWeight: 600 }}>VENCIDO hace {a.days}d</span>
+              </div>
+            ))}
+            {urgentAlerts.slice(0, 3).map(a => (
+              <div key={a.docId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, fontSize: 12 }}>
+                <span>🟠</span><span style={{ fontWeight: 600 }}>{a.doc}</span><span style={{ color: "#6B7280" }}>de {a.spaceName}</span><span style={{ marginLeft: "auto", color: "#92400E", fontWeight: 600 }}>vence en {a.days}d</span>
+              </div>
+            ))}
+            {soonAlerts.slice(0, 3).map(a => (
+              <div key={a.docId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "#DBEAFE", border: "1px solid #93C5FD", borderRadius: 8, fontSize: 12 }}>
+                <span>🟡</span><span style={{ fontWeight: 600 }}>{a.doc}</span><span style={{ color: "#6B7280" }}>de {a.spaceName}</span><span style={{ marginLeft: "auto", color: "#1E40AF", fontWeight: 600 }}>vence en {a.days}d</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Tabs por espacio + botón añadir */}
       <div style={{ display: "flex", gap: 6, marginBottom: 16, borderBottom: "0.5px solid #E5E7EB", flexWrap: "wrap", alignItems: "stretch" }}>
