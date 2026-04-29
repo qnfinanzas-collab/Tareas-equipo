@@ -14,11 +14,14 @@
 //     ejecuta todas las acciones; devuelve resultados para feedback (toasts).
 
 export const AGENT_ACTION_TYPES = {
-  CREATE_PROJECT:     "create_project",
-  CREATE_TASKS:       "create_tasks",
-  CREATE_NEGOTIATION: "create_negotiation",
-  COMPLETE_TASK:      "complete_task",
-  CREATE_MOVEMENT:    "create_movement",
+  CREATE_PROJECT:       "create_project",
+  CREATE_TASKS:         "create_tasks",
+  CREATE_NEGOTIATION:   "create_negotiation",
+  COMPLETE_TASK:        "complete_task",
+  CREATE_MOVEMENT:      "create_movement",
+  // Acciones bancarias propuestas por Diego (Analista Financiero).
+  UPDATE_BANK_MOVEMENT: "update_bank_movement",
+  ADD_BANK_MOVEMENT:    "add_bank_movement",
 };
 
 // Marcadores. Públicos para que los prompts puedan referenciarlos exactamente.
@@ -123,6 +126,8 @@ export function executeAgentActions(actions, helpers) {
     addTaskToProject,     // (projectId, payload) → side-effect
     createNegotiation,    // (payload) → side-effect
     addFinanceMovement,   // (payload) → side-effect
+    addBankMovement,      // (payload) → side-effect (Diego)
+    updateBankMovement,   // (id, patch) → side-effect (Diego)
   } = helpers || {};
 
   for (const action of actions) {
@@ -238,6 +243,45 @@ export function executeAgentActions(actions, helpers) {
           break;
         }
 
+        case AGENT_ACTION_TYPES.UPDATE_BANK_MOVEMENT: {
+          // Diego propone categorizar/conciliar/anotar movimientos.
+          // El parámetro `id` debe ser el id real del bankMovement.
+          const patch = {};
+          if (action.category !== undefined)    patch.category = action.category || null;
+          if (action.subcategory !== undefined) patch.subcategory = action.subcategory || null;
+          if (action.reconciled !== undefined)  patch.reconciled = !!action.reconciled;
+          if (action.notes !== undefined)       patch.notes = String(action.notes || "");
+          if (action.concept !== undefined)     patch.concept = String(action.concept || "");
+          if (Object.keys(patch).length === 0 || !action.id) {
+            results.push({ type: "error", action: action.type, error: "Falta id o no hay campos a actualizar" });
+            break;
+          }
+          updateBankMovement?.(action.id, patch);
+          results.push({ type: "bank_update", id: action.id, fields: Object.keys(patch) });
+          break;
+        }
+
+        case AGENT_ACTION_TYPES.ADD_BANK_MOVEMENT: {
+          // Diego propone añadir un movimiento bancario manual (raro, pero
+          // útil si el CEO le pide registrar algo no presente en el extracto).
+          if (!action.accountId) {
+            results.push({ type: "error", action: action.type, error: "Falta accountId" });
+            break;
+          }
+          addBankMovement?.({
+            accountId: action.accountId,
+            date: resolveDueDate(action.date || "+0d"),
+            concept: action.concept || "(sin concepto)",
+            amount: Number(action.amount) || 0,
+            category: action.category || null,
+            notes: action.notes || "",
+            reconciled: !!action.reconciled,
+            importedFrom: "manual",
+          });
+          results.push({ type: "bank_add", concept: action.concept, amount: action.amount });
+          break;
+        }
+
         default:
           results.push({ type: "error", action: action.type, error: `Tipo de acción desconocido: ${action.type}` });
       }
@@ -284,6 +328,6 @@ CAPACIDAD DE EJECUCIÓN (ACTIONS_v2):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
-Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),dueDate("+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}],linkedProjectCode}; "create_tasks" {projectCode,tasks:[...]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}.
+Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),dueDate("+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}],linkedProjectCode}; "create_tasks" {projectCode,tasks:[...]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual).
 
 Reglas: solo cuando lo pidan explícitamente, NUNCA en análisis ni consultas. El bloque se OCULTA del CEO. Tu prosa va ANTES del bloque.`;

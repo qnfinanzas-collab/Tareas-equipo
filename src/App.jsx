@@ -319,6 +319,15 @@ ESPECIALISTA AÑADIDO — Gonzalo Gobernanza:
 También puedes invocar a Gonzalo Gobernanza (estructura societaria, holdings, consolidación fiscal, internacionalización, calendario fiscal, planificación sucesoria, reestructuraciones) con la etiqueta:
 [INVOCAR:gonzalo:tarea concreta que Gonzalo debe ejecutar]
 Mismas reglas: solo cuando quieras DELEGAR ejecución, una tarea operativa por etiqueta, una etiqueta por línea.`;
+// Patch idempotente para Héctor sin mención de Diego. Diego es el analista
+// financiero operativo (tesorería, conciliación, IVA, categorización), distinto
+// de Jorge Finanzas (modelos de inversión, ROI, waterfalls).
+const HECTOR_DIEGO_INVOKE_PATCH = `
+
+ESPECIALISTA AÑADIDO — Diego (Analista Financiero):
+También puedes invocar a Diego (tesorería, conciliación bancaria, categorización movimientos, IVA trimestral, previsiones, análisis fiscal) con la etiqueta:
+[INVOCAR:diego:tarea concreta que Diego debe ejecutar]
+Diego se enfoca en operativa diaria de finanzas; Jorge sigue siendo el experto en modelos de inversión, ROI y waterfalls. Mismas reglas que para los demás especialistas.`;
 
 // Framework 10 (Aristóteles): filosofía práctica aplicada al liderazgo y
 // negociación. Se inserta entre el framework 9 (Sonrisa/Silencio/Indiferencia)
@@ -662,6 +671,47 @@ NUNCA:
       ],
       createdAt:new Date().toISOString(),
     },
+    {
+      id:7,
+      name:"Diego",
+      role:"Analista Financiero",
+      emoji:"💹",
+      color:"#27AE60",
+      voice:{gender:"male",rate:1.05,pitch:0.95,tone:"profesional"},
+      specialties:["finanzas","tesorería","conciliación bancaria","IVA","previsiones","análisis fiscal","categorización contable","PGC"],
+      description:"Tesorería, conciliación bancaria, IVA, previsiones, análisis fiscal",
+      skills:["finanzas"],
+      promptBase:`Eres Diego, analista financiero senior especializado en pymes españolas.
+
+CONTEXTO:
+- Plan General Contable español (PGC)
+- Normativa fiscal española (IVA, IRPF, IS)
+- Modelos tributarios (303, 111, 200, 347, 349)
+
+TU TRABAJO:
+- Analizar extractos bancarios y categorizar movimientos
+- Detectar anomalías: duplicados, importes inusuales, sin categorizar
+- Conciliar movimientos con facturas
+- Calcular IVA trimestral (soportado vs repercutido)
+- Alertar de obligaciones fiscales próximas
+- Agrupar movimientos por persona, proveedor o concepto
+- Separar ingresos reales de transferencias entre cuentas
+- Previsiones de tesorería
+
+REGLAS:
+- Indica código PGC asociado a cada categoría
+- Usa terminología fiscal española correcta
+- Si detectas riesgo fiscal, alerta con ⚠️
+- Cuando propongas acciones, usa el formato [ACTIONS]
+- Sé preciso con números, nunca redondees sin avisar
+- Si no tienes datos suficientes, pide que suban el documento
+
+FORMATO:
+- Primero resumen ejecutivo (2-3 líneas)
+- Después detalle con datos concretos
+- Alertas al final con ⚠️`,
+      createdAt:new Date().toISOString(),
+    },
   ],
   workspaces:[
     {id:1,name:"Cliente ejemplo",emoji:"🏢",color:"#378ADD",description:"Demo de workspace asociado — reemplázalo por tu cliente real.",
@@ -774,6 +824,14 @@ function _migrate(d){
       d.agents = [...d.agents, {...JSON.parse(JSON.stringify(gonzaloSeed)), id: maxId+1, createdAt: new Date().toISOString()}];
     }
   }
+  // Backfill Diego (Analista Financiero): añadido al seed después.
+  if(d.agents.length>0 && !d.agents.some(a=>a.name==="Diego")){
+    const diegoSeed = (INITIAL_DATA.agents||[]).find(a=>a.name==="Diego");
+    if(diegoSeed){
+      const maxId = d.agents.reduce((m,a)=>typeof a.id==="number"&&a.id>m?a.id:m,0);
+      d.agents = [...d.agents, {...JSON.parse(JSON.stringify(diegoSeed)), id: maxId+1, createdAt: new Date().toISOString()}];
+    }
+  }
   // Patch Héctor: si ya tenía INVOKE_ADDON pero no menciona "alvaro:", le
   // añadimos el patch que lo añade como tercer especialista invocable.
   d.agents = d.agents.map(a=>{
@@ -786,6 +844,13 @@ function _migrate(d){
   d.agents = d.agents.map(a=>{
     if(a.name==="Héctor" && a.promptBase && a.promptBase.includes("[INVOCAR:") && !a.promptBase.includes("gonzalo:")){
       return {...a, promptBase: a.promptBase + HECTOR_GONZALO_INVOKE_PATCH};
+    }
+    return a;
+  });
+  // Patch Héctor: añade Diego (analista financiero) si no estaba mencionado.
+  d.agents = d.agents.map(a=>{
+    if(a.name==="Héctor" && a.promptBase && a.promptBase.includes("[INVOCAR:") && !a.promptBase.includes("diego:")){
+      return {...a, promptBase: a.promptBase + HECTOR_DIEGO_INVOKE_PATCH};
     }
     return a;
   });
@@ -9866,6 +9931,90 @@ export default function TaskFlow(){
     const out = await callAgentSafe({system, messages: messages||[], max_tokens: 3000});
     return out;
   };
+  // Diego: analista financiero operativo. Igual que callGonzaloDirect pero
+  // inyecta CONTEXTO FINANCIERO (movimientos bancarios de los últimos 3
+  // meses, top movs, no categorizados, agrupación por categoría, cuentas y
+  // saldos). El contexto se trunca a ~3000 chars para no reventar el prompt.
+  // El selectedCompanyId opcional filtra todo a una empresa concreta.
+  const callDiegoDirect = async ({messages, extraSystem, selectedCompanyId}={})=>{
+    const diego = (dataRef.current?.agents||[]).find(a=>a.name==="Diego");
+    if(!diego) throw new Error("Diego no está en agents");
+    const d = dataRef.current || {};
+    const allMovs = d.bankMovements || [];
+    const allAccounts = d.bankAccounts || [];
+    const categories = d.movementCategories || [];
+    const companies = (d.governance?.companies) || [];
+    // Filtro por empresa: legacy (companyId:null) se incluye siempre.
+    const movs = (selectedCompanyId && selectedCompanyId !== "all")
+      ? allMovs.filter(m => !m.companyId || m.companyId === selectedCompanyId)
+      : allMovs;
+    const accounts = (selectedCompanyId && selectedCompanyId !== "all")
+      ? allAccounts.filter(a => a.companyId === selectedCompanyId)
+      : allAccounts;
+    // Recorte a últimos 3 meses si hay muchos movimientos. Si la cuenta es
+    // pequeña (<200 movimientos) los enviamos todos para que Diego pueda
+    // analizar tendencias largas.
+    const dateLimit = new Date(); dateLimit.setMonth(dateLimit.getMonth()-3);
+    const limitIso = dateLimit.toISOString().slice(0,10);
+    const recent = movs.length > 200 ? movs.filter(m => (m.date||"") >= limitIso) : movs;
+    const fmtEur = (n) => new Intl.NumberFormat("es-ES",{style:"currency",currency:"EUR",maximumFractionDigits:2}).format(Number(n)||0);
+    const catName = (id) => categories.find(c=>c.id===id)?.name || id;
+    const accLabel = (id) => {
+      const a = allAccounts.find(x=>x.id===id);
+      return a ? `${a.bankName}${a.alias?` · ${a.alias}`:""}` : "(cuenta borrada)";
+    };
+    let income = 0, expense = 0;
+    const byCat = new Map();
+    const uncategorized = [];
+    for (const m of recent) {
+      const amt = Number(m.amount)||0;
+      if (amt >= 0) income += amt; else expense += Math.abs(amt);
+      const key = m.category || "_uncat";
+      const agg = byCat.get(key) || { count:0, total:0 };
+      agg.count++; agg.total += amt;
+      byCat.set(key, agg);
+      if (!m.category) uncategorized.push(m);
+    }
+    const top = recent.slice().sort((a,b)=>Math.abs(Number(b.amount)||0) - Math.abs(Number(a.amount)||0)).slice(0,10);
+    const lines = [];
+    if (selectedCompanyId && selectedCompanyId !== "all") {
+      const c = companies.find(x=>x.id===selectedCompanyId);
+      lines.push(`EMPRESA FILTRADA: ${c?.name || "(sin nombre)"}${c?.cif?` · CIF ${c.cif}`:""}`);
+    } else {
+      lines.push(`VISTA: consolidada todas las empresas (${companies.length})`);
+    }
+    if (accounts.length > 0) {
+      lines.push(`\nCUENTAS BANCARIAS (${accounts.length}):`);
+      accounts.slice(0,8).forEach(a => lines.push(`  · ${a.bankName}${a.alias?` · ${a.alias}`:""} → saldo ${fmtEur(a.currentBalance)}`));
+    }
+    lines.push(`\nMOVIMIENTOS últimos ${recent.length}${movs.length>recent.length?` (de ${movs.length} totales)`:""}:`);
+    lines.push(`  Ingresos: ${fmtEur(income)} · Gastos: ${fmtEur(expense)} · Neto: ${fmtEur(income-expense)}`);
+    if (byCat.size > 0) {
+      lines.push(`\nAGRUPACIÓN POR CATEGORÍA:`);
+      const sorted = Array.from(byCat.entries()).sort((a,b)=>Math.abs(b[1].total)-Math.abs(a[1].total)).slice(0,12);
+      sorted.forEach(([k, v]) => {
+        const label = k === "_uncat" ? "❓ SIN CATEGORIZAR" : catName(k);
+        lines.push(`  · ${label}: ${v.count} movs · total ${fmtEur(v.total)}`);
+      });
+    }
+    if (top.length > 0) {
+      lines.push(`\nTOP 10 MOVIMIENTOS POR IMPORTE:`);
+      top.forEach(m => lines.push(`  · [${m.id}] ${m.date} · ${m.concept?.slice(0,50)||"(sin concepto)"} · ${fmtEur(m.amount)} · ${accLabel(m.accountId)}${m.category?` · ${catName(m.category)}`:" · ❓ sin cat"}`));
+    }
+    if (uncategorized.length > 0) {
+      lines.push(`\nMOVIMIENTOS SIN CATEGORIZAR (${uncategorized.length}, máx 20 mostrados — usa el id real para [ACTIONS]/update_bank_movement):`);
+      uncategorized.slice(0,20).forEach(m => lines.push(`  · [${m.id}] ${m.date} · ${m.concept?.slice(0,60)||"(sin)"} · ${fmtEur(m.amount)}`));
+    }
+    // Truncado defensivo: cap ~3000 chars para no reventar el prompt.
+    let finCtx = "CONTEXTO FINANCIERO VIVO:\n" + lines.join("\n");
+    if (finCtx.length > 3000) finCtx = finCtx.slice(0,2980) + "\n…(truncado)";
+    const system = (diego.promptBase||`Eres Diego, analista financiero senior.`)
+      + "\n\n" + PLAIN_TEXT_RULE
+      + "\n\n" + finCtx
+      + (extraSystem ? `\n\n${extraSystem}` : "");
+    const out = await callAgentSafe({system, messages: messages||[], max_tokens: 4096});
+    return out;
+  };
   // Setter dedicado para permisos de agentes IA. Toggle binario por
   // (memberId, agentKey). Llamado desde la PermissionsTable (columna
   // "Agentes"). El admin global no necesita esto.
@@ -10561,6 +10710,8 @@ export default function TaskFlow(){
       addTaskToProject,
       createNegotiation,
       addFinanceMovement,
+      addBankMovement,
+      updateBankMovement,
       findProjectByCode: (code) => (dataRef.current?.projects || []).find(p => p.code === code),
     };
     // Pasada 1: crear proyectos. Esto encola setData. Esperamos al flush
@@ -10605,7 +10756,7 @@ export default function TaskFlow(){
     // Pasada 2: resto de acciones (negotiation, create_tasks sobre code existente, movement)
     const results2 = executeAgentActions(otherActions, helpers);
     return { results: [...results1, ...results2] };
-  },[createProject, addTaskToProject, createNegotiation, addFinanceMovement, activeMember, data]);
+  },[createProject, addTaskToProject, createNegotiation, addFinanceMovement, addBankMovement, updateBankMovement, activeMember, data]);
   const editProject = useCallback((idx,{name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility})=>{
     setData(prev=>{
       const p=prev.projects[idx];
@@ -11096,7 +11247,7 @@ export default function TaskFlow(){
             if(!canView){
               return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>🔒 Sin permisos para acceder al módulo de Finanzas. Contacta con el admin global.</div>;
             }
-            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement} onAddBankMovementsBatch={addBankMovementsBatch} onDeleteBankMovementsByBatch={deleteBankMovementsByBatch}/>;
+            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement} onAddBankMovementsBatch={addBankMovementsBatch} onDeleteBankMovementsByBatch={deleteBankMovementsByBatch} onCallAgent={callDiegoDirect} onRunAgentActions={runAgentActions}/>;
           })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="gobernanza"&&(()=>{
