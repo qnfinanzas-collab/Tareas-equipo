@@ -1098,6 +1098,35 @@ function _migrate(d){
   }
   // Movimientos financieros (módulo Finanzas). Lista plana de movimientos.
   if (!Array.isArray(d.financeMovements)) d.financeMovements = [];
+  // Multi-empresa (Fase 2): cuentas bancarias, movimientos bancarios
+  // y catálogo de categorías PGC. Las empresas no se duplican aquí —
+  // siguen viviendo en data.governance.companies y se referencian por id.
+  if (!Array.isArray(d.bankAccounts))  d.bankAccounts  = [];
+  if (!Array.isArray(d.bankMovements)) d.bankMovements = [];
+  if (!Array.isArray(d.movementCategories) || d.movementCategories.length === 0) {
+    d.movementCategories = [
+      // INGRESOS
+      { id: "ventas",          name: "Ventas/Cobros clientes", type: "income",  pgc: "700" },
+      { id: "subvenciones",    name: "Subvenciones",           type: "income",  pgc: "740" },
+      { id: "intereses",       name: "Intereses bancarios",    type: "income",  pgc: "769" },
+      { id: "otros_ingresos",  name: "Otros ingresos",         type: "income",  pgc: "759" },
+      // GASTOS
+      { id: "proveedores",     name: "Proveedores",            type: "expense", pgc: "600" },
+      { id: "personal",        name: "Nóminas y SS",           type: "expense", pgc: "640" },
+      { id: "alquiler",        name: "Alquiler local",         type: "expense", pgc: "621" },
+      { id: "suministros",     name: "Suministros",            type: "expense", pgc: "628" },
+      { id: "seguros",         name: "Seguros",                type: "expense", pgc: "625" },
+      { id: "impuestos",       name: "Impuestos y tasas",      type: "expense", pgc: "631" },
+      { id: "comisiones_banco",name: "Comisiones bancarias",   type: "expense", pgc: "626" },
+      { id: "asesoria",        name: "Asesoría/Gestoría",      type: "expense", pgc: "623" },
+      { id: "marketing",       name: "Marketing/Publicidad",   type: "expense", pgc: "627" },
+      { id: "otros_gastos",    name: "Otros gastos",           type: "expense", pgc: "629" },
+      // NEUTROS
+      { id: "transferencia",   name: "Transferencia entre cuentas", type: "neutral" },
+      { id: "prestamo",        name: "Préstamo",               type: "neutral" },
+      { id: "iva_liquidacion", name: "Liquidación IVA",        type: "neutral" },
+    ];
+  }
   // Gobernanza empresarial: estructura societaria + obligaciones fiscales
   // + alertas. Inicialización idempotente. Las obligaciones por defecto
   // se generan vacías; el admin las puebla manualmente o usando la
@@ -9832,6 +9861,8 @@ export default function TaskFlow(){
       amount: Math.max(0, Number(payload.amount)||0),
       date: payload.date || fmt(new Date()),
       category: payload.category || "Otros",
+      // Fase 2: companyId opcional (legacy = null = "Sin asignar")
+      companyId: payload.companyId || null,
       projectId: payload.projectId || null,
       paymentMethod: payload.paymentMethod || "transfer",
       status: payload.status || "paid",
@@ -9843,6 +9874,47 @@ export default function TaskFlow(){
     setData(prev=>({...prev, financeMovements:[movement, ...(prev.financeMovements||[])]}));
     addToast(`✓ ${movement.type==="income"?"Entrada":"Salida"} registrada`);
   },[activeMember, addToast]);
+  // Cuentas bancarias (Fase 2). companyId obligatorio — apunta a
+  // governance.companies. Las cuentas no se borran si tienen movimientos
+  // asociados; en su lugar se marcan inactivas (isActive:false).
+  const addBankAccount = useCallback((payload)=>{
+    const now = new Date().toISOString();
+    const account = {
+      id: _newFinanceId(),
+      companyId: payload.companyId || null,
+      bankName: (payload.bankName||"").trim(),
+      iban: (payload.iban||"").trim().replace(/\s+/g,"").toUpperCase(),
+      alias: (payload.alias||"").trim(),
+      currentBalance: Number(payload.currentBalance)||0,
+      isActive: payload.isActive !== false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setData(prev=>({...prev, bankAccounts:[account, ...(prev.bankAccounts||[])]}));
+    addToast("✓ Cuenta bancaria añadida");
+  },[addToast]);
+  const updateBankAccount = useCallback((id, patch)=>{
+    setData(prev=>({
+      ...prev,
+      bankAccounts: (prev.bankAccounts||[]).map(a=>a.id===id ? {...a, ...patch, updatedAt:new Date().toISOString()} : a),
+    }));
+    addToast("✓ Cuenta actualizada");
+  },[addToast]);
+  const deleteBankAccount = useCallback((id)=>{
+    setData(prev=>{
+      const hasMovs = (prev.bankMovements||[]).some(m => m.accountId === id);
+      if (hasMovs) {
+        // Conservamos el histórico — solo desactivamos para que no aparezca
+        // en selectores activos. El admin puede reactivar luego.
+        return {
+          ...prev,
+          bankAccounts: (prev.bankAccounts||[]).map(a=>a.id===id ? {...a, isActive:false, updatedAt:new Date().toISOString()} : a),
+        };
+      }
+      return { ...prev, bankAccounts: (prev.bankAccounts||[]).filter(a=>a.id!==id) };
+    });
+    addToast("Cuenta eliminada o desactivada","info");
+  },[addToast]);
   const updateFinanceMovement = useCallback((id, patch)=>{
     setData(prev=>({
       ...prev,
@@ -10873,7 +10945,7 @@ export default function TaskFlow(){
             if(!canView){
               return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>🔒 Sin permisos para acceder al módulo de Finanzas. Contacta con el admin global.</div>;
             }
-            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement}/>;
+            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount}/>;
           })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="gobernanza"&&(()=>{

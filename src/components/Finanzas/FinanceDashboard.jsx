@@ -19,8 +19,20 @@ const isSameMonth = (date, ref) => {
 
 const monthLabel = (d) => d.toLocaleDateString("es-ES", { month: "short" });
 
-export default function FinanceDashboard({ data }) {
-  const movements = data?.financeMovements || [];
+export default function FinanceDashboard({ data, selectedCompanyId = "all" }) {
+  // Filtro por empresa: en "all" mostramos todo. Para empresa concreta
+  // filtramos por companyId. Los movimientos legacy (companyId:null) se
+  // muestran SIEMPRE — aún no están asignados, el CEO los reasignará.
+  const allMovements = data?.financeMovements || [];
+  const movements = selectedCompanyId === "all"
+    ? allMovements
+    : allMovements.filter(m => !m.companyId || m.companyId === selectedCompanyId);
+  // Saldo desde cuentas bancarias filtradas también por empresa.
+  const allAccounts = data?.bankAccounts || [];
+  const accounts = selectedCompanyId === "all"
+    ? allAccounts.filter(a => a.isActive !== false)
+    : allAccounts.filter(a => a.isActive !== false && a.companyId === selectedCompanyId);
+  const bankBalance = accounts.reduce((s, a) => s + (Number(a.currentBalance)||0), 0);
   const today = new Date();
 
   const stats = useMemo(() => {

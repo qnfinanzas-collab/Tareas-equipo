@@ -39,8 +39,13 @@ const PAYMENT_METHODS = [
 const formatEuros = (amount) => new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(amount || 0);
 const formatDate = (date) => new Date(date).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
 
-export default function Tesoreria({ data, canEdit, onAddMovement, onUpdateMovement, onDeleteMovement }) {
-  const movements = data?.financeMovements || [];
+export default function Tesoreria({ data, canEdit, selectedCompanyId = "all", onAddMovement, onUpdateMovement, onDeleteMovement }) {
+  // Filtro por empresa antes de aplicar el resto de filtros UI. Legacy
+  // (companyId:null) siempre visible para que el CEO los reasigne.
+  const allMovements = data?.financeMovements || [];
+  const movements = selectedCompanyId === "all"
+    ? allMovements
+    : allMovements.filter(m => !m.companyId || m.companyId === selectedCompanyId);
   const projects = data?.projects || [];
 
   const [filterType, setFilterType] = useState("all"); // all | income | expense
