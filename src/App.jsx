@@ -7646,7 +7646,11 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               (negotiation.description ? `\nDescripción: ${negotiation.description}` : "") +
               `\n\nTAREA QUE TE ENCARGA HÉCTOR:\n${task||"(sin descripción)"}` +
               (hectorReply ? `\n\nRESPUESTA PREVIA DE HÉCTOR (referencia):\n${String(hectorReply).slice(0,800)}` : "");
-            return callAgentSafe({system:sys, messages:[{role:"user",content:ctx}], max_tokens:1000});
+            // max_tokens 4096: los specialists del Deal Room (Mario,
+            // Jorge, Álvaro, Gonzalo) generan outputs largos — contratos
+            // completos, waterfalls, análisis LAU, escrituras. Con 1000
+            // se truncaba a mitad de cláusula. 4096 cubre 3-4 páginas.
+            return callAgentSafe({system:sys, messages:[{role:"user",content:ctx}], max_tokens:4096});
           };
           // Orquestador: invoca a un especialista y mete dos mensajes en el
           // chat (placeholder loading + respuesta final). Usado tanto por la
