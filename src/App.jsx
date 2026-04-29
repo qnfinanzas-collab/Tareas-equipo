@@ -15,7 +15,7 @@ import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.j
 import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME, migrateBase64DocsInData } from "./lib/storage.js";
 import jsPDF from "jspdf";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel } from "./lib/agent.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel, callAgentSafe } from "./lib/agent.js";
 import { PresenceProvider, usePresence } from "./lib/presence.jsx";
 import PulsoDinamico from "./components/PulsoDinamico.jsx";
 import TaskKanban from "./components/TaskKanban.jsx";
@@ -7150,28 +7150,10 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   const fpTask = (t)=>`${t.title}|${t.dueDate||""}|${t.colName||""}|${t.priority||""}`;
   const fpProj = (r)=>`${r.activeCount}|${r.overdueCount}`;
 
-  // Parser defensivo para respuestas del proxy /api/agent. El proxy SIEMPRE
-  // debería devolver JSON {text} o {error}, pero en timeouts/errores de
-  // infra (504 de Vercel, función matada por el runtime) el body llega
-  // vacío y r.json() explota con "Unexpected end of JSON input" sin
-  // exponer el error real. Leemos como texto primero, intentamos parsear,
-  // y si falla devolvemos el texto plano como mensaje de error.
-  const callAgentSafe = async(body)=>{
-    const r = await fetch("/api/agent",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
-    const raw = await r.text();
-    let data = null;
-    if(raw){ try{ data = JSON.parse(raw); }catch{} }
-    if(!r.ok){
-      const errMsg = data?.error || raw || `HTTP ${r.status} (body vacío — posible timeout de la función)`;
-      throw new Error(errMsg);
-    }
-    if(!data){
-      // Respuesta OK pero body no-JSON (muy raro — probablemente infra
-      // devolvió texto plano). Tratar el raw como la respuesta.
-      return stripMarkdown(raw || "") || "(respuesta vacía del servidor)";
-    }
-    return stripMarkdown(data.text || "");
-  };
+  // callAgentSafe se importa desde lib/agent.js (función pura, accesible
+  // a todos los componentes). Antes vivía aquí dentro de
+  // NegotiationDetailView y producía ReferenceError cuando otros
+  // componentes (TaskFlow.callGonzaloDirect) intentaban usarla.
 
   // TTS con voz de Héctor — reutiliza speak() de lib/voice.js. Toggle
   // "Escuchar/Detener" por item mediante speakingKey.

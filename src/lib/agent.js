@@ -8,6 +8,34 @@ import { stripMarkdown } from "./voice.js";
 // se rendericen limpias en UI y suenen bien al TTS sin leer "asterisco".
 export const PLAIN_TEXT_RULE = "FORMATO OBLIGATORIO: Responde en texto plano sin ningún formato. Prohibido usar asteriscos, almohadillas, guiones como viñetas, listas numeradas, o cualquier sintaxis markdown. Escribe como si hablaras: frases naturales, párrafos cortos, sin decoración. Usa saltos de línea para separar ideas, nada más.";
 
+// Parser defensivo para respuestas del proxy /api/agent. El proxy SIEMPRE
+// debería devolver JSON {text} o {error}, pero en timeouts/errores de
+// infra (504 de Vercel, función matada por el runtime) el body llega
+// vacío y r.json() explota con "Unexpected end of JSON input" sin
+// exponer el error real. Leemos como texto primero, intentamos parsear,
+// y si falla devolvemos el texto plano como mensaje de error.
+//
+// Función pura sin dependencias de React. Originalmente vivía dentro de
+// NegotiationDetailView pero se extrajo aquí para que callGonzaloDirect
+// y cualquier otro consumidor de TaskFlow también pueda usarla sin
+// caer en ReferenceError por scope.
+export async function callAgentSafe(body){
+  const r = await fetch("/api/agent",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+  const raw = await r.text();
+  let data = null;
+  if(raw){ try{ data = JSON.parse(raw); }catch{} }
+  if(!r.ok){
+    const errMsg = data?.error || raw || `HTTP ${r.status} (body vacío — posible timeout de la función)`;
+    throw new Error(errMsg);
+  }
+  if(!data){
+    // Respuesta OK pero body no-JSON (muy raro — probablemente infra
+    // devolvió texto plano). Tratar el raw como la respuesta.
+    return stripMarkdown(raw || "") || "(respuesta vacía del servidor)";
+  }
+  return stripMarkdown(data.text || "");
+}
+
 // Sistema de skills de Héctor. Detecta el contexto del turno (texto del CEO,
 // títulos de tareas activas, recomendación reciente) y devuelve los skills
 // que aplican. Para cada skill activo se inyecta un resumen operativo en el
