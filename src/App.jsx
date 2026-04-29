@@ -9764,7 +9764,14 @@ export default function TaskFlow(){
   // Llamada directa a Gonzalo desde la sección Gobernanza ▸ tab Chat.
   // El componente pasa {messages, system?} y devuelve la respuesta del LLM.
   // Usa el promptBase de Gonzalo del agentes data + PLAIN_TEXT_RULE.
-  const callGonzaloDirect = useCallback(async ({messages, extraSystem}={})=>{
+  //
+  // NO está memoizado con useCallback a propósito: se invoca solo cuando
+  // el CEO escribe en el chat (poco frecuente) y la memoización
+  // capturaba `callAgentSafe` del primer render produciendo
+  // ReferenceError ("callAgentSafe is not defined") en algunos edge
+  // cases de bundling/HMR. Dejándolo como función plana, cada render
+  // resuelve `callAgentSafe` y `dataRef.current` en tiempo real.
+  const callGonzaloDirect = async ({messages, extraSystem}={})=>{
     const gonzalo = (dataRef.current?.agents||[]).find(a=>a.name==="Gonzalo Gobernanza");
     if(!gonzalo) throw new Error("Gonzalo no está en agents");
     // Inyecta contexto vivo de gobernanza: empresas registradas + documentos
@@ -9811,7 +9818,7 @@ export default function TaskFlow(){
     // propuesta llegaba vacía o se perdía.
     const out = await callAgentSafe({system, messages: messages||[], max_tokens: 3000});
     return out;
-  },[]);
+  };
   // Setter dedicado para permisos de agentes IA. Toggle binario por
   // (memberId, agentKey). Llamado desde la PermissionsTable (columna
   // "Agentes"). El admin global no necesita esto.
