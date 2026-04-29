@@ -30,6 +30,7 @@ import VaultView from "./components/Vault/VaultView.jsx";
 import VaultGuestView, { parseVaultGuestPath } from "./components/Vault/VaultGuestView.jsx";
 import { generatePersonalDocuments } from "./components/Vault/personalTemplates.js";
 import { AGENT_ACTIONS_ADDON } from "./lib/agentActions.js";
+import { buildFinanceSummary, renderFinanceSummaryForPrompt } from "./lib/financeSummary.js";
 import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
@@ -9098,13 +9099,16 @@ export default function TaskFlow(){
   // cerrarse. "soulbaric.lastOpenTs" se actualiza al final del trigger
   // para no auto-disparar de nuevo en la misma sesión.
   const [showBriefing,setShowBriefing] = useState(false);
-  // Contexto financiero para Héctor — se calcula a partir de
-  // data.financeMovements. Igual heurística que FinanceDashboard pero
-  // expuesta en forma compacta para el prompt del agente.
+  // Contexto financiero para Héctor — combina las heurísticas legacy del
+  // módulo Finanzas básico (financeMovements) con el resumen ampliado de
+  // bankMovements + facturas via buildFinanceSummary. Compacto para que el
+  // prompt del agente no se infle.
   const financeContext = React.useMemo(()=>{
     const movs = data.financeMovements || [];
     const today = new Date();
     const isSameMonth = (date, ref)=>{ const d=new Date(date); return d.getFullYear()===ref.getFullYear() && d.getMonth()===ref.getMonth(); };
+    // Saldo legacy (financeMovements). El saldo "real" multi-empresa lo
+    // toma summary desde bankAccounts/bankMovements.
     const currentBalance = movs.reduce((acc,m)=>{
       if(m.status!=="paid") return acc;
       return m.type==="income" ? acc + Number(m.amount||0) : acc - Number(m.amount||0);
@@ -9115,11 +9119,29 @@ export default function TaskFlow(){
       burnSum += movs.filter(m=>m.type==="expense" && m.status==="paid" && isSameMonth(m.date,ref)).reduce((a,m)=>a+Number(m.amount||0),0);
     }
     const monthlyBurnRate = burnSum/3;
-    const runway = monthlyBurnRate>0 ? Number((currentBalance/monthlyBurnRate).toFixed(1)) : null;
+    const runwayLegacy = monthlyBurnRate>0 ? Number((currentBalance/monthlyBurnRate).toFixed(1)) : null;
     const pendingIncome = movs.filter(m=>m.type==="income" && m.status==="pending").reduce((a,m)=>a+Number(m.amount||0),0);
     const upcomingExpenses = movs.filter(m=>m.type==="expense" && m.status==="pending").reduce((a,m)=>a+Number(m.amount||0),0);
-    return { currentBalance, monthlyBurnRate, runway, pendingIncome, upcomingExpenses };
-  },[data.financeMovements]);
+    // Resumen multi-empresa consolidado para enriquecer el contexto.
+    let summary = null;
+    try { summary = buildFinanceSummary(data, "all"); } catch { summary = null; }
+    // Si el módulo Finanzas tiene datos reales (bankAccounts no vacío),
+    // priorizamos sus números — son los que ve el CEO en el dashboard.
+    const hasMultiCompany = summary && (summary.saldo !== 0 || (data.bankAccounts||[]).length > 0);
+    return {
+      currentBalance: hasMultiCompany ? summary.saldo : currentBalance,
+      monthlyBurnRate: hasMultiCompany ? summary.burnRate : monthlyBurnRate,
+      runway: hasMultiCompany ? summary.runway : runwayLegacy,
+      pendingIncome,
+      upcomingExpenses,
+      // Campos ampliados (commit 7) — Héctor los puede usar opcionalmente.
+      facturasPendientesCobro: summary?.facturasPendientesCobro || { count: 0, total: 0 },
+      facturasPendientesPago:  summary?.facturasPendientesPago  || { count: 0, total: 0 },
+      facturasVencidas: summary?.facturasVencidas?.length || 0,
+      ivaTrimestreActual: summary?.ivaTrimestreActual || null,
+      alertas: summary?.alertas || [],
+    };
+  },[data]);
   // Cierre del día pasivo: aparece si la hora local es ≥18:00 y todavía
   // no se mostró el cierre hoy. Se evalúa al montar y cuando el usuario
   // vuelve a la pestaña (focus). La marca diaria la pone el propio modal.
@@ -9887,7 +9909,7 @@ export default function TaskFlow(){
   // ReferenceError ("callAgentSafe is not defined") en algunos edge
   // cases de bundling/HMR. Dejándolo como función plana, cada render
   // resuelve `callAgentSafe` y `dataRef.current` en tiempo real.
-  const callGonzaloDirect = async ({messages, extraSystem}={})=>{
+  const callGonzaloDirect = async ({messages, extraSystem, selectedCompanyId}={})=>{
     const gonzalo = (dataRef.current?.agents||[]).find(a=>a.name==="Gonzalo Gobernanza");
     if(!gonzalo) throw new Error("Gonzalo no está en agents");
     // Inyecta contexto vivo de gobernanza: empresas registradas + documentos
@@ -9924,9 +9946,24 @@ export default function TaskFlow(){
       lines.push("\nSi el CEO te pregunta qué falta, sé concreto: cita las empresas y los documentos por nombre.");
       govContext = lines.join("\n");
     }
+    // Resumen financiero vivo de la empresa relevante (o consolidado si no
+    // se ha pasado selectedCompanyId). Permite a Gonzalo dar consejo
+    // contextualizado tipo "el runway está en 2 meses, prioriza cobros".
+    let finSummaryTxt = "";
+    try {
+      const summary = buildFinanceSummary(dataRef.current || {}, selectedCompanyId || "all");
+      // Solo inyectamos si hay datos relevantes — evita ruido cuando no hay
+      // ni cuentas ni movimientos ni facturas.
+      const tieneDatos = summary.saldo !== 0 || summary.ingresosMes !== 0 || summary.gastosMes !== 0
+        || summary.facturasPendientesCobro.count > 0 || summary.facturasPendientesPago.count > 0;
+      if (tieneDatos) {
+        finSummaryTxt = renderFinanceSummaryForPrompt(summary);
+      }
+    } catch (e) { /* helper puro: si falla, seguimos sin resumen */ }
     const system = (gonzalo.promptBase||`Eres Gonzalo, estratega de gobernanza empresarial.`)
       + "\n\n" + PLAIN_TEXT_RULE
       + (govContext ? `\n\n${govContext}` : "")
+      + (finSummaryTxt ? `\n\n${finSummaryTxt}` : "")
       + (extraSystem ? `\n\n${extraSystem}` : "");
     // max_tokens 3000: Gonzalo puede emitir [ACTIONS] con proyecto + 10
     // tareas + negociación con stakeholders/facts. El JSON dentro del

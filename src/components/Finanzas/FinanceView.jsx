@@ -107,7 +107,7 @@ export default function FinanceView({ data, member, canEdit, onAddMovement, onUp
           );
         })}
       </div>
-      {tab === "dashboard"   && <FinanceDashboard data={data} selectedCompanyId={selectedCompanyId} />}
+      {tab === "dashboard"   && <FinanceDashboard data={data} selectedCompanyId={selectedCompanyId} onNavigate={(target)=>setTab(target)} />}
       {tab === "tesoreria"   && (
         <Tesoreria
           data={data}
