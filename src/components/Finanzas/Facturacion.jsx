@@ -7,6 +7,9 @@
 // mutator addInvoice. vatQuarter se calcula desde la fecha de factura.
 import React, { useMemo, useState } from "react";
 import ExportGestoriaModal from "./ExportGestoriaModal.jsx";
+import FacturaImportZone from "./FacturaImportZone.jsx";
+import InvoiceBulkImportModal from "./InvoiceBulkImportModal.jsx";
+import { downloadInvoicePdf } from "../../lib/invoicePdf.js";
 
 const VAT_RATES = [0, 4, 10, 21];
 const IRPF_RATES = [0, 7, 15, 19];
@@ -43,7 +46,7 @@ const STATUS_META = {
   parcial:   { icon: "🔵", label: "Parcial",   bg: "#DBEAFE", border: "#93C5FD", color: "#1E40AF" },
 };
 
-export default function Facturacion({ data, canEdit, selectedCompanyId, onAddInvoice, onUpdateInvoice, onDeleteInvoice }) {
+export default function Facturacion({ data, canEdit, selectedCompanyId, onAddInvoice, onUpdateInvoice, onDeleteInvoice, onToast }) {
   const allInvoices = data.invoices || [];
   const companies = data.governance?.companies || [];
   const allBankMovements = data.bankMovements || [];
@@ -54,6 +57,7 @@ export default function Facturacion({ data, canEdit, selectedCompanyId, onAddInv
   const [search, setSearch]             = useState("");
   const [editing, setEditing]           = useState(null); // null | "new" | invoice
   const [showExport, setShowExport]     = useState(false);
+  const [bulkFile, setBulkFile]         = useState(null);  // null | File (abre modal masivo)
 
   // Filtro por empresa. Una factura sin companyId (legacy) se muestra
   // siempre, igual que con bankMovements.
@@ -160,13 +164,33 @@ export default function Facturacion({ data, canEdit, selectedCompanyId, onAddInv
             );
           })}
         </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {canEdit && (
+            <button
+              onClick={() => setBulkFile(true)}
+              disabled={!selectedCompanyId || selectedCompanyId === "all"}
+              title={!selectedCompanyId || selectedCompanyId === "all" ? "Selecciona una empresa concreta" : "Importar facturas desde Excel/CSV"}
+              style={{ padding: "8px 14px", borderRadius: 8, background: "#fff", color: "#1E40AF", border: "1px solid #93C5FD", fontSize: 12, fontWeight: 600, cursor: (!selectedCompanyId || selectedCompanyId === "all") ? "not-allowed" : "pointer", opacity: (!selectedCompanyId || selectedCompanyId === "all") ? 0.55 : 1, fontFamily: "inherit" }}
+            >📊 Importar Excel/CSV</button>
+          )}
           <button onClick={() => setShowExport(true)} title="Exportar facturas y resumen IVA para la gestoría" style={{ padding: "8px 14px", borderRadius: 8, background: "#fff", color: "#0E7C5A", border: "1px solid #27AE60", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>📥 Exportar para gestoría</button>
           {canEdit && (
             <button onClick={() => setEditing("new")} style={{ padding: "8px 16px", borderRadius: 8, background: "#27AE60", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>+ Nueva factura</button>
           )}
         </div>
       </div>
+
+      {/* Zona drag & drop: PDF/imagen → análisis IA, Excel/CSV → modal masivo. */}
+      {canEdit && (
+        <FacturaImportZone
+          type={type}
+          companyId={selectedCompanyId}
+          bankMovements={allBankMovements}
+          onAddInvoice={onAddInvoice}
+          onOpenBulkModal={(file) => setBulkFile(file)}
+          onToast={onToast}
+        />
+      )}
 
       {/* Stats */}
       <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: "14px 18px", display: "flex", gap: 24, flexWrap: "wrap" }}>
@@ -217,18 +241,23 @@ export default function Facturacion({ data, canEdit, selectedCompanyId, onAddInv
                   <th style={{ ...th, textAlign: "right" }}>IVA</th>
                   <th style={{ ...th, textAlign: "right" }}>Total</th>
                   <th style={th}>Estado</th>
+                  {type === "emitida" && <th style={{ ...th, width: 60 }}>PDF</th>}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(inv => {
                   const st = computeStatus(inv);
                   const meta = STATUS_META[st];
+                  const needsReview = (inv.notes || "").startsWith("[🟡");
                   return (
                     <tr key={inv.id}
                       onClick={() => canEdit && setEditing(inv)}
-                      style={{ borderTop: "0.5px solid #F3F4F6", cursor: canEdit ? "pointer" : "default" }}
+                      style={{ borderTop: "0.5px solid #F3F4F6", cursor: canEdit ? "pointer" : "default", background: needsReview ? "#FFFBEB" : "transparent" }}
                     >
-                      <td style={{ ...td, fontFamily: "ui-monospace,monospace", fontWeight: 600 }}>{inv.number || "—"}</td>
+                      <td style={{ ...td, fontFamily: "ui-monospace,monospace", fontWeight: 600 }}>
+                        {needsReview && <span title="Importada por IA — revisar campos faltantes" style={{ marginRight: 4 }}>🟡</span>}
+                        {inv.number || "—"}
+                      </td>
                       <td style={{ ...td, textAlign: "left" }}>
                         <div style={{ fontWeight: 600, color: "#111827" }}>{inv.counterparty?.name || "(sin nombre)"}</div>
                         {inv.counterparty?.cif && <div style={{ fontSize: 10.5, color: "#9CA3AF", fontFamily: "ui-monospace,monospace", marginTop: 1 }}>{inv.counterparty.cif}</div>}
@@ -243,6 +272,24 @@ export default function Facturacion({ data, canEdit, selectedCompanyId, onAddInv
                           {meta.icon} {meta.label}
                         </span>
                       </td>
+                      {type === "emitida" && (
+                        <td style={{ ...td, padding: "6px 4px" }}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const company = companies.find(c => c.id === inv.companyId);
+                              try {
+                                downloadInvoicePdf(inv, company);
+                              } catch (err) {
+                                console.warn("[invoice-pdf] fallo:", err);
+                                onToast?.(`⚠ No se pudo generar el PDF: ${err.message || err}`, "warn");
+                              }
+                            }}
+                            title="Descargar PDF de esta factura"
+                            style={{ width: 30, height: 26, borderRadius: 6, background: "#fff", color: "#0E7C5A", border: "0.5px solid #86EFAC", fontSize: 11, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}
+                          >📥</button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -301,6 +348,18 @@ export default function Facturacion({ data, canEdit, selectedCompanyId, onAddInv
           data={data}
           selectedCompanyId={selectedCompanyId}
           onClose={() => setShowExport(false)}
+        />
+      )}
+
+      {bulkFile && (
+        <InvoiceBulkImportModal
+          type={type}
+          companyId={selectedCompanyId}
+          initialFile={bulkFile === true ? null : bulkFile}
+          existingInvoices={allInvoices}
+          onClose={() => setBulkFile(null)}
+          onAddInvoice={onAddInvoice}
+          onToast={onToast}
         />
       )}
 
