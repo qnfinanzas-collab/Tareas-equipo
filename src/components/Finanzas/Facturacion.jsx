@@ -6,6 +6,7 @@
 // La numeración (YYYY/NNN por empresa+tipo+año) la genera App.jsx en el
 // mutator addInvoice. vatQuarter se calcula desde la fecha de factura.
 import React, { useMemo, useState } from "react";
+import ExportGestoriaModal from "./ExportGestoriaModal.jsx";
 
 const VAT_RATES = [0, 4, 10, 21];
 const IRPF_RATES = [0, 7, 15, 19];
@@ -52,6 +53,7 @@ export default function Facturacion({ data, canEdit, selectedCompanyId, onAddInv
   const [filterMonth, setFilterMonth]   = useState("all");
   const [search, setSearch]             = useState("");
   const [editing, setEditing]           = useState(null); // null | "new" | invoice
+  const [showExport, setShowExport]     = useState(false);
 
   // Filtro por empresa. Una factura sin companyId (legacy) se muestra
   // siempre, igual que con bankMovements.
@@ -158,9 +160,12 @@ export default function Facturacion({ data, canEdit, selectedCompanyId, onAddInv
             );
           })}
         </div>
-        {canEdit && (
-          <button onClick={() => setEditing("new")} style={{ marginLeft: "auto", padding: "8px 16px", borderRadius: 8, background: "#27AE60", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>+ Nueva factura</button>
-        )}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <button onClick={() => setShowExport(true)} title="Exportar facturas y resumen IVA para la gestoría" style={{ padding: "8px 14px", borderRadius: 8, background: "#fff", color: "#0E7C5A", border: "1px solid #27AE60", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>📥 Exportar para gestoría</button>
+          {canEdit && (
+            <button onClick={() => setEditing("new")} style={{ padding: "8px 16px", borderRadius: 8, background: "#27AE60", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>+ Nueva factura</button>
+          )}
+        </div>
       </div>
 
       {/* Stats */}
@@ -290,6 +295,14 @@ export default function Facturacion({ data, canEdit, selectedCompanyId, onAddInv
           </div>
         )}
       </div>
+
+      {showExport && (
+        <ExportGestoriaModal
+          data={data}
+          selectedCompanyId={selectedCompanyId}
+          onClose={() => setShowExport(false)}
+        />
+      )}
 
       {editing && (
         <InvoiceModal

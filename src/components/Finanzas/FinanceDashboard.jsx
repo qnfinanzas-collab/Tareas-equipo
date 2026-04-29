@@ -7,7 +7,8 @@
 // - Top 5 categorías de gasto del año en curso (paga + pendiente).
 // - Gráfico SVG nativo de los últimos 6 meses (balance neto por mes).
 // Todos los importes formateados en EUR español. Sin librerías externas.
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
+import ExportGestoriaModal from "./ExportGestoriaModal.jsx";
 
 const formatEuros = (amount) => new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(amount || 0);
 const formatEurosFull = (amount) => new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(amount || 0);
@@ -105,6 +106,7 @@ export default function FinanceDashboard({ data, selectedCompanyId = "all" }) {
 
   return (
     <div>
+      <DashboardExportButton data={data} selectedCompanyId={selectedCompanyId} />
       {/* KPIs principales */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 16 }}>
         <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 16 }}>
@@ -194,5 +196,25 @@ export default function FinanceDashboard({ data, selectedCompanyId = "all" }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// Botón "Exportar para gestoría" alineado a la derecha sobre los KPIs.
+// Vive en su propio componente para que el ExportGestoriaModal solo se
+// instancie cuando el CEO lo abre (mantiene SheetJS fuera del bundle hasta
+// que se necesita).
+function DashboardExportButton({ data, selectedCompanyId }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <button
+          onClick={() => setOpen(true)}
+          title="Exportar movimientos, facturas y resumen IVA para la gestoría"
+          style={{ padding: "7px 14px", borderRadius: 8, background: "#fff", color: "#0E7C5A", border: "1px solid #27AE60", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+        >📥 Exportar para gestoría</button>
+      </div>
+      {open && <ExportGestoriaModal data={data} selectedCompanyId={selectedCompanyId} onClose={() => setOpen(false)} />}
+    </>
   );
 }

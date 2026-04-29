@@ -10330,6 +10330,43 @@ export default function TaskFlow(){
     setData(prev=>({...prev, invoices: (prev.invoices||[]).filter(i=>i.id!==id)}));
     addToast("Factura eliminada","info");
   },[addToast]);
+  // Conciliación bulk (Commit 6). Aplica una lista de matches
+  // [{movementId, invoiceId}] en un único setData: marca el movimiento
+  // como reconciled, vincula bankMovementId en la factura, y si la factura
+  // estaba pendiente la pasa a "pagada" con fecha = fecha del movimiento.
+  const reconcileMatches = useCallback((matches)=>{
+    if (!Array.isArray(matches) || matches.length === 0) return;
+    setData(prev=>{
+      const now = new Date().toISOString();
+      const movsById = new Map((prev.bankMovements||[]).map(m => [m.id, m]));
+      const movsToReconcile = new Set();
+      const invPatch = new Map(); // id → patch
+      for (const match of matches) {
+        const m = movsById.get(match.movementId);
+        if (!m) continue;
+        movsToReconcile.add(match.movementId);
+        const inv = (prev.invoices||[]).find(i => i.id === match.invoiceId);
+        if (!inv) continue;
+        const patch = { bankMovementId: match.movementId, updatedAt: now };
+        if (inv.status !== "pagada") {
+          patch.status = "pagada";
+          patch.paidDate = m.date || now.slice(0,10);
+          patch.paidAmount = Number(inv.total)||0;
+        }
+        invPatch.set(inv.id, patch);
+      }
+      return {
+        ...prev,
+        bankMovements: (prev.bankMovements||[]).map(m =>
+          movsToReconcile.has(m.id) ? { ...m, reconciled: true, updatedAt: now } : m
+        ),
+        invoices: (prev.invoices||[]).map(inv =>
+          invPatch.has(inv.id) ? { ...inv, ...invPatch.get(inv.id) } : inv
+        ),
+      };
+    });
+    addToast(`✓ ${matches.length} conciliación${matches.length!==1?"es":""} aplicada${matches.length!==1?"s":""}`);
+  },[addToast]);
   const updateFinanceMovement = useCallback((id, patch)=>{
     setData(prev=>({
       ...prev,
@@ -11362,7 +11399,7 @@ export default function TaskFlow(){
             if(!canView){
               return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>🔒 Sin permisos para acceder al módulo de Finanzas. Contacta con el admin global.</div>;
             }
-            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement} onAddBankMovementsBatch={addBankMovementsBatch} onDeleteBankMovementsByBatch={deleteBankMovementsByBatch} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onDeleteInvoice={deleteInvoice} onCallAgent={callDiegoDirect} onRunAgentActions={runAgentActions}/>;
+            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement} onAddBankMovementsBatch={addBankMovementsBatch} onDeleteBankMovementsByBatch={deleteBankMovementsByBatch} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onDeleteInvoice={deleteInvoice} onReconcileMatches={reconcileMatches} onCallAgent={callDiegoDirect} onRunAgentActions={runAgentActions}/>;
           })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="gobernanza"&&(()=>{

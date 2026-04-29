@@ -10,6 +10,7 @@
 //   - reconciled se marca a mano (commit siguiente añade auto-reconciliación).
 import React, { useMemo, useState } from "react";
 import ImportExtractoModal from "./ImportExtractoModal.jsx";
+import ConciliacionModal from "./ConciliacionModal.jsx";
 
 const fmtEur = (n) => typeof n === "number"
   ? new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 2 }).format(n)
@@ -32,9 +33,10 @@ const monthLabel = (key) => {
   return d.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
 };
 
-export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAccount, onUpdateBankAccount, onDeleteBankAccount, onAddBankMovement, onUpdateBankMovement, onDeleteBankMovement, onAddBankMovementsBatch, onDeleteBankMovementsByBatch }) {
+export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAccount, onUpdateBankAccount, onDeleteBankAccount, onAddBankMovement, onUpdateBankMovement, onDeleteBankMovement, onAddBankMovementsBatch, onDeleteBankMovementsByBatch, onReconcileMatches }) {
   const allAccounts = data.bankAccounts || [];
   const allMovements = data.bankMovements || [];
+  const allInvoices  = data.invoices || [];
   const companies = data.governance?.companies || [];
   const categories = data.movementCategories || [];
 
@@ -42,12 +44,14 @@ export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAcco
   const [editingMovement, setEditingMovement] = useState(null); // null | "new" | movement
   const [showInactive, setShowInactive]       = useState(false);
   const [showImport, setShowImport]           = useState(false);
+  const [showReconcile, setShowReconcile]     = useState(false);
 
   // Filtros movimientos
   const [filterAccountId, setFilterAccountId] = useState("all");
   const [filterMonth, setFilterMonth]         = useState("all");
   const [filterCategory, setFilterCategory]   = useState("all"); // all | uncategorized | <id>
   const [filterType, setFilterType]           = useState("all"); // all | income | expense
+  const [filterReconciled, setFilterReconciled] = useState("all"); // all | unreconciled
   const [search, setSearch]                   = useState("");
 
   // Cuentas filtradas por empresa seleccionada y por activas/inactivas.
@@ -76,13 +80,14 @@ export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAcco
         if (filterType === "income"  && !isIncome) return false;
         if (filterType === "expense" &&  isIncome) return false;
       }
+      if (filterReconciled === "unreconciled" && m.reconciled) return false;
       if (search) {
         const q = search.toLowerCase();
         if (!(m.concept||"").toLowerCase().includes(q) && !(m.notes||"").toLowerCase().includes(q)) return false;
       }
       return true;
     }).sort((a, b) => (b.date||"").localeCompare(a.date||""));
-  }, [movementsByCompany, filterAccountId, filterMonth, filterCategory, filterType, search]);
+  }, [movementsByCompany, filterAccountId, filterMonth, filterCategory, filterType, filterReconciled, search]);
 
   // Lista de meses disponibles (para el filtro mes).
   const availableMonths = useMemo(() => {
@@ -103,6 +108,23 @@ export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAcco
   }, [filteredMovs]);
 
   const totalBalance = accounts.filter(a => a.isActive !== false).reduce((s, a) => s + (Number(a.currentBalance) || 0), 0);
+
+  // Facturas e invoices visibles según filtro de empresa, para conciliación
+  // y descuadres. Una factura sin companyId se ve siempre (legacy).
+  const invoicesByCompany = useMemo(() => {
+    if (selectedCompanyId === "all") return allInvoices;
+    return allInvoices.filter(i => !i.companyId || i.companyId === selectedCompanyId);
+  }, [allInvoices, selectedCompanyId]);
+
+  // Descuadres: movs sin reconciliar y facturas pendientes/parcial.
+  // Estos contadores alimentan el chip de descuadre.
+  const descuadres = useMemo(() => {
+    const movsSinFactura = movementsByCompany.filter(m => !m.reconciled).length;
+    const facturasSinCobro = invoicesByCompany.filter(i =>
+      i.status !== "pagada" && !i.bankMovementId
+    ).length;
+    return { movsSinFactura, facturasSinCobro };
+  }, [movementsByCompany, invoicesByCompany]);
 
   // Último lote importado (para botón "Deshacer última importación").
   // Buscamos el movimiento más reciente con importBatchId dentro de los
@@ -247,11 +269,38 @@ export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAcco
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar concepto…" style={{ ...inputStyle, flex: 1, minWidth: 160 }} />
         {canEdit && accounts.length > 0 && (
           <>
+            <button onClick={() => setShowReconcile(true)} title="Conciliar automáticamente movimientos con facturas" style={{ padding: "8px 14px", borderRadius: 8, background: "#fff", color: "#1E40AF", border: "1px solid #93C5FD", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>🔄 Conciliar automáticamente</button>
             <button onClick={() => setShowImport(true)} title="Importar extracto bancario (Excel/CSV)" style={{ padding: "8px 14px", borderRadius: 8, background: "#fff", color: "#0E7C5A", border: "1px solid #27AE60", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>📤 Importar extracto</button>
             <button onClick={() => setEditingMovement("new")} style={{ padding: "8px 14px", borderRadius: 8, background: "#27AE60", color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>+ Movimiento manual</button>
           </>
         )}
       </div>
+
+      {/* Chip de descuadres + filtro activo "sin conciliar" */}
+      {(descuadres.movsSinFactura > 0 || descuadres.facturasSinCobro > 0 || filterReconciled !== "all") && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 11.5 }}>
+          <button
+            onClick={() => setFilterReconciled(filterReconciled === "unreconciled" ? "all" : "unreconciled")}
+            title="Filtrar movimientos sin conciliar"
+            style={{
+              padding: "5px 10px",
+              borderRadius: 999,
+              background: filterReconciled === "unreconciled" ? "#DBEAFE" : "#F9FAFB",
+              border: filterReconciled === "unreconciled" ? "1px solid #93C5FD" : "0.5px solid #E5E7EB",
+              color: filterReconciled === "unreconciled" ? "#1E40AF" : "#6B7280",
+              fontSize: 11.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >❌ {descuadres.movsSinFactura} mov{descuadres.movsSinFactura!==1?"s":""} sin conciliar</button>
+          <span style={{ color: "#9CA3AF" }}>·</span>
+          <span style={{ color: "#6B7280" }}>📄 {descuadres.facturasSinCobro} factura{descuadres.facturasSinCobro!==1?"s":""} sin cobro/pago</span>
+          {filterReconciled === "unreconciled" && (
+            <button onClick={() => setFilterReconciled("all")} style={{ marginLeft: 4, padding: "3px 8px", borderRadius: 6, background: "transparent", border: "0.5px solid #D1D5DB", color: "#6B7280", fontSize: 10.5, cursor: "pointer", fontFamily: "inherit" }}>Limpiar filtro</button>
+          )}
+        </div>
+      )}
 
       {/* Tabla movimientos */}
       <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, overflow: "hidden" }}>
@@ -336,6 +385,15 @@ export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAcco
           </div>
         )}
       </div>
+
+      {showReconcile && (
+        <ConciliacionModal
+          movements={movementsByCompany}
+          invoices={invoicesByCompany}
+          onClose={() => setShowReconcile(false)}
+          onApply={(matches) => onReconcileMatches?.(matches)}
+        />
+      )}
 
       {showImport && (
         <ImportExtractoModal
