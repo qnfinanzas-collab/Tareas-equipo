@@ -1185,7 +1185,39 @@ function _migrate(d){
   // Antonio (admin) y Marc Díaz como members en todo. Reaplicar al limpiar
   // el code "REG" del seed manualmente — la siguiente carga lo regenera.
   seedRegistroSoulBaric(d);
+  // Seed cuenta Qonto de Alma Dimo. Idempotente: solo si NO existe ya
+  // una cuenta con ese IBAN en data.bankAccounts.
+  seedQontoAlmaDimo(d);
   return d;
+}
+
+// Seed de la cuenta bancaria operativa de Alma Dimo (Qonto). Empareja
+// dinámicamente con governance.companies por CIF B19929256 o por nombre
+// que contenga "ALMA DIMO" — si la empresa no está registrada, deja
+// companyId:null para que el admin la asigne luego.
+function seedQontoAlmaDimo(d){
+  const TARGET_IBAN = "ES6368880001631828815452";
+  if (!Array.isArray(d.bankAccounts)) d.bankAccounts = [];
+  if (d.bankAccounts.some(a => (a.iban||"").replace(/\s+/g,"").toUpperCase() === TARGET_IBAN)) return;
+  const companies = d.governance?.companies || [];
+  const matchByCif  = companies.find(c => (c.cif||"").toUpperCase() === "B19929256");
+  const matchByName = companies.find(c => /alma\s*dimo/i.test(c.name||""));
+  const company = matchByCif || matchByName || null;
+  const id = (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `ba_qonto_${Date.now()}`;
+  d.bankAccounts.push({
+    id,
+    companyId: company?.id || null,
+    bankName: "Qonto",
+    iban: TARGET_IBAN,
+    bic: "QNTOESB2XXX",
+    alias: "Cuenta operativa Qonto",
+    currentBalance: 380.76,
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 // Helper de seed para el proyecto de registro de marca y protección IP.
