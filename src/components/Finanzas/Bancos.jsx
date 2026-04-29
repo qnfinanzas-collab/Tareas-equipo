@@ -9,6 +9,7 @@
 //   - Movimientos sin categoría se marcan con ❓ y se categorizan en click.
 //   - reconciled se marca a mano (commit siguiente añade auto-reconciliación).
 import React, { useMemo, useState } from "react";
+import ImportExtractoModal from "./ImportExtractoModal.jsx";
 
 const fmtEur = (n) => typeof n === "number"
   ? new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR", maximumFractionDigits: 2 }).format(n)
@@ -31,7 +32,7 @@ const monthLabel = (key) => {
   return d.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
 };
 
-export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAccount, onUpdateBankAccount, onDeleteBankAccount, onAddBankMovement, onUpdateBankMovement, onDeleteBankMovement }) {
+export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAccount, onUpdateBankAccount, onDeleteBankAccount, onAddBankMovement, onUpdateBankMovement, onDeleteBankMovement, onAddBankMovementsBatch, onDeleteBankMovementsByBatch }) {
   const allAccounts = data.bankAccounts || [];
   const allMovements = data.bankMovements || [];
   const companies = data.governance?.companies || [];
@@ -40,6 +41,7 @@ export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAcco
   const [editingAccount, setEditingAccount]   = useState(null); // null | "new" | account
   const [editingMovement, setEditingMovement] = useState(null); // null | "new" | movement
   const [showInactive, setShowInactive]       = useState(false);
+  const [showImport, setShowImport]           = useState(false);
 
   // Filtros movimientos
   const [filterAccountId, setFilterAccountId] = useState("all");
@@ -101,6 +103,20 @@ export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAcco
   }, [filteredMovs]);
 
   const totalBalance = accounts.filter(a => a.isActive !== false).reduce((s, a) => s + (Number(a.currentBalance) || 0), 0);
+
+  // Último lote importado (para botón "Deshacer última importación").
+  // Buscamos el movimiento más reciente con importBatchId dentro de los
+  // movimientos visibles según el filtro de empresa actual.
+  const lastBatch = useMemo(() => {
+    let latest = null;
+    for (const m of movementsByCompany) {
+      if (!m.importBatchId) continue;
+      if (!latest || (m.createdAt||"") > (latest.createdAt||"")) latest = m;
+    }
+    if (!latest) return null;
+    const count = movementsByCompany.filter(m => m.importBatchId === latest.importBatchId).length;
+    return { batchId: latest.importBatchId, count, createdAt: latest.createdAt };
+  }, [movementsByCompany]);
 
   if (companies.length === 0) {
     return (
@@ -230,14 +246,28 @@ export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAcco
         </select>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar concepto…" style={{ ...inputStyle, flex: 1, minWidth: 160 }} />
         {canEdit && accounts.length > 0 && (
-          <button onClick={() => setEditingMovement("new")} style={{ padding: "8px 14px", borderRadius: 8, background: "#27AE60", color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>+ Movimiento manual</button>
+          <>
+            <button onClick={() => setShowImport(true)} title="Importar extracto bancario (Excel/CSV)" style={{ padding: "8px 14px", borderRadius: 8, background: "#fff", color: "#0E7C5A", border: "1px solid #27AE60", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>📤 Importar extracto</button>
+            <button onClick={() => setEditingMovement("new")} style={{ padding: "8px 14px", borderRadius: 8, background: "#27AE60", color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>+ Movimiento manual</button>
+          </>
         )}
       </div>
 
       {/* Tabla movimientos */}
       <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ padding: "10px 18px", background: "#FAFAFA", borderBottom: "0.5px solid #E5E7EB", fontSize: 12, fontWeight: 700, color: "#374151" }}>
-          📥 Movimientos {filteredMovs.length > 0 ? `(${filteredMovs.length})` : ""}
+        <div style={{ padding: "10px 18px", background: "#FAFAFA", borderBottom: "0.5px solid #E5E7EB", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#374151" }}>📥 Movimientos {filteredMovs.length > 0 ? `(${filteredMovs.length})` : ""}</div>
+          {canEdit && lastBatch && (
+            <button
+              onClick={() => {
+                if (confirm(`¿Deshacer última importación?\n\nSe eliminarán ${lastBatch.count} movimiento${lastBatch.count!==1?"s":""} importado${lastBatch.count!==1?"s":""} en este lote. Esta acción no afecta al saldo de la cuenta.`)) {
+                  onDeleteBankMovementsByBatch?.(lastBatch.batchId);
+                }
+              }}
+              title={`Eliminar los ${lastBatch.count} movimientos del último lote importado`}
+              style={{ padding: "5px 10px", borderRadius: 6, background: "transparent", color: "#92400E", border: "1px solid #FCD34D", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+            >↩ Deshacer última importación ({lastBatch.count})</button>
+          )}
         </div>
         {filteredMovs.length === 0 ? (
           <div style={{ padding: "32px 18px", textAlign: "center", color: "#9CA3AF", fontSize: 13, fontStyle: "italic" }}>
@@ -306,6 +336,23 @@ export default function Bancos({ data, canEdit, selectedCompanyId, onAddBankAcco
           </div>
         )}
       </div>
+
+      {showImport && (
+        <ImportExtractoModal
+          accounts={accounts}
+          existingMovements={allMovements}
+          defaultAccountId={filterAccountId !== "all" ? filterAccountId : (accounts[0]?.id || "")}
+          onClose={() => setShowImport(false)}
+          onImport={(list, batchId) => {
+            if (!list || list.length === 0) return;
+            if (onAddBankMovementsBatch) {
+              onAddBankMovementsBatch(list);
+            } else {
+              list.forEach(p => onAddBankMovement?.({ ...p, importBatchId: batchId }));
+            }
+          }}
+        />
+      )}
 
       {editingAccount && (
         <BankAccountModal

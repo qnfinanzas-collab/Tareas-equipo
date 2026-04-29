@@ -10021,6 +10021,51 @@ export default function TaskFlow(){
     });
     addToast("Movimiento eliminado","info");
   },[addToast]);
+  // Importación de extractos: añade N movimientos en un único setData para
+  // que Supabase persista una sola vez. Los movimientos importados no tocan
+  // currentBalance (se reconcilian contra el balance del banco).
+  const addBankMovementsBatch = useCallback((payloads)=>{
+    if (!Array.isArray(payloads) || payloads.length === 0) return;
+    setData(prev=>{
+      const now = new Date().toISOString();
+      const newMovements = payloads.map(payload => {
+        const account = (prev.bankAccounts||[]).find(a => a.id === payload.accountId);
+        const companyId = payload.companyId || account?.companyId || null;
+        return {
+          id: _newFinanceId(),
+          accountId: payload.accountId,
+          companyId,
+          date: payload.date || fmt(new Date()),
+          valueDate: payload.valueDate || payload.date || fmt(new Date()),
+          concept: (payload.concept||"").trim(),
+          amount: Number(payload.amount) || 0,
+          balance: typeof payload.balance === "number" ? payload.balance : null,
+          category: payload.category || null,
+          subcategory: payload.subcategory || null,
+          invoiceId: payload.invoiceId || null,
+          reconciled: !!payload.reconciled,
+          notes: (payload.notes||"").trim(),
+          importedFrom: payload.importedFrom || "excel",
+          importBatchId: payload.importBatchId || null,
+          createdBy: activeMember,
+          createdAt: now,
+          updatedAt: now,
+        };
+      });
+      return { ...prev, bankMovements: [...newMovements, ...(prev.bankMovements||[])] };
+    });
+    addToast(`✓ ${payloads.length} movimiento${payloads.length!==1?"s":""} importado${payloads.length!==1?"s":""}`);
+  },[activeMember, addToast]);
+  // Deshace una importación entera por batchId. No revierte saldos (los
+  // importados no tocaban currentBalance).
+  const deleteBankMovementsByBatch = useCallback((batchId)=>{
+    if (!batchId) return;
+    setData(prev=>({
+      ...prev,
+      bankMovements: (prev.bankMovements||[]).filter(m => m.importBatchId !== batchId),
+    }));
+    addToast("Importación deshecha","info");
+  },[addToast]);
   const updateFinanceMovement = useCallback((id, patch)=>{
     setData(prev=>({
       ...prev,
@@ -11051,7 +11096,7 @@ export default function TaskFlow(){
             if(!canView){
               return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>🔒 Sin permisos para acceder al módulo de Finanzas. Contacta con el admin global.</div>;
             }
-            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement}/>;
+            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement} onAddBankMovementsBatch={addBankMovementsBatch} onDeleteBankMovementsByBatch={deleteBankMovementsByBatch}/>;
           })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="gobernanza"&&(()=>{
