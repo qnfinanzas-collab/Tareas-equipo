@@ -155,6 +155,69 @@ const buildTasksWithContext = (tasks, now) => {
   });
 };
 
+// Pipeline tolerante para el JSON de generateHectorThought. Recibe el
+// texto crudo de la respuesta y devuelve el objeto decision o null.
+// Maneja: fences markdown, prosa antes del JSON, bloque [ACTIONS] residual
+// y truncamiento por max_tokens (intenta cerrar arrays/objetos abiertos).
+function parseHectorDecision(text) {
+  if (!text || typeof text !== "string") return null;
+  // 1. Strip [ACTIONS]
+  let t = text.replace(/\[ACTIONS\][\s\S]*?\[\/ACTIONS\]/g, "");
+  // 2. Strip fences markdown
+  t = t.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  // 3. Recortar desde el primer { (ignora prosa anterior)
+  const firstBrace = t.indexOf("{");
+  if (firstBrace < 0) return null;
+  let candidate = t.slice(firstBrace);
+  // 4. Recortar tras el último } completo si hay prosa después
+  const lastBrace = candidate.lastIndexOf("}");
+  if (lastBrace > 0) candidate = candidate.slice(0, lastBrace + 1);
+  // 5. Intento normal
+  try { return JSON.parse(candidate); } catch (e1) {
+    // 6. Reparación de truncamiento: contar paréntesis abiertos
+    //    y cerrarlos. Si la última coma deja un elemento incompleto,
+    //    quitamos hasta la última coma o el último elemento parseado.
+    try {
+      let repaired = candidate;
+      // Eliminar elemento incompleto al final: cortar tras la última } o ]
+      // que aparezca seguida de coma o nada significativo.
+      // Estrategia: ir cerrando hasta que JSON.parse pase.
+      // Primero: si termina en coma + texto inacabado, recortar a la última , bien formada.
+      // Quitamos cualquier sufijo después de la última } o ] que no sea cierre válido.
+      // Intentos sucesivos: cerrar arrays y objetos abiertos.
+      for (let attempt = 0; attempt < 8; attempt++) {
+        // Quitar coma final que pueda dejar elemento abierto
+        repaired = repaired.replace(/,\s*$/, "");
+        // Cerrar lo que falte
+        const opens = (repaired.match(/[\[{]/g) || []).length;
+        const closes = (repaired.match(/[\]}]/g) || []).length;
+        const diff = opens - closes;
+        if (diff <= 0) break;
+        // Heurística: cerrar siempre con } o ] según el último abierto sin cerrar
+        let suffix = "";
+        const stack = [];
+        for (const ch of repaired) {
+          if (ch === "{" || ch === "[") stack.push(ch);
+          else if (ch === "}") { if (stack[stack.length-1] === "{") stack.pop(); }
+          else if (ch === "]") { if (stack[stack.length-1] === "[") stack.pop(); }
+        }
+        while (stack.length) {
+          const c = stack.pop();
+          suffix += (c === "{" ? "}" : "]");
+        }
+        repaired = repaired + suffix;
+        try { return JSON.parse(repaired); } catch {}
+        // Si sigue fallando, recortar el último valor inacabado y reintentar
+        const lastValidComma = repaired.lastIndexOf(",");
+        const lastValidBrace = Math.max(repaired.lastIndexOf("}"), repaired.lastIndexOf("]"));
+        if (lastValidBrace > lastValidComma) break; // ya no podemos recortar más
+        repaired = repaired.slice(0, lastValidComma);
+      }
+    } catch {}
+    return null;
+  }
+}
+
 export default function HectorPanel({
   tasks = [],
   currentFocus = null,
@@ -516,7 +579,10 @@ Reglas:
         r = await fetch("/api/agent", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ system, messages: [{ role: "user", content: userPrompt }], max_tokens: 800 }),
+          // max_tokens 4096: el JSON de análisis con 6 tareas + thought +
+          // summary puede pasar de 2000 caracteres. Con 800 se truncaba a
+          // mitad de array y el parser fallaba en posición ~1996.
+          body: JSON.stringify({ system, messages: [{ role: "user", content: userPrompt }], max_tokens: 4096 }),
           signal: ac.signal,
         });
       } catch (e) {
@@ -530,14 +596,17 @@ Reglas:
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       let parsed = null; try { parsed = JSON.parse(raw); } catch {}
       const text = parsed?.text || raw;
-      // Quitar bloque [ACTIONS]...[/ACTIONS] antes de buscar el JSON de
-      // Héctor — si no, el regex greedy captura todo y el JSON.parse falla.
-      // El bloque ACTIONS no aplica a generateHectorThought (es para chat).
-      const cleanText = String(text).replace(/\[ACTIONS\][\s\S]*?\[\/ACTIONS\]/g, "").trim();
-      // Lazy match para coger SOLO el primer objeto bien formado.
-      const m = cleanText.match(/\{[\s\S]*\}/);
-      if (!m) throw new Error("JSON no encontrado en respuesta");
-      const decision = JSON.parse(m[0]);
+      // Pipeline de limpieza para robustez del parser:
+      //   1. Quitar bloque [ACTIONS]...[/ACTIONS] (no aplica a este flujo).
+      //   2. Quitar fences markdown ```json ... ``` o ``` ... ```.
+      //   3. Recortar prosa antes del primer { (a veces el LLM antepone texto).
+      //   4. Si el JSON está truncado por max_tokens, intentar cerrarlo.
+      // El parser real va envuelto en try-catch con log del raw para debug.
+      const decision = parseHectorDecision(text);
+      if (!decision) {
+        console.error("[HectorPanel] respuesta cruda no parseable:", text);
+        throw new Error("Héctor no pudo completar el análisis. Inténtalo de nuevo.");
+      }
       if (cancelledRef.current) return;
       const analysis = {
         thought: (decision.thought || "").trim(),
@@ -614,11 +683,15 @@ Reglas:
       }
     } catch (e) {
       if (cancelledRef.current) return;
-      // No tocar hectorState aquí: "paused" da impresión de "sin créditos
-      // API". Mantenemos el estado anterior y mostramos el error real en
-      // el thought para que el CEO sepa qué pasó (típicamente parser).
+      // No tocar hectorState a "paused" (suena a "sin créditos API").
+      // Mostramos un mensaje claro al CEO y restauramos el estado para
+      // que la UI no quede en "analizando…" indefinidamente.
       console.warn("[HectorPanel] generateHectorThought fallo:", e?.message);
-      setCurrentThought(`⚠ ${e?.message || "Error procesando análisis"}`);
+      const friendly = (e?.message || "").includes("Tiempo agotado")
+        ? "⚠ " + e.message
+        : "Héctor no pudo completar el análisis. Inténtalo de nuevo.";
+      setCurrentThought(friendly);
+      setState("listening"); // sale de analyzing
     } finally {
       isGenerating.current = false;
       if (!cancelledRef.current) setIsThinking(false);
