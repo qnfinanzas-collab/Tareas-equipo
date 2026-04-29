@@ -225,13 +225,20 @@ export function isSpeaking(){
   return typeof window !== "undefined" && window.speechSynthesis.speaking;
 }
 
-// Starts a one-shot recognition session. Returns a stop() function.
-export function listen({ onInterim, onFinal, onError, onStart, onEnd, continuous = false } = {}){
+// Starts a recognition session. Returns a stop() function.
+// `continuous:true` (default ahora) mantiene la sesión abierta entre
+// pausas naturales de habla. En iOS se degrada a false porque la
+// implementación nativa no lo soporta bien (no emite interim).
+// La constante isIOS está exportada arriba en este mismo módulo.
+export function listen({ onInterim, onFinal, onError, onStart, onEnd, continuous = true } = {}){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if(!SR){ onError?.(new Error("No disponible")); return () => {}; }
   const r = new SR();
   r.lang = "es-ES";
-  r.continuous = continuous;
+  // Degradación automática en iOS — el caller pide continuous pero iOS
+  // no lo soporta, así que forzamos false y delegamos en el caller la
+  // estrategia de auto-reinicio en onEnd para simular continuous.
+  r.continuous = continuous && !isIOS;
   r.interimResults = true;
   r.maxAlternatives = 1;
   r.onstart = () => onStart?.();

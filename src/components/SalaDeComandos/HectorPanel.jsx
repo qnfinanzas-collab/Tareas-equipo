@@ -288,6 +288,18 @@ export default function HectorPanel({
   });
   const [inputMessage, setInputMessage] = useState("");
   const [isListening, setIsListening] = useState(false);
+  // Texto interim del dictado (lo que el usuario está diciendo ahora).
+  // Se muestra como preview en cursiva debajo del input. NO se acumula
+  // hasta que el reconocedor lo marca como final.
+  const [interimText, setInterimText] = useState("");
+  // Contador de auto-reintentos del reconocedor cuando se corta sin que
+  // el usuario haya pulsado stop. Evita loops infinitos si el navegador
+  // rechaza la sesión (max 3 intentos por sesión activa).
+  const listenRetryRef = useRef(0);
+  // Refleja la INTENCIÓN del usuario de seguir dictando. Necesario
+  // porque el closure del onEnd no ve el state actualizado de
+  // isListening — usamos este ref para decidir si auto-reabrir.
+  const wantsListeningRef = useRef(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [thoughtFlash, setThoughtFlash] = useState(0);
@@ -921,26 +933,84 @@ Reglas para block_task:
   };
 
   // SpeechRecognition para dictado por voz (lib voice.listen → es-ES).
+  // FLUJO ACTUAL (post-fix):
+  //   - El reconocedor ACUMULA en inputMessage los resultados isFinal.
+  //   - Los interim results se muestran como preview, no se acumulan.
+  //   - NO envía automáticamente — el usuario pulsa Enviar o el botón
+  //     micrófono otra vez para detener.
+  //   - Si onEnd dispara mientras isListening sigue true (corte
+  //     involuntario del navegador / iOS), reintentamos hasta 3 veces.
   const startListening = () => {
     if (isListening) {
+      // Stop solicitado por el usuario: cierra y deja el texto en el
+      // input. Reset del contador de reintentos.
+      wantsListeningRef.current = false;
       try { stopListenRef.current?.(); } catch {}
       setIsListening(false);
+      setInterimText("");
+      listenRetryRef.current = 0;
       return;
     }
+    wantsListeningRef.current = true;
     setIsListening(true);
-    const stop = listen({
-      onInterim: (t) => setInputMessage(t),
-      onFinal: (t) => {
-        setIsListening(false);
-        sendOrderToHector(t);
-      },
-      onError: (e) => {
-        console.warn("[HectorPanel] listen error:", e?.message);
-        setIsListening(false);
-      },
-      onEnd: () => setIsListening(false),
-    });
-    stopListenRef.current = stop;
+    listenRetryRef.current = 0;
+    const startSession = () => {
+      const stop = listen({
+        continuous: true, // voice.js degrada a false en iOS automáticamente
+        onInterim: (t) => setInterimText(t),
+        onFinal: (t) => {
+          // Acumular en inputMessage. Append con espacio si ya había
+          // texto, capitalizar primera letra si arranca vacío.
+          if (!t) return;
+          setInputMessage(prev => {
+            const base = (prev || "").trimEnd();
+            const sep = base ? " " : "";
+            return (base + sep + t).slice(0, 5000);
+          });
+          // Limpiar interim ahora que el final ya está consolidado.
+          setInterimText("");
+          // Reset retry: hubo audio válido, sigue escuchando.
+          listenRetryRef.current = 0;
+        },
+        onError: (e) => {
+          console.warn("[HectorPanel] listen error:", e?.message);
+          // 'no-speech' y 'aborted' son cortes normales (silencio/stop);
+          // los gestiona onEnd. Otros errores cierran sesión y avisan.
+          if (e?.message !== "no-speech" && e?.message !== "aborted") {
+            wantsListeningRef.current = false;
+            setIsListening(false);
+            setInterimText("");
+            listenRetryRef.current = 0;
+          }
+        },
+        onEnd: () => {
+          // Solo auto-reabrir si el usuario NO ha pulsado stop. Sin
+          // este check, el stop manual entraría en bucle de re-apertura.
+          if (!wantsListeningRef.current || cancelledRef.current) {
+            setIsListening(false);
+            setInterimText("");
+            return;
+          }
+          if (listenRetryRef.current < 3) {
+            listenRetryRef.current++;
+            // Pequeño delay para no spammear si el navegador rechaza.
+            setTimeout(() => {
+              if (wantsListeningRef.current && !cancelledRef.current) {
+                try { stopListenRef.current = startSession(); } catch {}
+              }
+            }, 250);
+          } else {
+            // Agotados los reintentos: cerramos limpio.
+            wantsListeningRef.current = false;
+            setIsListening(false);
+            setInterimText("");
+            listenRetryRef.current = 0;
+          }
+        },
+      });
+      return stop;
+    };
+    stopListenRef.current = startSession();
   };
 
   // Setup proactivo: una sola vez con interval cada 60s + throttle interno.
@@ -1446,6 +1516,21 @@ Reglas para block_task:
           style={{ padding: "9px 14px", borderRadius: 8, background: chatLoading || !inputMessage.trim() ? "#E5E7EB" : "#1D9E75", color: chatLoading || !inputMessage.trim() ? "#9CA3AF" : "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: chatLoading || !inputMessage.trim() ? "not-allowed" : "pointer", fontFamily: "inherit" }}
         >Enviar</button>
       </form>
+      {/* Preview del dictado: lo que el reconocedor está oyendo en tiempo
+          real, antes de marcar como final. En cursiva gris para que el
+          usuario vea cómo se está interpretando su voz. */}
+      {isListening && interimText && (
+        <div style={{ padding: "4px 12px 8px", fontSize: 11.5, color: "#9CA3AF", fontStyle: "italic", display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#E24B4A", animation: "hp-pulse-dot 1.2s infinite" }} />
+          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{interimText}</span>
+        </div>
+      )}
+      {isListening && !interimText && (
+        <div style={{ padding: "4px 12px 8px", fontSize: 11.5, color: "#9CA3AF", display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#E24B4A", animation: "hp-pulse-dot 1.2s infinite" }} />
+          <span>Escuchando… (pulsa el micro o Enviar cuando termines)</span>
+        </div>
+      )}
     </div>
   );
 }
