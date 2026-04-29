@@ -951,6 +951,10 @@ Reglas para block_task:
       listenRetryRef.current = 0;
       return;
     }
+    // Si Héctor estaba leyendo una respuesta previa, lo silenciamos antes
+    // de abrir el mic. Sin esto, en iOS y desktop el reconocedor capta
+    // la voz de Héctor como dictado del usuario y se mezclan.
+    try { stopSpeaking(); } catch {}
     wantsListeningRef.current = true;
     setIsListening(true);
     listenRetryRef.current = 0;
@@ -1034,6 +1038,18 @@ Reglas para block_task:
   const handleSubmit = (e) => {
     e?.preventDefault?.();
     if (chatLoading || !inputMessage.trim()) return;
+    // Antes de enviar: cerrar el mic si sigue activo y silenciar
+    // cualquier TTS en curso. Sin esto, la voz de Héctor entrante
+    // se solapa con el dictado y el mic captura su respuesta como
+    // si el CEO siguiera hablando.
+    if (wantsListeningRef.current || isListening) {
+      wantsListeningRef.current = false;
+      try { stopListenRef.current?.(); } catch {}
+      setIsListening(false);
+      setInterimText("");
+      listenRetryRef.current = 0;
+    }
+    try { stopSpeaking(); } catch {}
     setActiveTab("chat");
     sendOrderToHector(inputMessage);
   };

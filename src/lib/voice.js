@@ -1,9 +1,19 @@
 // Browser-native voice: zero cost, no API keys.
 // Usa Web Speech API: speechSynthesis (TTS) + webkitSpeechRecognition (STT).
 
-export const isIOS = typeof navigator !== "undefined"
-  && /iPad|iPhone|iPod/.test(navigator.userAgent)
-  && !window.MSStream;
+// Detección iOS robusta. Cubre 3 escenarios:
+//   1. iPhone/iPad/iPod clásico: UA contiene iPad|iPhone|iPod.
+//   2. iPadOS 13+: Apple cambió el UA a MacIntel para "desktop-class".
+//      Lo detectamos por `platform === "MacIntel"` con `maxTouchPoints > 1`.
+//   3. Excluir Windows MSStream (regla heredada para no falsos positivos).
+export const isIOS = (() => {
+  if (typeof navigator === "undefined") return false;
+  if (typeof window !== "undefined" && window.MSStream) return false;
+  if (/iPad|iPhone|iPod/.test(navigator.userAgent || "")) return true;
+  // iPadOS 13+ se camufla como Mac. Solo es iPad si tiene touch.
+  if (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1) return true;
+  return false;
+})();
 
 // En iOS, SpeechRecognition con continuous:true no emite interims
 // estables y puede cortarse; además speechSynthesis.speak() solo
