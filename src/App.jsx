@@ -1168,6 +1168,10 @@ function _migrate(d){
   // siguen viviendo en data.governance.companies y se referencian por id.
   if (!Array.isArray(d.bankAccounts))  d.bankAccounts  = [];
   if (!Array.isArray(d.bankMovements)) d.bankMovements = [];
+  // Facturación (Commit 5): facturas emitidas y recibidas. Numeración
+  // YYYY/NNN auto-correlativa por (companyId, type, year). Cada factura
+  // referencia opcionalmente un bankMovement vía bankMovementId.
+  if (!Array.isArray(d.invoices)) d.invoices = [];
   if (!Array.isArray(d.movementCategories) || d.movementCategories.length === 0) {
     d.movementCategories = [
       // INGRESOS
@@ -10215,6 +10219,117 @@ export default function TaskFlow(){
     }));
     addToast("Importación deshecha","info");
   },[addToast]);
+  // Facturación (Commit 5): CRUD de facturas emitidas/recibidas.
+  // Numeración auto-correlativa YYYY/NNN por (companyId, type, year). Si el
+  // CEO pasa un `number` explícito (recibida con número del proveedor) se
+  // respeta. vatQuarter se calcula desde `date`.
+  const _quarterFromDate = (iso) => {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    const q = Math.floor(d.getMonth()/3) + 1;
+    return `${q}T-${d.getFullYear()}`;
+  };
+  const _calcInvoiceTotals = (lines, irpfRate) => {
+    let subtotal = 0, vatAmount = 0;
+    for (const l of (lines||[])) {
+      const qty = Number(l.quantity)||0;
+      const price = Number(l.unitPrice)||0;
+      const rate = Number(l.vatRate)||0;
+      const base = qty * price;
+      subtotal += base;
+      vatAmount += base * rate / 100;
+    }
+    const irpfAmount = subtotal * (Number(irpfRate)||0) / 100;
+    const total = subtotal + vatAmount - irpfAmount;
+    return {
+      subtotal: Math.round(subtotal*100)/100,
+      vatAmount: Math.round(vatAmount*100)/100,
+      irpfAmount: Math.round(irpfAmount*100)/100,
+      total: Math.round(total*100)/100,
+    };
+  };
+  const _nextInvoiceNumber = (invoices, companyId, type, year) => {
+    const prefix = `${year}/`;
+    let max = 0;
+    for (const inv of (invoices||[])) {
+      if (inv.companyId !== companyId) continue;
+      if (inv.type !== type) continue;
+      if (!String(inv.number||"").startsWith(prefix)) continue;
+      const n = parseInt(String(inv.number).slice(prefix.length), 10);
+      if (!isNaN(n) && n > max) max = n;
+    }
+    return `${prefix}${String(max+1).padStart(3,"0")}`;
+  };
+  const addInvoice = useCallback((payload)=>{
+    setData(prev=>{
+      const now = new Date().toISOString();
+      const date = payload.date || fmt(new Date());
+      const year = new Date(date).getFullYear();
+      const totals = _calcInvoiceTotals(payload.lines, payload.irpfRate);
+      const invoice = {
+        id: _newFinanceId(),
+        companyId: payload.companyId || null,
+        type: payload.type === "recibida" ? "recibida" : "emitida",
+        number: payload.number?.trim() || _nextInvoiceNumber(prev.invoices, payload.companyId, payload.type === "recibida" ? "recibida" : "emitida", year),
+        date,
+        dueDate: payload.dueDate || null,
+        counterparty: {
+          name: (payload.counterparty?.name||"").trim(),
+          cif:  (payload.counterparty?.cif||"").trim(),
+          address: (payload.counterparty?.address||"").trim(),
+        },
+        lines: (payload.lines||[]).map(l => ({
+          description: (l.description||"").trim(),
+          quantity: Number(l.quantity)||0,
+          unitPrice: Number(l.unitPrice)||0,
+          vatRate: Number(l.vatRate)||0,
+        })),
+        subtotal: totals.subtotal,
+        vatAmount: totals.vatAmount,
+        irpfRate: Number(payload.irpfRate)||0,
+        irpfAmount: totals.irpfAmount,
+        total: totals.total,
+        status: payload.status || "pendiente",
+        paidAmount: Number(payload.paidAmount)||0,
+        paidDate: payload.paidDate || null,
+        bankMovementId: payload.bankMovementId || null,
+        notes: (payload.notes||"").trim(),
+        vatQuarter: _quarterFromDate(date),
+        createdAt: now,
+        createdBy: activeMember,
+        updatedAt: now,
+      };
+      return {...prev, invoices:[invoice, ...(prev.invoices||[])]};
+    });
+    addToast("✓ Factura creada");
+  },[activeMember, addToast]);
+  const updateInvoice = useCallback((id, patch)=>{
+    setData(prev=>{
+      const list = (prev.invoices||[]).map(inv => {
+        if (inv.id !== id) return inv;
+        const merged = {...inv, ...patch, updatedAt: new Date().toISOString()};
+        // Si se han cambiado líneas, fecha o irpfRate, recalculamos totales
+        // y vatQuarter para que el dato derivado nunca quede desincronizado.
+        if (patch.lines || patch.irpfRate !== undefined) {
+          const t = _calcInvoiceTotals(merged.lines, merged.irpfRate);
+          merged.subtotal = t.subtotal;
+          merged.vatAmount = t.vatAmount;
+          merged.irpfAmount = t.irpfAmount;
+          merged.total = t.total;
+        }
+        if (patch.date) {
+          merged.vatQuarter = _quarterFromDate(merged.date);
+        }
+        return merged;
+      });
+      return {...prev, invoices: list};
+    });
+    addToast("✓ Factura actualizada");
+  },[addToast]);
+  const deleteInvoice = useCallback((id)=>{
+    setData(prev=>({...prev, invoices: (prev.invoices||[]).filter(i=>i.id!==id)}));
+    addToast("Factura eliminada","info");
+  },[addToast]);
   const updateFinanceMovement = useCallback((id, patch)=>{
     setData(prev=>({
       ...prev,
@@ -11247,7 +11362,7 @@ export default function TaskFlow(){
             if(!canView){
               return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>🔒 Sin permisos para acceder al módulo de Finanzas. Contacta con el admin global.</div>;
             }
-            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement} onAddBankMovementsBatch={addBankMovementsBatch} onDeleteBankMovementsByBatch={deleteBankMovementsByBatch} onCallAgent={callDiegoDirect} onRunAgentActions={runAgentActions}/>;
+            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement} onAddBankMovementsBatch={addBankMovementsBatch} onDeleteBankMovementsByBatch={deleteBankMovementsByBatch} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onDeleteInvoice={deleteInvoice} onCallAgent={callDiegoDirect} onRunAgentActions={runAgentActions}/>;
           })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="gobernanza"&&(()=>{
