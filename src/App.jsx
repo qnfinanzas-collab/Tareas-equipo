@@ -790,13 +790,20 @@ function _migrate(d){
     return a;
   });
   // Patch ejecutor: inyecta CAPACIDAD DE EJECUCIÓN en TODOS los agentes
-  // que tengan promptBase. Idempotente: marca por "CAPACIDAD DE EJECUCIÓN".
-  // Permite que cualquier agente proponga crear proyectos, tareas, etc.
+  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v2".
+  // Si detecta la versión antigua (~2.5KB) la reemplaza por la nueva
+  // minimal (~600 chars) — la versión larga estaba ralentizando el LLM
+  // hasta el timeout en Sonnet 4.5.
   d.agents = d.agents.map(a=>{
-    if(a.promptBase && !a.promptBase.includes("CAPACIDAD DE EJECUCIÓN")){
-      return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
+    if(!a.promptBase) return a;
+    if(a.promptBase.includes("ACTIONS_v2")) return a;             // ya v2
+    if(a.promptBase.includes("CAPACIDAD DE EJECUCIÓN")) {
+      // tiene v1 → cortar desde "CAPACIDAD DE EJECUCIÓN" al final y reemplazar
+      const cut = a.promptBase.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
+      return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
     }
-    return a;
+    // sin addon previo → añadir v2
+    return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
   });
   // Upgrade promptBase de Héctor: añade la sección COACHING EJECUTIVO si el
   // usuario ya tenía al Héctor anterior sin esa sección. Idempotente: al

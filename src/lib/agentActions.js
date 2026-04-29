@@ -270,68 +270,20 @@ function makeAgentTimelineEntry(agentName) {
   }];
 }
 
-// Instrucción que se inyecta en el promptBase de TODOS los agentes para
-// que sepan cómo proponer acciones. Idempotente: el migrate detecta la
-// marca "[ACTIONS]" y la añade solo si falta.
+// Instrucción minimal (~600 chars) que se inyecta SOLO en flujos de chat
+// donde tiene sentido proponer acciones (sendOrderToHector, chat con
+// Gonzalo, etc). NO en análisis automáticos como generateHectorThought
+// que piden JSON estricto. La versión anterior era 2.5KB y disparaba
+// timeouts en Sonnet 4.5 con prompts grandes.
+//
+// Marca de versión "ACTIONS_v2" para que la migración pueda reemplazar
+// la versión larga por esta corta sin duplicar.
 export const AGENT_ACTIONS_ADDON = `
 
-CAPACIDAD DE EJECUCIÓN:
-Cuando el CEO te pide algo que requiera crear proyectos, tareas o negociaciones, puedes proponerlo incluyendo un bloque de acciones AL FINAL de tu respuesta.
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v2):
+Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
+[ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
-Formato exacto:
-[ACTIONS]
-{
-  "summary": "Descripción breve de lo que se creará",
-  "confirmRequired": true,
-  "actions": [
-    {
-      "type": "create_project",
-      "name": "Nombre del proyecto",
-      "code": "ABC",
-      "description": "Descripción completa",
-      "color": "#8E44AD",
-      "emoji": "🎯",
-      "visibility": "private",
-      "assignees": ["admin", "marc"],
-      "tasks": [
-        { "title": "Título de la tarea", "description": "Pasos detallados", "priority": "alta", "dueDate": "+7d", "tags": ["tag1"] }
-      ]
-    },
-    {
-      "type": "create_negotiation",
-      "title": "Título de la negociación",
-      "notes": "Descripción y contexto",
-      "counterparty": "Contraparte",
-      "assignees": ["admin", "marc"],
-      "facts": ["hecho 1", "hecho 2"],
-      "redFlags": ["riesgo 1"],
-      "stakeholders": [{ "name": "Nombre", "role": "Rol", "company": "Empresa" }],
-      "linkedProjectCode": "ABC"
-    },
-    {
-      "type": "create_tasks",
-      "projectCode": "ABC",
-      "tasks": [{ "title": "Tarea adicional", "priority": "media", "dueDate": "+30d" }]
-    },
-    {
-      "type": "create_movement",
-      "concept": "Concepto financiero",
-      "amount": 1500,
-      "movementType": "expense",
-      "category": "Servicios profesionales",
-      "date": "+0d"
-    }
-  ]
-}
-[/ACTIONS]
+Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),dueDate("+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}],linkedProjectCode}; "create_tasks" {projectCode,tasks:[...]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}.
 
-REGLAS ESTRICTAS:
-- Solo propón acciones cuando el CEO te pida explícitamente crear algo o cuando tu análisis genera un plan accionable concreto.
-- SIEMPRE pon "confirmRequired": true.
-- Las fechas pueden ser relativas ("+7d", "+1m", "+2h") o absolutas (YYYY-MM-DD).
-- Los assignees son alias: "admin" = CEO, "marc" = Marc Díaz, etc. Usa el alias por nombre, no por id.
-- "priority" usa los valores en español: "alta" | "media" | "baja".
-- code del proyecto: 3 letras MAYÚSCULAS (ej: "POR" para Portugal, "REG" para Registro).
-- NO inventes acciones si no son necesarias. Si la conversación es solo análisis o consulta, NO añadas el bloque.
-- El bloque [ACTIONS]...[/ACTIONS] se procesa y se OCULTA del CEO antes de mostrar tu respuesta. Escríbelo tal cual sin disculparte.
-- Tu respuesta normal va ANTES del bloque. El CEO ve tu análisis + un panel de confirmación con las acciones.`;
+Reglas: solo cuando lo pidan explícitamente, NUNCA en análisis ni consultas. El bloque se OCULTA del CEO. Tu prosa va ANTES del bloque.`;

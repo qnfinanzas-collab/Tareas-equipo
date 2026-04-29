@@ -401,8 +401,13 @@ export default function HectorPanel({
       const top3 = tasksWithContext.slice(0, 3);
       const criticalRisks = riesgosNow.filter((r) => r.level === "critical");
 
-      const baseSystem = ag?.promptBase
-        ? ag.promptBase + "\n\n" + PLAIN_TEXT_RULE
+      // En el análisis automático NO queremos el bloque CAPACIDAD DE
+      // EJECUCIÓN (que enseña a Héctor a emitir [ACTIONS]). Esta llamada
+      // pide JSON estricto y las acciones no aplican aquí — además
+      // pesaba +600 tokens en el prompt sin valor.
+      const promptBaseNoActions = (ag?.promptBase || "").split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
+      const baseSystem = promptBaseNoActions
+        ? promptBaseNoActions + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Chief of Staff estratégico. Conciso, directo, accionable. " + PLAIN_TEXT_RULE;
       const memBlock = formatCeoMemoryForPrompt(mem);
       // Detecta skills relevantes a partir de títulos de tareas activas,
@@ -502,11 +507,24 @@ Reglas:
 - NO inventes taskId — usa solo los de la lista.
 - NO recalcules fechas — usa los campos urgency, startDate, dueDate, assignedTo TAL CUAL.`;
 
-      const r = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ system, messages: [{ role: "user", content: userPrompt }], max_tokens: 800 }),
-      });
+      // Timeout 30s: si Sonnet 4.5 no responde a tiempo, abortamos con
+      // mensaje claro en lugar de dejar el spinner colgado.
+      const ac = new AbortController();
+      const timeoutId = setTimeout(() => ac.abort(), 30000);
+      let r;
+      try {
+        r = await fetch("/api/agent", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ system, messages: [{ role: "user", content: userPrompt }], max_tokens: 800 }),
+          signal: ac.signal,
+        });
+      } catch (e) {
+        clearTimeout(timeoutId);
+        if (e.name === "AbortError") throw new Error("Tiempo agotado tras 30s — el LLM tardó demasiado en responder");
+        throw e;
+      }
+      clearTimeout(timeoutId);
       const raw = await r.text();
       if (cancelledRef.current) return;
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -766,11 +784,24 @@ Reglas para block_task:
 - followUpAt debe ser ~5 min después de blockUntil para preguntar al CEO cómo fue. Si no hay blockUntil, followUpAt también null.
 - Si la hora indicada por el CEO ya ha pasado, NO bloquees: responde con action:"none" y un comentario.`;
 
-      const r = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ system, messages: [{ role: "user", content: userPrompt }], max_tokens: 400 }),
-      });
+      // Timeout 30s para el chat. Si el LLM no responde, el chat muestra
+      // el error en lugar de quedarse cargando indefinidamente.
+      const ac = new AbortController();
+      const timeoutId = setTimeout(() => ac.abort(), 30000);
+      let r;
+      try {
+        r = await fetch("/api/agent", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ system, messages: [{ role: "user", content: userPrompt }], max_tokens: 400 }),
+          signal: ac.signal,
+        });
+      } catch (e) {
+        clearTimeout(timeoutId);
+        if (e.name === "AbortError") throw new Error("Tiempo agotado tras 30s");
+        throw e;
+      }
+      clearTimeout(timeoutId);
       const raw = await r.text();
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       let proxied = null; try { proxied = JSON.parse(raw); } catch {}
