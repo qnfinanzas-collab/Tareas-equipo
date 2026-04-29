@@ -9805,7 +9805,11 @@ export default function TaskFlow(){
       + "\n\n" + PLAIN_TEXT_RULE
       + (govContext ? `\n\n${govContext}` : "")
       + (extraSystem ? `\n\n${extraSystem}` : "");
-    const out = await callAgentSafe({system, messages: messages||[], max_tokens: 1200});
+    // max_tokens 3000: Gonzalo puede emitir [ACTIONS] con proyecto + 10
+    // tareas + negociación con stakeholders/facts. El JSON dentro del
+    // bloque pasa fácilmente de 1500-2500 tokens; antes se truncaba y la
+    // propuesta llegaba vacía o se perdía.
+    const out = await callAgentSafe({system, messages: messages||[], max_tokens: 3000});
     return out;
   },[]);
   // Setter dedicado para permisos de agentes IA. Toggle binario por

@@ -866,7 +866,10 @@ Reglas para block_task:
         r = await fetch("/api/agent", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ system, messages: [{ role: "user", content: userPrompt }], max_tokens: 400 }),
+          // max_tokens 2048: el JSON de orden + bloque [ACTIONS] con
+          // propuestas de plan puede pasar de 400 chars con facilidad.
+          // Antes se truncaba en respuestas con plan accionable.
+          body: JSON.stringify({ system, messages: [{ role: "user", content: userPrompt }], max_tokens: 2048 }),
           signal: ac.signal,
         });
       } catch (e) {
@@ -885,10 +888,16 @@ Reglas para block_task:
       // ActionProposal al final aunque el JSON de Héctor venga vacío.
       const proposalFromRaw = parseAgentActions(text);
       const textWithoutActions = String(text).replace(/\[ACTIONS\][\s\S]*?\[\/ACTIONS\]/g, "").trim();
-      // SEGUNDO: parsear el JSON de orden de Héctor sobre el texto sin ACTIONS.
-      const m = textWithoutActions.match(/\{[\s\S]*\}/);
-      if (!m && !proposalFromRaw) throw new Error("JSON no encontrado");
-      const parsedReply = m ? JSON.parse(m[0]) : { reply: "" };
+      // SEGUNDO: parser tolerante. Reutiliza parseHectorDecision para
+      // obtener el mismo manejo de markdown, prosa anterior y reparación
+      // de truncamiento por max_tokens. Si falla y tampoco hay propuesta,
+      // tiramos error con log del raw para debug.
+      let parsedReply = parseHectorDecision(textWithoutActions);
+      if (!parsedReply && !proposalFromRaw) {
+        console.error("[HectorPanel] sendOrderToHector respuesta cruda no parseable:", text);
+        throw new Error("Héctor no pudo procesar la orden");
+      }
+      if (!parsedReply) parsedReply = { reply: "" };
       const reply = (parsedReply.reply || "").trim();
       // Si Héctor incluyó propuesta dentro del campo reply, también la
       // detectamos (caso poco probable pero defensivo).
@@ -899,7 +908,13 @@ Reglas para block_task:
       if (cleanReply) speakRecommendation(cleanReply);
     } catch (e) {
       console.warn("[HectorPanel] sendOrderToHector fallo:", e?.message);
-      setChatHistory((prev) => [...prev, { role: "hector", text: `⚠ ${e.message || "Error procesando orden"}`, ts: Date.now() }].slice(-CHAT_MAX));
+      // Mensaje claro al usuario en el chat. NO tocamos hectorState
+      // (mantenerlo en "listening" o el que tenía) para no dar
+      // sensación de "pausado/sin créditos" cuando solo es un parser.
+      const friendly = (e?.message || "").includes("Tiempo agotado")
+        ? `⚠ ${e.message}`
+        : "⚠ Héctor no pudo procesar la orden. Inténtalo de nuevo.";
+      setChatHistory((prev) => [...prev, { role: "hector", text: friendly, ts: Date.now() }].slice(-CHAT_MAX));
     } finally {
       setChatLoading(false);
     }
