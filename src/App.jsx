@@ -707,6 +707,9 @@ REGLAS:
 - Sé preciso con números, nunca redondees sin avisar
 - Si no tienes datos suficientes, pide que suban el documento
 
+CONTABILIDAD:
+- Puedes crear asientos contables con add_accounting_entry. Cada asiento debe cuadrar (total debe = total haber). Usa cuentas del PGC pyme español. Para subcuentas usa el formato XXXNNNN (ej: 2130001 para primera cámara hiperbárica).
+
 FORMATO:
 - Primero resumen ejecutivo (2-3 líneas)
 - Después detalle con datos concretos
@@ -833,6 +836,18 @@ function _migrate(d){
       d.agents = [...d.agents, {...JSON.parse(JSON.stringify(diegoSeed)), id: maxId+1, createdAt: new Date().toISOString()}];
     }
   }
+  // Patch Diego: añade la sección CONTABILIDAD si su promptBase no la
+  // tiene todavía. Idempotente con marca "CONTABILIDAD:". El bloque entra
+  // antes de FORMATO (mantiene el orden del seed actualizado).
+  d.agents = d.agents.map(a=>{
+    if(a.name!=="Diego" || !a.promptBase) return a;
+    if(a.promptBase.includes("CONTABILIDAD:")) return a;
+    const inserted = a.promptBase.replace(
+      /\nFORMATO:/,
+      "\nCONTABILIDAD:\n- Puedes crear asientos contables con add_accounting_entry. Cada asiento debe cuadrar (total debe = total haber). Usa cuentas del PGC pyme español. Para subcuentas usa el formato XXXNNNN (ej: 2130001 para primera cámara hiperbárica).\n\nFORMATO:"
+    );
+    return { ...a, promptBase: inserted };
+  });
   // Patch Héctor: si ya tenía INVOKE_ADDON pero no menciona "alvaro:", le
   // añadimos el patch que lo añade como tercer especialista invocable.
   d.agents = d.agents.map(a=>{
@@ -856,19 +871,18 @@ function _migrate(d){
     return a;
   });
   // Patch ejecutor: inyecta CAPACIDAD DE EJECUCIÓN en TODOS los agentes
-  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v2".
-  // Si detecta la versión antigua (~2.5KB) la reemplaza por la nueva
-  // minimal (~600 chars) — la versión larga estaba ralentizando el LLM
-  // hasta el timeout en Sonnet 4.5.
+  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v3".
+  // v3 añade los tipos add_accounting_entry / update_bank_movement /
+  // add_bank_movement (Diego). Cualquier versión anterior se reemplaza.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v2")) return a;             // ya v2
+    if(a.promptBase.includes("ACTIONS_v3")) return a;             // ya v3
     if(a.promptBase.includes("CAPACIDAD DE EJECUCIÓN")) {
-      // tiene v1 → cortar desde "CAPACIDAD DE EJECUCIÓN" al final y reemplazar
+      // versión antigua (v1 o v2) → cortamos el bloque y reinyectamos v3
       const cut = a.promptBase.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
       return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
     }
-    // sin addon previo → añadir v2
+    // sin addon previo → añadir v3
     return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
   });
   // Upgrade promptBase de Héctor: añade la sección COACHING EJECUTIVO si el
@@ -1173,6 +1187,53 @@ function _migrate(d){
   // YYYY/NNN auto-correlativa por (companyId, type, year). Cada factura
   // referencia opcionalmente un bankMovement vía bankMovementId.
   if (!Array.isArray(d.invoices)) d.invoices = [];
+  // Contabilidad (PGC pyme español). Asientos del libro diario y plan de
+  // cuentas. El plan se siembra con ~30 cuentas canónicas; el CEO añade
+  // subcuentas (formato XXXNNNN, ej 2130001) cuando las necesita.
+  // Numeración correlativa por (companyId, year) la genera addAccountingEntry.
+  if (!Array.isArray(d.accountingEntries)) d.accountingEntries = [];
+  if (!Array.isArray(d.chartOfAccounts) || d.chartOfAccounts.length === 0) {
+    d.chartOfAccounts = [
+      // GRUPO 1 — Financiación básica
+      { code: "100", name: "Capital social", group: 1 },
+      { code: "170", name: "Deudas a largo plazo", group: 1 },
+      // GRUPO 2 — Inmovilizado
+      { code: "213", name: "Maquinaria", group: 2 },
+      { code: "281", name: "Amortización acumulada inmovilizado material", group: 2 },
+      // GRUPO 3 — Existencias
+      { code: "300", name: "Mercaderías", group: 3 },
+      // GRUPO 4 — Acreedores y deudores
+      { code: "400", name: "Proveedores", group: 4 },
+      { code: "410", name: "Acreedores prestación servicios", group: 4 },
+      { code: "430", name: "Clientes", group: 4 },
+      { code: "472", name: "HP IVA soportado", group: 4 },
+      { code: "475", name: "HP acreedora por IVA", group: 4 },
+      { code: "473", name: "HP retenciones y pagos a cuenta", group: 4 },
+      { code: "476", name: "Organismos SS acreedores", group: 4 },
+      // GRUPO 5 — Cuentas financieras
+      { code: "523", name: "Proveedores inmovilizado c/p", group: 5 },
+      { code: "570", name: "Caja", group: 5 },
+      { code: "572", name: "Bancos", group: 5 },
+      // GRUPO 6 — Compras y gastos
+      { code: "600", name: "Compras mercaderías", group: 6 },
+      { code: "621", name: "Arrendamientos", group: 6 },
+      { code: "623", name: "Servicios profesionales", group: 6 },
+      { code: "625", name: "Primas de seguros", group: 6 },
+      { code: "626", name: "Servicios bancarios", group: 6 },
+      { code: "627", name: "Publicidad y RRPP", group: 6 },
+      { code: "628", name: "Suministros", group: 6 },
+      { code: "629", name: "Otros servicios", group: 6 },
+      { code: "631", name: "Otros tributos", group: 6 },
+      { code: "640", name: "Sueldos y salarios", group: 6 },
+      { code: "642", name: "Seguridad Social empresa", group: 6 },
+      { code: "681", name: "Amortización inmovilizado material", group: 6 },
+      // GRUPO 7 — Ventas e ingresos
+      { code: "700", name: "Ventas mercaderías", group: 7 },
+      { code: "705", name: "Prestación servicios", group: 7 },
+      { code: "759", name: "Ingresos por servicios diversos", group: 7 },
+      { code: "769", name: "Otros ingresos financieros", group: 7 },
+    ];
+  }
   if (!Array.isArray(d.movementCategories) || d.movementCategories.length === 0) {
     d.movementCategories = [
       // INGRESOS
@@ -10140,11 +10201,47 @@ export default function TaskFlow(){
     const factCtx = factLines.length > 0 ? "FACTURAS:\n" + factLines.join("\n") : "";
     const opCtx = opLines.length > 0 ? "BANCARIO DETALLADO:\n" + opLines.join("\n") : "";
 
-    // Composición final con cap defensivo a ~4000 chars (incluye summary +
-    // gobernanza + bancario + facturas). Si se pasa, truncamos al final.
-    const blocks = [summaryTxt, govCtx, opCtx, factCtx].filter(Boolean);
+    // ── Bloque 5: contabilidad (asientos del libro diario) ─────────────
+    // Resumen compacto (~500 chars max). Permite a Diego entender cuántos
+    // asientos hay en la empresa, qué saldo agregado por grupo PGC se ha
+    // generado, y si el último asiento está reciente o desactualizado.
+    const allEntries = d.accountingEntries || [];
+    const entries = filtered ? allEntries.filter(e => e.companyId === filterId) : allEntries;
+    const cobLines = [];
+    if (entries.length > 0) {
+      const last = entries.slice().sort((a,b)=>(b.date||"").localeCompare(a.date||""))[0];
+      const draft = entries.filter(e => e.status === "borrador").length;
+      const groupSaldos = new Map(); // group → {debit,credit}
+      for (const e of entries) {
+        for (const l of (e.lines||[])) {
+          const code = String(l.account||"");
+          const grp = Number(code.charAt(0)) || 0;
+          if (!grp) continue;
+          const cur = groupSaldos.get(grp) || { debit: 0, credit: 0 };
+          cur.debit  += Number(l.debit) ||0;
+          cur.credit += Number(l.credit)||0;
+          groupSaldos.set(grp, cur);
+        }
+      }
+      cobLines.push(`CONTABILIDAD: ${entries.length} asiento${entries.length!==1?"s":""}${draft>0?` (${draft} en borrador)`:""} · último ${last?.date||"?"} (${last?.description?.slice(0,40)||"?"})`);
+      const groupNames = { 1:"Financiación", 2:"Inmovilizado", 3:"Existencias", 4:"Acreed/Deud", 5:"Financieras", 6:"Compras/Gastos", 7:"Ventas/Ingresos" };
+      const sortedGroups = Array.from(groupSaldos.entries()).sort((a,b)=>a[0]-b[0]);
+      for (const [grp, v] of sortedGroups) {
+        const saldo = v.debit - v.credit;
+        cobLines.push(`  · G${grp} ${groupNames[grp]||""}: D ${fmtEur(v.debit)} · H ${fmtEur(v.credit)} · saldo ${fmtEur(saldo)}`);
+      }
+    } else if (filtered) {
+      cobLines.push(`CONTABILIDAD: sin asientos para ${company?.name||"esta empresa"} todavía. Puedes proponer asientos vía add_accounting_entry.`);
+    }
+    let cobCtx = cobLines.length > 0 ? cobLines.join("\n") : "";
+    if (cobCtx.length > 500) cobCtx = cobCtx.slice(0, 480) + "\n…(truncado)";
+
+    // Composición final con cap defensivo a ~4500 chars (summary +
+    // gobernanza + bancario + facturas + contabilidad). Si se pasa,
+    // truncamos al final.
+    const blocks = [summaryTxt, govCtx, opCtx, factCtx, cobCtx].filter(Boolean);
     let finCtx = blocks.join("\n\n");
-    if (finCtx.length > 4000) finCtx = finCtx.slice(0, 3980) + "\n…(truncado)";
+    if (finCtx.length > 4500) finCtx = finCtx.slice(0, 4480) + "\n…(truncado)";
     const system = (diego.promptBase||`Eres Diego, analista financiero senior.`)
       + "\n\n" + PLAIN_TEXT_RULE
       + (finCtx ? `\n\n${finCtx}` : "")
@@ -10462,6 +10559,122 @@ export default function TaskFlow(){
   const deleteInvoice = useCallback((id)=>{
     setData(prev=>({...prev, invoices: (prev.invoices||[]).filter(i=>i.id!==id)}));
     addToast("Factura eliminada","info");
+  },[addToast]);
+  // Contabilidad: CRUD de asientos del libro diario y plan de cuentas.
+  // Reglas estrictas:
+  //   1) cada asiento debe cuadrar (sum debit === sum credit, ±0.01€).
+  //   2) la numeración es correlativa por (companyId, year).
+  //   3) solo se borran asientos en estado "borrador" (los confirmados son
+  //      históricos y se modifican con un asiento de regularización).
+  const _nextEntryNumber = (entries, companyId, year) => {
+    let max = 0;
+    for (const e of (entries||[])) {
+      if (e.companyId !== companyId) continue;
+      const eYear = new Date(e.date).getFullYear();
+      if (eYear !== year) continue;
+      const n = Number(e.number)||0;
+      if (n > max) max = n;
+    }
+    return max + 1;
+  };
+  const _normalizeEntryLines = (lines) => {
+    return (Array.isArray(lines)?lines:[]).map(l => ({
+      account: String(l.account||"").trim(),
+      accountName: String(l.accountName||"").trim(),
+      debit:  Math.round((Number(l.debit) ||0)*100)/100,
+      credit: Math.round((Number(l.credit)||0)*100)/100,
+    }));
+  };
+  const _entryBalances = (lines) => {
+    let totalD = 0, totalC = 0;
+    for (const l of (lines||[])) { totalD += Number(l.debit)||0; totalC += Number(l.credit)||0; }
+    return { totalD: Math.round(totalD*100)/100, totalC: Math.round(totalC*100)/100, diff: Math.abs(totalD-totalC) };
+  };
+  const addAccountingEntry = useCallback((payload)=>{
+    if (!payload || !payload.companyId) {
+      addToast("Selecciona una empresa antes de crear el asiento","warn");
+      return null;
+    }
+    const lines = _normalizeEntryLines(payload.lines);
+    if (lines.length < 2) {
+      addToast("El asiento necesita al menos 2 líneas","warn");
+      return null;
+    }
+    const { totalD, totalC, diff } = _entryBalances(lines);
+    if (diff > 0.011) {
+      addToast(`Asiento descuadrado: debe ${totalD} ≠ haber ${totalC}`,"warn");
+      return null;
+    }
+    let createdId = null;
+    setData(prev=>{
+      const now = new Date().toISOString();
+      const date = payload.date || fmt(new Date());
+      const year = new Date(date).getFullYear();
+      const entry = {
+        id: _newFinanceId(),
+        companyId: payload.companyId,
+        date,
+        number: payload.number || _nextEntryNumber(prev.accountingEntries, payload.companyId, year),
+        description: (payload.description||"").trim(),
+        lines,
+        source: payload.source || "manual",
+        invoiceId: payload.invoiceId || null,
+        bankMovementId: payload.bankMovementId || null,
+        status: payload.status === "borrador" ? "borrador" : "confirmado",
+        createdBy: activeMember,
+        createdAt: now,
+        updatedAt: now,
+      };
+      createdId = entry.id;
+      return { ...prev, accountingEntries: [entry, ...(prev.accountingEntries||[])] };
+    });
+    addToast("✓ Asiento contable creado");
+    return createdId;
+  },[activeMember, addToast]);
+  const updateAccountingEntry = useCallback((id, patch)=>{
+    setData(prev=>{
+      const list = (prev.accountingEntries||[]).map(e => {
+        if (e.id !== id) return e;
+        const merged = { ...e, ...patch, updatedAt: new Date().toISOString() };
+        if (patch.lines) {
+          merged.lines = _normalizeEntryLines(patch.lines);
+          // Bloqueamos el guardado si descuadra; mantenemos el estado anterior.
+          const { diff } = _entryBalances(merged.lines);
+          if (diff > 0.011) {
+            console.warn("[contabilidad] update bloqueado: asiento descuadrado", e.id);
+            return e;
+          }
+        }
+        return merged;
+      });
+      return { ...prev, accountingEntries: list };
+    });
+    addToast("✓ Asiento actualizado");
+  },[addToast]);
+  const deleteAccountingEntry = useCallback((id)=>{
+    // Comprobamos el estado contra dataRef antes de tocar el state — así
+    // damos un toast preciso (bloqueo si está confirmado).
+    const existing = (dataRef.current?.accountingEntries||[]).find(x => x.id === id);
+    if (existing && existing.status !== "borrador") {
+      addToast("No se puede borrar un asiento confirmado","warn");
+      return;
+    }
+    setData(prev=>({
+      ...prev,
+      accountingEntries: (prev.accountingEntries||[]).filter(x => x.id !== id),
+    }));
+    addToast("Asiento eliminado","info");
+  },[addToast]);
+  const addCustomAccount = useCallback((account)=>{
+    if (!account || !account.code || !account.name) return;
+    const code = String(account.code).trim();
+    const group = Number(account.group) || Number(String(code).charAt(0)) || 9;
+    setData(prev=>{
+      const exists = (prev.chartOfAccounts||[]).some(a => a.code === code);
+      if (exists) return prev;
+      return { ...prev, chartOfAccounts: [...(prev.chartOfAccounts||[]), { code, name: String(account.name).trim(), group }] };
+    });
+    addToast(`✓ Cuenta ${code} añadida al plan`);
   },[addToast]);
   // Conciliación bulk (Commit 6). Aplica una lista de matches
   // [{movementId, invoiceId}] en un único setData: marca el movimiento
@@ -10987,6 +11200,14 @@ export default function TaskFlow(){
     const adminMemberId = (d.members||[]).find(m=>m.accountRole==="admin")?.id ?? activeMember;
     // Two-pass: primero create_project (obtenemos ids), después create_tasks/etc.
     // Para acciones que requieren findProjectByCode, leemos dataRef tras el flush.
+    // Empresa filtrada actual en Finanzas (lo lee Diego al proponer asientos
+    // sin pasar companyId explícito). Recuperamos el valor persistido en
+    // localStorage para no acoplar este orchestrator al árbol React.
+    let defaultCompanyId = null;
+    try {
+      const saved = localStorage.getItem("finanzas_selectedCompany");
+      if (saved && saved !== "all") defaultCompanyId = saved;
+    } catch {}
     const helpers = {
       data: d,
       adminMemberId,
@@ -10997,6 +11218,8 @@ export default function TaskFlow(){
       addFinanceMovement,
       addBankMovement,
       updateBankMovement,
+      addAccountingEntry,
+      defaultCompanyId,
       findProjectByCode: (code) => (dataRef.current?.projects || []).find(p => p.code === code),
     };
     // Pasada 1: crear proyectos. Esto encola setData. Esperamos al flush
@@ -11041,7 +11264,7 @@ export default function TaskFlow(){
     // Pasada 2: resto de acciones (negotiation, create_tasks sobre code existente, movement)
     const results2 = executeAgentActions(otherActions, helpers);
     return { results: [...results1, ...results2] };
-  },[createProject, addTaskToProject, createNegotiation, addFinanceMovement, addBankMovement, updateBankMovement, activeMember, data]);
+  },[createProject, addTaskToProject, createNegotiation, addFinanceMovement, addBankMovement, updateBankMovement, addAccountingEntry, activeMember, data]);
   const editProject = useCallback((idx,{name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility})=>{
     setData(prev=>{
       const p=prev.projects[idx];
@@ -11532,7 +11755,7 @@ export default function TaskFlow(){
             if(!canView){
               return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>🔒 Sin permisos para acceder al módulo de Finanzas. Contacta con el admin global.</div>;
             }
-            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement} onAddBankMovementsBatch={addBankMovementsBatch} onDeleteBankMovementsByBatch={deleteBankMovementsByBatch} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onDeleteInvoice={deleteInvoice} onReconcileMatches={reconcileMatches} onCallAgent={callDiegoDirect} onRunAgentActions={runAgentActions} onToast={addToast}/>;
+            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement} onAddBankMovementsBatch={addBankMovementsBatch} onDeleteBankMovementsByBatch={deleteBankMovementsByBatch} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onDeleteInvoice={deleteInvoice} onReconcileMatches={reconcileMatches} onAddAccountingEntry={addAccountingEntry} onUpdateAccountingEntry={updateAccountingEntry} onDeleteAccountingEntry={deleteAccountingEntry} onAddCustomAccount={addCustomAccount} onCallAgent={callDiegoDirect} onRunAgentActions={runAgentActions} onToast={addToast}/>;
           })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="gobernanza"&&(()=>{

@@ -13,11 +13,12 @@ import FinanceDashboard from "./FinanceDashboard.jsx";
 import Tesoreria from "./Tesoreria.jsx";
 import Bancos from "./Bancos.jsx";
 import Facturacion from "./Facturacion.jsx";
+import Contabilidad from "./Contabilidad.jsx";
 import Diego from "./Diego.jsx";
 
 const SELECTED_COMPANY_KEY = "finanzas_selectedCompany";
 
-export default function FinanceView({ data, member, canEdit, onAddMovement, onUpdateMovement, onDeleteMovement, onAddBankAccount, onUpdateBankAccount, onDeleteBankAccount, onAddBankMovement, onUpdateBankMovement, onDeleteBankMovement, onAddBankMovementsBatch, onDeleteBankMovementsByBatch, onAddInvoice, onUpdateInvoice, onDeleteInvoice, onReconcileMatches, onCallAgent, onRunAgentActions, onToast }) {
+export default function FinanceView({ data, member, canEdit, onAddMovement, onUpdateMovement, onDeleteMovement, onAddBankAccount, onUpdateBankAccount, onDeleteBankAccount, onAddBankMovement, onUpdateBankMovement, onDeleteBankMovement, onAddBankMovementsBatch, onDeleteBankMovementsByBatch, onAddInvoice, onUpdateInvoice, onDeleteInvoice, onReconcileMatches, onAddAccountingEntry, onUpdateAccountingEntry, onDeleteAccountingEntry, onAddCustomAccount, onCallAgent, onRunAgentActions, onToast }) {
   const [tab, setTab] = useState("dashboard");
   const companies = (data.governance?.companies) || [];
 
@@ -81,11 +82,12 @@ export default function FinanceView({ data, member, canEdit, onAddMovement, onUp
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, marginBottom: 18, borderBottom: "1px solid #E5E7EB", flexWrap: "wrap" }}>
         {[
-          { key: "dashboard",   label: "📊 Dashboard"   },
-          { key: "tesoreria",   label: "💵 Tesorería"   },
-          { key: "bancos",      label: "🏦 Bancos"      },
-          { key: "facturacion", label: "🧾 Facturación" },
-          { key: "diego",       label: "💬 Diego"       },
+          { key: "dashboard",    label: "📊 Dashboard"    },
+          { key: "tesoreria",    label: "💵 Tesorería"    },
+          { key: "bancos",       label: "🏦 Bancos"       },
+          { key: "facturacion",  label: "🧾 Facturación"  },
+          { key: "contabilidad", label: "📒 Contabilidad" },
+          { key: "diego",        label: "💬 Diego"        },
         ].map(t => {
           const active = tab === t.key;
           return (
@@ -143,6 +145,17 @@ export default function FinanceView({ data, member, canEdit, onAddMovement, onUp
           onUpdateInvoice={onUpdateInvoice}
           onDeleteInvoice={onDeleteInvoice}
           onToast={onToast}
+        />
+      )}
+      {tab === "contabilidad" && (
+        <Contabilidad
+          data={data}
+          canEdit={canEdit}
+          selectedCompanyId={selectedCompanyId}
+          onAddAccountingEntry={onAddAccountingEntry}
+          onUpdateAccountingEntry={onUpdateAccountingEntry}
+          onDeleteAccountingEntry={onDeleteAccountingEntry}
+          onAddCustomAccount={onAddCustomAccount}
         />
       )}
       {tab === "diego"       && (

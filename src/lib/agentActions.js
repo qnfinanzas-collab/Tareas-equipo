@@ -22,6 +22,8 @@ export const AGENT_ACTION_TYPES = {
   // Acciones bancarias propuestas por Diego (Analista Financiero).
   UPDATE_BANK_MOVEMENT: "update_bank_movement",
   ADD_BANK_MOVEMENT:    "add_bank_movement",
+  // Asientos del libro diario (Diego: contabilidad PGC pyme).
+  ADD_ACCOUNTING_ENTRY: "add_accounting_entry",
 };
 
 // Marcadores. Públicos para que los prompts puedan referenciarlos exactamente.
@@ -128,6 +130,8 @@ export function executeAgentActions(actions, helpers) {
     addFinanceMovement,   // (payload) → side-effect
     addBankMovement,      // (payload) → side-effect (Diego)
     updateBankMovement,   // (id, patch) → side-effect (Diego)
+    addAccountingEntry,   // (payload) → side-effect (Diego: libro diario)
+    defaultCompanyId,     // string|null — empresa filtrada en la UI cuando aplica
   } = helpers || {};
 
   for (const action of actions) {
@@ -282,6 +286,43 @@ export function executeAgentActions(actions, helpers) {
           break;
         }
 
+        case AGENT_ACTION_TYPES.ADD_ACCOUNTING_ENTRY: {
+          // Diego crea un asiento del libro diario. La validación dura
+          // (cuadre debe=haber) la hace addAccountingEntry; aquí solo
+          // marcamos la propuesta y dejamos que el mutator decida.
+          const companyId = action.companyId || defaultCompanyId || null;
+          if (!companyId) {
+            results.push({ type: "error", action: action.type, error: "Falta companyId" });
+            break;
+          }
+          if (!Array.isArray(action.lines) || action.lines.length < 2) {
+            results.push({ type: "error", action: action.type, error: "El asiento necesita al menos 2 líneas" });
+            break;
+          }
+          const newId = addAccountingEntry?.({
+            companyId,
+            date: resolveDueDate(action.date || "+0d"),
+            description: action.description || "(sin descripción)",
+            lines: action.lines.map(l => ({
+              account: String(l.account || "").trim(),
+              accountName: String(l.accountName || "").trim(),
+              debit:  Number(l.debit)  || 0,
+              credit: Number(l.credit) || 0,
+            })),
+            invoiceId: action.invoiceId || null,
+            bankMovementId: action.bankMovementId || null,
+            source: "diego",
+            status: action.status === "borrador" ? "borrador" : "confirmado",
+          });
+          if (!newId) {
+            // El mutator rechazó (descuadre o validación). Lo reflejamos.
+            results.push({ type: "error", action: action.type, error: "Asiento descuadrado o inválido — no creado" });
+          } else {
+            results.push({ type: "accounting_entry", description: action.description, id: newId });
+          }
+          break;
+        }
+
         default:
           results.push({ type: "error", action: action.type, error: `Tipo de acción desconocido: ${action.type}` });
       }
@@ -324,10 +365,10 @@ function makeAgentTimelineEntry(agentName) {
 // la versión larga por esta corta sin duplicar.
 export const AGENT_ACTIONS_ADDON = `
 
-CAPACIDAD DE EJECUCIÓN (ACTIONS_v2):
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v3):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
-Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),dueDate("+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}],linkedProjectCode}; "create_tasks" {projectCode,tasks:[...]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual).
+Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),dueDate("+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}],linkedProjectCode}; "create_tasks" {projectCode,tasks:[...]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001).
 
 Reglas: solo cuando lo pidan explícitamente, NUNCA en análisis ni consultas. El bloque se OCULTA del CEO. Tu prosa va ANTES del bloque.`;
