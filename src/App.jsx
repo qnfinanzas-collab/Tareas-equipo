@@ -9981,77 +9981,173 @@ export default function TaskFlow(){
     const diego = (dataRef.current?.agents||[]).find(a=>a.name==="Diego");
     if(!diego) throw new Error("Diego no está en agents");
     const d = dataRef.current || {};
-    const allMovs = d.bankMovements || [];
+    const fmtEur = (n) => new Intl.NumberFormat("es-ES",{style:"currency",currency:"EUR",maximumFractionDigits:2}).format(Number(n)||0);
+    const todayIso = new Date().toISOString().slice(0,10);
+    const companies   = (d.governance?.companies)   || [];
+    const allDocs     = (d.governance?.documents)   || [];
+    const allAlerts   = (d.governance?.alerts)      || [];
+    const allObligs   = (d.governance?.obligations) || [];
+    const allMovs     = d.bankMovements || [];
     const allAccounts = d.bankAccounts || [];
-    const categories = d.movementCategories || [];
-    const companies = (d.governance?.companies) || [];
-    // Filtro por empresa: legacy (companyId:null) se incluye siempre.
-    const movs = (selectedCompanyId && selectedCompanyId !== "all")
-      ? allMovs.filter(m => !m.companyId || m.companyId === selectedCompanyId)
-      : allMovs;
-    const accounts = (selectedCompanyId && selectedCompanyId !== "all")
-      ? allAccounts.filter(a => a.companyId === selectedCompanyId)
-      : allAccounts;
-    // Recorte a últimos 3 meses si hay muchos movimientos. Si la cuenta es
-    // pequeña (<200 movimientos) los enviamos todos para que Diego pueda
-    // analizar tendencias largas.
+    const allInvoices = d.invoices || [];
+    const categories  = d.movementCategories || [];
+    const filterId = selectedCompanyId || "all";
+    const filtered = filterId !== "all";
+    const company  = filtered ? companies.find(c => c.id === filterId) : null;
+    // Filtros heredados (mismas reglas que la UI): legacy companyId:null
+    // se incluye siempre para que el CEO pueda asignar luego.
+    const movs = filtered ? allMovs.filter(m => !m.companyId || m.companyId === filterId) : allMovs;
+    const accounts = filtered ? allAccounts.filter(a => a.companyId === filterId) : allAccounts;
+    const invoices = filtered ? allInvoices.filter(i => !i.companyId || i.companyId === filterId) : allInvoices;
+    // Recorte a últimos 3 meses si hay muchos movimientos. Si <200, todos.
     const dateLimit = new Date(); dateLimit.setMonth(dateLimit.getMonth()-3);
     const limitIso = dateLimit.toISOString().slice(0,10);
     const recent = movs.length > 200 ? movs.filter(m => (m.date||"") >= limitIso) : movs;
-    const fmtEur = (n) => new Intl.NumberFormat("es-ES",{style:"currency",currency:"EUR",maximumFractionDigits:2}).format(Number(n)||0);
     const catName = (id) => categories.find(c=>c.id===id)?.name || id;
+    const catPgc  = (id) => categories.find(c=>c.id===id)?.pgc || null;
     const accLabel = (id) => {
       const a = allAccounts.find(x=>x.id===id);
       return a ? `${a.bankName}${a.alias?` · ${a.alias}`:""}` : "(cuenta borrada)";
     };
-    let income = 0, expense = 0;
+    // ── Bloque 1: resumen ejecutivo via buildFinanceSummary ────────────
+    // Reusa el mismo helper que consume el dashboard del CEO. Le da a
+    // Diego la misma foto que ve el usuario: saldo, runway, fact pendientes,
+    // IVA del trimestre, próxima obligación, alertas vivas.
+    let summaryTxt = "";
+    try {
+      const summary = buildFinanceSummary(d, filterId);
+      summaryTxt = renderFinanceSummaryForPrompt(summary);
+    } catch (e) { /* helper puro: si falla seguimos sin summary */ }
+
+    // ── Bloque 2: contexto de Gobernanza ───────────────────────────────
+    // Empresas (lista compacta), documentos pendientes/vencidos de la
+    // empresa filtrada, obligaciones próximas y alertas críticas/warning.
+    const govLines = [];
+    if (filtered && company) {
+      govLines.push(`EMPRESA: ${company.name}${company.cif?` · CIF ${company.cif}`:""} · tipo ${company.type||"operativa"}${company.parentId?` · matriz ${companies.find(c=>c.id===company.parentId)?.name||"?"}`:""}`);
+    } else {
+      const compactList = companies.slice(0, 8).map(c => {
+        const tag = c.type === "holding" ? "🏛️" : c.type === "patrimonial" ? "🏠" : c.type === "spv" ? "📦" : "⚙️";
+        return `${tag} ${c.name}${c.cif?` (${c.cif})`:""}`;
+      }).join(" · ");
+      govLines.push(`GRUPO: ${companies.length} empresa${companies.length!==1?"s":""}${compactList?` — ${compactList}`:""}`);
+    }
+    // Documentos: filtrados por empresa cuando aplica. Compactamos a
+    // accountable (no "not_applicable"). Mostramos hasta 12 con su estado.
+    const docs = (filtered ? allDocs.filter(x => x.companyId === filterId) : allDocs)
+      .filter(x => x.status !== "not_applicable");
+    if (docs.length > 0) {
+      const attached = docs.filter(x => x.status === "attached").length;
+      const pending  = docs.filter(x => x.status === "pending").length;
+      const overdue  = docs.filter(x => x.status === "overdue").length;
+      govLines.push(`\nDOCUMENTOS (${attached} ✅ · ${pending} ❌ falta · ${overdue} 🔴 vencidos):`);
+      // Priorizamos lo que requiere atención: overdue y pending requeridos primero.
+      const importantes = [
+        ...docs.filter(x => x.status === "overdue"),
+        ...docs.filter(x => x.status === "pending" && x.required),
+      ].slice(0, 12);
+      for (const dx of importantes) {
+        const icon = dx.status === "attached" ? "✅" : dx.status === "overdue" ? "🔴" : "❌";
+        const due = dx.dueDate ? ` · vence ${dx.dueDate}` : "";
+        govLines.push(`  · ${dx.name}: ${icon} ${dx.status}${due}`);
+      }
+      if (importantes.length === 0 && attached > 0) {
+        govLines.push(`  · Toda la documentación obligatoria está adjuntada ✅`);
+      }
+    }
+    // Obligaciones fiscales próximas (las 5 siguientes con dueDate >= hoy y no presentadas).
+    const upcoming = allObligs
+      .filter(o => o.status !== "filed" && o.dueDate && o.dueDate >= todayIso)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+      .slice(0, 5);
+    if (upcoming.length > 0) {
+      govLines.push(`\nOBLIGACIONES FISCALES PRÓXIMAS:`);
+      for (const o of upcoming) {
+        const days = Math.floor((new Date(o.dueDate) - new Date(todayIso)) / 86400000);
+        govLines.push(`  · ${o.model || "(modelo)"} ${o.concept || ""}: vence ${o.dueDate} (en ${days}d)`);
+      }
+    }
+    // Alertas vivas — críticas y warnings.
+    const critAlerts = allAlerts.filter(a => a.level === "critical");
+    const warnAlerts = allAlerts.filter(a => a.level === "warning");
+    if (critAlerts.length > 0 || warnAlerts.length > 0) {
+      govLines.push(`\nALERTAS GOBERNANZA: ${critAlerts.length} críticas · ${warnAlerts.length} warnings`);
+      [...critAlerts, ...warnAlerts].slice(0, 4).forEach(a => {
+        govLines.push(`  · ${a.level === "critical" ? "🔴" : "🟡"} ${a.title || a.message || "(sin título)"}`);
+      });
+    }
+    const govCtx = govLines.length > 0 ? "CONTEXTO DE GOBERNANZA:\n" + govLines.join("\n") : "";
+
+    // ── Bloque 3: detalle bancario operativo ───────────────────────────
+    // Aquí Diego necesita los IDs reales para poder proponer
+    // [ACTIONS]/update_bank_movement.
+    const opLines = [];
+    if (accounts.length > 0) {
+      opLines.push(`CUENTAS BANCARIAS (${accounts.length}):`);
+      accounts.slice(0, 8).forEach(a => opLines.push(`  · ${a.bankName}${a.alias?` · ${a.alias}`:""} → saldo ${fmtEur(a.currentBalance)}${a.iban?` · ${a.iban.slice(-4)}`:""}`));
+    }
+    // Agrupación por categoría (para identificar concentraciones).
     const byCat = new Map();
     const uncategorized = [];
     for (const m of recent) {
-      const amt = Number(m.amount)||0;
-      if (amt >= 0) income += amt; else expense += Math.abs(amt);
       const key = m.category || "_uncat";
       const agg = byCat.get(key) || { count:0, total:0 };
-      agg.count++; agg.total += amt;
+      agg.count++; agg.total += Number(m.amount)||0;
       byCat.set(key, agg);
       if (!m.category) uncategorized.push(m);
     }
-    const top = recent.slice().sort((a,b)=>Math.abs(Number(b.amount)||0) - Math.abs(Number(a.amount)||0)).slice(0,10);
-    const lines = [];
-    if (selectedCompanyId && selectedCompanyId !== "all") {
-      const c = companies.find(x=>x.id===selectedCompanyId);
-      lines.push(`EMPRESA FILTRADA: ${c?.name || "(sin nombre)"}${c?.cif?` · CIF ${c.cif}`:""}`);
-    } else {
-      lines.push(`VISTA: consolidada todas las empresas (${companies.length})`);
-    }
-    if (accounts.length > 0) {
-      lines.push(`\nCUENTAS BANCARIAS (${accounts.length}):`);
-      accounts.slice(0,8).forEach(a => lines.push(`  · ${a.bankName}${a.alias?` · ${a.alias}`:""} → saldo ${fmtEur(a.currentBalance)}`));
-    }
-    lines.push(`\nMOVIMIENTOS últimos ${recent.length}${movs.length>recent.length?` (de ${movs.length} totales)`:""}:`);
-    lines.push(`  Ingresos: ${fmtEur(income)} · Gastos: ${fmtEur(expense)} · Neto: ${fmtEur(income-expense)}`);
     if (byCat.size > 0) {
-      lines.push(`\nAGRUPACIÓN POR CATEGORÍA:`);
-      const sorted = Array.from(byCat.entries()).sort((a,b)=>Math.abs(b[1].total)-Math.abs(a[1].total)).slice(0,12);
+      opLines.push(`\nGASTO POR CATEGORÍA (${recent.length} movs últimos 3 meses):`);
+      const sorted = Array.from(byCat.entries()).sort((a,b)=>Math.abs(b[1].total)-Math.abs(a[1].total)).slice(0,10);
       sorted.forEach(([k, v]) => {
-        const label = k === "_uncat" ? "❓ SIN CATEGORIZAR" : catName(k);
-        lines.push(`  · ${label}: ${v.count} movs · total ${fmtEur(v.total)}`);
+        const label = k === "_uncat" ? "❓ SIN CATEGORIZAR" : `${catName(k)}${catPgc(k)?` (${catPgc(k)})`:""}`;
+        opLines.push(`  · ${label}: ${v.count} movs · total ${fmtEur(v.total)}`);
       });
     }
+    // Top 10 movimientos por importe absoluto — para que Diego pueda
+    // priorizar análisis o proponer reclasificación de los grandes.
+    const top = recent.slice().sort((a,b)=>Math.abs(Number(b.amount)||0) - Math.abs(Number(a.amount)||0)).slice(0,10);
     if (top.length > 0) {
-      lines.push(`\nTOP 10 MOVIMIENTOS POR IMPORTE:`);
-      top.forEach(m => lines.push(`  · [${m.id}] ${m.date} · ${m.concept?.slice(0,50)||"(sin concepto)"} · ${fmtEur(m.amount)} · ${accLabel(m.accountId)}${m.category?` · ${catName(m.category)}`:" · ❓ sin cat"}`));
+      opLines.push(`\nTOP 10 MOVIMIENTOS POR IMPORTE:`);
+      top.forEach(m => opLines.push(`  · [${m.id}] ${m.date} · ${(m.concept||"(sin concepto)").slice(0,50)} · ${fmtEur(m.amount)} · ${accLabel(m.accountId)}${m.category?` · ${catName(m.category)}`:" · ❓ sin cat"}`));
     }
+    // Sin categorizar: TODOS hasta 30 (en vez de 20). Diego usa el id
+    // real para emitir update_bank_movement en bloque.
     if (uncategorized.length > 0) {
-      lines.push(`\nMOVIMIENTOS SIN CATEGORIZAR (${uncategorized.length}, máx 20 mostrados — usa el id real para [ACTIONS]/update_bank_movement):`);
-      uncategorized.slice(0,20).forEach(m => lines.push(`  · [${m.id}] ${m.date} · ${m.concept?.slice(0,60)||"(sin)"} · ${fmtEur(m.amount)}`));
+      const showN = Math.min(uncategorized.length, 30);
+      opLines.push(`\nMOVIMIENTOS SIN CATEGORIZAR (${uncategorized.length} totales · ${showN} mostrados — usa el id real en [ACTIONS]/update_bank_movement):`);
+      uncategorized.slice(0, 30).forEach(m => opLines.push(`  · [${m.id}] ${m.date} · ${(m.concept||"(sin)").slice(0,60)} · ${fmtEur(m.amount)}`));
     }
-    // Truncado defensivo: cap ~3000 chars para no reventar el prompt.
-    let finCtx = "CONTEXTO FINANCIERO VIVO:\n" + lines.join("\n");
-    if (finCtx.length > 3000) finCtx = finCtx.slice(0,2980) + "\n…(truncado)";
+
+    // ── Bloque 4: facturas pendientes detalladas ───────────────────────
+    // Lista las pendientes y vencidas con días de retraso para que Diego
+    // pueda proponer acciones de cobro/pago concretas. Limitado a 15.
+    const facturasOpen = invoices.filter(i => i.status !== "pagada");
+    const factLines = [];
+    if (facturasOpen.length > 0) {
+      const vencidas = facturasOpen.filter(i => i.dueDate && i.dueDate < todayIso);
+      const pendientes = facturasOpen.filter(i => !(i.dueDate && i.dueDate < todayIso));
+      factLines.push(`FACTURAS PENDIENTES: ${facturasOpen.length} (${vencidas.length} vencidas)`);
+      const showList = [...vencidas, ...pendientes].slice(0, 15);
+      for (const inv of showList) {
+        const days = inv.dueDate ? Math.floor((new Date(todayIso) - new Date(inv.dueDate)) / 86400000) : null;
+        const dayTag = days == null ? "" : days > 0 ? ` · 🔴 vencida hace ${days}d` : days < 0 ? ` · vence en ${-days}d` : ` · vence hoy`;
+        const tipoTag = inv.type === "emitida" ? "📤" : "📥";
+        const cp = inv.counterparty?.name || "(sin nombre)";
+        factLines.push(`  · [${inv.id}] ${tipoTag} ${inv.number||"(sin nº)"} · ${cp.slice(0,40)} · ${fmtEur(inv.total)}${dayTag}`);
+      }
+    }
+    const factCtx = factLines.length > 0 ? "FACTURAS:\n" + factLines.join("\n") : "";
+    const opCtx = opLines.length > 0 ? "BANCARIO DETALLADO:\n" + opLines.join("\n") : "";
+
+    // Composición final con cap defensivo a ~4000 chars (incluye summary +
+    // gobernanza + bancario + facturas). Si se pasa, truncamos al final.
+    const blocks = [summaryTxt, govCtx, opCtx, factCtx].filter(Boolean);
+    let finCtx = blocks.join("\n\n");
+    if (finCtx.length > 4000) finCtx = finCtx.slice(0, 3980) + "\n…(truncado)";
     const system = (diego.promptBase||`Eres Diego, analista financiero senior.`)
       + "\n\n" + PLAIN_TEXT_RULE
-      + "\n\n" + finCtx
+      + (finCtx ? `\n\n${finCtx}` : "")
       + (extraSystem ? `\n\n${extraSystem}` : "");
     const out = await callAgentSafe({system, messages: messages||[], max_tokens: 4096});
     return out;
