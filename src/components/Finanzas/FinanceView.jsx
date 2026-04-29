@@ -17,7 +17,7 @@ import Diego from "./Diego.jsx";
 
 const SELECTED_COMPANY_KEY = "finanzas_selectedCompany";
 
-export default function FinanceView({ data, member, canEdit, onAddMovement, onUpdateMovement, onDeleteMovement, onAddBankAccount, onUpdateBankAccount, onDeleteBankAccount }) {
+export default function FinanceView({ data, member, canEdit, onAddMovement, onUpdateMovement, onDeleteMovement, onAddBankAccount, onUpdateBankAccount, onDeleteBankAccount, onAddBankMovement, onUpdateBankMovement, onDeleteBankMovement }) {
   const [tab, setTab] = useState("dashboard");
   const companies = (data.governance?.companies) || [];
 
@@ -126,6 +126,9 @@ export default function FinanceView({ data, member, canEdit, onAddMovement, onUp
           onAddBankAccount={onAddBankAccount}
           onUpdateBankAccount={onUpdateBankAccount}
           onDeleteBankAccount={onDeleteBankAccount}
+          onAddBankMovement={onAddBankMovement}
+          onUpdateBankMovement={onUpdateBankMovement}
+          onDeleteBankMovement={onDeleteBankMovement}
         />
       )}
       {tab === "facturacion" && <Facturacion data={data} selectedCompanyId={selectedCompanyId} />}

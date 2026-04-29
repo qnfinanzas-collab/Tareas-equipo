@@ -9915,6 +9915,80 @@ export default function TaskFlow(){
     });
     addToast("Cuenta eliminada o desactivada","info");
   },[addToast]);
+  // Movimientos bancarios. companyId se hereda de la cuenta si no viene
+  // explícito en payload (caso del modal manual). amount es signed: + para
+  // ingresos, − para gastos. balance es opcional (si lo trae el extracto
+  // bancario se mantiene; si lo añade el usuario manual se calcula a partir
+  // de saldo previo de la cuenta + delta).
+  const addBankMovement = useCallback((payload)=>{
+    setData(prev=>{
+      const account = (prev.bankAccounts||[]).find(a => a.id === payload.accountId);
+      const companyId = payload.companyId || account?.companyId || null;
+      const now = new Date().toISOString();
+      const movement = {
+        id: _newFinanceId(),
+        accountId: payload.accountId,
+        companyId,
+        date: payload.date || fmt(new Date()),
+        valueDate: payload.valueDate || payload.date || fmt(new Date()),
+        concept: (payload.concept||"").trim(),
+        amount: Number(payload.amount) || 0,
+        balance: typeof payload.balance === "number" ? payload.balance : null,
+        category: payload.category || null,
+        subcategory: payload.subcategory || null,
+        invoiceId: payload.invoiceId || null,
+        reconciled: !!payload.reconciled,
+        notes: (payload.notes||"").trim(),
+        importedFrom: payload.importedFrom || "manual",
+        importBatchId: payload.importBatchId || null,
+        createdBy: activeMember,
+        createdAt: now,
+        updatedAt: now,
+      };
+      // Si fue manual y no traía balance explícito, actualizamos el saldo
+      // current de la cuenta sumando el amount. Si vino de import con
+      // balance ya calculado por el banco, no tocamos currentBalance —
+      // la conciliación se hace contra el balance importado.
+      let nextAccounts = prev.bankAccounts || [];
+      if (movement.importedFrom === "manual" && account) {
+        nextAccounts = nextAccounts.map(a => a.id === account.id
+          ? { ...a, currentBalance: (Number(a.currentBalance)||0) + movement.amount, updatedAt: now }
+          : a);
+      }
+      return {
+        ...prev,
+        bankMovements: [movement, ...(prev.bankMovements||[])],
+        bankAccounts: nextAccounts,
+      };
+    });
+    addToast("✓ Movimiento bancario registrado");
+  },[activeMember, addToast]);
+  const updateBankMovement = useCallback((id, patch)=>{
+    setData(prev=>({
+      ...prev,
+      bankMovements: (prev.bankMovements||[]).map(m=>m.id===id ? {...m, ...patch, updatedAt:new Date().toISOString()} : m),
+    }));
+    addToast("✓ Movimiento actualizado");
+  },[addToast]);
+  const deleteBankMovement = useCallback((id)=>{
+    setData(prev=>{
+      const mov = (prev.bankMovements||[]).find(m => m.id === id);
+      let nextAccounts = prev.bankAccounts || [];
+      // Si era manual, revertimos el saldo de la cuenta. Importados no
+      // tocan currentBalance porque ese se reconcilia contra el banco.
+      if (mov && mov.importedFrom === "manual" && mov.accountId) {
+        nextAccounts = nextAccounts.map(a => a.id === mov.accountId
+          ? { ...a, currentBalance: (Number(a.currentBalance)||0) - (Number(mov.amount)||0), updatedAt: new Date().toISOString() }
+          : a);
+      }
+      return {
+        ...prev,
+        bankMovements: (prev.bankMovements||[]).filter(m=>m.id!==id),
+        bankAccounts: nextAccounts,
+      };
+    });
+    addToast("Movimiento eliminado","info");
+  },[addToast]);
   const updateFinanceMovement = useCallback((id, patch)=>{
     setData(prev=>({
       ...prev,
@@ -10945,7 +11019,7 @@ export default function TaskFlow(){
             if(!canView){
               return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>🔒 Sin permisos para acceder al módulo de Finanzas. Contacta con el admin global.</div>;
             }
-            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount}/>;
+            return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement}/>;
           })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
           {activeTab==="gobernanza"&&(()=>{
