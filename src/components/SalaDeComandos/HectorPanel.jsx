@@ -512,7 +512,12 @@ Reglas:
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       let parsed = null; try { parsed = JSON.parse(raw); } catch {}
       const text = parsed?.text || raw;
-      const m = text.match(/\{[\s\S]*\}/);
+      // Quitar bloque [ACTIONS]...[/ACTIONS] antes de buscar el JSON de
+      // Héctor — si no, el regex greedy captura todo y el JSON.parse falla.
+      // El bloque ACTIONS no aplica a generateHectorThought (es para chat).
+      const cleanText = String(text).replace(/\[ACTIONS\][\s\S]*?\[\/ACTIONS\]/g, "").trim();
+      // Lazy match para coger SOLO el primer objeto bien formado.
+      const m = cleanText.match(/\{[\s\S]*\}/);
       if (!m) throw new Error("JSON no encontrado en respuesta");
       const decision = JSON.parse(m[0]);
       if (cancelledRef.current) return;
@@ -591,8 +596,11 @@ Reglas:
       }
     } catch (e) {
       if (cancelledRef.current) return;
+      // No tocar hectorState aquí: "paused" da impresión de "sin créditos
+      // API". Mantenemos el estado anterior y mostramos el error real en
+      // el thought para que el CEO sepa qué pasó (típicamente parser).
       console.warn("[HectorPanel] generateHectorThought fallo:", e?.message);
-      setState("paused");
+      setCurrentThought(`⚠ ${e?.message || "Error procesando análisis"}`);
     } finally {
       isGenerating.current = false;
       if (!cancelledRef.current) setIsThinking(false);
@@ -767,14 +775,20 @@ Reglas para block_task:
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       let proxied = null; try { proxied = JSON.parse(raw); } catch {}
       const text = proxied?.text || raw;
-      const m = text.match(/\{[\s\S]*\}/);
-      if (!m) throw new Error("JSON no encontrado");
-      const parsedReply = JSON.parse(m[0]);
+      // PRIMERO: extraer y separar el bloque [ACTIONS] del texto crudo
+      // para que el parser JSON de Héctor no lo capture como parte de su
+      // propio JSON de respuesta. proposalFromRaw queda para mostrar
+      // ActionProposal al final aunque el JSON de Héctor venga vacío.
+      const proposalFromRaw = parseAgentActions(text);
+      const textWithoutActions = String(text).replace(/\[ACTIONS\][\s\S]*?\[\/ACTIONS\]/g, "").trim();
+      // SEGUNDO: parsear el JSON de orden de Héctor sobre el texto sin ACTIONS.
+      const m = textWithoutActions.match(/\{[\s\S]*\}/);
+      if (!m && !proposalFromRaw) throw new Error("JSON no encontrado");
+      const parsedReply = m ? JSON.parse(m[0]) : { reply: "" };
       const reply = (parsedReply.reply || "").trim();
-      // Detectar bloque [ACTIONS] en la respuesta. Si lo hay, lo
-      // separamos del texto visible y lo adjuntamos al mensaje para que
-      // ActionProposal lo renderice abajo.
-      const proposal = parseAgentActions(reply);
+      // Si Héctor incluyó propuesta dentro del campo reply, también la
+      // detectamos (caso poco probable pero defensivo).
+      const proposal = proposalFromRaw || parseAgentActions(reply);
       const cleanReply = proposal ? cleanAgentResponse(reply) : reply;
       setChatHistory((prev) => [...prev, { role: "hector", text: cleanReply || "(sin respuesta)", proposal, ts: Date.now() }].slice(-CHAT_MAX));
       executeAction(parsedReply);
