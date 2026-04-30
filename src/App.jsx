@@ -10728,25 +10728,46 @@ export default function TaskFlow(){
     return { totalD: Math.round(totalD*100)/100, totalC: Math.round(totalC*100)/100, diff: Math.abs(totalD-totalC) };
   };
   const addAccountingEntry = useCallback((payload)=>{
-    // [DEBUG] Logs temporales para diagnosticar por qué algunos asientos
-    // se reportan como creados pero no aparecen en Contabilidad.
-    console.log("[addAccountingEntry] entrada recibida:", JSON.stringify(payload).slice(0, 500));
     if (!payload || !payload.companyId) {
-      console.error("[addAccountingEntry] RECHAZADO — falta companyId:", payload?.companyId);
       addToast("Selecciona una empresa antes de crear el asiento","warn");
       return null;
     }
     const lines = _normalizeEntryLines(payload.lines);
     if (lines.length < 2) {
-      console.error("[addAccountingEntry] RECHAZADO — menos de 2 líneas:", lines.length);
       addToast("El asiento necesita al menos 2 líneas","warn");
       return null;
     }
     const { totalD, totalC, diff } = _entryBalances(lines);
-    console.log("[addAccountingEntry] validación debe/haber:", { debe: totalD, haber: totalC, diff });
     if (diff > 0.011) {
-      console.error("[addAccountingEntry] RECHAZADO — debe/haber no cuadra:", { debe: totalD, haber: totalC });
       addToast(`Asiento descuadrado: debe ${totalD} ≠ haber ${totalC}`,"warn");
+      return null;
+    }
+    // Detección de duplicados: rechazamos si ya existe un asiento de la
+    // misma empresa con fecha ±1 día, mismo total (debe o haber, ±0.01€)
+    // y descripción similar (primeros 30 chars en minúsculas, substring
+    // match). Cubre el caso típico de doble click en "Crear todo" o de
+    // Diego proponiendo el mismo asiento dos veces tras un fallo de red.
+    const desiredDesc = (payload.description||"").trim().toLowerCase().slice(0, 30);
+    const desiredDate = payload.date || fmt(new Date());
+    const existingEntries = dataRef.current?.accountingEntries || [];
+    const dayMs = 86400000;
+    const refTime = new Date(desiredDate).getTime();
+    const dup = existingEntries.find(e => {
+      if (e.companyId !== payload.companyId) return false;
+      const eTime = new Date(e.date).getTime();
+      if (isNaN(eTime) || isNaN(refTime)) return false;
+      if (Math.abs(eTime - refTime) > dayMs) return false;
+      const eBalances = _entryBalances(e.lines || []);
+      // Tolerancia 0.01€ porque los importes redondeados pueden no
+      // coincidir bit a bit, pero sí ser el mismo movimiento real.
+      if (Math.abs(eBalances.totalD - totalD) > 0.011) return false;
+      const eDesc = (e.description||"").toLowerCase().slice(0, 30);
+      if (!desiredDesc || !eDesc) return false;
+      return eDesc.includes(desiredDesc) || desiredDesc.includes(eDesc);
+    });
+    if (dup) {
+      const fmtImporte = new Intl.NumberFormat("es-ES",{style:"currency",currency:"EUR",maximumFractionDigits:2}).format(totalD);
+      addToast(`⚠️ Ya existe un asiento similar del ${dup.date} por ${fmtImporte}. No se ha creado.`,"warn",{ttl:5000});
       return null;
     }
     // Generamos el id ANTES del setData para devolverlo síncronamente.
@@ -10774,7 +10795,6 @@ export default function TaskFlow(){
         createdAt: now,
         updatedAt: now,
       };
-      console.log("[addAccountingEntry] CREADO con id:", newId, "· nº", entry.number, "· companyId", entry.companyId, "· total entries tras inserción:", (prev.accountingEntries||[]).length + 1);
       return { ...prev, accountingEntries: [entry, ...(prev.accountingEntries||[])] };
     });
     addToast("✓ Asiento contable creado");
@@ -10801,13 +10821,13 @@ export default function TaskFlow(){
     addToast("✓ Asiento actualizado");
   },[addToast]);
   const deleteAccountingEntry = useCallback((id)=>{
-    // Comprobamos el estado contra dataRef antes de tocar el state — así
-    // damos un toast preciso (bloqueo si está confirmado).
-    const existing = (dataRef.current?.accountingEntries||[]).find(x => x.id === id);
-    if (existing && existing.status !== "borrador") {
-      addToast("No se puede borrar un asiento confirmado","warn");
-      return;
-    }
+    // Antes solo permitíamos borrar borradores. La convención contable
+    // recomendaba rectificar con un asiento de regularización en vez de
+    // borrar — pero la realidad operativa del CEO es que muchos asientos
+    // de Diego se crean como "confirmado" por defecto y luego hay que
+    // poder borrarlos al revisar. Permitimos borrar cualquier estado;
+    // la confirmación dura ahora vive en la UI (Contabilidad.jsx).
+    console.log("[deleteAccountingEntry] eliminado id:", id);
     setData(prev=>({
       ...prev,
       accountingEntries: (prev.accountingEntries||[]).filter(x => x.id !== id),

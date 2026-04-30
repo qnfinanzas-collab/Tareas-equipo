@@ -227,7 +227,7 @@ export default function Contabilidad({ data, canEdit, selectedCompanyId, onAddAc
                   entry={e}
                   canEdit={canEdit}
                   onClick={() => canEdit && setEditing(e)}
-                  onDelete={canEdit && e.status === "borrador" ? () => onDeleteAccountingEntry?.(e.id) : null}
+                  onDelete={canEdit ? () => onDeleteAccountingEntry?.(e.id) : null}
                 />
               ))}
             </div>
@@ -255,7 +255,7 @@ export default function Contabilidad({ data, canEdit, selectedCompanyId, onAddAc
               setEditing(null);
             }
           }}
-          onDelete={editing !== "new" && editing.status === "borrador"
+          onDelete={editing !== "new"
             ? () => { onDeleteAccountingEntry?.(editing.id); setEditing(null); }
             : null}
           onAddCustomAccount={onAddCustomAccount}
@@ -294,9 +294,9 @@ function EntryRow({ entry, canEdit, onClick, onDelete }) {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              if (window.confirm(`¿Eliminar asiento #${entry.number} (borrador)?`)) onDelete();
+              if (window.confirm(`¿Eliminar este asiento? Esta acción no se puede deshacer.`)) onDelete();
             }}
-            title="Eliminar (solo borradores)"
+            title="Eliminar asiento"
             style={{ width: 26, height: 26, borderRadius: 6, background: "#fff", border: "0.5px solid #FCA5A5", color: "#B91C1C", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
           >🗑</button>
         )}
@@ -537,7 +537,7 @@ function EntryModal({ entry, companyId: forcedCompanyId, chart, onClose, onSave,
 
           <div style={{ display: "flex", gap: 8, justifyContent: "space-between", marginTop: 6 }}>
             {onDelete && (
-              <button onClick={() => { if (window.confirm("¿Eliminar este asiento (borrador)?")) onDelete(); }} style={{ padding: "8px 14px", borderRadius: 8, background: "transparent", border: "1px solid #FCA5A5", color: "#B91C1C", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Eliminar</button>
+              <button onClick={() => { if (window.confirm("¿Eliminar este asiento? Esta acción no se puede deshacer.")) onDelete(); }} style={{ padding: "8px 14px", borderRadius: 8, background: "transparent", border: "1px solid #FCA5A5", color: "#B91C1C", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Eliminar</button>
             )}
             <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
               <button onClick={onClose} style={cancelBtn}>Cancelar</button>
