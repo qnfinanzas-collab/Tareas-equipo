@@ -11407,6 +11407,7 @@ export default function TaskFlow(){
       addInvoice,
       updateInvoice,
       defaultCompanyId,
+      addToast,
       findProjectByCode: (code) => (dataRef.current?.projects || []).find(p => p.code === code),
     };
     // Pasada 1: crear proyectos. Esto encola setData. Esperamos al flush
@@ -11466,7 +11467,7 @@ export default function TaskFlow(){
     // Pasada 2: resto de acciones (negotiation, create_tasks sobre code existente, movement)
     const results2 = executeAgentActions(otherActions, helpers);
     return { results: [...results1, ...results2] };
-  },[createProject, addTaskToProject, createNegotiation, addFinanceMovement, addBankMovement, updateBankMovement, addAccountingEntry, addInvoice, updateInvoice, activeMember, data]);
+  },[createProject, addTaskToProject, createNegotiation, addFinanceMovement, addBankMovement, updateBankMovement, addAccountingEntry, addInvoice, updateInvoice, addToast, activeMember, data]);
   const editProject = useCallback((idx,{name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility})=>{
     setData(prev=>{
       const p=prev.projects[idx];

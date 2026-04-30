@@ -233,6 +233,7 @@ export function executeAgentActions(actions, helpers) {
     addInvoice,           // (payload) → id (Diego: nueva factura)
     updateInvoice,        // (id, patch) → side-effect (Diego: actualizar factura)
     defaultCompanyId,     // string|null — empresa filtrada en la UI cuando aplica
+    addToast,             // (msg, level, opts?) → side-effect — visibilidad de fallos
   } = helpers || {};
 
   for (const action of actions) {
@@ -271,6 +272,8 @@ export function executeAgentActions(actions, helpers) {
         case AGENT_ACTION_TYPES.CREATE_TASKS: {
           const project = findProjectByCode?.(action.projectCode);
           if (!project) {
+            console.error("[Executor] Proyecto no encontrado para code:", action.projectCode, "— acción omitida:", action.type);
+            addToast?.(`⚠ Proyecto "${action.projectCode}" no encontrado — tareas no creadas`, "warn");
             results.push({ type: "error", action: action.type, error: `Proyecto con code ${action.projectCode} no encontrado` });
             break;
           }
@@ -295,6 +298,15 @@ export function executeAgentActions(actions, helpers) {
         case AGENT_ACTION_TYPES.CREATE_NEGOTIATION: {
           const memberIds = resolveAssignees(action.assignees || ["admin"], allMembers, adminMemberId);
           const linkedProj = action.linkedProjectCode ? findProjectByCode?.(action.linkedProjectCode) : null;
+          // Si el agente pidió linkedProjectCode pero el lookup falló, la
+          // negociación se crea sin link (comportamiento histórico). Antes
+          // era silencioso: la UI mostraba "✅ ejecutadas correctamente"
+          // aunque la negociación quedaba huérfana del proyecto. Ahora
+          // logueamos y avisamos al CEO con toast.
+          if (action.linkedProjectCode && !linkedProj) {
+            console.error("[Executor] Proyecto no encontrado para code:", action.linkedProjectCode, "— acción omitida:", "negotiation.linkedProjectCode (negociación se creará sin link)");
+            addToast?.(`⚠ Proyecto "${action.linkedProjectCode}" no encontrado — negociación creada sin link`, "warn");
+          }
           const nowIso = new Date().toISOString();
           const factToItem = (text) => ({ id: cryptoRandomId("kf"), text, source: "agent", addedAt: nowIso });
           createNegotiation?.({
