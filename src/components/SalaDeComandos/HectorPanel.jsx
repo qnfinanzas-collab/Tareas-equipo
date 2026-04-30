@@ -354,6 +354,10 @@ export default function HectorPanel({
   const cancelledRef = useRef(false);
   const stopListenRef = useRef(null);
   const chatScrollRef = useRef(null);
+  // Botón flotante "↓ Ir al final" — aparece cuando el CEO ha hecho scroll
+  // arriba en una conversación larga y desaparece cerca del fondo. Sin
+  // tocar lógica del chat, solo presentación.
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
   const chatEndRef = useRef(null);
 
   // Persistencia: recomendaciones
@@ -468,15 +472,28 @@ export default function HectorPanel({
   // Auto-scroll al último mensaje cuando hay actividad en el chat. Usa un
   // sentinel al final de la lista — el contenedor con overflow:auto está
   // varios niveles arriba y se remonta al cambiar de tab, así que
-  // scrollIntoView en el sentinel es la forma más fiable.
+  // scrollIntoView en el sentinel es la forma más fiable. behavior:smooth
+  // para que el CEO vea la transición y no aparezca de golpe al fondo.
   useEffect(() => {
     if (activeTab !== "chat") return;
     const el = chatEndRef.current;
     if (!el) return;
     requestAnimationFrame(() => {
-      try { el.scrollIntoView({ block: "end" }); } catch {}
+      try { el.scrollIntoView({ behavior: "smooth", block: "end" }); } catch {}
     });
   }, [activeTab, chatHistory.length, chatLoading]);
+
+  // Handler de scroll del contenedor del chat — controla si mostramos el
+  // botón flotante "Ir al final". Solo activo cuando el usuario está a
+  // más de 200px del fondo. Sin animar el state para que React no
+  // re-renderice en cada pixel del scroll: el threshold actúa de filtro.
+  const handleChatScroll = (e) => {
+    if (activeTab !== "chat") return;
+    const el = e.currentTarget;
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const shouldShow = distFromBottom > 200;
+    setShowScrollBtn(prev => prev === shouldShow ? prev : shouldShow);
+  };
 
   const setState = (s) => { setHectorState(s); onStateChange?.(s); };
 
@@ -1250,6 +1267,9 @@ Reglas para block_task:
       maxWidth: "100%",
       overflow: "hidden",
       boxSizing: "border-box",
+      // position:relative para anclar el botón flotante "↓ Ir al final"
+      // dentro del panel sin que se desplace con el scroll interno.
+      position: "relative",
     }}>
       <style>{`
         @keyframes hp-fade-tab { from { opacity: 0; } to { opacity: 1; } }
@@ -1346,7 +1366,7 @@ Reglas para block_task:
       </div>
 
       {/* Contenido (flex: 1, scroll único) */}
-      <div key={activeTab} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 14, animation: "hp-fade-tab .2s ease", minHeight: 0, maxWidth: "100%", boxSizing: "border-box" }}>
+      <div key={activeTab} onScroll={handleChatScroll} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 14, animation: "hp-fade-tab .2s ease", minHeight: 0, maxWidth: "100%", boxSizing: "border-box" }}>
         {activeTab === "analysis" ? (
           <>
             {/* Pensamiento actual — variantes según estado:
@@ -1426,11 +1446,44 @@ Reglas para block_task:
           <div ref={chatScrollRef} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {chatHistory.length === 0 ? (
               <div style={{ fontSize: 11.5, color: "#9CA3AF", fontStyle: "italic", padding: "20px 8px", textAlign: "center" }}>Habla con Héctor o dale una orden — esto es el inicio.</div>
-            ) : chatHistory.slice(-CHAT_MAX).map((m, i) => {
+            ) : (() => {
+              // Slice + map con tracking de timestamp previo para inyectar
+              // separadores de sesión cuando hay >4h entre mensajes.
+              const SESSION_GAP_MS = 4 * 60 * 60 * 1000; // 4 horas
+              const visibleMessages = chatHistory.slice(-CHAT_MAX);
+              const fmtSessionDate = (ts) => {
+                const d = new Date(ts);
+                if (isNaN(d.getTime())) return "";
+                return d.toLocaleDateString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+              };
+              return visibleMessages.map((m, i) => {
+              // Separador de sesión: si han pasado >4h desde el mensaje
+              // anterior (o es el primero del array), insertamos una
+              // línea horizontal con la fecha. SOLO presentación.
+              const prev = i > 0 ? visibleMessages[i-1] : null;
+              const showSeparator = !prev || (
+                m.ts && prev.ts && (m.ts - prev.ts) > SESSION_GAP_MS
+              );
+              const separatorNode = showSeparator && m.ts && i > 0 ? (
+                <div key={`sep_${i}`} style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  margin: "8px 0",
+                  opacity: 0.4,
+                  color: "#6B7280",
+                }}>
+                  <div style={{ flex: 1, height: 1, background: "currentColor" }} />
+                  <span style={{ fontSize: 10.5, whiteSpace: "nowrap" }}>{fmtSessionDate(m.ts)} — nueva sesión</span>
+                  <div style={{ flex: 1, height: 1, background: "currentColor" }} />
+                </div>
+              ) : null;
               // Burbuja de análisis dentro del chat (renderiza task cards).
               if (m.role === "hector_analysis" && m.analysis) {
                 return (
-                  <div key={i} style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "flex-start" }}>
+                  <React.Fragment key={i}>
+                    {separatorNode}
+                  <div style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "flex-start" }}>
                     <span style={{ fontSize: 14, lineHeight: "20px", flexShrink: 0 }}>🧙</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ padding: "10px 12px", background: "#F0F7FF", border: "0.5px solid #BFDBFE", borderRadius: "12px 12px 12px 0", maxWidth: "100%", boxSizing: "border-box" }}>
@@ -1462,6 +1515,7 @@ Reglas para block_task:
                       <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4 }}>{fmtTs(m.ts)}</div>
                     </div>
                   </div>
+                  </React.Fragment>
                 );
               }
               // Follow-up con 2 botones de respuesta rápida.
@@ -1480,7 +1534,9 @@ Reglas para block_task:
                   generateHectorThought();
                 };
                 return (
-                  <div key={i} style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "flex-start" }}>
+                  <React.Fragment key={i}>
+                    {separatorNode}
+                  <div style={{ display: "flex", justifyContent: "flex-start", gap: 6, alignItems: "flex-start" }}>
                     <span style={{ fontSize: 14, lineHeight: "20px" }}>🧙</span>
                     <div style={{ maxWidth: "82%" }}>
                       <div style={{ padding: "8px 10px", background: "#FFF8E1", border: "1px solid #FCD34D", borderRadius: "12px 12px 12px 0", fontSize: 12, color: "#78350F", lineHeight: 1.4 }}>
@@ -1494,11 +1550,14 @@ Reglas para block_task:
                       <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4 }}>{fmtTs(m.ts)}</div>
                     </div>
                   </div>
+                  </React.Fragment>
                 );
               }
               const isUser = m.role === "user";
               return (
-                <div key={i} style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", gap: 6, alignItems: "flex-start" }}>
+                <React.Fragment key={i}>
+                  {separatorNode}
+                <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", gap: 6, alignItems: "flex-start" }}>
                   {!isUser && <span style={{ fontSize: 14, lineHeight: "20px" }}>🧙</span>}
                   <div style={{ maxWidth: "82%", display: "flex", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
                     <div style={{
@@ -1534,8 +1593,10 @@ Reglas para block_task:
                     <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4, paddingRight: 4 }}>{fmtTs(m.ts)}</div>
                   </div>
                 </div>
+                </React.Fragment>
               );
-            })}
+              });
+            })()}
             {chatLoading && (
               <div style={{ display: "flex", gap: 6 }}>
                 <span style={{ fontSize: 14, lineHeight: "20px" }}>🧙</span>
@@ -1583,6 +1644,35 @@ Reglas para block_task:
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#E24B4A", animation: "hp-pulse-dot 1.2s infinite" }} />
           <span>Escuchando… (pulsa el micro o Enviar cuando termines)</span>
         </div>
+      )}
+      {/* Botón flotante "↓ Ir al final" — solo en chat y solo cuando el
+          CEO está scrolleado arriba (>200px del fondo). Posicionado
+          relativo al panel (root tiene position:relative). Encima del
+          input fijo (60px) con offset extra de 20px. */}
+      {activeTab === "chat" && showScrollBtn && (
+        <button
+          onClick={() => {
+            try {
+              chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+            } catch {}
+          }}
+          style={{
+            position: "absolute",
+            bottom: 80,
+            right: 16,
+            background: "#3498DB",
+            color: "white",
+            border: "none",
+            borderRadius: 20,
+            padding: "6px 14px",
+            fontSize: 13,
+            cursor: "pointer",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+            zIndex: 10,
+            fontFamily: "inherit",
+            fontWeight: 600,
+          }}
+        >↓ Ir al final</button>
       )}
     </div>
   );
