@@ -7858,12 +7858,24 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             // Jorge, Álvaro, Gonzalo) generan outputs largos — contratos
             // completos, waterfalls, análisis LAU, escrituras. Con 1000
             // se truncaba a mitad de cláusula. 4096 cubre 3-4 páginas.
-            // Timeout 45s: específicos pueden tardar 10-25s razonando
-            // contratos largos. Antes no había abort, los specialists
-            // colgaban indefinidamente cuando el LLM se atascaba.
+            // Timeout: 45s base. Mario Legal sube a 90s cuando la tarea
+            // pide redactar contratos / documentos / cláusulas — ese tipo
+            // de salida tarda más en generarse y antes saltaba abort
+            // aunque el contenido estaba bien. Jorge/Álvaro/Gonzalo siguen
+            // en 45s sin cambio.
+            const REDACCION_KEYWORDS = [
+              "redacta", "redactar", "contrato", "documento", "acuerdo",
+              "escribe", "elabora", "borrador", "clausula", "clausulas",
+              "cláusula", "cláusulas", "arrendamiento", "cesion", "cesión",
+              "convenio", "escritura",
+            ];
+            const taskLower = String(task || "").toLowerCase();
+            const esRedaccion = ag.name === "Mario Legal"
+              && REDACCION_KEYWORDS.some(k => taskLower.includes(k));
+            const timeoutMs = esRedaccion ? 90000 : 45000;
             return callAgentSafe(
               { system: sys, messages: [{role:"user", content: ctx}], max_tokens: 4096 },
-              { timeoutMs: 45000 }
+              { timeoutMs }
             );
           };
           // Orquestador: invoca a un especialista y mete dos mensajes en el
