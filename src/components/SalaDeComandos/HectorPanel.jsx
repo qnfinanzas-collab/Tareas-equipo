@@ -897,10 +897,17 @@ Reglas para block_task:
 - followUpAt debe ser ~5 min después de blockUntil para preguntar al CEO cómo fue. Si no hay blockUntil, followUpAt también null.
 - Si la hora indicada por el CEO ya ha pasado, NO bloquees: responde con action:"none" y un comentario.`;
 
-      // Timeout 30s para el chat. Si el LLM no responde, el chat muestra
-      // el error en lugar de quedarse cargando indefinidamente.
+      // [DEBUG] Logs temporales para diagnosticar timeouts en órdenes
+      // complejas (crear proyecto + tareas + negociación). Permite ver
+      // qué pesa el prompt y cuánto se devuelve en respuesta.
+      console.log("[Hector] orden enviada, longitud:", userMessage.length);
+      console.log("[Hector] system prompt total chars:", system.length);
+      // Timeout 60s (subido desde 30s): con AGENT_ACTIONS_ADDON v4 y
+      // respuestas que incluyen [ACTIONS] grandes (proyecto + 6 tareas +
+      // negociación con stakeholders), Sonnet 4.5 puede tardar 30-50s.
+      // Con 30s saltaba abort en mitad del JSON.
       const ac = new AbortController();
-      const timeoutId = setTimeout(() => ac.abort(), 30000);
+      const timeoutId = setTimeout(() => ac.abort(), 60000);
       let r;
       try {
         r = await fetch("/api/agent", {
@@ -914,7 +921,7 @@ Reglas para block_task:
         });
       } catch (e) {
         clearTimeout(timeoutId);
-        if (e.name === "AbortError") throw new Error("Tiempo agotado tras 30s");
+        if (e.name === "AbortError") throw new Error("Héctor tardó más de 60s. La orden puede ser muy compleja. Prueba a dividirla: primero pídele crear el proyecto, luego las tareas, luego la negociación.");
         throw e;
       }
       clearTimeout(timeoutId);
@@ -922,6 +929,7 @@ Reglas para block_task:
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       let proxied = null; try { proxied = JSON.parse(raw); } catch {}
       const text = proxied?.text || raw;
+      console.log("[Hector] respuesta recibida, longitud:", String(text||"").length, "tiene ACTIONS:", String(text||"").includes("[ACTIONS]"));
       // PRIMERO: extraer y separar el bloque [ACTIONS] del texto crudo
       // para que el parser JSON de Héctor no lo capture como parte de su
       // propio JSON de respuesta. proposalFromRaw queda para mostrar
@@ -951,8 +959,9 @@ Reglas para block_task:
       // Mensaje claro al usuario en el chat. NO tocamos hectorState
       // (mantenerlo en "listening" o el que tenía) para no dar
       // sensación de "pausado/sin créditos" cuando solo es un parser.
-      const friendly = (e?.message || "").includes("Tiempo agotado")
-        ? `⚠ ${e.message}`
+      const isTimeout = (e?.message || "").includes("tardó más de 60s") || (e?.message || "").includes("Tiempo agotado");
+      const friendly = isTimeout
+        ? `⚠️ ${e.message}`
         : "⚠ Héctor no pudo procesar la orden. Inténtalo de nuevo.";
       setChatHistory((prev) => [...prev, { role: "hector", text: friendly, ts: Date.now() }].slice(-CHAT_MAX));
     } finally {
