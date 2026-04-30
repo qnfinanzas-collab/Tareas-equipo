@@ -242,7 +242,15 @@ export function executeAgentActions(actions, helpers) {
         case AGENT_ACTION_TYPES.CREATE_PROJECT: {
           const memberIds = resolveAssignees(action.assignees || ["admin"], allMembers, adminMemberId);
           const code = (action.code || (action.name||"PRJ").replace(/[^A-Z0-9]/gi, "").slice(0,3).toUpperCase() || "PRJ").slice(0,3).padEnd(3,"X");
-          createProject?.({
+          // createProject ahora devuelve {id, code} con el code REAL que
+          // acabó guardando. Si recibió "HE5" pero el validador rechazó
+          // (regex /^[A-Z]{3}$/ no admite dígitos), autogeneró otro
+          // distinto (p.ej. "HEM") y eso es lo que hay en data.projects.
+          // Empujamos ese realCode a results para que pass-2
+          // (create_tasks / linkedProjectCode) encuentre el proyecto.
+          // Compatibilidad hacia atrás: si createProject devolviera solo
+          // un id (forma vieja), realCode cae al code calculado localmente.
+          const result = createProject?.({
             name: action.name || "Proyecto sin nombre",
             code,
             desc: action.description || "",
@@ -253,15 +261,13 @@ export function executeAgentActions(actions, helpers) {
             workspaceId: action.workspaceId ?? null,
             visibility: action.visibility || "private",
           });
-          // Las tareas iniciales se crean a continuación, pero
-          // necesitamos el id del nuevo proyecto. createProject hace
-          // setData async; el caller debe usar findProjectByCode después
-          // del flush. Aquí guardamos las tareas como pendientes para
-          // que el caller las disparé en una segunda pasada.
+          const realCode = (result && typeof result === "object" && result.code) ? result.code : code;
+          const realId   = (result && typeof result === "object" && result.id != null) ? result.id : result;
           results.push({
             type: "project",
             name: action.name,
-            code,
+            code: realCode,
+            id: realId,
             taskCount: (action.tasks || []).length,
             pendingTasks: action.tasks || [],
             assignees: memberIds,

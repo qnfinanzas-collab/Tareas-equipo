@@ -11313,12 +11313,17 @@ export default function TaskFlow(){
   const createProject = useCallback(({name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility})=>{
     const id=nextProjId++;
     const cols=columns.map(n=>({id:`nc${nextColId++}`,name:n,tasks:[]}));
+    // Calculamos safeCode SÍNCRONAMENTE leyendo dataRef.current. Antes el
+    // cálculo vivía dentro de setData (closure) y no podía devolverse al
+    // caller — por eso agentActions guardaba en results el code que él
+    // CALCULÓ ("HE5"), no el que createProject realmente acabó guardando
+    // si tenía que regenerarlo ("HEM"). Esa divergencia hacía que pass-2
+    // no encontrase el proyecto al ejecutar create_tasks/create_negotiation.
+    const existingProjects = dataRef.current?.projects || [];
+    const safeCode = isValidProjectCode(code) && !existingProjects.some(p=>p.code===code)
+      ? code
+      : autoProjectCode(name, existingProjects.map(p=>p.code).filter(Boolean));
     setData(prev=>{
-      // Defensa adicional: el modal valida la unicidad pero un sync podría
-      // haber introducido un proyecto con el mismo código entre tanto.
-      const safeCode = isValidProjectCode(code) && !prev.projects.some(p=>p.code===code)
-        ? code
-        : autoProjectCode(name, prev.projects.map(p=>p.code).filter(Boolean));
       // El creador es siempre miembro y owner del proyecto. Visibility por
       // defecto "private": solo lo ven él y los miembros invitados.
       const memsWithCreator = Array.isArray(mems) && mems.includes(activeMember)
@@ -11335,7 +11340,10 @@ export default function TaskFlow(){
       }],boards:{...prev.boards,[id]:cols}};
     });
     addToast("✓ Proyecto creado");
-    return id; // útil para callers que necesitan el id (agentActions)
+    // Devolvemos {id, code} para que agentActions empuje a results el code
+    // REAL guardado, no el que envió. Anteriormente devolvía solo `id`;
+    // los únicos callers son ProjectModal (no usa el retorno) y agentActions.
+    return { id, code: safeCode };
   },[addToast, activeMember]);
 
   // Versión "directa" de addTask que opera sobre cualquier proyecto por
