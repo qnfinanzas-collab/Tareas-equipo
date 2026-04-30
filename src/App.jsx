@@ -11415,9 +11415,24 @@ export default function TaskFlow(){
     const otherActions   = selectedActions.filter(a => a.type !== "create_project");
 
     const results1 = executeAgentActions(projectActions, helpers);
-    // Esperamos un tick para que setData de createProject haga commit y
-    // findProjectByCode lo encuentre. dataRef se actualiza vía useEffect.
-    await new Promise(r => setTimeout(r, 50));
+    // Retry escalonado para que setData de createProject haga commit y
+    // dataRef tenga el proyecto antes de que pass-2 (create_tasks /
+    // create_negotiation con linkedProjectCode) llame findProjectByCode.
+    // En la mayoría de casos 50ms basta, pero con DevTools abiertas o
+    // renders pesados el flush tarda más — reintentamos a 50/100/200ms
+    // hasta encontrar TODOS los proyectos esperados. Si tras ~350ms
+    // siguen sin estar disponibles, continuamos: el lookup individual
+    // en pass-2 reportará error como antes (no empeora nada).
+    const expectedCodes = results1
+      .filter(r => r.type === "project" && r.code)
+      .map(r => r.code);
+    for (const ms of [50, 100, 200]) {
+      await new Promise(r => setTimeout(r, ms));
+      const allFound = expectedCodes.every(code =>
+        (dataRef.current?.projects || []).some(p => p.code === code)
+      );
+      if (allFound) break;
+    }
 
     // Para cada proyecto recién creado, ejecutamos sus tareas pendientes.
     for (const r of results1) {
