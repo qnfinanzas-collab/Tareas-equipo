@@ -10161,6 +10161,27 @@ export default function TaskFlow(){
       opLines.push(`CUENTAS BANCARIAS (${accounts.length}):`);
       accounts.slice(0, 8).forEach(a => opLines.push(`  · ${a.bankName}${a.alias?` · ${a.alias}`:""} → saldo ${fmtEur(a.currentBalance)}${a.iban?` · ${a.iban.slice(-4)}`:""}`));
     }
+    // Rango temporal real del histórico (¡no del subconjunto recent!). Esto
+    // evita que Diego diga "solo tengo desde febrero 2026": ve aquí desde
+    // qué fecha hay datos y cuántos movimientos por año, y sabe que para
+    // un mov antiguo concreto puede usar la BÚSQUEDA EN MOVIMIENTOS.
+    if (movs.length > 0) {
+      const dates = movs.map(m => m.date).filter(Boolean).sort();
+      const oldest = dates[0];
+      const newest = dates[dates.length - 1];
+      const byYear = new Map();
+      for (const m of movs) {
+        const y = (m.date||"").slice(0, 4);
+        if (!y) continue;
+        byYear.set(y, (byYear.get(y)||0) + 1);
+      }
+      const yearStr = Array.from(byYear.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([y, c]) => `${y}: ${c}`)
+        .join(" · ");
+      opLines.push(`\nRANGO DE DATOS: ${movs.length} movimientos desde ${oldest} hasta ${newest}${yearStr?` · ${yearStr}`:""}`);
+      opLines.push(`(El detalle inferior es solo de los últimos 3 meses. Para movimientos antiguos hay BÚSQUEDA EN MOVIMIENTOS abajo si la consulta menciona importe o concepto concreto.)`);
+    }
     // Agrupación por categoría (para identificar concentraciones).
     const byCat = new Map();
     const uncategorized = [];
@@ -10250,12 +10271,101 @@ export default function TaskFlow(){
     let cobCtx = cobLines.length > 0 ? cobLines.join("\n") : "";
     if (cobCtx.length > 500) cobCtx = cobCtx.slice(0, 480) + "\n…(truncado)";
 
-    // Composición final con cap defensivo a ~4500 chars (summary +
-    // gobernanza + bancario + facturas + contabilidad). Si se pasa,
-    // truncamos al final.
-    const blocks = [summaryTxt, govCtx, opCtx, factCtx, cobCtx].filter(Boolean);
+    // ── Bloque 6: BÚSQUEDA EN MOVIMIENTOS (dinámica) ──────────────────
+    // Para que Diego pueda responder sobre movimientos antiguos sin que
+    // entren TODOS en su contexto, extraemos del último mensaje del CEO
+    // las pistas (importes ≥ 50€ y palabras clave > 4 letras) y buscamos
+    // en TODO el histórico filtrado por empresa. Las coincidencias se
+    // inyectan como bloque adicional, máx 20.
+    //
+    // Extracción de importes: regex que captura números con separadores
+    // de miles/decimales en formato europeo y anglo. Filtra años (1900-
+    // 2100) para no matchear "2024" como 2024€.
+    const lastUserMsg = (messages||[]).slice().reverse().find(m => m.role === "user");
+    const userText = (lastUserMsg && typeof lastUserMsg.content === "string") ? lastUserMsg.content : "";
+    const extractAmounts = (text) => {
+      if (!text) return [];
+      const out = [];
+      const re = /\b\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?\b|\b\d+(?:[.,]\d{1,2})\b|\b\d+\b/g;
+      const matches = text.match(re) || [];
+      for (const raw of matches) {
+        const lc = raw.lastIndexOf(","), ld = raw.lastIndexOf(".");
+        let s = raw;
+        if (lc > -1 && ld > -1) {
+          if (lc > ld) s = s.replace(/\./g, "").replace(",", ".");
+          else         s = s.replace(/,/g, "");
+        } else if (lc > -1) {
+          // si los chars tras la coma son ≤2 → decimal europeo; si son 3 → miles
+          const tail = raw.length - lc - 1;
+          s = tail <= 2 ? s.replace(",", ".") : s.replace(/,/g, "");
+        }
+        const n = Number(s);
+        if (isNaN(n) || Math.abs(n) < 50) continue;
+        // Descartamos años puros (4 dígitos enteros entre 1900 y 2100).
+        if (/^\d{4}$/.test(raw) && n >= 1900 && n <= 2100) continue;
+        out.push(Math.abs(n));
+      }
+      return Array.from(new Set(out));
+    };
+    const STOPWORDS = new Set([
+      "sobre","desde","hasta","como","cuál","cual","cuándo","cuando","dónde","donde","quién","quien",
+      "están","estos","estas","tienen","tengo","tiene","tienes","alguna","algun","algún","todo","toda",
+      "todos","todas","mucho","mucha","mismo","misma","entre","aquellos","aquellas","aquel","aquella",
+      "mediante","aunque","porque","factura","facturas","movimiento","movimientos","cuenta","cuentas",
+      "banco","bancos","tenemos","cuanto","cuánto","cuanta","cuánta","cuantos","cuántos","sobre","puedes",
+      "podemos","quería","quiero","quieres","necesito","necesita","necesitamos","menciona","mencionar",
+    ]);
+    const extractKeywords = (text) => {
+      if (!text) return [];
+      const lower = text.toLowerCase();
+      const words = lower.split(/[^\p{L}\d]+/u).filter(Boolean);
+      const out = [];
+      for (const w of words) {
+        if (w.length < 5) continue;
+        if (STOPWORDS.has(w)) continue;
+        if (/^\d+$/.test(w)) continue;
+        out.push(w);
+      }
+      return Array.from(new Set(out)).slice(0, 8);
+    };
+    const amounts = extractAmounts(userText);
+    const keywords = extractKeywords(userText);
+    const searchLines = [];
+    if ((amounts.length > 0 || keywords.length > 0) && movs.length > 0) {
+      const matches = [];
+      const seen = new Set();
+      for (const m of movs) {
+        if (seen.has(m.id)) continue;
+        const amt = Math.abs(Number(m.amount)||0);
+        const concept = (m.concept||"").toLowerCase();
+        const matchAmount  = amounts.length  > 0 && amounts.some(a => Math.abs(amt - a) <= 1);
+        const matchConcept = keywords.length > 0 && keywords.some(k => concept.includes(k));
+        if (matchAmount || matchConcept) {
+          matches.push({ ...m, _matchAmount: matchAmount, _matchConcept: matchConcept });
+          seen.add(m.id);
+          if (matches.length >= 20) break;
+        }
+      }
+      if (matches.length > 0) {
+        const tagsHints = [];
+        if (amounts.length  > 0) tagsHints.push(`importes ${amounts.map(a=>fmtEur(a)).join(", ")}`);
+        if (keywords.length > 0) tagsHints.push(`palabras "${keywords.join('", "')}"`);
+        searchLines.push(`BÚSQUEDA EN MOVIMIENTOS: ${matches.length} coincidencia${matches.length!==1?"s":""} en el histórico completo (filtros: ${tagsHints.join(" · ")}):`);
+        for (const m of matches) {
+          const tag = m._matchAmount && m._matchConcept ? "💯" : m._matchAmount ? "💶" : "🔤";
+          searchLines.push(`  · ${tag} [${m.id}] ${m.date} · ${(m.concept||"(sin concepto)").slice(0,60)} · ${fmtEur(m.amount)} · ${accLabel(m.accountId)}${m.category?` · ${catName(m.category)}`:" · ❓ sin cat"}`);
+        }
+      }
+    }
+    const searchCtx = searchLines.length > 0 ? searchLines.join("\n") : "";
+
+    // Composición final con cap defensivo a ~7000 chars (summary +
+    // gobernanza + bancario + búsqueda + facturas + contabilidad). El
+    // bloque BÚSQUEDA va justo después de BANCARIO DETALLADO porque
+    // amplía precisamente ese subconjunto con el histórico relevante.
+    const blocks = [summaryTxt, govCtx, opCtx, searchCtx, factCtx, cobCtx].filter(Boolean);
     let finCtx = blocks.join("\n\n");
-    if (finCtx.length > 4500) finCtx = finCtx.slice(0, 4480) + "\n…(truncado)";
+    if (finCtx.length > 7000) finCtx = finCtx.slice(0, 6980) + "\n…(truncado)";
     const system = (diego.promptBase||`Eres Diego, analista financiero senior.`)
       + "\n\n" + PLAIN_TEXT_RULE
       + (finCtx ? `\n\n${finCtx}` : "")
