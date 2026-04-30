@@ -1285,6 +1285,21 @@ Reglas para block_task:
         @media (max-width: 768px) {
           [data-hp="urgent-banner"] { display: block; }
         }
+        /* Mobile (≤768px): reordenar el panel para que el INPUT (acción
+           principal del CEO) quede arriba y el chat de respuestas debajo.
+           Usamos CSS order — el JSX no se mueve. El "Foco del momento"
+           (pensamiento actual de Héctor) se oculta para no robar espacio.
+           El form pierde su borde superior y gana borde inferior, ya que
+           visualmente queda como header del chat, no como pie. */
+        @media (max-width: 768px) {
+          [data-hp="header"]        { order: 1; }
+          [data-hp="chat-form"]     { order: 2; border-top: none !important; border-bottom: 1px solid #E5E7EB !important; }
+          [data-hp="tabs-bar"]      { order: 3; }
+          [data-hp="skills-bar"]    { order: 3; }
+          [data-hp="content"]       { order: 4; min-height: 50vh; }
+          [data-hp="urgent-banner"] { order: 5; flex-shrink: 0; }
+          [data-hp="thought"]       { display: none !important; }
+        }
         /* Mobile (≤768px): tamaños táctiles. Solo overrides — los estilos
            inline sirven de base. fontSize:16px en input evita zoom auto
            en iOS al enfocar. Botones 48px alto cumplen guideline táctil. */
@@ -1370,7 +1385,7 @@ Reglas para block_task:
       })()}
 
       {/* Header (64px fijo) */}
-      <div style={{ height: 64, padding: "0 16px", display: "flex", alignItems: "center", gap: 10, borderBottom: "0.5px solid #E5E7EB", flexShrink: 0 }}>
+      <div data-hp="header" style={{ height: 64, padding: "0 16px", display: "flex", alignItems: "center", gap: 10, borderBottom: "0.5px solid #E5E7EB", flexShrink: 0 }}>
         <div style={{ width: 38, height: 38, borderRadius: "50%", background: "linear-gradient(135deg,#1D9E75,#0E7C5A)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🧙</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", lineHeight: 1.1 }}>Héctor</div>
@@ -1387,6 +1402,7 @@ Reglas para block_task:
       {activeSkills.length > 0 && (
         <div
           key={activeSkills.join("|")}
+          data-hp="skills-bar"
           style={{
             display: "flex",
             flexWrap: "wrap",
@@ -1420,7 +1436,7 @@ Reglas para block_task:
       )}
 
       {/* Tab bar (40px fijo) */}
-      <div style={{ height: 40, display: "flex", borderBottom: "0.5px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
+      <div data-hp="tabs-bar" style={{ height: 40, display: "flex", borderBottom: "0.5px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
         {[
           { key: "analysis", label: "📋 Análisis", badge: 0 },
           { key: "chat",     label: "💬 Chat",     badge: unreadCount },
@@ -1456,14 +1472,16 @@ Reglas para block_task:
       </div>
 
       {/* Contenido (flex: 1, scroll único) */}
-      <div key={activeTab} onScroll={handleChatScroll} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 14, animation: "hp-fade-tab .2s ease", minHeight: 0, maxWidth: "100%", boxSizing: "border-box" }}>
+      <div key={activeTab} data-hp="content" onScroll={handleChatScroll} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 14, animation: "hp-fade-tab .2s ease", minHeight: 0, maxWidth: "100%", boxSizing: "border-box" }}>
         {activeTab === "analysis" ? (
           <>
             {/* Pensamiento actual — variantes según estado:
                 - analyzing: spinner + "Héctor está analizando tu día…"
                 - paused:    razón posible + botón Reintentar
-                - resto:     pensamiento real o placeholder neutral */}
-            <div key={thoughtFlash} style={{
+                - resto:     pensamiento real o placeholder neutral
+                Mobile: oculto (data-hp="thought" + display:none ≤768px)
+                para priorizar el chat sobre el "Foco del momento". */}
+            <div key={thoughtFlash} data-hp="thought" style={{
               background: hectorState === "paused" ? "#F3F4F6" : "#F0F7FF",
               border: `2px solid ${hectorState === "paused" ? "#9CA3AF" : "#3498DB"}`,
               borderRadius: 10,
