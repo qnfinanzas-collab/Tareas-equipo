@@ -314,19 +314,25 @@ export function executeAgentActions(actions, helpers) {
         }
 
         case AGENT_ACTION_TYPES.ADD_ACCOUNTING_ENTRY: {
+          // [DEBUG] Logs temporales para auditar el pipeline executor →
+          // mutator. Permite ver qué llega de Diego (action) y qué se
+          // pasa al mutator (payload normalizado).
+          console.log("[runAgentActions] add_accounting_entry payload:", JSON.stringify(action).slice(0, 500));
           // Diego crea un asiento del libro diario. La validación dura
           // (cuadre debe=haber) la hace addAccountingEntry; aquí solo
           // marcamos la propuesta y dejamos que el mutator decida.
           const companyId = resolveCompanyId(action.companyId, defaultCompanyId, data);
           if (!companyId) {
+            console.error("[runAgentActions] add_accounting_entry: companyId no resuelto · action.companyId=", action.companyId, "· default=", defaultCompanyId, "· companies=", (data?.governance?.companies||[]).length);
             results.push({ type: "error", action: action.type, error: "Selecciona una empresa concreta antes de crear asientos contables" });
             break;
           }
           if (!Array.isArray(action.lines) || action.lines.length < 2) {
+            console.error("[runAgentActions] add_accounting_entry: líneas insuficientes ·", action.lines?.length || 0);
             results.push({ type: "error", action: action.type, error: "El asiento necesita al menos 2 líneas" });
             break;
           }
-          const newId = addAccountingEntry?.({
+          const mutatorPayload = {
             companyId,
             date: resolveDueDate(action.date || "+0d"),
             description: action.description || "(sin descripción)",
@@ -340,7 +346,9 @@ export function executeAgentActions(actions, helpers) {
             bankMovementId: action.bankMovementId || null,
             source: "diego",
             status: action.status === "borrador" ? "borrador" : "confirmado",
-          });
+          };
+          const newId = addAccountingEntry?.(mutatorPayload);
+          console.log("[runAgentActions] add_accounting_entry resultado:", { newId, companyId, lineCount: mutatorPayload.lines.length });
           if (!newId) {
             // El mutator rechazó (descuadre o validación). Lo reflejamos.
             results.push({ type: "error", action: action.type, error: "Asiento descuadrado o inválido — no creado" });

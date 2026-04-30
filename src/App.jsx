@@ -10728,17 +10728,24 @@ export default function TaskFlow(){
     return { totalD: Math.round(totalD*100)/100, totalC: Math.round(totalC*100)/100, diff: Math.abs(totalD-totalC) };
   };
   const addAccountingEntry = useCallback((payload)=>{
+    // [DEBUG] Logs temporales para diagnosticar por qué algunos asientos
+    // se reportan como creados pero no aparecen en Contabilidad.
+    console.log("[addAccountingEntry] entrada recibida:", JSON.stringify(payload).slice(0, 500));
     if (!payload || !payload.companyId) {
+      console.error("[addAccountingEntry] RECHAZADO — falta companyId:", payload?.companyId);
       addToast("Selecciona una empresa antes de crear el asiento","warn");
       return null;
     }
     const lines = _normalizeEntryLines(payload.lines);
     if (lines.length < 2) {
+      console.error("[addAccountingEntry] RECHAZADO — menos de 2 líneas:", lines.length);
       addToast("El asiento necesita al menos 2 líneas","warn");
       return null;
     }
     const { totalD, totalC, diff } = _entryBalances(lines);
+    console.log("[addAccountingEntry] validación debe/haber:", { debe: totalD, haber: totalC, diff });
     if (diff > 0.011) {
+      console.error("[addAccountingEntry] RECHAZADO — debe/haber no cuadra:", { debe: totalD, haber: totalC });
       addToast(`Asiento descuadrado: debe ${totalD} ≠ haber ${totalC}`,"warn");
       return null;
     }
@@ -10767,6 +10774,7 @@ export default function TaskFlow(){
         createdAt: now,
         updatedAt: now,
       };
+      console.log("[addAccountingEntry] CREADO con id:", newId, "· nº", entry.number, "· companyId", entry.companyId, "· total entries tras inserción:", (prev.accountingEntries||[]).length + 1);
       return { ...prev, accountingEntries: [entry, ...(prev.accountingEntries||[])] };
     });
     addToast("✓ Asiento contable creado");
