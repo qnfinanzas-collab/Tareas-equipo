@@ -240,7 +240,7 @@ export function executeAgentActions(actions, helpers) {
       switch (action.type) {
         case AGENT_ACTION_TYPES.CREATE_PROJECT: {
           const memberIds = resolveAssignees(action.assignees || ["admin"], allMembers, adminMemberId);
-          const code = (action.code || (action.name||"PRJ").replace(/[^A-Z]/gi, "").slice(0,3).toUpperCase() || "PRJ").slice(0,3).padEnd(3,"X");
+          const code = (action.code || (action.name||"PRJ").replace(/[^A-Z0-9]/gi, "").slice(0,3).toUpperCase() || "PRJ").slice(0,3).padEnd(3,"X");
           createProject?.({
             name: action.name || "Proyecto sin nombre",
             code,
