@@ -10622,13 +10622,18 @@ export default function TaskFlow(){
     return `${prefix}${String(max+1).padStart(3,"0")}`;
   };
   const addInvoice = useCallback((payload)=>{
+    // Generamos el id ANTES del setData para devolverlo síncronamente.
+    // setData(updater) es async — el closure se ejecuta en el render
+    // siguiente, después del return. Sin esto, los callers (executor de
+    // agentActions) reciben undefined y no pueden encadenar acciones.
+    const newId = _newFinanceId();
     setData(prev=>{
       const now = new Date().toISOString();
       const date = payload.date || fmt(new Date());
       const year = new Date(date).getFullYear();
       const totals = _calcInvoiceTotals(payload.lines, payload.irpfRate);
       const invoice = {
-        id: _newFinanceId(),
+        id: newId,
         companyId: payload.companyId || null,
         type: payload.type === "recibida" ? "recibida" : "emitida",
         number: payload.number?.trim() || _nextInvoiceNumber(prev.invoices, payload.companyId, payload.type === "recibida" ? "recibida" : "emitida", year),
@@ -10663,6 +10668,7 @@ export default function TaskFlow(){
       return {...prev, invoices:[invoice, ...(prev.invoices||[])]};
     });
     addToast("✓ Factura creada");
+    return newId;
   },[activeMember, addToast]);
   const updateInvoice = useCallback((id, patch)=>{
     setData(prev=>{
@@ -10736,13 +10742,18 @@ export default function TaskFlow(){
       addToast(`Asiento descuadrado: debe ${totalD} ≠ haber ${totalC}`,"warn");
       return null;
     }
-    let createdId = null;
+    // Generamos el id ANTES del setData para devolverlo síncronamente.
+    // Antes el id se asignaba dentro del updater (closure), que se ejecuta
+    // en el render siguiente — el return ya había devuelto null y los
+    // callers (agentActions executor) caían siempre al path de error
+    // aunque el asiento sí se hubiera creado.
+    const newId = _newFinanceId();
     setData(prev=>{
       const now = new Date().toISOString();
       const date = payload.date || fmt(new Date());
       const year = new Date(date).getFullYear();
       const entry = {
-        id: _newFinanceId(),
+        id: newId,
         companyId: payload.companyId,
         date,
         number: payload.number || _nextEntryNumber(prev.accountingEntries, payload.companyId, year),
@@ -10756,11 +10767,10 @@ export default function TaskFlow(){
         createdAt: now,
         updatedAt: now,
       };
-      createdId = entry.id;
       return { ...prev, accountingEntries: [entry, ...(prev.accountingEntries||[])] };
     });
     addToast("✓ Asiento contable creado");
-    return createdId;
+    return newId;
   },[activeMember, addToast]);
   const updateAccountingEntry = useCallback((id, patch)=>{
     setData(prev=>{
@@ -11325,20 +11335,23 @@ export default function TaskFlow(){
   // chat (HectorPanel, GobernanzaView, etc) y delega en agentActions.js
   // que mapea cada acción a la función de mutación adecuada.
   // Devuelve {results} para que el caller muestre toasts.
-  const runAgentActions = useCallback(async (selectedActions)=>{
+  const runAgentActions = useCallback(async (selectedActions, opts={})=>{
     const { executeAgentActions } = await import("./lib/agentActions.js");
     const d = dataRef.current || data;
     const adminMemberId = (d.members||[]).find(m=>m.accountRole==="admin")?.id ?? activeMember;
     // Two-pass: primero create_project (obtenemos ids), después create_tasks/etc.
     // Para acciones que requieren findProjectByCode, leemos dataRef tras el flush.
-    // Empresa filtrada actual en Finanzas (lo lee Diego al proponer asientos
-    // sin pasar companyId explícito). Recuperamos el valor persistido en
-    // localStorage para no acoplar este orchestrator al árbol React.
-    let defaultCompanyId = null;
-    try {
-      const saved = localStorage.getItem("finanzas_selectedCompany");
-      if (saved && saved !== "all") defaultCompanyId = saved;
-    } catch {}
+    // Empresa filtrada — el caller (Diego) la pasa explícita en `opts`. Como
+    // fallback leemos `localStorage` para callers que aún no la pasen
+    // (Gobernanza no la necesita: Gonzalo no propone acciones financieras).
+    let defaultCompanyId = (opts && typeof opts.defaultCompanyId === "string" && opts.defaultCompanyId !== "all")
+      ? opts.defaultCompanyId : null;
+    if (!defaultCompanyId) {
+      try {
+        const saved = localStorage.getItem("finanzas_selectedCompany");
+        if (saved && saved !== "all") defaultCompanyId = saved;
+      } catch {}
+    }
     const helpers = {
       data: d,
       adminMemberId,

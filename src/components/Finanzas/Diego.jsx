@@ -335,7 +335,16 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
                     agentName="Diego"
                     agentEmoji="💹"
                     color="#27AE60"
-                    onConfirm={async (selected) => { await onRunAgentActions(selected); }}
+                    onConfirm={async (selected) => {
+                      // Pasamos selectedCompanyId explícito para que el
+                      // executor de agentActions pueda deducir companyId
+                      // sin depender de localStorage (más explícito y a
+                      // prueba de fallos). Si la vista está en "all" no
+                      // pasamos nada y el executor cae a su propio fallback.
+                      const opts = (selectedCompanyId && selectedCompanyId !== "all")
+                        ? { defaultCompanyId: selectedCompanyId } : {};
+                      await onRunAgentActions(selected, opts);
+                    }}
                     onCancel={() => setHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
                   />
                 </div>

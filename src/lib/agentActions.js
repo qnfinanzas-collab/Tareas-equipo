@@ -87,6 +87,22 @@ export function resolveDueDate(relative) {
   return d.toISOString().slice(0, 10);
 }
 
+// Resuelve companyId con cadena de fallback:
+//   1) `actionCompanyId` (lo que el agente puso en el JSON)
+//   2) `defaultCompanyId` (la empresa filtrada en la UI cuando aplica)
+//   3) Si solo hay UNA empresa registrada en data.governance.companies,
+//      la usamos automáticamente. En grupos pyme con 1 sola sociedad esto
+//      evita que las acciones financieras de Diego fallen silenciosamente
+//      cuando el selector está en "all".
+//   4) null → el caller decide qué error reportar.
+export function resolveCompanyId(actionCompanyId, defaultCompanyId, data) {
+  if (actionCompanyId && typeof actionCompanyId === "string") return actionCompanyId;
+  if (defaultCompanyId && typeof defaultCompanyId === "string" && defaultCompanyId !== "all") return defaultCompanyId;
+  const companies = data?.governance?.companies || [];
+  if (companies.length === 1 && companies[0]?.id) return companies[0].id;
+  return null;
+}
+
 // Resuelve un alias o nombre/email a memberId. "admin" → primer
 // accountRole==="admin". Cualquier otro string → match por nombre/email
 // (case-insensitive, includes). Devuelve fallback si no encuentra.
@@ -268,12 +284,23 @@ export function executeAgentActions(actions, helpers) {
         case AGENT_ACTION_TYPES.ADD_BANK_MOVEMENT: {
           // Diego propone añadir un movimiento bancario manual (raro, pero
           // útil si el CEO le pide registrar algo no presente en el extracto).
-          if (!action.accountId) {
-            results.push({ type: "error", action: action.type, error: "Falta accountId" });
+          // Cadena de fallback para accountId:
+          //   1) action.accountId (explícito)
+          //   2) Si la empresa filtrada/única tiene solo 1 cuenta activa, la usamos.
+          let accountId = action.accountId || null;
+          if (!accountId) {
+            const companyId = resolveCompanyId(action.companyId, defaultCompanyId, data);
+            const accountsForCompany = (data?.bankAccounts || []).filter(a =>
+              a.isActive !== false && (!companyId || a.companyId === companyId)
+            );
+            if (accountsForCompany.length === 1) accountId = accountsForCompany[0].id;
+          }
+          if (!accountId) {
+            results.push({ type: "error", action: action.type, error: "Falta accountId — la empresa tiene varias cuentas, especifica una" });
             break;
           }
           addBankMovement?.({
-            accountId: action.accountId,
+            accountId,
             date: resolveDueDate(action.date || "+0d"),
             concept: action.concept || "(sin concepto)",
             amount: Number(action.amount) || 0,
@@ -290,9 +317,9 @@ export function executeAgentActions(actions, helpers) {
           // Diego crea un asiento del libro diario. La validación dura
           // (cuadre debe=haber) la hace addAccountingEntry; aquí solo
           // marcamos la propuesta y dejamos que el mutator decida.
-          const companyId = action.companyId || defaultCompanyId || null;
+          const companyId = resolveCompanyId(action.companyId, defaultCompanyId, data);
           if (!companyId) {
-            results.push({ type: "error", action: action.type, error: "Falta companyId" });
+            results.push({ type: "error", action: action.type, error: "Selecciona una empresa concreta antes de crear asientos contables" });
             break;
           }
           if (!Array.isArray(action.lines) || action.lines.length < 2) {
