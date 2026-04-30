@@ -4,18 +4,22 @@
 // IVA, categorización contable. Distinto de Jorge Finanzas (modelos de
 // inversión, ROI, waterfall, payback).
 //
-// Adjuntar documento: el botón 📎 acepta Excel/CSV (parser dinámico vía
-// xlsx/papaparse) y PDF (texto extraído vía /api/pdf-text si está, o
-// fallback "PDF adjunto, indicar contenido"). El texto extraído se inyecta
-// como contexto al final del mensaje del usuario.
+// Adjuntar documento:
+//   - Excel/CSV/TXT: parsing local (xlsx/papaparse) → texto inyectado en el
+//     mensaje del usuario (contexto plano).
+//   - PDF/imagen: lectura como base64 → enviado a /api/agent vía el campo
+//     `attachments` que Anthropic procesa nativamente (visión y PDF parsing).
+//     Diego ve el documento real, no solo el nombre del archivo.
 import React, { useState, useEffect, useRef } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import { parseAgentActions, cleanAgentResponse } from "../../lib/agentActions.js";
+import { blobToBase64 } from "../../lib/storage.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
 
 const DIEGO_VOICE = { gender: "male", rate: 1.05, pitch: 0.95 };
 const CHAT_MAX = 50;
-const ATTACH_MAX_CHARS = 6000; // tope del extracto de texto del documento
+const ATTACH_MAX_CHARS = 6000; // tope del extracto de texto plano (xlsx/csv/txt)
+const ATTACH_MAX_MB = 15;      // tope archivo binario (PDF/imagen) — Vercel limita el body
 
 export default function Diego({ data, currentMember, canEdit, selectedCompanyId, onCallAgent, onRunAgentActions }) {
   const userId = currentMember?.id ?? "anon";
@@ -25,11 +29,18 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
   });
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  // loadingKind="doc" cuando estamos esperando una respuesta sobre un PDF/
+  // imagen (binario enviado al modelo); "chat" en cualquier otro caso. Se
+  // usa solo para el indicador visual del spinner mientras Diego responde.
+  const [loadingKind, setLoadingKind] = useState("chat");
   const [listening, setListening] = useState(false);
   const [muted, setMuted] = useState(() => {
     try { return localStorage.getItem("diego_muted") === "1"; } catch { return false; }
   });
-  const [attachment, setAttachment] = useState(null); // { name, kind, text, size }
+  // attachment shape (uno u otro):
+  //   texto:   { name, kind: "csv"|"excel"|"text", text, size }
+  //   binario: { name, kind: "pdf"|"image", base64, media_type, size }
+  const [attachment, setAttachment] = useState(null);
   const [attaching, setAttaching] = useState(false);
   const [attachError, setAttachError] = useState("");
   const stopListenRef = useRef(null);
@@ -73,8 +84,9 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
     setAttaching(true);
     try {
       const lower = (file.name || "").toLowerCase();
-      let text = "";
-      let kind = "raw";
+      const mime = (file.type || "").toLowerCase();
+      // Rama 1 — texto plano (xlsx/csv/txt/json/md): se extrae a string y
+      // se inyecta como contexto del mensaje. Igual que antes.
       if (lower.endsWith(".csv")) {
         const Papa = (await import("papaparse")).default;
         let raw = await file.text();
@@ -84,9 +96,12 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
         }
         const out = Papa.parse(raw, { skipEmptyLines: true });
         const rows = out.data || [];
-        text = rows.slice(0, 200).map(r => Array.isArray(r) ? r.join(" | ") : String(r)).join("\n");
-        kind = "csv";
-      } else if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
+        let text = rows.slice(0, 200).map(r => Array.isArray(r) ? r.join(" | ") : String(r)).join("\n");
+        if (text.length > ATTACH_MAX_CHARS) text = text.slice(0, ATTACH_MAX_CHARS) + "\n…(truncado)";
+        setAttachment({ name: file.name, kind: "csv", text, size: file.size });
+        return;
+      }
+      if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
         const XLSX = await import("xlsx");
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(buf, { type: "array", cellDates: true });
@@ -97,22 +112,44 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
           parts.push(`### Hoja "${name}" (${arr.length} filas)`);
           parts.push(arr.slice(0, 200).map(r => r.map(c => String(c ?? "").trim()).join(" | ")).join("\n"));
         }
-        text = parts.join("\n");
-        kind = "excel";
-      } else if (lower.endsWith(".pdf")) {
-        // Fallback simple: PDF se anuncia pero no se extrae el texto en
-        // navegador (necesitaría pdfjs-dist). Diego sabrá que el CEO ha
-        // adjuntado un PDF y pedirá detalles si no recibe transcripción.
-        text = `[PDF adjuntado: ${file.name} — ${(file.size/1024).toFixed(0)} KB. El extracto del PDF no está disponible en esta sesión; pídele al CEO los datos relevantes o que pegue el texto.]`;
-        kind = "pdf";
-      } else if (lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".json")) {
-        text = await file.text();
-        kind = "text";
-      } else {
-        throw new Error("Formato no soportado. Usa .xlsx, .xls, .csv, .pdf, .txt");
+        let text = parts.join("\n");
+        if (text.length > ATTACH_MAX_CHARS) text = text.slice(0, ATTACH_MAX_CHARS) + "\n…(truncado)";
+        setAttachment({ name: file.name, kind: "excel", text, size: file.size });
+        return;
       }
-      if (text.length > ATTACH_MAX_CHARS) text = text.slice(0, ATTACH_MAX_CHARS) + "\n…(truncado)";
-      setAttachment({ name: file.name, kind, text, size: file.size });
+      if (lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".json")) {
+        let text = await file.text();
+        if (text.length > ATTACH_MAX_CHARS) text = text.slice(0, ATTACH_MAX_CHARS) + "\n…(truncado)";
+        setAttachment({ name: file.name, kind: "text", text, size: file.size });
+        return;
+      }
+      // Rama 2 — binarios (PDF/imagen): se leen como base64 y se envían al
+      // modelo vía `attachments`. Anthropic Claude Sonnet 4.5 procesa PDFs
+      // e imágenes nativamente. Tope ~15MB porque el body completo va a
+      // Vercel (limit 20MB) y base64 pesa ~33% más que el archivo.
+      const isPdf = lower.endsWith(".pdf") || mime === "application/pdf";
+      const isImage = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp")
+        || mime === "image/png" || mime === "image/jpeg" || mime === "image/webp";
+      if (isPdf || isImage) {
+        if (file.size > ATTACH_MAX_MB * 1024 * 1024) {
+          throw new Error(`Archivo demasiado grande (${(file.size/1024/1024).toFixed(1)}MB). Máx ${ATTACH_MAX_MB}MB.`);
+        }
+        const base64 = await blobToBase64(file);
+        const media_type = isPdf
+          ? "application/pdf"
+          : (mime || (lower.endsWith(".png") ? "image/png"
+                    : lower.endsWith(".webp") ? "image/webp"
+                    : "image/jpeg"));
+        setAttachment({
+          name: file.name,
+          kind: isPdf ? "pdf" : "image",
+          base64,
+          media_type,
+          size: file.size,
+        });
+        return;
+      }
+      throw new Error("Formato no soportado. Usa .xlsx, .xls, .csv, .pdf, .png, .jpg, .webp, .txt");
     } catch (e) {
       console.warn("[diego] attach fallo:", e);
       setAttachError(e.message || "Error leyendo el archivo");
@@ -132,11 +169,20 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
     if ((!txt && !attachment) || loading) return;
     if (!onCallAgent) return;
     stopSpeaking();
-    // Inyectamos el contenido del adjunto al final del mensaje del usuario.
+    const isBinary = attachment && (attachment.kind === "pdf" || attachment.kind === "image");
+    // Construcción del mensaje:
+    //   - Texto (xlsx/csv/txt): inyectamos el contenido extraído al final
+    //     del prompt del usuario (mismo flujo de siempre).
+    //   - Binario (pdf/imagen): el modelo recibe el archivo real vía
+    //     `attachments`; en el chat ponemos solo el prompt corto y NO
+    //     persistimos el base64 en el historial (sería tóxico para el
+    //     contexto de turnos siguientes y haría reventar localStorage).
     let finalContent = txt;
-    if (attachment) {
+    if (attachment && !isBinary) {
       const header = `\n\n[Adjunto · ${attachment.name} · ${attachment.kind}]\n`;
       finalContent = (txt || "Analiza el documento adjunto.") + header + attachment.text;
+    } else if (isBinary) {
+      finalContent = txt || "Analiza el documento adjunto. Extrae los datos exclusivamente del archivo.";
     }
     const userMsg = {
       role: "user",
@@ -148,12 +194,26 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
     const next = [...history, userMsg].slice(-CHAT_MAX);
     setHistory(next);
     setInput("");
+    // Para binarios necesitamos retener el adjunto local hasta enviarlo.
+    const sentAttachment = attachment;
     setAttachment(null);
     setAttachError("");
     setLoading(true);
+    setLoadingKind(isBinary ? "doc" : "chat");
     try {
       const messages = next.map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.content }));
-      const reply = await onCallAgent({ messages, selectedCompanyId });
+      // Solo enviamos `attachments` cuando el último mensaje del usuario
+      // tiene un binario nuevo. El endpoint los inyecta como content blocks
+      // en el último mensaje user (ver api/agent.js → injectAttachments).
+      const callPayload = { messages, selectedCompanyId };
+      if (isBinary && sentAttachment?.base64) {
+        callPayload.attachments = [{
+          kind: sentAttachment.kind,                  // "pdf" | "image"
+          media_type: sentAttachment.media_type,
+          data: sentAttachment.base64,
+        }];
+      }
+      const reply = await onCallAgent(callPayload);
       const rawReply = (reply || "").trim() || "(sin respuesta)";
       const proposal = parseAgentActions(rawReply);
       const finalReply = proposal ? (cleanAgentResponse(rawReply) || "(sin texto)") : rawReply;
@@ -239,7 +299,7 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
         {history.length === 0 && (
           <div style={{ padding: "24px 16px", textAlign: "center", color: "#9CA3AF", fontSize: 13, fontStyle: "italic", lineHeight: 1.55 }}>
             Pregúntale a Diego sobre tesorería, IVA trimestral, categorización de movimientos, conciliación bancaria, anomalías o previsiones.
-            <br />Puedes adjuntar un extracto bancario (.xlsx/.csv) o un PDF para que lo analice.
+            <br />Adjunta una factura (PDF o foto), un extracto bancario (.xlsx/.csv) o un texto para que lo lea directamente.
           </div>
         )}
         {history.map((m, i) => {
@@ -290,8 +350,10 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
         })}
         {loading && (
           <div style={{ display: "flex", gap: 8 }}>
-            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#27AE60", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>💹</div>
-            <div style={{ background: "#F0FDF4", border: "0.5px solid #E5E7EB", borderRadius: 12, padding: "10px 14px", fontSize: 12.5, color: "#0E7C5A", fontStyle: "italic" }}>💹 Diego está analizando…</div>
+            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#27AE60", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>{loadingKind === "doc" ? "📄" : "💹"}</div>
+            <div style={{ background: "#F0FDF4", border: "0.5px solid #E5E7EB", borderRadius: 12, padding: "10px 14px", fontSize: 12.5, color: "#0E7C5A", fontStyle: "italic" }}>
+              {loadingKind === "doc" ? "📄 Leyendo documento…" : "💹 Diego está analizando…"}
+            </div>
           </div>
         )}
       </div>
@@ -311,11 +373,11 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
 
       {/* Input */}
       <div style={{ padding: 12, borderTop: "0.5px solid #E5E7EB", display: "flex", gap: 8, alignItems: "flex-end" }}>
-        <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.txt,.md,.json" onChange={onPickFile} style={{ display: "none" }} />
+        <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.txt,.md,.json" onChange={onPickFile} style={{ display: "none" }} />
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={attaching || loading}
-          title="Adjuntar Excel, CSV, PDF o texto"
+          title="Adjuntar PDF, imagen (jpg/png), Excel, CSV o texto"
           style={{ width: 38, height: 38, borderRadius: 10, background: "#fff", color: "#27AE60", border: "1px solid #86EFAC", cursor: attaching ? "wait" : "pointer", fontSize: 16, fontFamily: "inherit" }}
         >{attaching ? "…" : "📎"}</button>
         <textarea

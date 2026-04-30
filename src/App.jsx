@@ -710,6 +710,9 @@ REGLAS:
 CONTABILIDAD:
 - Puedes crear asientos contables con add_accounting_entry. Cada asiento debe cuadrar (total debe = total haber). Usa cuentas del PGC pyme español. Para subcuentas usa el formato XXXNNNN (ej: 2130001 para primera cámara hiperbárica).
 
+ANÁLISIS DE DOCUMENTOS:
+IMPORTANTE: Cuando analices un documento adjunto (PDF, imagen, factura), extrae los datos EXCLUSIVAMENTE del documento. NO uses datos de tu contexto financiero para rellenar campos que no aparecen en el documento. Si un dato no está visible en el documento, di "no visible en el documento". NUNCA inventes CIFs, números de serie, fechas ni importes. Si el documento es ilegible o ambiguo, dilo explícitamente y pide aclaración.
+
 FORMATO:
 - Primero resumen ejecutivo (2-3 líneas)
 - Después detalle con datos concretos
@@ -846,6 +849,17 @@ function _migrate(d){
       /\nFORMATO:/,
       "\nCONTABILIDAD:\n- Puedes crear asientos contables con add_accounting_entry. Cada asiento debe cuadrar (total debe = total haber). Usa cuentas del PGC pyme español. Para subcuentas usa el formato XXXNNNN (ej: 2130001 para primera cámara hiperbárica).\n\nFORMATO:"
     );
+    return { ...a, promptBase: inserted };
+  });
+  // Patch Diego: añade la sección ANÁLISIS DE DOCUMENTOS para evitar que
+  // alucine al recibir adjuntos PDF/imagen vía multimodal. Idempotente
+  // con marca "ANÁLISIS DE DOCUMENTOS:". Va justo antes de FORMATO,
+  // después de CONTABILIDAD.
+  d.agents = d.agents.map(a=>{
+    if(a.name!=="Diego" || !a.promptBase) return a;
+    if(a.promptBase.includes("ANÁLISIS DE DOCUMENTOS:")) return a;
+    const block = "\nANÁLISIS DE DOCUMENTOS:\nIMPORTANTE: Cuando analices un documento adjunto (PDF, imagen, factura), extrae los datos EXCLUSIVAMENTE del documento. NO uses datos de tu contexto financiero para rellenar campos que no aparecen en el documento. Si un dato no está visible en el documento, di \"no visible en el documento\". NUNCA inventes CIFs, números de serie, fechas ni importes. Si el documento es ilegible o ambiguo, dilo explícitamente y pide aclaración.\n\nFORMATO:";
+    const inserted = a.promptBase.replace(/\nFORMATO:/, block);
     return { ...a, promptBase: inserted };
   });
   // Patch Héctor: si ya tenía INVOKE_ADDON pero no menciona "alvaro:", le
@@ -10038,7 +10052,7 @@ export default function TaskFlow(){
   // meses, top movs, no categorizados, agrupación por categoría, cuentas y
   // saldos). El contexto se trunca a ~3000 chars para no reventar el prompt.
   // El selectedCompanyId opcional filtra todo a una empresa concreta.
-  const callDiegoDirect = async ({messages, extraSystem, selectedCompanyId}={})=>{
+  const callDiegoDirect = async ({messages, extraSystem, selectedCompanyId, attachments}={})=>{
     const diego = (dataRef.current?.agents||[]).find(a=>a.name==="Diego");
     if(!diego) throw new Error("Diego no está en agents");
     const d = dataRef.current || {};
@@ -10246,7 +10260,14 @@ export default function TaskFlow(){
       + "\n\n" + PLAIN_TEXT_RULE
       + (finCtx ? `\n\n${finCtx}` : "")
       + (extraSystem ? `\n\n${extraSystem}` : "");
-    const out = await callAgentSafe({system, messages: messages||[], max_tokens: 4096});
+    // Si el caller pasa attachments (PDF/imagen en base64), los reenviamos
+    // tal cual al endpoint /api/agent → injectAttachments los convierte en
+    // content blocks multimodales del último mensaje user. Diego procesa
+    // el documento real, no solo el nombre. Sin attachments el flujo es
+    // idéntico al anterior.
+    const callBody = { system, messages: messages||[], max_tokens: 4096 };
+    if (Array.isArray(attachments) && attachments.length > 0) callBody.attachments = attachments;
+    const out = await callAgentSafe(callBody);
     return out;
   };
   // Setter dedicado para permisos de agentes IA. Toggle binario por
