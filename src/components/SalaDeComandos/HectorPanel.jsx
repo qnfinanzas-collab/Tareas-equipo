@@ -266,6 +266,12 @@ export default function HectorPanel({
     } catch { return []; }
   });
   const [chatHistory, setChatHistory] = useState(() => {
+    // Si userId todavía no está hidratado (auth cargando) no leemos
+    // localStorage — la clave caería a "soulbaric.hector.chat.anon" y nos
+    // quedaríamos pegados a esa clave aunque userId se defina después.
+    // El useEffect [userId] de abajo se encarga de re-hidratar cuando ya
+    // tenemos un userId real.
+    if (!userId) return [];
     try {
       const raw = localStorage.getItem(CHAT_KEY);
       if (!raw) return [];
@@ -361,12 +367,34 @@ export default function HectorPanel({
     } catch {}
   }, [recommendations, STORAGE_KEY]);
 
-  // Persistencia: chat (últimos CHAT_MAX)
+  // Persistencia: chat (últimos CHAT_MAX). Guard contra userId indefinido
+  // — sin él la clave colapsa a "soulbaric.hector.chat.anon" y pisaríamos
+  // chats de sesiones futuras o perderíamos el state real al recargar.
   useEffect(() => {
+    if (!userId) return;
     try {
       localStorage.setItem(CHAT_KEY, JSON.stringify(chatHistory.slice(-CHAT_MAX)));
     } catch {}
-  }, [chatHistory, CHAT_KEY]);
+  }, [chatHistory, CHAT_KEY, userId]);
+
+  // Re-hidratación cuando userId pasa de undefined → definido. Esto cubre
+  // el caso del primer mount con auth todavía cargando: el useState
+  // inicial devolvió [] sin tocar localStorage; cuando ya tenemos userId
+  // real, leemos la clave correcta y restauramos la conversación. El
+  // efecto solo dispara cuando userId cambia (no en cada render).
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const raw = localStorage.getItem(CHAT_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed) || parsed.length === 0) return;
+      // Solo reemplazamos si lo persistido es más rico que el state actual
+      // — evita pisar mensajes recién añadidos durante el render previo.
+      setChatHistory(prev => prev.length === 0 ? parsed.slice(-CHAT_MAX) : prev);
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   // Persistencia: sessionMemory (bloqueos activos del día).
   useEffect(() => {
