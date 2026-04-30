@@ -1277,6 +1277,35 @@ Reglas para block_task:
         @keyframes hp-pulse-dot { 0%,100% { opacity:1;} 50% { opacity:0.4;} }
         @keyframes hp-mic-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(231,76,60,0.55);} 50% { box-shadow: 0 0 0 6px rgba(231,76,60,0);} }
         @keyframes fadeInSkills { from { opacity: 0; transform: translateY(-4px);} to { opacity: 1; transform: translateY(0);} }
+        /* Mobile (≤768px): tamaños táctiles. Solo overrides — los estilos
+           inline sirven de base. fontSize:16px en input evita zoom auto
+           en iOS al enfocar. Botones 48px alto cumplen guideline táctil. */
+        @media (max-width: 768px) {
+          [data-hp="chat-form"] {
+            height: auto !important;
+            min-height: 80px;
+            padding: 10px 12px !important;
+            gap: 8px !important;
+          }
+          [data-hp="chat-input"] {
+            min-height: 56px;
+            font-size: 16px !important;
+            padding: 12px 16px !important;
+            border-radius: 28px !important;
+          }
+          [data-hp="chat-send"], [data-hp="chat-mic"] {
+            min-width: 48px;
+            min-height: 48px;
+            width: 48px !important;
+            height: 48px !important;
+            border-radius: 50% !important;
+            padding: 0 !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px !important;
+          }
+        }
       `}</style>
 
       {/* Header (64px fijo) */}
@@ -1609,9 +1638,10 @@ Reglas para block_task:
       </div>
 
       {/* Input fijo (60px) */}
-      <form onSubmit={handleSubmit} style={{ height: 60, padding: "0 12px", display: "flex", gap: 6, alignItems: "center", borderTop: "0.5px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
+      <form onSubmit={handleSubmit} data-hp="chat-form" style={{ height: 60, padding: "0 12px", display: "flex", gap: 6, alignItems: "center", borderTop: "0.5px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
         <input
           type="text"
+          data-hp="chat-input"
           value={inputMessage}
           onChange={(e) => setInputMessage(e.target.value)}
           placeholder="Escribe una orden a Héctor..."
@@ -1620,12 +1650,14 @@ Reglas para block_task:
         />
         <button
           type="button"
+          data-hp="chat-mic"
           onClick={startListening}
           title={isListening ? "Detener dictado" : "Dictar por voz"}
           style={{ width: 36, height: 36, borderRadius: 8, background: isListening ? "#FEE2E2" : "#fff", color: isListening ? "#B91C1C" : "#6B7280", border: `1px solid ${isListening ? "#FCA5A5" : "#D1D5DB"}`, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, fontFamily: "inherit", animation: isListening ? "hp-mic-pulse 1.2s infinite" : "none" }}
         >🎤</button>
         <button
           type="submit"
+          data-hp="chat-send"
           disabled={chatLoading || !inputMessage.trim()}
           style={{ padding: "9px 14px", borderRadius: 8, background: chatLoading || !inputMessage.trim() ? "#E5E7EB" : "#1D9E75", color: chatLoading || !inputMessage.trim() ? "#9CA3AF" : "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: chatLoading || !inputMessage.trim() ? "not-allowed" : "pointer", fontFamily: "inherit" }}
         >Enviar</button>

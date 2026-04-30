@@ -178,13 +178,39 @@ export default function ActionProposal({ proposal, agentName = "Agente", agentEm
       </div>
 
       {/* Botones */}
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+      {/* Mobile (≤768px): "Crear todo" pasa a ancho completo y 48px alto.
+          "No crear" también gana altura táctil. Solo presentación, mismo
+          handler/lógica. */}
+      <style>{`
+        @media (max-width: 768px) {
+          [data-ap="actions-row"] {
+            flex-direction: column-reverse !important;
+            gap: 8px !important;
+          }
+          [data-ap="confirm-btn"] {
+            width: 100%;
+            min-height: 48px;
+            font-size: 15px !important;
+            font-weight: 600 !important;
+            padding: 12px 18px !important;
+          }
+          [data-ap="cancel-btn"] {
+            width: 100%;
+            min-height: 44px;
+            font-size: 14px !important;
+            padding: 10px 14px !important;
+          }
+        }
+      `}</style>
+      <div data-ap="actions-row" style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button
+          data-ap="cancel-btn"
           onClick={() => { if (!busy) onCancel?.(); }}
           disabled={busy}
           style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid #D1D5DB", color: "#6B7280", fontSize: 12, fontWeight: 500, cursor: busy ? "not-allowed" : "pointer", fontFamily: "inherit" }}
         >❌ No crear</button>
         <button
+          data-ap="confirm-btn"
           onClick={handleConfirm}
           disabled={busy || enabled === 0}
           style={{ padding: "7px 18px", borderRadius: 8, background: busy || enabled === 0 ? "#9CA3AF" : color, color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: busy ? "wait" : enabled === 0 ? "not-allowed" : "pointer", fontFamily: "inherit" }}
