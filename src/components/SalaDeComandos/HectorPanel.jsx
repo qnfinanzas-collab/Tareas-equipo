@@ -358,6 +358,9 @@ export default function HectorPanel({
   // arriba en una conversación larga y desaparece cerca del fondo. Sin
   // tocar lógica del chat, solo presentación.
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  // Banner urgente colapsable (móvil ≤768px). Cuenta riesgos críticos del
+  // prop existente. Empieza colapsado para no robar espacio del chat.
+  const [urgentExpanded, setUrgentExpanded] = useState(false);
   const chatEndRef = useRef(null);
 
   // Persistencia: recomendaciones
@@ -1277,6 +1280,11 @@ Reglas para block_task:
         @keyframes hp-pulse-dot { 0%,100% { opacity:1;} 50% { opacity:0.4;} }
         @keyframes hp-mic-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(231,76,60,0.55);} 50% { box-shadow: 0 0 0 6px rgba(231,76,60,0);} }
         @keyframes fadeInSkills { from { opacity: 0; transform: translateY(-4px);} to { opacity: 1; transform: translateY(0);} }
+        /* Banner urgente colapsable: solo móvil. En desktop se oculta. */
+        [data-hp="urgent-banner"] { display: none; }
+        @media (max-width: 768px) {
+          [data-hp="urgent-banner"] { display: block; }
+        }
         /* Mobile (≤768px): tamaños táctiles. Solo overrides — los estilos
            inline sirven de base. fontSize:16px en input evita zoom auto
            en iOS al enfocar. Botones 48px alto cumplen guideline táctil. */
@@ -1307,6 +1315,59 @@ Reglas para block_task:
           }
         }
       `}</style>
+
+      {/* Banner urgente colapsable (solo móvil ≤768px). Lee `riesgos`
+          prop ya existente — sin nuevos handlers ni callbacks. Header
+          siempre visible con conteo; cuerpo solo al expandir. */}
+      {(() => {
+        const urgentItems = (riesgos || []).filter(r => r.level === "critical");
+        if (urgentItems.length === 0) return null;
+        return (
+          <div data-hp="urgent-banner" style={{
+            background: "#FEE2E2",
+            borderBottom: "1px solid #FCA5A5",
+            overflow: "hidden",
+            flexShrink: 0,
+          }}>
+            <button
+              type="button"
+              onClick={() => setUrgentExpanded(p => !p)}
+              style={{
+                width: "100%",
+                padding: "10px 16px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                fontFamily: "inherit",
+                color: "#991B1B",
+              }}
+              aria-expanded={urgentExpanded}
+            >
+              <span style={{ fontSize: 14, fontWeight: 600 }}>
+                🔴 {urgentItems.length} urgente{urgentItems.length > 1 ? "s" : ""}
+              </span>
+              <span style={{ fontSize: 12 }}>{urgentExpanded ? "▲" : "▼"}</span>
+            </button>
+            {urgentExpanded && (
+              <div style={{ padding: "0 16px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+                {urgentItems.slice(0, 8).map((r, idx) => (
+                  <div key={idx} style={{ fontSize: 12.5, color: "#7F1D1D", lineHeight: 1.4 }}>
+                    • {r.title || r.label || r.msg || "(sin título)"}
+                  </div>
+                ))}
+                {urgentItems.length > 8 && (
+                  <div style={{ fontSize: 11, color: "#7F1D1D", fontStyle: "italic", marginTop: 2 }}>
+                    +{urgentItems.length - 8} más…
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Header (64px fijo) */}
       <div style={{ height: 64, padding: "0 16px", display: "flex", alignItems: "center", gap: 10, borderBottom: "0.5px solid #E5E7EB", flexShrink: 0 }}>

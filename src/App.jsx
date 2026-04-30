@@ -11809,7 +11809,7 @@ export default function TaskFlow(){
       })()}
 
       {/* MAIN */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
+      <div data-tf="main-content" style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
         {/* Top bar — siempre visible. Hamburger móvil + breadcrumb + buscar + Nueva ▾ + avatar. */}
         <div style={{display:"flex",background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"10px 14px",alignItems:"center",gap:10,flexShrink:0}}>
           <button className="tf-only-mobile" onClick={()=>setSidebarOpen(true)} title="Abrir menú" style={{width:38,height:38,borderRadius:8,background:"#f3f4f6",border:"none",fontSize:18,cursor:"pointer",alignItems:"center",justifyContent:"center"}}>☰</button>
@@ -12148,6 +12148,29 @@ export default function TaskFlow(){
         onOpenProject={pid=>{ const idx=data.projects.findIndex(p=>p.id===pid); if(idx>=0){setAP(idx);setActiveTab("board");} }}
         onOpenTask={(pid,tid)=>{ const idx=data.projects.findIndex(p=>p.id===pid); if(idx>=0){setAP(idx);setActiveTab("board");setPendingOpenTaskId(tid);} }}
       />}
+      {/* Bottom navigation — visible solo en móvil (≤768px) vía CSS.
+          Aditiva al sidebar drawer existente: estas 4 rutas son las más
+          usadas y se acceden con un tap; el resto sigue en la
+          hamburguesa. Reusa setActiveTab para no duplicar lógica. */}
+      <nav className="tf-bottom-nav" aria-label="Navegación principal móvil">
+        {[
+          { id: "command",  icon: "⚡", label: "Mando",     onClick: () => setActiveTab("command") },
+          { id: "mytasks",  icon: "✅", label: "Tareas",    onClick: () => setActiveTab("mytasks") },
+          { id: "dealroom", icon: "🤝", label: "Negs",      onClick: () => { setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null); } },
+          { id: "projects", icon: "📁", label: "Proyectos", onClick: () => setActiveTab("projects") },
+        ].map(item => (
+          <button
+            key={item.id}
+            type="button"
+            className={`tf-bottom-nav-item${activeTab === item.id ? " active" : ""}`}
+            onClick={item.onClick}
+            aria-current={activeTab === item.id ? "page" : undefined}
+          >
+            <span className="tf-bn-icon" aria-hidden="true">{item.icon}</span>
+            <span className="tf-bn-label">{item.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
     </PresenceProvider>
   );

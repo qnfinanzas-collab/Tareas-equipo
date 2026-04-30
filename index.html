@@ -81,10 +81,50 @@
         .tf-fab { bottom: 16px !important; right: 16px !important; }
       }
 
+      /* Bottom navigation (mobile only). Aditiva: el sidebar drawer
+         sigue accesible con la hamburguesa para rutas avanzadas; este
+         bottom nav cubre las 4 rutas más usadas con tap directo. */
+      .tf-bottom-nav { display: none; }
+      @media (max-width: 768px) {
+        .tf-bottom-nav {
+          display: flex;
+          position: fixed;
+          bottom: 0; left: 0; right: 0;
+          height: 64px;
+          background: #ffffff;
+          border-top: 1px solid #e5e7eb;
+          z-index: 1000;
+          padding-bottom: env(safe-area-inset-bottom);
+          box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
+        }
+        [data-tf="main-content"] {
+          padding-bottom: calc(64px + env(safe-area-inset-bottom)) !important;
+        }
+      }
+      .tf-bottom-nav-item {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 56px;
+        gap: 2px;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        font-family: inherit;
+        color: #6B7280;
+        opacity: 0.5;
+        transition: opacity .15s, color .15s;
+      }
+      .tf-bottom-nav-item.active { opacity: 1; color: #7F77DD; font-weight: 600; }
+      .tf-bottom-nav-item .tf-bn-icon { font-size: 22px; line-height: 1; }
+      .tf-bottom-nav-item .tf-bn-label { font-size: 10px; letter-spacing: 0.02em; }
+
       /* Print: ocultar navegación y dejar solo el contenido marcado con .tf-printable.
          Si no hay ningún .tf-printable, imprime el main visible. */
       @media print {
-        .tf-sidebar, .tf-backdrop, .tf-topbar, .tf-fab, .tf-no-print { display: none !important; }
+        .tf-sidebar, .tf-backdrop, .tf-topbar, .tf-fab, .tf-no-print, .tf-bottom-nav { display: none !important; }
         body, #root { background: #fff !important; }
         .tf-main-pad { padding: 0 !important; }
         .tf-printable { box-shadow: none !important; border: none !important; }
