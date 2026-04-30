@@ -62,24 +62,51 @@ export default function ActionProposal({ proposal, agentName = "Agente", agentEm
     }
   };
 
-  // Conteos para el resumen.
+  // Conteos para el resumen. El guard del botón "Crear todo" se basa en
+  // `enabled` (total de acciones seleccionadas, agnóstico al tipo), así
+  // que cualquier nuevo tipo añadido en agentActions.js sigue funcionando
+  // sin tocar este componente. Los chips visibles agrupan por familia
+  // (proyectos/tareas/negociaciones/movs/bancarios/asientos/facturas) y
+  // hay un cubo "otros" para tipos desconocidos.
   const totals = useMemo(() => {
-    let projects = 0, tasks = 0, negs = 0, movs = 0;
+    let projects = 0, tasks = 0, negs = 0, movs = 0, bank = 0, accEntries = 0, invoices = 0, others = 0;
     proposal.actions.forEach((a, i) => {
       if (excludedActions.has(i)) return;
-      if (a.type === "create_project") {
-        projects++;
-        tasks += (a.tasks || []).filter((_, j) => !excludedTasks.has(`${i}_${j}`)).length;
-      } else if (a.type === "create_tasks") {
-        tasks += (a.tasks || []).filter((_, j) => !excludedTasks.has(`${i}_${j}`)).length;
-      } else if (a.type === "create_negotiation") {
-        negs++;
-      } else if (a.type === "create_movement") {
-        movs++;
+      switch (a.type) {
+        case "create_project":
+          projects++;
+          tasks += (a.tasks || []).filter((_, j) => !excludedTasks.has(`${i}_${j}`)).length;
+          break;
+        case "create_tasks":
+          tasks += (a.tasks || []).filter((_, j) => !excludedTasks.has(`${i}_${j}`)).length;
+          break;
+        case "create_negotiation":
+          negs++;
+          break;
+        case "create_movement":
+          movs++;
+          break;
+        case "update_bank_movement":
+        case "add_bank_movement":
+          bank++;
+          break;
+        case "add_accounting_entry":
+          accEntries++;
+          break;
+        case "add_invoice":
+        case "update_invoice":
+          invoices++;
+          break;
+        default:
+          others++;
       }
     });
-    return { projects, tasks, negs, movs };
+    return { projects, tasks, negs, movs, bank, accEntries, invoices, others };
   }, [proposal.actions, excludedActions, excludedTasks]);
+
+  // Total de acciones efectivamente seleccionadas (agnóstico al tipo).
+  // Es el guard que decide si el botón "Crear todo" está habilitado.
+  const enabled = proposal.actions.length - excludedActions.size;
 
   if (done) {
     return (
@@ -98,11 +125,15 @@ export default function ActionProposal({ proposal, agentName = "Agente", agentEm
           <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{agentName} propone:</div>
           <div style={{ fontSize: 11.5, color: "#6B7280", marginTop: 2 }}>{proposal.summary}</div>
         </div>
-        <div style={{ display: "flex", gap: 6, fontSize: 11, color }}>
-          {totals.projects > 0 && <span>📁 {totals.projects}</span>}
-          {totals.tasks > 0    && <span>✅ {totals.tasks}</span>}
-          {totals.negs > 0     && <span>🤝 {totals.negs}</span>}
-          {totals.movs > 0     && <span>💰 {totals.movs}</span>}
+        <div style={{ display: "flex", gap: 6, fontSize: 11, color, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {totals.projects > 0   && <span>📁 {totals.projects}</span>}
+          {totals.tasks > 0      && <span>✅ {totals.tasks}</span>}
+          {totals.negs > 0       && <span>🤝 {totals.negs}</span>}
+          {totals.movs > 0       && <span>💰 {totals.movs}</span>}
+          {totals.bank > 0       && <span>🏦 {totals.bank}</span>}
+          {totals.accEntries > 0 && <span>📒 {totals.accEntries}</span>}
+          {totals.invoices > 0   && <span>🧾 {totals.invoices}</span>}
+          {totals.others > 0     && <span>⚙️ {totals.others}</span>}
         </div>
       </div>
 
@@ -155,8 +186,8 @@ export default function ActionProposal({ proposal, agentName = "Agente", agentEm
         >❌ No crear</button>
         <button
           onClick={handleConfirm}
-          disabled={busy || (totals.projects + totals.tasks + totals.negs + totals.movs === 0)}
-          style={{ padding: "7px 18px", borderRadius: 8, background: busy ? "#9CA3AF" : color, color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: busy ? "wait" : "pointer", fontFamily: "inherit" }}
+          disabled={busy || enabled === 0}
+          style={{ padding: "7px 18px", borderRadius: 8, background: busy || enabled === 0 ? "#9CA3AF" : color, color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: busy ? "wait" : enabled === 0 ? "not-allowed" : "pointer", fontFamily: "inherit" }}
         >{busy ? "Creando…" : "✅ Crear todo"}</button>
       </div>
     </div>
@@ -203,5 +234,50 @@ function ActionHeader({ action }) {
       </div>
     );
   }
-  return <div style={{ flex: 1, fontSize: 12, color: "#6B7280" }}>Acción: {t}</div>;
+  if (t === "update_bank_movement") {
+    const fields = [
+      action.category    !== undefined && "categoría",
+      action.subcategory !== undefined && "subcategoría",
+      action.reconciled  !== undefined && (action.reconciled ? "marcar conciliado" : "desconciliar"),
+      action.notes       !== undefined && "notas",
+      action.concept     !== undefined && "concepto",
+    ].filter(Boolean);
+    return (
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: "#111827" }}>🏦 Actualizar movimiento bancario</div>
+        <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {fields.length > 0 ? fields.join(" · ") : "(sin cambios)"}
+          {action.id ? ` · id ${String(action.id).slice(0, 8)}` : ""}
+        </div>
+      </div>
+    );
+  }
+  if (t === "add_bank_movement") {
+    return (
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: "#111827" }}>🏦 Nuevo movimiento bancario {action.amount != null ? <b>· {action.amount}€</b> : null}</div>
+        <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{action.concept || "(sin concepto)"}{action.date ? ` · ${action.date}` : ""}</div>
+      </div>
+    );
+  }
+  if (t === "add_accounting_entry") {
+    const lineCount = Array.isArray(action.lines) ? action.lines.length : 0;
+    const totalD = Array.isArray(action.lines) ? action.lines.reduce((s, l) => s + (Number(l.debit)||0), 0) : 0;
+    return (
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📒 Asiento: <b>{action.description || "(sin descripción)"}</b></div>
+        <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2 }}>{lineCount} línea{lineCount!==1?"s":""}{totalD>0?` · ${totalD.toFixed(2)}€ debe = haber`:""}{action.date?` · ${action.date}`:""}</div>
+      </div>
+    );
+  }
+  if (t === "add_invoice" || t === "update_invoice") {
+    const isUpdate = t === "update_invoice";
+    return (
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: "#111827" }}>🧾 {isUpdate ? "Actualizar" : "Nueva"} factura{action.invoiceType ? ` ${action.invoiceType}` : ""}{action.total != null ? <span> · <b>{action.total}€</b></span> : null}</div>
+        <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2 }}>{action.counterparty?.name || action.counterpartyName || "(sin contraparte)"}{action.number ? ` · nº ${action.number}` : ""}{action.date ? ` · ${action.date}` : ""}</div>
+      </div>
+    );
+  }
+  return <div style={{ flex: 1, fontSize: 12, color: "#6B7280" }}>⚙️ Acción: <code style={{ fontFamily: "ui-monospace,monospace" }}>{t}</code></div>;
 }
