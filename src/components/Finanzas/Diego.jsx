@@ -79,15 +79,67 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
     try { speak(text, DIEGO_VOICE); } catch (e) { console.warn("[diego] speak fallo:", e?.message); }
   };
 
-  const handleAttach = async (file) => {
+  // Detección del tipo a partir del archivo. Sin tocar el contenido.
+  // Devuelve { kind: "pdf"|"image"|"csv"|"excel"|"text"|"unsupported", media_type? }.
+  const detectAttachmentKind = (file) => {
+    const lower = (file.name || "").toLowerCase();
+    const mime = (file.type || "").toLowerCase();
+    const isPdf = lower.endsWith(".pdf") || mime === "application/pdf";
+    if (isPdf) return { kind: "pdf", media_type: "application/pdf" };
+    const isImage = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp")
+      || mime === "image/png" || mime === "image/jpeg" || mime === "image/webp";
+    if (isImage) {
+      const media_type = mime || (lower.endsWith(".png") ? "image/png" : lower.endsWith(".webp") ? "image/webp" : "image/jpeg");
+      return { kind: "image", media_type };
+    }
+    if (lower.endsWith(".csv")) return { kind: "csv" };
+    if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) return { kind: "excel" };
+    if (lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".json")) return { kind: "text" };
+    return { kind: "unsupported" };
+  };
+
+  // handleAttach: SOLO registra la referencia. NO lee el archivo. NO sube
+  // nada al modelo. El usuario decide cuándo activar la lectura pulsando
+  // "👁 Leer" — diseño "léelo solo si lo necesitas" para no consumir
+  // tokens / cuota del LLM por accidente al arrastrar archivos.
+  const handleAttach = (file) => {
+    setAttachError("");
+    if (!file) return;
+    const detected = detectAttachmentKind(file);
+    if (detected.kind === "unsupported") {
+      setAttachError("Formato no soportado. Usa .xlsx, .xls, .csv, .pdf, .png, .jpg, .webp, .txt");
+      return;
+    }
+    if ((detected.kind === "pdf" || detected.kind === "image") && file.size > ATTACH_MAX_MB * 1024 * 1024) {
+      setAttachError(`Archivo demasiado grande (${(file.size/1024/1024).toFixed(1)}MB). Máx ${ATTACH_MAX_MB}MB.`);
+      return;
+    }
+    setAttachment({
+      file,                        // referencia cruda — no la persistimos en localStorage
+      name: file.name,
+      kind: detected.kind,         // "pdf" | "image" | "csv" | "excel" | "text"
+      media_type: detected.media_type || null,
+      size: file.size,
+      read: false,                 // se pondrá true cuando el usuario pulse "Leer"
+      base64: null,                // se rellena al leer si es binario
+      text: null,                  // se rellena al leer si es texto
+    });
+  };
+
+  // readAttachment: ejecuta la lectura cuando el usuario pulsa "👁 Leer".
+  // Para binarios (pdf/imagen) → base64 vía blobToBase64. Para texto
+  // (csv/xlsx/txt) → extracción local con SheetJS / PapaParse / file.text().
+  const readAttachment = async () => {
+    if (!attachment || attachment.read || attaching) return;
     setAttachError("");
     setAttaching(true);
     try {
-      const lower = (file.name || "").toLowerCase();
-      const mime = (file.type || "").toLowerCase();
-      // Rama 1 — texto plano (xlsx/csv/txt/json/md): se extrae a string y
-      // se inyecta como contexto del mensaje. Igual que antes.
-      if (lower.endsWith(".csv")) {
+      const { file, kind } = attachment;
+      if (!file) throw new Error("Adjunto sin referencia al archivo");
+      if (kind === "pdf" || kind === "image") {
+        const base64 = await blobToBase64(file);
+        setAttachment(a => a ? { ...a, base64, read: true } : a);
+      } else if (kind === "csv") {
         const Papa = (await import("papaparse")).default;
         let raw = await file.text();
         if (/[\uFFFD]/.test(raw)) {
@@ -98,10 +150,8 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
         const rows = out.data || [];
         let text = rows.slice(0, 200).map(r => Array.isArray(r) ? r.join(" | ") : String(r)).join("\n");
         if (text.length > ATTACH_MAX_CHARS) text = text.slice(0, ATTACH_MAX_CHARS) + "\n…(truncado)";
-        setAttachment({ name: file.name, kind: "csv", text, size: file.size });
-        return;
-      }
-      if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
+        setAttachment(a => a ? { ...a, text, read: true } : a);
+      } else if (kind === "excel") {
         const XLSX = await import("xlsx");
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(buf, { type: "array", cellDates: true });
@@ -114,44 +164,16 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
         }
         let text = parts.join("\n");
         if (text.length > ATTACH_MAX_CHARS) text = text.slice(0, ATTACH_MAX_CHARS) + "\n…(truncado)";
-        setAttachment({ name: file.name, kind: "excel", text, size: file.size });
-        return;
-      }
-      if (lower.endsWith(".txt") || lower.endsWith(".md") || lower.endsWith(".json")) {
+        setAttachment(a => a ? { ...a, text, read: true } : a);
+      } else if (kind === "text") {
         let text = await file.text();
         if (text.length > ATTACH_MAX_CHARS) text = text.slice(0, ATTACH_MAX_CHARS) + "\n…(truncado)";
-        setAttachment({ name: file.name, kind: "text", text, size: file.size });
-        return;
+        setAttachment(a => a ? { ...a, text, read: true } : a);
+      } else {
+        throw new Error(`No sé leer un archivo de tipo "${kind}"`);
       }
-      // Rama 2 — binarios (PDF/imagen): se leen como base64 y se envían al
-      // modelo vía `attachments`. Anthropic Claude Sonnet 4.5 procesa PDFs
-      // e imágenes nativamente. Tope ~15MB porque el body completo va a
-      // Vercel (limit 20MB) y base64 pesa ~33% más que el archivo.
-      const isPdf = lower.endsWith(".pdf") || mime === "application/pdf";
-      const isImage = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp")
-        || mime === "image/png" || mime === "image/jpeg" || mime === "image/webp";
-      if (isPdf || isImage) {
-        if (file.size > ATTACH_MAX_MB * 1024 * 1024) {
-          throw new Error(`Archivo demasiado grande (${(file.size/1024/1024).toFixed(1)}MB). Máx ${ATTACH_MAX_MB}MB.`);
-        }
-        const base64 = await blobToBase64(file);
-        const media_type = isPdf
-          ? "application/pdf"
-          : (mime || (lower.endsWith(".png") ? "image/png"
-                    : lower.endsWith(".webp") ? "image/webp"
-                    : "image/jpeg"));
-        setAttachment({
-          name: file.name,
-          kind: isPdf ? "pdf" : "image",
-          base64,
-          media_type,
-          size: file.size,
-        });
-        return;
-      }
-      throw new Error("Formato no soportado. Usa .xlsx, .xls, .csv, .pdf, .png, .jpg, .webp, .txt");
     } catch (e) {
-      console.warn("[diego] attach fallo:", e);
+      console.warn("[diego] read fallo:", e);
       setAttachError(e.message || "Error leyendo el archivo");
     } finally {
       setAttaching(false);
@@ -170,43 +192,50 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
     if (!onCallAgent) return;
     stopSpeaking();
     const isBinary = attachment && (attachment.kind === "pdf" || attachment.kind === "image");
-    // Construcción del mensaje:
-    //   - Texto (xlsx/csv/txt): inyectamos el contenido extraído al final
-    //     del prompt del usuario (mismo flujo de siempre).
-    //   - Binario (pdf/imagen): el modelo recibe el archivo real vía
-    //     `attachments`; en el chat ponemos solo el prompt corto y NO
-    //     persistimos el base64 en el historial (sería tóxico para el
-    //     contexto de turnos siguientes y haría reventar localStorage).
+    const isReadBinary = isBinary && attachment.read && attachment.base64;
+    const isReadText   = attachment && !isBinary && attachment.read && attachment.text;
+    // Construcción del mensaje según estado del adjunto:
+    //   1) Sin adjunto: mensaje normal.
+    //   2) Adjunto NO leído: solo mencionamos el nombre como referencia.
+    //      El modelo NO ve el contenido — el usuario decidió no leerlo.
+    //   3) Adjunto texto leído: inyectamos el extracto en el prompt.
+    //   4) Adjunto binario leído: enviamos base64 vía `attachments` al API.
     let finalContent = txt;
-    if (attachment && !isBinary) {
-      const header = `\n\n[Adjunto · ${attachment.name} · ${attachment.kind}]\n`;
-      finalContent = (txt || "Analiza el documento adjunto.") + header + attachment.text;
-    } else if (isBinary) {
-      finalContent = txt || "Analiza el documento adjunto. Extrae los datos exclusivamente del archivo.";
+    if (attachment) {
+      if (isReadText) {
+        const header = `\n\n[Adjunto · ${attachment.name} · ${attachment.kind}]\n`;
+        finalContent = (txt || "Analiza el documento adjunto.") + header + attachment.text;
+      } else if (isReadBinary) {
+        finalContent = txt || "Analiza el documento adjunto. Extrae los datos exclusivamente del archivo.";
+      } else {
+        // Adjunto sin leer: solo referencia textual. Diego no ve el contenido.
+        const sufijo = `\n\n[Adjunto sin leer · ${attachment.name} · ${attachment.kind}. El usuario lo añadió como referencia pero no ha pulsado "Leer", así que no tienes acceso al contenido. Si necesitas verlo, indica al usuario que lo lea.]`;
+        finalContent = (txt || `He adjuntado ${attachment.name} pero NO quiero que lo analices todavía.`) + sufijo;
+      }
     }
     const userMsg = {
       role: "user",
       content: finalContent,
       ts: Date.now(),
-      attachmentMeta: attachment ? { name: attachment.name, kind: attachment.kind, size: attachment.size } : null,
-      displayContent: txt || (attachment ? `(He adjuntado ${attachment.name})` : ""),
+      attachmentMeta: attachment ? { name: attachment.name, kind: attachment.kind, size: attachment.size, read: !!attachment.read } : null,
+      displayContent: txt || (attachment ? `(He adjuntado ${attachment.name}${attachment.read ? "" : " — sin leer"})` : ""),
     };
     const next = [...history, userMsg].slice(-CHAT_MAX);
     setHistory(next);
     setInput("");
-    // Para binarios necesitamos retener el adjunto local hasta enviarlo.
+    // Para binarios leídos necesitamos retener el adjunto local hasta enviarlo.
     const sentAttachment = attachment;
     setAttachment(null);
     setAttachError("");
     setLoading(true);
-    setLoadingKind(isBinary ? "doc" : "chat");
+    setLoadingKind(isReadBinary ? "doc" : "chat");
     try {
       const messages = next.map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.content }));
       // Solo enviamos `attachments` cuando el último mensaje del usuario
-      // tiene un binario nuevo. El endpoint los inyecta como content blocks
-      // en el último mensaje user (ver api/agent.js → injectAttachments).
+      // tiene un binario LEÍDO (base64 cargado). El endpoint los inyecta
+      // como content blocks en el último mensaje user.
       const callPayload = { messages, selectedCompanyId };
-      if (isBinary && sentAttachment?.base64) {
+      if (isReadBinary && sentAttachment?.base64) {
         callPayload.attachments = [{
           kind: sentAttachment.kind,                  // "pdf" | "image"
           media_type: sentAttachment.media_type,
@@ -367,13 +396,42 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
         )}
       </div>
 
-      {/* Adjunto pendiente / error */}
+      {/* Adjunto pendiente / error.
+          Estados: sin leer (gris, borde punteado) → "Sin leer — pulsa 👁
+          para que Diego analice el contenido". Leído (verde sólido + ✅)
+          → "Leído — Diego verá el documento". */}
       {attachment && (
-        <div style={{ margin: "0 12px 8px", padding: "8px 12px", background: "#F0FDF4", border: "1px solid #86EFAC", borderRadius: 8, fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
-          <span>📎</span>
-          <span style={{ flex: 1, fontWeight: 600, color: "#065F46", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachment.name}</span>
-          <span style={{ fontSize: 10, color: "#0E7C5A" }}>{(attachment.size/1024).toFixed(0)} KB · {attachment.kind}</span>
-          <button onClick={() => setAttachment(null)} title="Quitar adjunto" style={{ background: "transparent", border: "none", color: "#065F46", fontSize: 16, cursor: "pointer" }}>×</button>
+        <div style={{ margin: "0 12px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{
+            padding: "8px 12px",
+            background: attachment.read ? "#F0FDF4" : "#F9FAFB",
+            border: attachment.read ? "1px solid #86EFAC" : "1.5px dashed #D1D5DB",
+            borderRadius: 8,
+            fontSize: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}>
+            <span>{attachment.kind === "pdf" ? "📄" : attachment.kind === "image" ? "🖼" : attachment.kind === "excel" ? "📊" : attachment.kind === "csv" ? "📊" : "📎"}</span>
+            <span style={{ flex: 1, fontWeight: 600, color: attachment.read ? "#065F46" : "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachment.name}</span>
+            <span style={{ fontSize: 10, color: attachment.read ? "#0E7C5A" : "#9CA3AF" }}>{(attachment.size/1024).toFixed(0)} KB · {attachment.kind}</span>
+            {attachment.read ? (
+              <span title="Leído — Diego verá el documento" style={{ fontSize: 11, fontWeight: 700, color: "#0E7C5A", padding: "2px 8px", borderRadius: 999, background: "#DCFCE7", border: "0.5px solid #86EFAC" }}>✅ Leído</span>
+            ) : (
+              <button
+                onClick={readAttachment}
+                disabled={attaching}
+                title="Leer ahora — convierte el archivo y deja que Diego lo analice"
+                style={{ padding: "3px 10px", borderRadius: 6, background: attaching ? "#E5E7EB" : "#fff", border: "1px solid #D1D5DB", color: attaching ? "#9CA3AF" : "#0E7C5A", fontSize: 11, fontWeight: 600, cursor: attaching ? "wait" : "pointer", fontFamily: "inherit" }}
+              >{attaching ? "…" : "👁 Leer"}</button>
+            )}
+            <button onClick={() => setAttachment(null)} title="Quitar adjunto" style={{ background: "transparent", border: "none", color: attachment.read ? "#065F46" : "#6B7280", fontSize: 16, cursor: "pointer" }}>×</button>
+          </div>
+          <div style={{ fontSize: 10.5, color: attachment.read ? "#0E7C5A" : "#6B7280", paddingLeft: 4 }}>
+            {attachment.read
+              ? `✅ Leído — Diego verá el documento al enviar el mensaje.`
+              : `Sin leer — pulsa 👁 Leer para que Diego analice el contenido. Si envías así, Diego solo verá el nombre del archivo.`}
+          </div>
         </div>
       )}
       {attachError && (
