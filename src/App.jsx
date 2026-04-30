@@ -885,18 +885,18 @@ function _migrate(d){
     return a;
   });
   // Patch ejecutor: inyecta CAPACIDAD DE EJECUCIÓN en TODOS los agentes
-  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v3".
-  // v3 añade los tipos add_accounting_entry / update_bank_movement /
-  // add_bank_movement (Diego). Cualquier versión anterior se reemplaza.
+  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v4".
+  // v4 añade add_invoice / update_invoice (Diego: facturas) sobre v3
+  // (asientos + bank movements). Cualquier versión anterior se reemplaza.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v3")) return a;             // ya v3
+    if(a.promptBase.includes("ACTIONS_v4")) return a;             // ya v4
     if(a.promptBase.includes("CAPACIDAD DE EJECUCIÓN")) {
-      // versión antigua (v1 o v2) → cortamos el bloque y reinyectamos v3
+      // versión antigua (v1, v2 o v3) → cortamos el bloque y reinyectamos v4
       const cut = a.promptBase.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
       return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
     }
-    // sin addon previo → añadir v3
+    // sin addon previo → añadir v4
     return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
   });
   // Upgrade promptBase de Héctor: añade la sección COACHING EJECUTIVO si el
@@ -7390,7 +7390,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
         ? `Analiza SOLO esta tarea y nada más:\n${item.ref||"["+item.id+"]"} ${item.title} (proyecto: ${item.projName}, columna: ${item.colName}, fecha: ${item.dueDate||"sin fecha"}, prioridad: ${item.priority})\n\nDame 2-4 frases de análisis directo + máx 2 tags de esta lista cerrada: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".\n\nResponde EXCLUSIVAMENTE con JSON válido de esta forma exacta: {"text":"…","tags":["…"]}`
         : `Analiza SOLO este proyecto y nada más:\n${item.p.code||"["+item.p.id+"]"} ${item.p.name} (rol en esta negociación: ${item.rp.role||"relacionado"}, ${item.activeCount} tareas activas, ${item.overdueCount} vencidas)\n\nDame 2-4 frases de análisis directo + máx 2 tags de esta lista cerrada: "Bloquea negociación", "Decisión Tipo 1", "Decisión Tipo 2", "Riesgo alto", "Riesgo bajo", "Delegable", "Urgente".\n\nResponde EXCLUSIVAMENTE con JSON válido de esta forma exacta: {"text":"…","tags":["…"]}`;
       const system = (hector.promptBase||"") + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + contextStr + "\n\n" + PLAIN_TEXT_RULE + "\n\nIMPORTANTE: responde ÚNICAMENTE con JSON válido, sin markdown ni prosa. El valor del campo \"text\" debe ser texto plano sin asteriscos ni guiones de lista.";
-      const txt = await callAgentSafe({system,messages:[{role:"user",content:itemPrompt}],max_tokens:500});
+      const txt = await callAgentSafe({system,messages:[{role:"user",content:itemPrompt}],max_tokens:500},{timeoutMs:30000});
       let parsed=null;
       try{ parsed=JSON.parse(txt); }
       catch{ const m=txt.match(/\{[\s\S]*\}/); if(m){ try{ parsed=JSON.parse(m[0]); }catch{} } }
@@ -7793,7 +7793,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                 return {role:m.role==="user"?"user":"assistant", content:m.content};
               });
             history.push({role:"user",content:userMessage});
-            return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:userMessage}]:history,max_tokens:opts.maxTokens||900});
+            return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:userMessage}]:history,max_tokens:opts.maxTokens||900},{timeoutMs:opts.timeoutMs||45000});
           };
           // Parser de invocación EXPLÍCITA: lee la respuesta de Héctor,
           // busca etiquetas [INVOCAR:mario|jorge:tarea] y devuelve:
@@ -7856,7 +7856,13 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             // Jorge, Álvaro, Gonzalo) generan outputs largos — contratos
             // completos, waterfalls, análisis LAU, escrituras. Con 1000
             // se truncaba a mitad de cláusula. 4096 cubre 3-4 páginas.
-            return callAgentSafe({system:sys, messages:[{role:"user",content:ctx}], max_tokens:4096});
+            // Timeout 45s: específicos pueden tardar 10-25s razonando
+            // contratos largos. Antes no había abort, los specialists
+            // colgaban indefinidamente cuando el LLM se atascaba.
+            return callAgentSafe(
+              { system: sys, messages: [{role:"user", content: ctx}], max_tokens: 4096 },
+              { timeoutMs: 45000 }
+            );
           };
           // Orquestador: invoca a un especialista y mete dos mensajes en el
           // chat (placeholder loading + respuesta final). Usado tanto por la
@@ -10044,7 +10050,9 @@ export default function TaskFlow(){
     // tareas + negociación con stakeholders/facts. El JSON dentro del
     // bloque pasa fácilmente de 1500-2500 tokens; antes se truncaba y la
     // propuesta llegaba vacía o se perdía.
-    const out = await callAgentSafe({system, messages: messages||[], max_tokens: 3000});
+    // Timeout 45s: Gonzalo razona sobre estructura societaria + contexto
+    // financiero, latencia típica 8-15s, margen 3x antes de abort.
+    const out = await callAgentSafe({system, messages: messages||[], max_tokens: 3000}, {timeoutMs: 45000});
     return out;
   };
   // Diego: analista financiero operativo. Igual que callGonzaloDirect pero
@@ -10376,8 +10384,12 @@ export default function TaskFlow(){
     // el documento real, no solo el nombre. Sin attachments el flujo es
     // idéntico al anterior.
     const callBody = { system, messages: messages||[], max_tokens: 4096 };
-    if (Array.isArray(attachments) && attachments.length > 0) callBody.attachments = attachments;
-    const out = await callAgentSafe(callBody);
+    const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
+    if (hasAttachments) callBody.attachments = attachments;
+    // Timeout: 45s normal · 90s si Diego procesa PDF/imagen (Anthropic
+    // necesita más tiempo para parsing nativo de documentos grandes).
+    const timeoutMs = hasAttachments ? 90000 : 45000;
+    const out = await callAgentSafe(callBody, { timeoutMs });
     return out;
   };
   // Setter dedicado para permisos de agentes IA. Toggle binario por
@@ -11391,6 +11403,8 @@ export default function TaskFlow(){
       addBankMovement,
       updateBankMovement,
       addAccountingEntry,
+      addInvoice,
+      updateInvoice,
       defaultCompanyId,
       findProjectByCode: (code) => (dataRef.current?.projects || []).find(p => p.code === code),
     };
@@ -11436,7 +11450,7 @@ export default function TaskFlow(){
     // Pasada 2: resto de acciones (negotiation, create_tasks sobre code existente, movement)
     const results2 = executeAgentActions(otherActions, helpers);
     return { results: [...results1, ...results2] };
-  },[createProject, addTaskToProject, createNegotiation, addFinanceMovement, addBankMovement, updateBankMovement, addAccountingEntry, activeMember, data]);
+  },[createProject, addTaskToProject, createNegotiation, addFinanceMovement, addBankMovement, updateBankMovement, addAccountingEntry, addInvoice, updateInvoice, activeMember, data]);
   const editProject = useCallback((idx,{name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility})=>{
     setData(prev=>{
       const p=prev.projects[idx];

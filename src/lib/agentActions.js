@@ -24,6 +24,9 @@ export const AGENT_ACTION_TYPES = {
   ADD_BANK_MOVEMENT:    "add_bank_movement",
   // Asientos del libro diario (Diego: contabilidad PGC pyme).
   ADD_ACCOUNTING_ENTRY: "add_accounting_entry",
+  // Facturas emitidas y recibidas (Diego: contabilidad pyme).
+  ADD_INVOICE:          "add_invoice",
+  UPDATE_INVOICE:       "update_invoice",
 };
 
 // Marcadores. Públicos para que los prompts puedan referenciarlos exactamente.
@@ -87,6 +90,86 @@ export function resolveDueDate(relative) {
   return d.toISOString().slice(0, 10);
 }
 
+// Clasifica una respuesta del agente por nivel de fiabilidad para el
+// CEO. Heurística pragmática (no LLM): mira keywords y patrones de
+// citación. Devuelve uno de { kind, label, color, hint }:
+//   verde:   cita IDs reales del sistema (mov_xxx, fin_xxx, inv_xxx, doc_xxx)
+//            o tuplas fecha+importe específicas (verificable contra data)
+//   rojo:    el agente admite no tener datos ("no tengo", "no veo", etc.)
+//   amarillo:recomendación interpretativa sin citar datos concretos
+//
+// Pensado para enseñar al CEO de un vistazo si la respuesta está pegada
+// a sus datos reales o si es opinión general del modelo.
+const ID_REGEX = /\[(mov_|fin_|inv_|doc_|tl_|asn_|fac_|cam_|stk_|kf_)[a-z0-9_-]+\]?/i;
+const AMOUNT_DATE_REGEX = /(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?\s*€|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}-\d{2}-\d{2})/;
+const NEGATIVE_PATTERNS = [
+  /no tengo (ese|esa|esos|esas|el|la|los|las|datos|información|info|acceso)/i,
+  /no veo (ese|esa|esos|esas|el|la|los|las|nada|datos)/i,
+  /no puedo (confirmar|verificar|acceder)/i,
+  /no aparec(e|en) (ese|esa|esos|esas|en)/i,
+  /no encuentro/i,
+  /sin contexto suficiente/i,
+  /no dispongo de/i,
+  /falta(n)? (datos|info|información|contexto)/i,
+];
+const SOFT_PATTERNS = [
+  /\bte recomiendo\b/i,
+  /\bdeberías\b/i,
+  /\bsugiero\b/i,
+  /\bcreo que\b/i,
+  /\bme parece\b/i,
+  /\ben mi opinión\b/i,
+  /\bvalora\b/i,
+  /\bplanté(a|alo)\b/i,
+];
+
+export function classifyReply(text) {
+  if (!text || typeof text !== "string") {
+    return { kind: "neutral", label: "", color: "", hint: "" };
+  }
+  // 1) Negatividad explícita: el agente admite no tener datos. Prioritario.
+  for (const re of NEGATIVE_PATTERNS) {
+    if (re.test(text)) {
+      return {
+        kind: "low",
+        label: "Sin contexto suficiente",
+        color: "#B91C1C",
+        bg: "#FEE2E2",
+        border: "#FCA5A5",
+        hint: "El agente reconoce que faltan datos para responder con seguridad.",
+      };
+    }
+  }
+  // 2) Citas de IDs o tuplas fecha+importe → datos verificables.
+  const hasId = ID_REGEX.test(text);
+  const hasAmountOrDate = AMOUNT_DATE_REGEX.test(text);
+  if (hasId || hasAmountOrDate) {
+    return {
+      kind: "high",
+      label: "Datos verificados",
+      color: "#0E7C5A",
+      bg: "#DCFCE7",
+      border: "#86EFAC",
+      hint: "La respuesta cita datos concretos del sistema (id, fecha o importe).",
+    };
+  }
+  // 3) Lenguaje suave/recomendación sin datos → interpretación.
+  for (const re of SOFT_PATTERNS) {
+    if (re.test(text)) {
+      return {
+        kind: "med",
+        label: "Análisis interpretativo",
+        color: "#92400E",
+        bg: "#FEF3C7",
+        border: "#FCD34D",
+        hint: "Recomendación basada en frameworks generales, sin citar datos específicos.",
+      };
+    }
+  }
+  // 4) Default: neutral, sin badge (no queremos saturar todos los mensajes).
+  return { kind: "neutral", label: "", color: "", hint: "" };
+}
+
 // Resuelve companyId con cadena de fallback:
 //   1) `actionCompanyId` (lo que el agente puso en el JSON)
 //   2) `defaultCompanyId` (la empresa filtrada en la UI cuando aplica)
@@ -147,6 +230,8 @@ export function executeAgentActions(actions, helpers) {
     addBankMovement,      // (payload) → side-effect (Diego)
     updateBankMovement,   // (id, patch) → side-effect (Diego)
     addAccountingEntry,   // (payload) → side-effect (Diego: libro diario)
+    addInvoice,           // (payload) → id (Diego: nueva factura)
+    updateInvoice,        // (id, patch) → side-effect (Diego: actualizar factura)
     defaultCompanyId,     // string|null — empresa filtrada en la UI cuando aplica
   } = helpers || {};
 
@@ -351,6 +436,96 @@ export function executeAgentActions(actions, helpers) {
           break;
         }
 
+        case AGENT_ACTION_TYPES.ADD_INVOICE: {
+          // Nueva factura emitida o recibida. companyId con cadena de
+          // fallback (action → default → única empresa registrada).
+          // counterparty.name y total son obligatorios; sin ellos rechazamos.
+          const companyId = resolveCompanyId(action.companyId, defaultCompanyId, data);
+          if (!companyId) {
+            results.push({ type: "error", action: action.type, error: "Selecciona una empresa concreta antes de crear facturas" });
+            break;
+          }
+          const tipo = action.type === "recibida" ? "recibida" : (action.invoiceType === "recibida" ? "recibida" : "emitida");
+          const cpName = (action.counterparty?.name || action.counterpartyName || "").trim();
+          if (!cpName) {
+            results.push({ type: "error", action: action.type, error: "Falta el nombre de la contraparte (cliente/proveedor)" });
+            break;
+          }
+          // Líneas: si vienen, las normalizamos. Si no, derivamos una línea
+          // única desde subtotal/total/vatRate para que Diego pueda emitir
+          // facturas mínimas sin tener que detallar siempre líneas.
+          let lines = Array.isArray(action.lines) && action.lines.length > 0
+            ? action.lines.map(l => ({
+                description: String(l.description || "").trim(),
+                quantity:    Number(l.quantity)  || 1,
+                unitPrice:   Number(l.unitPrice) || 0,
+                vatRate:     Number(l.vatRate)   || 0,
+              }))
+            : null;
+          if (!lines) {
+            const total = Number(action.total) || 0;
+            const subtotal = Number(action.subtotal) || total;
+            const vatRate = Number(action.vatRate)  || 21;
+            if (!subtotal && !total) {
+              results.push({ type: "error", action: action.type, error: "Falta total/subtotal o líneas en la factura" });
+              break;
+            }
+            lines = [{
+              description: action.description || action.notes || "Factura importada",
+              quantity: 1,
+              unitPrice: subtotal || total,
+              vatRate,
+            }];
+          }
+          const newId = addInvoice?.({
+            companyId,
+            type: tipo,
+            number: action.number || null,
+            date: resolveDueDate(action.date || "+0d"),
+            dueDate: action.dueDate ? resolveDueDate(action.dueDate) : null,
+            counterparty: {
+              name: cpName,
+              cif:  String(action.counterparty?.cif || action.cif || "").trim().toUpperCase(),
+              address: String(action.counterparty?.address || "").trim(),
+            },
+            lines,
+            irpfRate: Number(action.irpfRate) || 0,
+            notes: action.notes || "",
+            status: action.status === "pagada" ? "pagada" : (action.status === "parcial" ? "parcial" : "pendiente"),
+          });
+          if (!newId) {
+            results.push({ type: "error", action: action.type, error: "No se pudo crear la factura — revisa los campos" });
+          } else {
+            results.push({ type: "invoice", invoiceType: tipo, name: cpName, id: newId });
+          }
+          break;
+        }
+
+        case AGENT_ACTION_TYPES.UPDATE_INVOICE: {
+          // Actualización por id real. patch carga solo los campos a tocar.
+          if (!action.id && !action.invoiceId) {
+            results.push({ type: "error", action: action.type, error: "Falta id de la factura a actualizar" });
+            break;
+          }
+          const id = action.id || action.invoiceId;
+          const patch = {};
+          if (action.status !== undefined)        patch.status = action.status;
+          if (action.paidAmount !== undefined)    patch.paidAmount = Number(action.paidAmount) || 0;
+          if (action.paidDate !== undefined)      patch.paidDate = action.paidDate || null;
+          if (action.bankMovementId !== undefined) patch.bankMovementId = action.bankMovementId || null;
+          if (action.notes !== undefined)         patch.notes = String(action.notes || "");
+          if (action.dueDate !== undefined)       patch.dueDate = action.dueDate || null;
+          if (action.irpfRate !== undefined)      patch.irpfRate = Number(action.irpfRate) || 0;
+          if (Array.isArray(action.lines))        patch.lines = action.lines;
+          if (Object.keys(patch).length === 0) {
+            results.push({ type: "error", action: action.type, error: "Sin campos a actualizar" });
+            break;
+          }
+          updateInvoice?.(id, patch);
+          results.push({ type: "invoice_update", id, fields: Object.keys(patch) });
+          break;
+        }
+
         default:
           results.push({ type: "error", action: action.type, error: `Tipo de acción desconocido: ${action.type}` });
       }
@@ -393,10 +568,10 @@ function makeAgentTimelineEntry(agentName) {
 // la versión larga por esta corta sin duplicar.
 export const AGENT_ACTIONS_ADDON = `
 
-CAPACIDAD DE EJECUCIÓN (ACTIONS_v3):
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v4):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
-Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),dueDate("+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}],linkedProjectCode}; "create_tasks" {projectCode,tasks:[...]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001).
+Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),dueDate("+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}],linkedProjectCode}; "create_tasks" {projectCode,tasks:[...]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario).
 
 Reglas: solo cuando lo pidan explícitamente, NUNCA en análisis ni consultas. El bloque se OCULTA del CEO. Tu prosa va ANTES del bloque.`;

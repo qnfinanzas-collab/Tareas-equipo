@@ -9,7 +9,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import DocumentacionTab from "./DocumentacionTab.jsx";
 import { generateDocumentsForCompany } from "./documentTemplates.js";
-import { parseAgentActions, cleanAgentResponse } from "../../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, classifyReply } from "../../lib/agentActions.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
 
 const TAB_DEFS = [
@@ -634,6 +634,9 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
         )}
         {history.map((m, i) => {
           const isUser = m.role === "user";
+          // Misma clasificación que Diego — badge sutil de fiabilidad
+          // basado en heurísticas (cita IDs / lenguaje suave / negaciones).
+          const reliability = !isUser && !m.error ? classifyReply(m.content) : null;
           return (
             <div key={i} style={{ display: "flex", gap: 8, justifyContent: isUser ? "flex-end" : "flex-start", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
               <div style={{ display: "flex", gap: 8, alignItems: "flex-start", maxWidth: "82%" }}>
@@ -648,7 +651,30 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
                   lineHeight: 1.5,
                   whiteSpace: "pre-wrap",
                   wordBreak: "break-word",
-                }}>{m.content}</div>
+                }}>
+                  {m.content}
+                  {reliability && reliability.label && (
+                    <div
+                      title={reliability.hint}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        marginTop: 8,
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        background: reliability.bg,
+                        color: reliability.color,
+                        border: `0.5px solid ${reliability.border}`,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: 0.2,
+                      }}
+                    >
+                      {reliability.kind === "high" ? "🟢" : reliability.kind === "med" ? "🟡" : "🔴"} {reliability.label}
+                    </div>
+                  )}
+                </div>
               </div>
               {!isUser && m.proposal && onRunAgentActions && (
                 <div style={{ alignSelf: "stretch", paddingLeft: 36 }}>

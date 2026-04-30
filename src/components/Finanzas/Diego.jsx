@@ -12,7 +12,7 @@
 //     Diego ve el documento real, no solo el nombre del archivo.
 import React, { useState, useEffect, useRef } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
-import { parseAgentActions, cleanAgentResponse } from "../../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, classifyReply } from "../../lib/agentActions.js";
 import { blobToBase64 } from "../../lib/storage.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
 
@@ -334,6 +334,10 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
         {history.map((m, i) => {
           const isUser = m.role === "user";
           const visible = isUser ? (m.displayContent || m.content) : m.content;
+          // Clasificación de fiabilidad: solo en mensajes del agente (no
+          // del usuario) y solo si no es un error. Sin label = no
+          // pintamos badge para no saturar mensajes neutros.
+          const reliability = !isUser && !m.error ? classifyReply(m.content) : null;
           return (
             <div key={i} style={{ display: "flex", gap: 8, justifyContent: isUser ? "flex-end" : "flex-start", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
               <div style={{ display: "flex", gap: 8, alignItems: "flex-start", maxWidth: "82%" }}>
@@ -353,6 +357,27 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
                   {isUser && m.attachmentMeta && (
                     <div style={{ marginTop: 6, padding: "4px 8px", background: "rgba(255,255,255,0.2)", borderRadius: 6, fontSize: 11, fontWeight: 600 }}>
                       📎 {m.attachmentMeta.name}
+                    </div>
+                  )}
+                  {reliability && reliability.label && (
+                    <div
+                      title={reliability.hint}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        marginTop: 8,
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        background: reliability.bg,
+                        color: reliability.color,
+                        border: `0.5px solid ${reliability.border}`,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: 0.2,
+                      }}
+                    >
+                      {reliability.kind === "high" ? "🟢" : reliability.kind === "med" ? "🟡" : "🔴"} {reliability.label}
                     </div>
                   )}
                 </div>
@@ -432,6 +457,14 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
               ? `✅ Leído — Diego verá el documento al enviar el mensaje.`
               : `Sin leer — pulsa 👁 Leer para que Diego analice el contenido. Si envías así, Diego solo verá el nombre del archivo.`}
           </div>
+          {/* Warning de archivo grande: PDFs/imágenes >10MB pueden tardar
+              hasta 90s en parseo nativo de Anthropic. Avisamos al CEO
+              para que no piense que está colgado. */}
+          {(attachment.kind === "pdf" || attachment.kind === "image") && attachment.size > 10 * 1024 * 1024 && (
+            <div style={{ fontSize: 10.5, color: "#92400E", paddingLeft: 4, fontWeight: 600 }}>
+              ⚠️ Archivo grande ({(attachment.size/1024/1024).toFixed(1)} MB). Diego puede tardar hasta 90 s en analizarlo.
+            </div>
+          )}
         </div>
       )}
       {attachError && (

@@ -19,21 +19,69 @@ export const PLAIN_TEXT_RULE = "FORMATO OBLIGATORIO: Responde en texto plano sin
 // NegotiationDetailView pero se extrajo aquí para que callGonzaloDirect
 // y cualquier otro consumidor de TaskFlow también pueda usarla sin
 // caer en ReferenceError por scope.
-export async function callAgentSafe(body){
-  const r = await fetch("/api/agent",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
-  const raw = await r.text();
-  let data = null;
-  if(raw){ try{ data = JSON.parse(raw); }catch{} }
-  if(!r.ok){
-    const errMsg = data?.error || raw || `HTTP ${r.status} (body vacío — posible timeout de la función)`;
-    throw new Error(errMsg);
+export async function callAgentSafe(body, opts = {}){
+  // Timeout universal con AbortController interno. Cualquier caller
+  // (Héctor, Mario, Jorge, Álvaro, Gonzalo, Diego) recibe el mismo
+  // tratamiento sin tener que duplicar la cinemática del abort. Default
+  // 60s — los specialists del Deal Room tienen latencias largas. Diego
+  // con PDF bumpea a 90s desde el caller.
+  const timeoutMs = Number(opts.timeoutMs) || 60000;
+  // Si el caller ya pasa un signal externo, lo respetamos; si no creamos
+  // uno propio. Esto permite cancelar manualmente desde la UI (botón
+  // "detener" futuro) sin perder el guardrail de timeout.
+  const ctrl = new AbortController();
+  const externalSignal = body && body.signal;
+  if (externalSignal) {
+    try { externalSignal.addEventListener("abort", () => ctrl.abort(), { once: true }); }
+    catch {}
   }
-  if(!data){
-    // Respuesta OK pero body no-JSON (muy raro — probablemente infra
-    // devolvió texto plano). Tratar el raw como la respuesta.
-    return stripMarkdown(raw || "") || "(respuesta vacía del servidor)";
+  const timeoutId = setTimeout(() => ctrl.abort(), timeoutMs);
+  // Sanitizamos el body: quitamos `signal` que NO se debe serializar a JSON.
+  const fetchBody = (body && typeof body === "object")
+    ? Object.fromEntries(Object.entries(body).filter(([k]) => k !== "signal"))
+    : body;
+  let r, raw, data = null;
+  try {
+    try {
+      r = await fetch("/api/agent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(fetchBody),
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      if (e?.name === "AbortError") {
+        throw new Error(`⏱️ El agente tardó más de ${Math.round(timeoutMs/1000)}s. Intenta de nuevo o simplifica la pregunta.`);
+      }
+      throw new Error(`Red caída o /api/agent inalcanzable: ${e?.message || e}`);
+    }
+    raw = await r.text();
+    if (raw) { try { data = JSON.parse(raw); } catch {} }
+    if (!r.ok) {
+      const errMsg = data?.error || raw || `HTTP ${r.status} (body vacío — posible timeout de la función)`;
+      throw new Error(errMsg);
+    }
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return stripMarkdown(data.text || "");
+  // Pipeline post-respuesta:
+  //   1) si no hay JSON pero hay texto plano → tratamos raw como reply.
+  //   2) si data.text está vacío → throw para que el caller muestre toast
+  //      en vez de pintar "(sin respuesta)" como si fuera contenido válido.
+  //   3) Respuestas <10 chars son sospechosas (un "ok" o ".") — log y throw.
+  let text;
+  if (!data) text = stripMarkdown(raw || "");
+  else       text = stripMarkdown(data.text || "");
+  const trimmed = (text || "").trim();
+  if (!trimmed) {
+    console.warn("[callAgentSafe] respuesta vacía · raw:", String(raw||"").slice(0, 300));
+    throw new Error("Respuesta vacía del agente — el modelo no devolvió contenido.");
+  }
+  if (trimmed.length < 10) {
+    console.warn("[callAgentSafe] respuesta sospechosamente corta:", trimmed);
+    throw new Error("Respuesta sospechosamente corta del agente — probablemente truncada o sin contenido útil.");
+  }
+  return text;
 }
 
 // Sistema de skills de Héctor. Detecta el contexto del turno (texto del CEO,
