@@ -8239,13 +8239,27 @@ ${taskLines||"(ninguna)"}`;
                   </div>
                 );
               })()}
-              {/* Barra multi-agente: invocación manual + toggle ON/OFF */}
-              <div style={{padding:"6px 12px",borderTop:"1px solid #F3F4F6",background:"#FCFCFD",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+              {/* Barra multi-agente: invocación manual + toggle ON/OFF.
+                  En móvil (≤768px) los chips ganan altura táctil 40px y
+                  fontSize 14px; flexWrap:wrap ya estaba para que rompan
+                  línea en pantallas estrechas. */}
+              <style>{`
+                @media (max-width: 768px) {
+                  [data-spec-row] { padding: 8px 12px !important; gap: 8px !important; }
+                  [data-spec-chip] {
+                    min-height: 40px;
+                    padding: 8px 16px !important;
+                    font-size: 14px !important;
+                    border-radius: 999px !important;
+                  }
+                }
+              `}</style>
+              <div data-spec-row style={{padding:"6px 12px",borderTop:"1px solid #F3F4F6",background:"#FCFCFD",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                 <span style={{fontSize:10,fontWeight:600,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.06em"}}>Especialistas</span>
-                {canUseAgent(currentMember,"mario",permissions) && <button onClick={()=>handleManualSpecialist("mario")} disabled={chatLoading} title="Pedir intervención de Mario Legal" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#1E40AF",border:"1px solid #BFDBFE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>⚖️ Mario</button>}
-                {canUseAgent(currentMember,"jorge",permissions) && <button onClick={()=>handleManualSpecialist("jorge")} disabled={chatLoading} title="Pedir intervención de Jorge Finanzas" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#0E7C5A",border:"1px solid #86EFAC",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>📊 Jorge</button>}
-                {canUseAgent(currentMember,"alvaro",permissions) && <button onClick={()=>handleManualSpecialist("alvaro")} disabled={chatLoading} title="Pedir intervención de Álvaro Inmobiliario" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#92400E",border:"1px solid #FCD34D",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏠 Álvaro</button>}
-                {canUseAgent(currentMember,"gonzalo",permissions) && <button onClick={()=>handleManualSpecialist("gonzalo")} disabled={chatLoading} title="Pedir intervención de Gonzalo Gobernanza" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#6B21A8",border:"1px solid #D8B4FE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏛️ Gonzalo</button>}
+                {canUseAgent(currentMember,"mario",permissions) && <button data-spec-chip onClick={()=>handleManualSpecialist("mario")} disabled={chatLoading} title="Pedir intervención de Mario Legal" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#1E40AF",border:"1px solid #BFDBFE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>⚖️ Mario</button>}
+                {canUseAgent(currentMember,"jorge",permissions) && <button data-spec-chip onClick={()=>handleManualSpecialist("jorge")} disabled={chatLoading} title="Pedir intervención de Jorge Finanzas" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#0E7C5A",border:"1px solid #86EFAC",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>📊 Jorge</button>}
+                {canUseAgent(currentMember,"alvaro",permissions) && <button data-spec-chip onClick={()=>handleManualSpecialist("alvaro")} disabled={chatLoading} title="Pedir intervención de Álvaro Inmobiliario" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#92400E",border:"1px solid #FCD34D",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏠 Álvaro</button>}
+                {canUseAgent(currentMember,"gonzalo",permissions) && <button data-spec-chip onClick={()=>handleManualSpecialist("gonzalo")} disabled={chatLoading} title="Pedir intervención de Gonzalo Gobernanza" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#6B21A8",border:"1px solid #D8B4FE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏛️ Gonzalo</button>}
                 <div style={{flex:1}}/>
                 <label style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:10,color:"#6B7280",cursor:"pointer"}} title="Cuando está activo, Héctor delega automáticamente en Mario o Jorge si la respuesta lo requiere.">
                   <input type="checkbox" checked={autoSpecialistsOn} onChange={toggleAutoSpecialists} style={{cursor:"pointer"}}/>

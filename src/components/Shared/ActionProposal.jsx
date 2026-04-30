@@ -118,7 +118,7 @@ export default function ActionProposal({ proposal, agentName = "Agente", agentEm
   }
 
   return (
-    <div style={{ marginTop: 10, background: `${color}10`, border: `2px solid ${color}`, borderRadius: 12, padding: 14 }}>
+    <div data-ap="card" style={{ marginTop: 10, background: `${color}10`, border: `2px solid ${color}`, borderRadius: 12, padding: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ fontSize: 20 }}>{agentEmoji}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -143,7 +143,7 @@ export default function ActionProposal({ proposal, agentName = "Agente", agentEm
           const excluded = excludedActions.has(i);
           const isExpanded = expanded.has(i);
           return (
-            <div key={i} style={{ background: "#fff", border: `1px solid ${excluded ? "#E5E7EB" : color + "55"}`, borderRadius: 8, padding: "8px 12px", opacity: excluded ? 0.55 : 1 }}>
+            <div key={i} data-ap="item" style={{ background: "#fff", border: `1px solid ${excluded ? "#E5E7EB" : color + "55"}`, borderRadius: 8, padding: "8px 12px", opacity: excluded ? 0.55 : 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input type="checkbox" checked={!excluded} onChange={() => toggleAction(i)} style={{ accentColor: color }} />
                 <ActionHeader action={a} />
@@ -178,11 +178,25 @@ export default function ActionProposal({ proposal, agentName = "Agente", agentEm
       </div>
 
       {/* Botones */}
-      {/* Mobile (≤768px): "Crear todo" pasa a ancho completo y 48px alto.
-          "No crear" también gana altura táctil. Solo presentación, mismo
-          handler/lógica. */}
+      {/* Mobile (≤768px): card de ancho completo, ítems generosos y
+          botones apilados (Crear todo arriba, Cancelar debajo). Solo
+          presentación, mismo handler/lógica. */}
       <style>{`
         @media (max-width: 768px) {
+          [data-ap="card"] {
+            width: 100%;
+            padding: 16px !important;
+            margin-top: 12px !important;
+          }
+          [data-ap="item"] {
+            padding: 10px 12px !important;
+            font-size: 15px !important;
+            line-height: 1.5;
+            border-bottom: 1px solid rgba(0,0,0,0.06);
+          }
+          [data-ap="item"]:last-child {
+            border-bottom: none;
+          }
           [data-ap="actions-row"] {
             flex-direction: column-reverse !important;
             gap: 8px !important;
