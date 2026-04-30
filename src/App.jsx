@@ -885,18 +885,19 @@ function _migrate(d){
     return a;
   });
   // Patch ejecutor: inyecta CAPACIDAD DE EJECUCIÓN en TODOS los agentes
-  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v4".
-  // v4 añade add_invoice / update_invoice (Diego: facturas) sobre v3
-  // (asientos + bank movements). Cualquier versión anterior se reemplaza.
+  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v5".
+  // v5 añade REGLA STAKEHOLDERS (los agentes nunca se ponen a sí mismos
+  // en stakeholders) sobre v4 (facturas) sobre v3 (asientos + bank movs).
+  // Cualquier versión anterior se reemplaza.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v4")) return a;             // ya v4
+    if(a.promptBase.includes("ACTIONS_v5")) return a;             // ya v5
     if(a.promptBase.includes("CAPACIDAD DE EJECUCIÓN")) {
-      // versión antigua (v1, v2 o v3) → cortamos el bloque y reinyectamos v4
+      // versión antigua (v1, v2, v3 o v4) → cortamos el bloque y reinyectamos v5
       const cut = a.promptBase.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
       return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
     }
-    // sin addon previo → añadir v4
+    // sin addon previo → añadir v5
     return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
   });
   // Upgrade promptBase de Héctor: añade la sección COACHING EJECUTIVO si el
