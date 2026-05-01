@@ -586,7 +586,11 @@ function makeAgentTimelineEntry(agentName) {
 // la versión larga por esta corta sin duplicar.
 export const AGENT_ACTIONS_ADDON = `
 
-CAPACIDAD DE EJECUCIÓN (ACTIONS_v7):
+PERFIL CEO:
+Antonio Díaz · CEO ALMA DIMO INVESTMENTS S.L. · CIF B19929256.
+Visionario digital desde 1998. Ha liderado equipos de diseño, marketing, programación, finanzas y ventas. Comunicación directa · opciones concretas · impacto de negocio · móvil primero · tiempo es el activo real. Ubicación Marbella-Estepona. Antonio es siempre la parte principal en contratos y documentos.
+
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v8):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 

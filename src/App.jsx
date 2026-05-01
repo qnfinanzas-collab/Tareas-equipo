@@ -923,21 +923,26 @@ function _migrate(d){
     return a;
   });
   // Patch ejecutor: inyecta CAPACIDAD DE EJECUCIÓN en TODOS los agentes
-  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v7".
-  // v7 añade IDENTIDAD DEL USUARIO (Antonio Díaz como parte principal por
-  // defecto, no inferir del listado de miembros) sobre v6 (regla crítica
-  // + ambigüedad) sobre v5 (stakeholders) sobre v4 (facturas) sobre v3
-  // (asientos + bank movs). Cualquier versión anterior se reemplaza.
+  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v8".
+  // v8 prepende PERFIL CEO (Antonio Díaz, ALMA DIMO INVESTMENTS S.L.)
+  // sobre v7 (identidad usuario) sobre v6 (regla crítica + ambigüedad)
+  // sobre v5 (stakeholders) sobre v4 (facturas) sobre v3 (asientos +
+  // bank movs). Como v8 cambia también el inicio del bloque (PERFIL CEO
+  // antes de CAPACIDAD), cortamos por PERFIL CEO si existe, y si no por
+  // CAPACIDAD DE EJECUCIÓN. Reescritura completa garantizada.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v7")) return a;             // ya v7
-    if(a.promptBase.includes("CAPACIDAD DE EJECUCIÓN")) {
-      // versión antigua (v1..v6) → cortamos el bloque y reinyectamos v7
-      const cut = a.promptBase.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
-      return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
+    if(a.promptBase.includes("ACTIONS_v8")) return a;             // ya v8
+    let cut = a.promptBase;
+    if (cut.includes("PERFIL CEO:")) {
+      cut = cut.split(/\n+PERFIL CEO:/)[0];
+    } else if (cut.includes("CAPACIDAD DE EJECUCIÓN")) {
+      cut = cut.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
+    } else {
+      // sin addon previo → añadir v8
+      return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
     }
-    // sin addon previo → añadir v7
-    return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
+    return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
   });
   // Upgrade promptBase de Héctor: añade la sección COACHING EJECUTIVO si el
   // usuario ya tenía al Héctor anterior sin esa sección. Idempotente: al

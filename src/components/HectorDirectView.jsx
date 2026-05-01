@@ -153,7 +153,45 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
       // un nombre. Se inyecta AL INICIO del system para que el modelo
       // lo lea antes que cualquier otro contexto.
       const usuarioActivo = (data?.me || data?.currentUser || (data?.members || []).find(m => m && m.id === userId)) || null;
-      const ceoBlock = usuarioActivo ? `USUARIO ACTIVO EN SESIÓN:\n- Nombre: ${usuarioActivo.name || usuarioActivo.email || "(sin nombre)"}\n- Email: ${usuarioActivo.email || "(sin email)"}\n- Rol: ${usuarioActivo.accountRole || usuarioActivo.role || "admin"}\n- Empresa: ALMA DIMO INVESTMENTS S.L.\n- CIF: B19929256\n\nREGLA CRÍTICA: Este usuario es siempre la parte principal en contratos, documentos y acciones. NUNCA uses otro miembro como parte principal sin confirmación explícita del usuario activo.\n\n---\n` : "";
+      // Perfil completo de Antonio Díaz como contexto permanente.
+      // Sin esto, Héctor (y especialistas vía propagación) tratan al
+      // CEO como "usuario técnico genérico", repiten información que
+      // ya conoce y no calibran tono ni profundidad. El bloque incluye
+      // identidad legal (parte principal en contratos), proyectos
+      // activos, sectores, estilo de comunicación y filosofía.
+      const ceoBlock = usuarioActivo ? `USUARIO ACTIVO — CEO Y PROPIETARIO:
+Nombre: Antonio Díaz
+Empresa: ALMA DIMO INVESTMENTS S.L. · CIF: B19929256
+Email: ${usuarioActivo.email || "qn.finanzas@gmail.com"}
+Ubicación: Marbella-Estepona, Costa del Sol, España
+
+PERFIL PROFESIONAL:
+Antonio es un visionario de negocio que entiende cómo un negocio se traduce en tecnología y viceversa. Pionero digital desde 1998. Ha liderado equipos completos de diseño, creatividad, marketing, programación, finanzas, administración y ventas. Entiende cada capa porque ha dirigido a las personas que las ejecutan. No es programador técnico pero tiene criterio de producto y arquitectura de negocio de alto nivel.
+
+PROYECTOS ACTIVOS:
+- SoulBaric: CEO Operating System con IA multi-agente
+- QuickNex: Plataforma B2B2C colaboración empresarial con IA
+- Cámara Hiperbárica HD5000 Plus: expansión Marbella-Estepona
+- Negociaciones activas en Marbella-Estepona
+
+SECTORES: Salud hiperbárica · Inversiones · Real estate · Tecnología IA · Colaboración empresarial B2B
+
+CÓMO COMUNICARTE CON ANTONIO:
+- Directo al punto, sin tecnicismos innecesarios
+- No repitas lo que ya sabe
+- Da opciones concretas (A o B, no listas de 10)
+- Explica el impacto de negocio, no solo el técnico
+- Trata como CEO con criterio, no como usuario técnico
+- Prioriza lo que mueve la aguja hoy
+- Usa el móvil como herramienta principal
+
+FILOSOFÍA: Aristóteles + Séneca. El tiempo es el único activo real. Tecnología al servicio del negocio, nunca al revés.
+
+REGLA CRÍTICA DE IDENTIDAD:
+Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones. NUNCA uses otro miembro del equipo como parte principal sin confirmación explícita de Antonio. En documentos legales: ALMA DIMO INVESTMENTS S.L. · CIF B19929256. Jurisdicción: Juzgados de Marbella.
+
+---
+` : "";
       const membersBlock = membersLines ? `\n\n---\nMIEMBROS REALES DEL EQUIPO (los únicos válidos para assignees y referencias):\n${membersLines}\n\nReglas:\n- Cuando el CEO mencione un nombre, comprueba primero si coincide EXACTAMENTE con algún miembro de esta lista.\n- Si NO coincide o es ambiguo (ej. "Marc" cuando hay varios "Marc..."), aplica la REGLA AMBIGÜEDAD del bloque CAPACIDAD DE EJECUCIÓN: pregunta antes de actuar.\n- Para assignees usa el id (number) cuando lo conozcas, o el nombre exacto entre comillas.` : "";
 
       // ── Contexto operativo (HD-context-v1) ────────────────────────
