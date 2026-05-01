@@ -135,21 +135,25 @@
       .tf-bottom-nav-item .tf-bn-icon  { display: block; font-size: 22px; line-height: 1; }
       .tf-bottom-nav-item .tf-bn-label { display: block; font-size: 10px; line-height: 1.1; letter-spacing: 0.02em; margin-top: 4px; white-space: nowrap; }
 
-      /* HD-v2: en la vista Héctor (chat directo) la barra de proyecto y la
-         barra de tabs (Tablero/Matriz/...) no aportan nada y solo roban
-         espacio vertical en móvil. data-tf-tab vive en main-content y
-         data-tf-bar marca las dos barras a ocultar. */
-      [data-tf-tab="hector-direct"] [data-tf-bar="project-header"],
-      [data-tf-tab="hector-direct"] [data-tf-bar="project-tabs"] {
+      /* HD-v2 (sidebar-fix): Selectores acotados a [data-tf="main-content"]
+         para garantizar que jamás bajen al sidebar — el sidebar es HERMANO
+         de main-content, no descendiente, así que ya no podía verse afectado
+         antes; este prefijo lo deja explícito en código y blinda contra
+         futuros refactors que muevan los data-tf-bar a otros sitios. */
+      [data-tf="main-content"][data-tf-tab="hector-direct"] [data-tf-bar="project-header"],
+      [data-tf="main-content"][data-tf-tab="hector-direct"] [data-tf-bar="project-tabs"] {
         display: none !important;
       }
 
-      /* HD-v3: el input bar de HectorDirect ya tiene su propio botón mic
-         integrado, así que el FAB flotante (que se elevaba sobre el bottom
-         nav) sobra y solo confunde. Lo ocultamos en esta vista. */
-      [data-tf-tab="hector-direct"] [data-hd="mic-btn"] {
+      /* HD-v3 (sidebar-fix): mismo blindaje para el FAB micrófono. */
+      [data-tf="main-content"][data-tf-tab="hector-direct"] [data-hd="mic-btn"] {
         display: none !important;
       }
+
+      /* Salvavidas: el sidebar global NUNCA debe ser ocultado por las reglas
+         de la vista hector-direct. Si en algún momento alguien añade un
+         data-tf-bar dentro del sidebar por error, esta regla lo restablece. */
+      .tf-sidebar { display: flex !important; }
 
       /* Print: ocultar navegación y dejar solo el contenido marcado con .tf-printable.
          Si no hay ningún .tf-printable, imprime el main visible. */
