@@ -155,23 +155,22 @@
          data-tf-bar dentro del sidebar por error, esta regla lo restablece. */
       .tf-sidebar { display: flex !important; }
 
-      /* Kluxor theme — bottom nav cuando estamos en HectorDirect. El bottom
-         nav vive fuera del subárbol [data-tf-tab], así que usamos :has()
-         (Safari iOS 15.4+) para detectar la presencia de hector-direct y
-         aplicar paleta negro/oro al nav. Fuera de HectorDirect el nav
-         conserva su tema original. */
+      /* Kluxor theme operacional — bottom nav cuando estamos en HectorDirect.
+         Tema claro: fondo blanco roto cálido, ítem activo en oro Kluxor,
+         ítems inactivos gris claro. Scoped con :has() (Safari iOS 15.4+)
+         para no afectar otras vistas. */
       body:has([data-tf-tab="hector-direct"]) .tf-bottom-nav {
-        background: #0A0A0A !important;
-        border-top: 1px solid #2A2A2A !important;
-        box-shadow: 0 -2px 12px rgba(0,0,0,0.4) !important;
+        background: #FAFAF7 !important;
+        border-top: 0.5px solid #E5E0D5 !important;
+        box-shadow: 0 -2px 8px rgba(26,26,26,0.04) !important;
       }
       body:has([data-tf-tab="hector-direct"]) .tf-bottom-nav-item {
-        color: #F5F0E8 !important;
-        opacity: 0.4 !important;
+        color: #9B9B9B !important;
+        opacity: 1 !important;
       }
       body:has([data-tf-tab="hector-direct"]) .tf-bottom-nav-item.active {
         color: #C9A84C !important;
-        opacity: 1 !important;
+        font-weight: 500 !important;
       }
 
       /* Print: ocultar navegación y dejar solo el contenido marcado con .tf-printable.

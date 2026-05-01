@@ -34,21 +34,23 @@ const REDACCION_KEYS = ["redacta","redactar","contrato","documento","acuerdo","e
 
 const INVOKE_RE = /\[INVOCAR:(mario|jorge|alvaro|gonzalo|diego):([^\]]+)\]/gi;
 
-// Paleta Kluxor — negro/oro premium. Antes era SoulBaric morado/blanco.
-// Se exponen como constantes locales en vez de CSS vars porque el
-// proyecto no tiene un sistema de design tokens.
+// Paleta Kluxor "operational" — claro/legible para uso diario, con oro
+// como acento de marca y acción. La paleta dark negro/oro queda solo
+// para los PDFs (comunicación externa). Filosofía: como un Rolls Royce
+// — negro por fuera (PDFs), claro por dentro (la herramienta).
 const C = {
-  borderTertiary:    "#2A2A2A",   // gris medio (separadores)
-  bgPrimary:         "#0A0A0A",   // negro principal
-  bgSecondary:       "#1A1A1A",   // gris oscuro (cards / burbujas)
-  textTertiary:      "#A07830",   // oro oscuro (etiquetas, mate)
-  textSecondary:     "rgba(245,240,232,0.7)", // pearl 70% opacidad
-  textPrimary:       "#F5F0E8",   // blanco perla
-  brand:             "#C9A84C",   // oro
-  brandLight:        "#E8C96A",   // oro claro
-  hectorEmojiBg:     "#1A1A1A",   // gris oscuro (avatar Héctor)
-  statusGreen:       "#C9A84C",   // estado activo = oro
-  statusOrange:      "#E8C96A",   // estado pensando = oro claro
+  borderTertiary:    "#E5E0D5",   // borde sutil cálido
+  bgPrimary:         "#FAFAF7",   // blanco roto cálido (fondo principal)
+  bgSecondary:       "#F0EDE5",   // gris perla cálido (burbujas Héctor)
+  textTertiary:      "#9B9B9B",   // gris claro (etiquetas, meta)
+  textSecondary:     "#6B6B6B",   // gris medio (texto secundario)
+  textPrimary:       "#1A1A1A",   // negro suave (texto principal)
+  brand:             "#C9A84C",   // oro Kluxor (acción, énfasis)
+  brandLight:        "#E8DFC4",   // oro suave (fondos sutiles, CEO bubble)
+  brandHover:        "#B89638",   // oro más oscuro (hover)
+  hectorEmojiBg:     "#F0EDE5",   // gris perla (avatar Héctor en header)
+  statusGreen:       "#4A8B5C",   // verde estado (activo)
+  statusOrange:      "#B89638",   // oro oscuro como estado "pensando"
 };
 
 // Frase de apertura según hora local. Cambia 3 veces al día para
@@ -421,11 +423,14 @@ Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones.
           0%, 100% { opacity: 0.3; transform: scale(0.8); }
           50%      { opacity: 1;   transform: scale(1); }
         }
-        /* Placeholder del textarea sobre fondo oscuro: pearl 30% para
-           que sea visible pero no compita con el texto real. */
-        [data-hd="root"] textarea::placeholder { color: rgba(245,240,232,0.3); }
+        /* Placeholder del textarea: gris claro Kluxor para no competir
+           con el texto real pero seguir siendo legible. */
+        [data-hd="root"] textarea::placeholder { color: #9B9B9B; }
+        /* Focus ring: borde 1px oro al enfocar. Equivale al :focus
+           del spec sin recurrir a outline nativo del navegador. */
+        [data-hd="root"] textarea:focus { border-color: #C9A84C !important; border-width: 1px !important; }
         /* Mobile: el mic pasa a FAB position:fixed encima del bottom
-           nav. Sombra ahora dorada para coincidir con el brand Kluxor. */
+           nav. Sombra dorada sutil para enmarcar sobre el fondo claro. */
         @media (max-width: 768px) {
           [data-hd="mic-btn"] {
             position: fixed !important;
@@ -442,8 +447,8 @@ Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones.
         <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
           <div style={hectorAvatarStyle}>🧙</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 500, color: C.brand, lineHeight: 1.2 }}>Héctor</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "rgba(245,240,232,0.7)" }}>
+            <div style={{ fontSize: 15, fontWeight: 500, color: C.textPrimary, lineHeight: 1.2 }}>Héctor</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSecondary }}>
               <span style={{
                 width: 7, height: 7, borderRadius: "50%",
                 background: isLoading ? C.statusOrange : C.statusGreen,
@@ -464,7 +469,9 @@ Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones.
         <div style={{ textAlign: "right", padding: "4px 20px 6px", borderBottom: `0.5px solid ${C.borderTertiary}`, flexShrink: 0, background: C.bgPrimary }}>
           <span
             onClick={() => onNavigate("command")}
-            style={{ fontSize: 12, color: "rgba(201,168,76,0.6)", cursor: "pointer", textDecoration: "underline" }}
+            onMouseEnter={e => e.currentTarget.style.color = C.brandHover}
+            onMouseLeave={e => e.currentTarget.style.color = C.brand}
+            style={{ fontSize: 12, color: C.brand, cursor: "pointer", textDecoration: "underline" }}
           >
             Ver Sala de Mando →
           </span>
@@ -543,9 +550,9 @@ Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones.
           title="Dictar (próximamente)"
           style={micButtonStyle}
         >
-          {/* Icono micrófono SVG inline. Stroke negro sobre fondo oro
-              para cumplir contraste WCAG (negro sobre #C9A84C ≈ 7.5:1). */}
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          {/* Icono micrófono SVG inline. Stroke blanco sobre fondo oro
+              para look limpio en tema operacional claro. */}
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
             <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
             <line x1="12" y1="19" x2="12" y2="22"/>
@@ -557,9 +564,11 @@ Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones.
             onClick={handleSend}
             disabled={isLoading}
             title="Enviar (Enter)"
+            onMouseEnter={e => { e.currentTarget.style.background = C.brandHover; }}
+            onMouseLeave={e => { e.currentTarget.style.background = C.brand; }}
             style={{ ...sendButtonStyle, opacity: isLoading ? 0.6 : 1, cursor: isLoading ? "wait" : "pointer" }}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="19" x2="12" y2="5"/>
               <polyline points="5 12 12 5 19 12"/>
             </svg>
@@ -590,8 +599,8 @@ function MessageBubble({ message, userInitials, onRunAgentActions, onDiscardProp
           <div style={hectorAvatarSmall}>🧙</div>
         )}
         <div style={{
-          background: isUser ? C.brand : (message.error ? "#3B0E0E" : C.bgSecondary),
-          color: isUser ? "#0A0A0A" : (message.error ? "#FCA5A5" : C.textPrimary),
+          background: isUser ? C.brandLight : (message.error ? "#FEF2F2" : C.bgSecondary),
+          color: message.error ? "#991B1B" : C.textPrimary,
           borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
           padding: "10px 14px",
           maxWidth: "78%",
@@ -599,7 +608,9 @@ function MessageBubble({ message, userInitials, onRunAgentActions, onDiscardProp
           lineHeight: 1.5,
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
-          border: message.error ? "1px solid #7F1D1D" : "0.5px solid " + C.borderTertiary,
+          // Spec: burbuja Héctor sin borde; user bubble tampoco lo necesita
+          // sobre el fondo cálido. Solo error mantiene borde rojo.
+          border: message.error ? "1px solid #FCA5A5" : "none",
         }}>
           {text}
         </div>
@@ -855,12 +866,12 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
           fontSize: 16, flexShrink: 0,
         }}>{meta.emoji}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: C.brand, letterSpacing: 0.2 }}>
+          <div style={{ fontSize: 11, fontWeight: 500, color: C.brand, letterSpacing: 0.2 }}>
             {meta.label}{message.task ? ` · ${message.task.slice(0, 60)}${message.task.length > 60 ? "…" : ""}` : ""}
           </div>
           <div style={{
-            background: message.error ? "#3B0E0E" : C.bgSecondary,
-            color: message.error ? "#FCA5A5" : C.textPrimary,
+            background: message.error ? "#FEF2F2" : "#FFFFFF",
+            color: message.error ? "#991B1B" : C.textPrimary,
             borderRadius: "4px 16px 16px 16px",
             padding: "10px 14px 10px 16px",
             maxWidth: "100%",
@@ -869,9 +880,10 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
             // Borde izquierdo dorado 2px = sello visual del especialista,
-            // sobre el resto del borde sutil en gris medio.
-            border: message.error ? "1px solid #7F1D1D" : `0.5px solid ${C.borderTertiary}`,
-            borderLeft: message.error ? "2px solid #7F1D1D" : `2px solid ${C.brand}`,
+            // resto en borde sutil cálido para destacar sobre el fondo
+            // operacional #FAFAF7.
+            border: message.error ? "1px solid #FCA5A5" : `0.5px solid ${C.borderTertiary}`,
+            borderLeft: message.error ? "2px solid #DC2626" : `2px solid ${C.brand}`,
             opacity: message.loading ? 0.7 : 1,
             fontStyle: message.loading ? "italic" : "normal",
           }}>
@@ -881,8 +893,8 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
       </div>
 
       {/* Acciones — sólo cuando la respuesta está lista (no loading ni error).
-          Estilo Kluxor: dark con borde oro 0.4 opacidad y texto oro. Activo
-          (picker abierto): fondo oro sólido + texto negro. */}
+          Tema operacional Kluxor: fondo blanco con borde oro y texto oro;
+          hover (y picker abierto) invierte a fondo oro + texto blanco. */}
       {!message.loading && !message.error && (
         <div style={{ display: "flex", gap: 6, marginTop: 6, marginLeft: 42, flexWrap: "wrap" }}>
           {buttons.map(b => (
@@ -890,15 +902,16 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
               key={b.id}
               type="button"
               onClick={b.onClick}
-              onMouseEnter={e => { if (picker !== b.id) { e.currentTarget.style.background = C.brand; e.currentTarget.style.color = "#0A0A0A"; } }}
-              onMouseLeave={e => { if (picker !== b.id) { e.currentTarget.style.background = C.bgSecondary; e.currentTarget.style.color = C.brand; } }}
+              onMouseEnter={e => { if (picker !== b.id) { e.currentTarget.style.background = C.brand; e.currentTarget.style.color = "#FFFFFF"; } }}
+              onMouseLeave={e => { if (picker !== b.id) { e.currentTarget.style.background = "#FFFFFF"; e.currentTarget.style.color = C.brand; } }}
               style={{
-                fontSize: 11,
-                padding: "5px 11px",
+                fontSize: 12,
+                fontWeight: 500,
+                padding: "6px 14px",
                 borderRadius: 20,
-                border: "0.5px solid rgba(201,168,76,0.4)",
-                background: picker === b.id ? C.brand : C.bgSecondary,
-                color: picker === b.id ? "#0A0A0A" : C.brand,
+                border: `0.5px solid ${C.brand}`,
+                background: picker === b.id ? C.brand : "#FFFFFF",
+                color: picker === b.id ? "#FFFFFF" : C.brand,
                 cursor: "pointer",
                 fontFamily: "inherit",
                 lineHeight: 1.4,
@@ -916,15 +929,15 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
         </div>
       )}
 
-      {/* Picker de proyecto (Acción 1) — dark theme Kluxor */}
+      {/* Picker de proyecto (Acción 1) — tema operacional claro */}
       {picker === "task" && projects.length > 0 && (
-        <div style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: C.bgSecondary, border: "0.5px solid rgba(201,168,76,0.4)", borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 14px rgba(0,0,0,0.5)" }}>
-          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: "#0F0F0F" }}>Crear tarea en…</div>
+        <div style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: "#FFFFFF", border: `0.5px solid ${C.borderTertiary}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 14px rgba(26,26,26,0.08)" }}>
+          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: C.bgPrimary }}>Crear tarea en…</div>
           {projects.slice(0, 12).map(p => (
             <div key={p.id}
               onClick={() => handleCreateTask(p.code)}
               style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: C.textPrimary, borderBottom: `0.5px solid ${C.borderTertiary}` }}
-              onMouseEnter={e => e.currentTarget.style.background = "#262626"}
+              onMouseEnter={e => e.currentTarget.style.background = C.bgSecondary}
               onMouseLeave={e => e.currentTarget.style.background = "transparent"}
             >
               <span style={{ fontWeight: 600, color: C.brand }}>[{p.code}]</span> {p.name || "Sin nombre"}
@@ -933,15 +946,15 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
         </div>
       )}
 
-      {/* Picker de negociación (Acción 3) — dark theme Kluxor */}
+      {/* Picker de negociación (Acción 3) — tema operacional claro */}
       {picker === "neg" && negs.length > 0 && (
-        <div style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: C.bgSecondary, border: "0.5px solid rgba(201,168,76,0.4)", borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 14px rgba(0,0,0,0.5)" }}>
-          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: "#0F0F0F" }}>Adjuntar a negociación…</div>
+        <div style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: "#FFFFFF", border: `0.5px solid ${C.borderTertiary}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 14px rgba(26,26,26,0.08)" }}>
+          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: C.bgPrimary }}>Adjuntar a negociación…</div>
           {negs.slice(0, 12).map(n => (
             <div key={n.id}
               onClick={() => handleAttachNeg(n.id, n.code || `#${n.id}`)}
               style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: C.textPrimary, borderBottom: `0.5px solid ${C.borderTertiary}` }}
-              onMouseEnter={e => e.currentTarget.style.background = "#262626"}
+              onMouseEnter={e => e.currentTarget.style.background = C.bgSecondary}
               onMouseLeave={e => e.currentTarget.style.background = "transparent"}
             >
               <span style={{ fontWeight: 600, color: C.brand }}>[{n.code || "?"}]</span> {(n.title || "Sin título").slice(0, 50)}
@@ -1022,7 +1035,7 @@ const hectorAvatarStyle = {
   width: 44,
   height: 44,
   borderRadius: "50%",
-  background: C.hectorEmojiBg,
+  background: "#F0EDE5",
   border: `1px solid ${C.brand}`,
   display: "flex",
   alignItems: "center",
@@ -1035,7 +1048,9 @@ const hectorAvatarSmall = {
   width: 32,
   height: 32,
   borderRadius: "50%",
-  background: C.hectorEmojiBg,
+  // Avatar pequeño dentro de las burbujas: ligeramente más blanco para
+  // diferenciarse del fondo de la burbuja Héctor (que es #F0EDE5).
+  background: "#FAFAF7",
   border: `1px solid ${C.brand}`,
   display: "flex",
   alignItems: "center",
@@ -1049,7 +1064,7 @@ const ceoAvatarStyle = {
   height: 32,
   borderRadius: "50%",
   background: C.brand,
-  color: "#0A0A0A",
+  color: "#FFFFFF",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -1060,8 +1075,8 @@ const ceoAvatarStyle = {
 
 const aperturaStyle = {
   padding: "12px 20px",
-  background: C.bgSecondary,
-  borderBottom: "0.5px solid rgba(201,168,76,0.2)",
+  background: "transparent",
+  borderBottom: `0.5px solid ${C.borderTertiary}`,
   fontSize: 13.5,
   color: C.textSecondary,
   cursor: "pointer",
@@ -1099,8 +1114,8 @@ const textareaStyle = {
   maxHeight: 120,
   padding: "12px 16px",
   borderRadius: 28,
-  border: "0.5px solid rgba(201,168,76,0.3)",
-  background: C.bgSecondary,
+  border: `0.5px solid ${C.borderTertiary}`,
+  background: "#FFFFFF",
   color: C.textPrimary,
   caretColor: C.brand,
   fontSize: 15,
@@ -1109,6 +1124,7 @@ const textareaStyle = {
   fontFamily: "inherit",
   outline: "none",
   boxSizing: "border-box",
+  transition: "border-color .15s ease",
 };
 
 const micButtonStyle = {
