@@ -606,56 +606,139 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
     flash(`✓ Tarea creada en ${projCode}`);
   };
 
-  // Acción 2 — Generar PDF. Abrimos una ventana con HTML formateado y
-  // disparamos window.print(); en iOS Safari el menú "Compartir" del
-  // diálogo de impresión incluye "Guardar PDF". Si el navegador bloquea
-  // la ventana (popup), caemos a descarga .txt — fallback robusto.
-  const handlePDF = () => {
-    const date = new Date();
-    const dateStr = date.toLocaleString("es-ES");
-    const safeText = (message.text || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"/><title>Informe ${meta.label} — ${dateStr}</title><style>
-      body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;max-width:720px;margin:32px auto;padding:0 24px;color:#111827;line-height:1.55}
-      header{border-bottom:2px solid ${meta.color};padding-bottom:12px;margin-bottom:18px}
-      h1{font-size:18px;margin:0 0 4px;color:${meta.color}}
-      .sub{font-size:12px;color:#6b7280}
-      .task{font-size:13px;color:#374151;margin-top:6px;padding:6px 10px;background:#f9fafb;border-radius:6px;border-left:3px solid ${meta.color}}
-      pre{font-family:inherit;white-space:pre-wrap;word-break:break-word;font-size:14px}
-      footer{margin-top:32px;padding-top:12px;border-top:0.5px solid #e5e7eb;font-size:11px;color:#9ca3af;text-align:center}
-      @media print{body{margin:0;max-width:none}header{break-after:avoid}}
-    </style></head><body>
-      <header>
-        <h1>${meta.emoji} Informe — ${meta.label}</h1>
-        <div class="sub">Generado el ${dateStr}</div>
-        ${message.task ? `<div class="task"><b>Tarea:</b> ${message.task.replace(/</g,"&lt;")}</div>` : ""}
-      </header>
-      <pre>${safeText}</pre>
-      <footer>Generado por SoulBaric · ${dateStr}</footer>
-    </body></html>`;
-    let win = null;
-    try { win = window.open("", "_blank"); } catch {}
-    if (win && win.document) {
-      win.document.open();
-      win.document.write(html);
-      win.document.close();
-      // Damos un tick al render antes de imprimir.
-      setTimeout(() => { try { win.focus(); win.print(); } catch {} }, 250);
-      flash("✓ PDF abierto para imprimir/guardar");
-    } else {
-      // Fallback: descarga .txt cuando popup bloqueado (típico iOS).
-      const blob = new Blob([
-        `Informe ${meta.label} — ${dateStr}\n` +
-        (message.task ? `Tarea: ${message.task}\n` : "") +
-        `\n${message.text || ""}\n\n— Generado por SoulBaric (${dateStr})\n`
-      ], { type: "text/plain" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `informe-${meta.label.toLowerCase().replace(/\s+/g,"-")}-${date.toISOString().slice(0,10)}.txt`;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(()=>URL.revokeObjectURL(url), 2000);
-      flash("✓ Informe descargado (.txt)");
+  // Helper común: imprime cualquier HTML usando un iframe oculto.
+  // Más fiable que window.open en iOS Safari (no requiere autorización
+  // de popup). Tras el print el iframe se autodestruye. Si por algún
+  // motivo el iframe falla (CSP estricta), caemos a window.open y de
+  // ahí a descarga .txt como último recurso.
+  const imprimirHTML = (html, nombre) => {
+    try {
+      const iframe = document.createElement("iframe");
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      iframe.setAttribute("aria-hidden", "true");
+      document.body.appendChild(iframe);
+      const doc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!doc) throw new Error("iframe sin documento");
+      doc.open(); doc.write(html); doc.close();
+      // Pequeño delay para que el navegador renderice antes de imprimir.
+      setTimeout(() => {
+        try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch {}
+        // Limpiamos el iframe tras un margen suficiente para que el
+        // diálogo de impresión haya capturado el contenido.
+        setTimeout(() => { try { document.body.removeChild(iframe); } catch {} }, 1500);
+      }, 350);
+      flash(`✓ ${nombre} listo para imprimir/guardar`);
+      return true;
+    } catch (e) {
+      // Fallback 1: window.open
+      try {
+        const win = window.open("", "_blank");
+        if (win && win.document) {
+          win.document.open(); win.document.write(html); win.document.close();
+          setTimeout(() => { try { win.focus(); win.print(); } catch {} }, 350);
+          flash(`✓ ${nombre} abierto para imprimir`);
+          return true;
+        }
+      } catch {}
+      // Fallback 2: descarga .txt
+      try {
+        const blob = new Blob([(message.text || "")], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${nombre}.txt`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        flash(`✓ ${nombre} descargado (.txt)`);
+        return true;
+      } catch {}
+      flash("⚠ No pude generar el documento");
+      return false;
     }
+  };
+
+  // Escape minimal para HTML — interpolamos message.text dentro de
+  // <div class="content"> que respeta saltos de línea con white-space.
+  // Sin esto, una respuesta del modelo con etiquetas literales <script>
+  // ejecutaría código en el iframe.
+  const escHTML = (s) => String(s || "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
+  // Mapa de nombres "humanos" para el header del informe — distintos
+  // de meta.label en algún caso (ej. "Diego Financiero" vs "Diego
+  // Finanzas Op."). Los pide así el spec del CEO.
+  const AGENT_PRINT_NAME = {
+    mario:   "Mario Legal",
+    jorge:   "Jorge Analista",
+    alvaro:  "Álvaro Inmobiliario",
+    gonzalo: "Gonzalo Gobernanza",
+    diego:   "Diego Financiero",
+  };
+
+  // Modo 1 — Informe ejecutivo. Tipografía Georgia, header con franja
+  // morada (#534AB7 = brand SoulBaric), prosa preservada con
+  // white-space: pre-wrap, footer "Confidencial".
+  const generarInforme = () => {
+    const fecha = new Date().toLocaleDateString("es-ES", { day:"numeric", month:"long", year:"numeric" });
+    const agentNombre = AGENT_PRINT_NAME[message.specialistKey] || meta.label;
+    const fileName = `Informe_${message.specialistKey || "agente"}_${Date.now()}`;
+    const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${fileName}</title><style>
+      body { font-family: Georgia, 'Times New Roman', serif; margin: 60px; color: #1a1a1a; line-height: 1.6; }
+      .header { border-bottom: 2px solid #534AB7; padding-bottom: 20px; margin-bottom: 30px; }
+      .logo { font-size: 12px; color: #534AB7; font-weight: bold; letter-spacing: 2px; }
+      h1 { font-size: 22px; margin: 8px 0; }
+      .meta { font-size: 13px; color: #666; }
+      .task { font-size: 13px; color: #374151; margin-top: 10px; padding: 8px 12px; background: #f3f0ff; border-left: 3px solid #534AB7; border-radius: 4px; }
+      .content { font-size: 15px; white-space: pre-wrap; word-wrap: break-word; }
+      .footer { margin-top: 60px; border-top: 1px solid #ddd; padding-top: 12px; font-size: 11px; color: #999; }
+      @media print { body { margin: 30mm; } }
+    </style></head><body>
+      <div class="header">
+        <div class="logo">SOULBARIC — INFORME ESPECIALISTA</div>
+        <h1>Informe ${escHTML(agentNombre)}</h1>
+        <div class="meta">Fecha: ${escHTML(fecha)} · Preparado para: Antonio Díaz</div>
+        ${message.task ? `<div class="task"><b>Tarea:</b> ${escHTML(message.task)}</div>` : ""}
+      </div>
+      <div class="content">${escHTML(message.text)}</div>
+      <div class="footer">Documento generado por SoulBaric CEO OS · ${escHTML(fecha)} · Confidencial</div>
+    </body></html>`;
+    imprimirHTML(html, fileName);
+  };
+
+  // Modo 2 — Documento legal. Tipografía Times New Roman, márgenes
+  // amplios, "Documento Legal" centrado, contenido justificado, dos
+  // bloques de firma al pie. Pensado para que cualquier especialista
+  // (no solo Mario) pueda producir un texto firmable cuando aplique.
+  const generarContrato = () => {
+    const fecha = new Date().toLocaleDateString("es-ES", { day:"numeric", month:"long", year:"numeric" });
+    const fileName = `Contrato_${Date.now()}`;
+    const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${fileName}</title><style>
+      body { font-family: 'Times New Roman', Times, serif; margin: 80px; color: #000; line-height: 1.8; font-size: 14px; }
+      h1 { text-align: center; font-size: 18px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+      .subtitulo { text-align: center; font-size: 13px; color: #333; margin-bottom: 40px; }
+      .content { text-align: justify; white-space: pre-wrap; word-wrap: break-word; }
+      .firmas { margin-top: 80px; display: flex; justify-content: space-between; }
+      .firma { text-align: center; width: 200px; }
+      .linea-firma { border-top: 1px solid #000; margin-bottom: 8px; }
+      .footer { margin-top: 40px; border-top: 1px solid #ccc; padding-top: 10px; font-size: 10px; color: #666; text-align: center; }
+      @media print { body { margin: 40mm; } .no-print { display: none; } }
+    </style></head><body>
+      <h1>Documento Legal</h1>
+      <div class="subtitulo">Elaborado en Marbella, a ${escHTML(fecha)}</div>
+      <div class="content">${escHTML(message.text)}</div>
+      <div class="firmas">
+        <div class="firma"><div class="linea-firma"></div><div>EL CEDENTE</div></div>
+        <div class="firma"><div class="linea-firma"></div><div>EL CESIONARIO</div></div>
+      </div>
+      <div class="footer">Documento preparado con asistencia de SoulBaric CEO OS · ${escHTML(fecha)} · Sujeto a revisión legal</div>
+    </body></html>`;
+    imprimirHTML(html, fileName);
   };
 
   // Acción 3 — Adjuntar a negociación. No hay action type para esto en
@@ -686,12 +769,13 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
   const negs = (data?.negotiations || []).filter(n => n && ACTIVE_NEG.has(n.status));
 
   const buttons = [
-    { id: "task", label: "📋 Tarea",  onClick: () => {
+    { id: "task",     label: "📋 Tarea",    onClick: () => {
         if (!projects.length) { flash("⚠ Crea un proyecto primero"); return; }
         setPicker(p => p === "task" ? null : "task");
       } },
-    { id: "pdf",  label: "📄 PDF",    onClick: () => handlePDF() },
-    { id: "neg",  label: "📁 Neg.",   onClick: () => {
+    { id: "informe",  label: "📊 Informe",  onClick: () => generarInforme() },
+    { id: "contrato", label: "📄 Contrato", onClick: () => generarContrato() },
+    { id: "neg",      label: "📁 Neg.",     onClick: () => {
         if (!negs.length) { flash("⚠ Sin negociaciones activas"); return; }
         setPicker(p => p === "neg" ? null : "neg");
       } },
