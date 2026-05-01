@@ -622,60 +622,54 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
     flash(`✓ Tarea creada en ${projCode}`);
   };
 
-  // Helper común: imprime cualquier HTML usando un iframe oculto.
-  // Más fiable que window.open en iOS Safari (no requiere autorización
-  // de popup). Tras el print el iframe se autodestruye. Si por algún
-  // motivo el iframe falla (CSP estricta), caemos a window.open y de
-  // ahí a descarga .txt como último recurso.
-  const imprimirHTML = (html, nombre) => {
-    try {
-      const iframe = document.createElement("iframe");
-      iframe.style.position = "fixed";
-      iframe.style.right = "0";
-      iframe.style.bottom = "0";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
-      iframe.style.border = "0";
-      iframe.setAttribute("aria-hidden", "true");
-      document.body.appendChild(iframe);
-      const doc = iframe.contentDocument || iframe.contentWindow?.document;
-      if (!doc) throw new Error("iframe sin documento");
-      doc.open(); doc.write(html); doc.close();
-      // Pequeño delay para que el navegador renderice antes de imprimir.
-      setTimeout(() => {
-        try { iframe.contentWindow.focus(); iframe.contentWindow.print(); } catch {}
-        // Limpiamos el iframe tras un margen suficiente para que el
-        // diálogo de impresión haya capturado el contenido.
-        setTimeout(() => { try { document.body.removeChild(iframe); } catch {} }, 1500);
-      }, 350);
-      flash(`✓ ${nombre} listo para imprimir/guardar`);
-      return true;
-    } catch (e) {
-      // Fallback 1: window.open
+  // Helper común: abrir una ventana nueva, escribir el HTML, esperar a
+  // onload y luego imprimir. El iframe oculto que usamos antes salía en
+  // blanco en Safari iOS porque el print() se disparaba antes de que
+  // contentDocument terminara de pintar el contenido. window.open con
+  // espera explícita a onload soluciona el problema. Si Safari bloquea
+  // el popup (gesto no reconocido como "user activation"), caemos a
+  // descarga .html para que el CEO la abra manualmente desde el archivo.
+  const imprimirHTML = (html, fileName) => {
+    let ventana = null;
+    try { ventana = window.open("", "_blank"); } catch {}
+    if (!ventana) {
+      // Fallback: descarga .html. El CEO puede abrirla desde Archivos
+      // y el menú "Compartir › Imprimir" o el navegador la renderiza.
       try {
-        const win = window.open("", "_blank");
-        if (win && win.document) {
-          win.document.open(); win.document.write(html); win.document.close();
-          setTimeout(() => { try { win.focus(); win.print(); } catch {} }, 350);
-          flash(`✓ ${nombre} abierto para imprimir`);
-          return true;
-        }
-      } catch {}
-      // Fallback 2: descarga .txt
-      try {
-        const blob = new Blob([(message.text || "")], { type: "text/plain" });
+        const blob = new Blob([html], { type: "text/html" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `${nombre}.txt`;
+        a.download = fileName + ".html";
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 2000);
-        flash(`✓ ${nombre} descargado (.txt)`);
-        return true;
-      } catch {}
-      flash("⚠ No pude generar el documento");
-      return false;
+        flash(`✓ ${fileName}.html descargado — ábrelo para imprimir`);
+      } catch {
+        flash("⚠ No pude generar el documento");
+      }
+      return;
     }
+    ventana.document.write(html);
+    ventana.document.close();
+    let printed = false;
+    const triggerPrint = () => {
+      if (printed) return;
+      printed = true;
+      try { ventana.focus(); ventana.print(); } catch {}
+      // Cerrar tras imprimir (no todos los navegadores soportan
+      // onafterprint, así que también ponemos un cierre con margen).
+      try { ventana.onafterprint = () => { try { ventana.close(); } catch {} }; } catch {}
+    };
+    // Camino normal: esperar a onload (Safari iOS necesita esto para
+    // que el contenido renderice antes de imprimir).
+    try { ventana.onload = triggerPrint; } catch {}
+    // Fallback: si onload no dispara en 2s (algunos navegadores ya
+    // disparan antes del handler porque document.close() es síncrono),
+    // forzamos el print con un timeout. triggerPrint es idempotente.
+    setTimeout(() => {
+      if (!ventana.closed) triggerPrint();
+    }, 2000);
+    flash(`✓ ${fileName} abierto para imprimir/guardar`);
   };
 
   // Escape minimal para HTML — interpolamos message.text dentro de
