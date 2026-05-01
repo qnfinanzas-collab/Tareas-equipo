@@ -43,7 +43,7 @@ function getAperturaFrase() {
   return "El día casi termina. ¿Qué queda sin cerrar?";
 }
 
-export default function HectorDirectView({ data, userId, onRunAgentActions, onNavigate }) {
+export default function HectorDirectView({ data, userId, onRunAgentActions, onNavigate, financeContext }) {
   const userKey = userId != null ? userId : "anon";
   // Misma clave que usa HectorPanel.jsx → conversación compartida.
   const CHAT_KEY = `soulbaric.hector.chat.${userKey}`;
@@ -130,9 +130,98 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
         .map(m => `- id:${m.id} | nombre:"${m.name}"${m.email ? ` | email:${m.email}` : ""}${m.role ? ` | rol:${m.role}` : ""}`)
         .join("\n");
       const membersBlock = membersLines ? `\n\n---\nMIEMBROS REALES DEL EQUIPO (los únicos válidos para assignees y referencias):\n${membersLines}\n\nReglas:\n- Cuando el CEO mencione un nombre, comprueba primero si coincide EXACTAMENTE con algún miembro de esta lista.\n- Si NO coincide o es ambiguo (ej. "Marc" cuando hay varios "Marc..."), aplica la REGLA AMBIGÜEDAD del bloque CAPACIDAD DE EJECUCIÓN: pregunta antes de actuar.\n- Para assignees usa el id (number) cuando lo conozcas, o el nombre exacto entre comillas.` : "";
-      const baseSystem = hector?.promptBase
-        ? hector.promptBase + "\n\n" + PLAIN_TEXT_RULE + membersBlock
-        : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE + membersBlock;
+
+      // ── Contexto operativo (HD-context-v1) ────────────────────────
+      // Antes Héctor recibía solo promptBase + miembros y respondía a
+      // ciegas sobre operativa real. Inyectamos snapshots compactos de
+      // tareas urgentes/vencidas, proyectos, negociaciones, finanzas y
+      // gobernanza. Cada bloque tiene su guard: si el dato no existe
+      // o está vacío, no se añade.
+
+      // 1) Tareas urgentes/vencidas. Las tareas viven en data.boards
+      // ({[projectId]: [{name, tasks:[]}]}), NO en data.tasks. Aplanamos.
+      const todayMs = Date.now();
+      const urgentRows = [];
+      Object.entries(data?.boards || {}).forEach(([pid, cols]) => {
+        const proj = (data?.projects || []).find(p => p.id === Number(pid));
+        (cols || []).forEach(col => {
+          if (!col || col.name === "Hecho") return;
+          (col.tasks || []).forEach(t => {
+            if (!t || t.archived) return;
+            const dueMs = t.dueDate ? new Date(t.dueDate).getTime() : NaN;
+            const isOverdue = !isNaN(dueMs) && dueMs < todayMs;
+            const isHigh = t.priority === "alta";
+            if (!isOverdue && !isHigh) return;
+            urgentRows.push(`- [${proj?.code || "?"}] ${(t.title||"sin título").slice(0,70)} | prio:${t.priority||"—"} | vence:${t.dueDate || "sin fecha"}${isOverdue?" ⚠VENCIDA":""}`);
+          });
+        });
+      });
+      const urgentBlock = urgentRows.length
+        ? `\n\n---\nTAREAS URGENTES O VENCIDAS (top ${Math.min(15, urgentRows.length)}):\n${urgentRows.slice(0,15).join("\n")}`
+        : "";
+
+      // 2) Proyectos activos (no archivados). Contamos tareas vivas
+      // desde boards para que el dato no dependa de un campo .tasks
+      // que el modelo Project no tiene.
+      const projRows = (data?.projects || [])
+        .filter(p => p && !p.archived)
+        .slice(0, 25)
+        .map(p => {
+          const cols = (data?.boards?.[p.id]) || [];
+          const taskCount = cols.reduce((s, c) => s + ((c?.tasks || []).filter(t => !t.archived).length), 0);
+          return `- [${p.code || "?"}] ${(p.name||"Sin nombre").slice(0,60)} | tareas:${taskCount}`;
+        });
+      const projBlock = projRows.length ? `\n\n---\nPROYECTOS ACTIVOS:\n${projRows.join("\n")}` : "";
+
+      // 3) Negociaciones activas. Status real: en_curso|pausado son las
+      // vivas; el resto (cerrado_ganado/perdido/acuerdo_parcial) son
+      // cerradas en este modelo.
+      const ACTIVE_NEG = new Set(["en_curso", "pausado"]);
+      const negRows = (data?.negotiations || [])
+        .filter(n => n && ACTIVE_NEG.has(n.status))
+        .slice(0, 20)
+        .map(n => `- [${n.code || "?"}] ${(n.title||"Sin título").slice(0,60)} | ${n.status||"—"} | contraparte:${n.counterparty || "?"}`);
+      const negBlock = negRows.length ? `\n\n---\nNEGOCIACIONES ACTIVAS:\n${negRows.join("\n")}` : "";
+
+      // 4) Resumen financiero — viene precomputado como prop. Formateamos
+      // los números con Intl para que Héctor vea cifras legibles, no
+      // decimales de Float.
+      let finBlock = "";
+      if (financeContext && typeof financeContext === "object") {
+        const fmt = n => n != null && !isNaN(n) ? new Intl.NumberFormat("es-ES",{maximumFractionDigits:0}).format(n) : "—";
+        const finLines = [];
+        if (financeContext.currentBalance != null)   finLines.push(`- Saldo actual: ${fmt(financeContext.currentBalance)} EUR`);
+        if (financeContext.monthlyBurnRate != null)  finLines.push(`- Burn rate mensual: ${fmt(financeContext.monthlyBurnRate)} EUR`);
+        if (financeContext.runway != null)           finLines.push(`- Runway: ${financeContext.runway} meses`);
+        if (financeContext.pendingIncome)            finLines.push(`- Cobros pendientes: ${fmt(financeContext.pendingIncome)} EUR`);
+        if (financeContext.upcomingExpenses)         finLines.push(`- Pagos próximos: ${fmt(financeContext.upcomingExpenses)} EUR`);
+        if (financeContext.facturasVencidas)         finLines.push(`- Facturas vencidas: ${financeContext.facturasVencidas}`);
+        if (Array.isArray(financeContext.alertas) && financeContext.alertas.length) {
+          finLines.push(`- Alertas: ${financeContext.alertas.slice(0,3).map(a=>a.text||a.message||a).join("; ").slice(0,300)}`);
+        }
+        if (finLines.length) finBlock = `\n\n---\nRESUMEN FINANCIERO:\n${finLines.join("\n")}`;
+      }
+
+      // 5) Gobernanza. data.governance vive como objeto con companies
+      // y documents según _migrate. Resumen compacto (≤300 chars).
+      let govBlock = "";
+      const gov = data?.governance;
+      if (gov && typeof gov === "object") {
+        const govLines = [];
+        const companies = Array.isArray(gov.companies) ? gov.companies : [];
+        if (companies.length) {
+          const names = companies.map(c => c?.name || c?.code || "?").join(", ");
+          govLines.push(`- Empresas: ${names.slice(0,200)}`);
+        }
+        const docs = Array.isArray(gov.documents) ? gov.documents : [];
+        if (docs.length) govLines.push(`- Documentos: ${docs.length} en gestión`);
+        if (govLines.length) govBlock = `\n\n---\nGOBERNANZA:\n${govLines.join("\n")}`;
+      }
+
+      const baseSystem = (hector?.promptBase
+        ? hector.promptBase + "\n\n" + PLAIN_TEXT_RULE
+        : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE)
+        + membersBlock + urgentBlock + projBlock + negBlock + finBlock + govBlock;
       // Convertimos el historial a la forma que espera la API.
       // Los mensajes "assistant" llevan el texto limpio (sin proposal).
       const messages = next.map(m => ({
