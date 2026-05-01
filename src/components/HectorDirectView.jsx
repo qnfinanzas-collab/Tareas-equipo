@@ -120,9 +120,19 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
     setIsLoading(true);
     try {
       const hector = (data?.agents || []).find(a => a.name === "Héctor");
+      // Inyección de miembros reales: Héctor recibía solo el promptBase
+      // estático y no podía validar si "Marc" o "Antonio" existían como
+      // miembros. Sin esa lista, alucinaba assignees inventados. Pasamos
+      // id+nombre+email+rol — formato compacto que cabe en 1-2 líneas
+      // por miembro y permite citar el id en assignees.
+      const membersLines = (data?.members || [])
+        .filter(m => m && m.name)
+        .map(m => `- id:${m.id} | nombre:"${m.name}"${m.email ? ` | email:${m.email}` : ""}${m.role ? ` | rol:${m.role}` : ""}`)
+        .join("\n");
+      const membersBlock = membersLines ? `\n\n---\nMIEMBROS REALES DEL EQUIPO (los únicos válidos para assignees y referencias):\n${membersLines}\n\nReglas:\n- Cuando el CEO mencione un nombre, comprueba primero si coincide EXACTAMENTE con algún miembro de esta lista.\n- Si NO coincide o es ambiguo (ej. "Marc" cuando hay varios "Marc..."), aplica la REGLA AMBIGÜEDAD del bloque CAPACIDAD DE EJECUCIÓN: pregunta antes de actuar.\n- Para assignees usa el id (number) cuando lo conozcas, o el nombre exacto entre comillas.` : "";
       const baseSystem = hector?.promptBase
-        ? hector.promptBase + "\n\n" + PLAIN_TEXT_RULE
-        : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE;
+        ? hector.promptBase + "\n\n" + PLAIN_TEXT_RULE + membersBlock
+        : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE + membersBlock;
       // Convertimos el historial a la forma que espera la API.
       // Los mensajes "assistant" llevan el texto limpio (sin proposal).
       const messages = next.map(m => ({
@@ -135,10 +145,19 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
       );
       const proposal = parseAgentActions(reply);
       const cleanText = proposal ? (cleanAgentResponse(reply) || "(sin texto)") : reply;
+      // Detección anti-alucinación: si Héctor afirma éxito ("hecho",
+      // "listo", "creado"...) pero NO emitió bloque [ACTIONS], marcamos
+      // el mensaje para mostrar un aviso visible al CEO. Sin esto, la app
+      // pintaba "Hecho ✅" como si se hubiera ejecutado algo y el CEO
+      // asumía que estaba en BD. Patrón heurístico, no exhaustivo: cubre
+      // los verbos de confirmación habituales en español.
+      const SUCCESS_RE = /\b(hecho|listo|completad[oa]|creado|creada|actualizad[oa]|asignad[oa]|añadid[oa]|guardad[oa]|registrad[oa]|procesad[oa]|cerrad[oa]|vinculad[oa])\b/i;
+      const fakeSuccess = !proposal && SUCCESS_RE.test(cleanText);
       setChatHistory(prev => [...prev, {
         role: "assistant",
         text: cleanText,
         proposal: proposal || null,
+        fakeSuccess,
         ts: Date.now(),
       }].slice(-CHAT_MAX));
     } catch (e) {
@@ -359,6 +378,22 @@ function MessageBubble({ message, userInitials, onRunAgentActions, onDiscardProp
             onConfirm={async (selected) => { await onRunAgentActions(selected); }}
             onCancel={onDiscardProposal}
           />
+        </div>
+      )}
+      {!isUser && message.fakeSuccess && !message.proposal && (
+        <div style={{
+          alignSelf: "stretch",
+          marginLeft: 42,
+          marginTop: 4,
+          padding: "8px 12px",
+          background: "#FEF3C7",
+          border: "1px solid #FCD34D",
+          borderRadius: 8,
+          fontSize: 12,
+          color: "#92400E",
+          lineHeight: 1.4,
+        }}>
+          ⚠ Héctor afirma éxito pero <b>no emitió ninguna acción real</b>. Nada se ha guardado. Reformula la orden o pídele explícitamente que ejecute.
         </div>
       )}
     </div>

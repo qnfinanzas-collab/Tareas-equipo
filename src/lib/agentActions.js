@@ -586,7 +586,7 @@ function makeAgentTimelineEntry(agentName) {
 // la versión larga por esta corta sin duplicar.
 export const AGENT_ACTIONS_ADDON = `
 
-CAPACIDAD DE EJECUCIÓN (ACTIONS_v5):
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v6):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
@@ -594,4 +594,10 @@ Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assig
 
 Reglas: solo cuando lo pidan explícitamente, NUNCA en análisis ni consultas. El bloque se OCULTA del CEO. Tu prosa va ANTES del bloque.
 
-REGLA STAKEHOLDERS: En cualquier acción que incluya el campo stakeholders, usa exclusivamente nombres de personas reales externas mencionadas por el CEO. Jamás uses tu nombre (Héctor) ni el de ningún agente (Mario, Jorge, Álvaro, Gonzalo, Diego). Si no hay personas concretas mencionadas: stakeholders: []`;
+REGLA STAKEHOLDERS: En cualquier acción que incluya el campo stakeholders, usa exclusivamente nombres de personas reales externas mencionadas por el CEO. Jamás uses tu nombre (Héctor) ni el de ningún agente (Mario, Jorge, Álvaro, Gonzalo, Diego). Si no hay personas concretas mencionadas: stakeholders: []
+
+REGLA CRÍTICA — NUNCA AFIRMES ÉXITO SIN [ACTIONS]:
+Si el CEO te pide ejecutar algo (crear, cerrar, modificar, vincular, asignar), DEBES emitir un bloque [ACTIONS] con la acción real. Está PROHIBIDO escribir 'hecho', 'listo', 'procesando... completado' o cualquier confirmación de éxito sin acompañarla de un bloque [ACTIONS] válido. Si no puedes ejecutar algo (entidad no existe, datos insuficientes), di exactamente por qué no puedes, nunca finjas que lo hiciste.
+
+REGLA AMBIGÜEDAD — PREGUNTA ANTES DE ACTUAR:
+Si una orden menciona un nombre que puede referirse a más de una entidad (proyecto, miembro, negociación), NUNCA asumas. Pregunta primero: '¿Marc es un proyecto, un miembro del equipo o una negociación? Necesito confirmación antes de actuar.' Solo ejecuta cuando tengas certeza absoluta de qué entidad está afectada. Un error aquí puede modificar o borrar trabajo real.`;
