@@ -146,12 +146,15 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
         .filter(m => m && m.name)
         .map(m => `- id:${m.id} | nombre:"${m.name}"${m.email ? ` | email:${m.email}` : ""}${m.role ? ` | rol:${m.role}` : ""}`)
         .join("\n");
-      // Identidad CEO: en cualquier documento/contrato/acción, Antonio
-      // Díaz es la parte principal por defecto. Sin esta línea, Héctor
-      // tendía a coger al primer miembro del array como "parte" en los
-      // contratos generados, lo cual rompe la realidad legal.
-      const ceoBlock = `\n\n---\nUSUARIO ACTIVO — CEO Y PROPIETARIO:\nAntonio Díaz (qn.finanzas@gmail.com)\nEmpresa: ALMA DIMO INVESTMENTS S.L. · CIF: B19929256\nEn cualquier documento, contrato o acción, Antonio Díaz es siempre la parte principal/propietaria salvo indicación explícita en contrario. NUNCA uses a otro miembro como parte principal sin confirmación del CEO.`;
-      const membersBlock = membersLines ? `${ceoBlock}\n\n---\nMIEMBROS REALES DEL EQUIPO (los únicos válidos para assignees y referencias):\n${membersLines}\n\nReglas:\n- Cuando el CEO mencione un nombre, comprueba primero si coincide EXACTAMENTE con algún miembro de esta lista.\n- Si NO coincide o es ambiguo (ej. "Marc" cuando hay varios "Marc..."), aplica la REGLA AMBIGÜEDAD del bloque CAPACIDAD DE EJECUCIÓN: pregunta antes de actuar.\n- Para assignees usa el id (number) cuando lo conozcas, o el nombre exacto entre comillas.` : ceoBlock;
+      // Identidad del usuario activo. Resolución encadenada:
+      //  1) data.me / data.currentUser si el shape los expusiera
+      //  2) data.members.find por userId (camino real en este codebase)
+      // Si ninguno resuelve, dejamos el bloque vacío para no alucinar
+      // un nombre. Se inyecta AL INICIO del system para que el modelo
+      // lo lea antes que cualquier otro contexto.
+      const usuarioActivo = (data?.me || data?.currentUser || (data?.members || []).find(m => m && m.id === userId)) || null;
+      const ceoBlock = usuarioActivo ? `USUARIO ACTIVO EN SESIÓN:\n- Nombre: ${usuarioActivo.name || usuarioActivo.email || "(sin nombre)"}\n- Email: ${usuarioActivo.email || "(sin email)"}\n- Rol: ${usuarioActivo.accountRole || usuarioActivo.role || "admin"}\n- Empresa: ALMA DIMO INVESTMENTS S.L.\n- CIF: B19929256\n\nREGLA CRÍTICA: Este usuario es siempre la parte principal en contratos, documentos y acciones. NUNCA uses otro miembro como parte principal sin confirmación explícita del usuario activo.\n\n---\n` : "";
+      const membersBlock = membersLines ? `\n\n---\nMIEMBROS REALES DEL EQUIPO (los únicos válidos para assignees y referencias):\n${membersLines}\n\nReglas:\n- Cuando el CEO mencione un nombre, comprueba primero si coincide EXACTAMENTE con algún miembro de esta lista.\n- Si NO coincide o es ambiguo (ej. "Marc" cuando hay varios "Marc..."), aplica la REGLA AMBIGÜEDAD del bloque CAPACIDAD DE EJECUCIÓN: pregunta antes de actuar.\n- Para assignees usa el id (number) cuando lo conozcas, o el nombre exacto entre comillas.` : "";
 
       // ── Contexto operativo (HD-context-v1) ────────────────────────
       // Antes Héctor recibía solo promptBase + miembros y respondía a
@@ -240,7 +243,11 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
         if (govLines.length) govBlock = `\n\n---\nGOBERNANZA:\n${govLines.join("\n")}`;
       }
 
-      const baseSystem = (hector?.promptBase
+      // Composición final: ceoBlock al INICIO (la identidad del usuario
+      // debe leerse antes que cualquier otra cosa), luego promptBase con
+      // sus addons, luego PLAIN_TEXT_RULE, y al final los snapshots
+      // operativos (miembros, tareas, proyectos, negs, finanzas, gov).
+      const baseSystem = ceoBlock + (hector?.promptBase
         ? hector.promptBase + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE)
         + membersBlock + urgentBlock + projBlock + negBlock + finBlock + govBlock;
@@ -322,7 +329,11 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
           ts: Date.now(),
         }].slice(-CHAT_MAX));
         try {
-          const sys = (ag.promptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE;
+          // Propagamos ceoBlock también al especialista para que Mario
+          // redacte contratos con Antonio Díaz como parte principal,
+          // Jorge prepare informes para él, etc. Sin esto cada agente
+          // podía coger al primer miembro como "parte" del documento.
+          const sys = ceoBlock + (ag.promptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE;
           const taskLow = inv.task.toLowerCase();
           const isRedaccion = inv.key === "mario" && REDACCION_KEYS.some(k => taskLow.includes(k));
           const timeoutMs = isRedaccion ? 90000 : 45000;

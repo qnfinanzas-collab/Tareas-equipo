@@ -586,7 +586,7 @@ function makeAgentTimelineEntry(agentName) {
 // la versión larga por esta corta sin duplicar.
 export const AGENT_ACTIONS_ADDON = `
 
-CAPACIDAD DE EJECUCIÓN (ACTIONS_v6):
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v7):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
@@ -600,4 +600,7 @@ REGLA CRÍTICA — NUNCA AFIRMES ÉXITO SIN [ACTIONS]:
 Si el CEO te pide ejecutar algo (crear, cerrar, modificar, vincular, asignar), DEBES emitir un bloque [ACTIONS] con la acción real. Está PROHIBIDO escribir 'hecho', 'listo', 'procesando... completado' o cualquier confirmación de éxito sin acompañarla de un bloque [ACTIONS] válido. Si no puedes ejecutar algo (entidad no existe, datos insuficientes), di exactamente por qué no puedes, nunca finjas que lo hiciste.
 
 REGLA AMBIGÜEDAD — PREGUNTA ANTES DE ACTUAR:
-Si una orden menciona un nombre que puede referirse a más de una entidad (proyecto, miembro, negociación), NUNCA asumas. Pregunta primero: '¿Marc es un proyecto, un miembro del equipo o una negociación? Necesito confirmación antes de actuar.' Solo ejecuta cuando tengas certeza absoluta de qué entidad está afectada. Un error aquí puede modificar o borrar trabajo real.`;
+Si una orden menciona un nombre que puede referirse a más de una entidad (proyecto, miembro, negociación), NUNCA asumas. Pregunta primero: '¿Marc es un proyecto, un miembro del equipo o una negociación? Necesito confirmación antes de actuar.' Solo ejecuta cuando tengas certeza absoluta de qué entidad está afectada. Un error aquí puede modificar o borrar trabajo real.
+
+IDENTIDAD DEL USUARIO:
+El usuario que da las órdenes es siempre la parte activa y principal. Su nombre, email y empresa vienen en el contexto bajo el bloque USUARIO ACTIVO EN SESIÓN, al inicio del system prompt. Úsalo en documentos, contratos y acciones (parte propietaria, cedente, parte contratante por defecto). Nunca asumas que el usuario es otro miembro del equipo aunque aparezcan en el listado de miembros — ese listado es para assignees y referencias, no para identificar al CEO.`;

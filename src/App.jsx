@@ -923,20 +923,20 @@ function _migrate(d){
     return a;
   });
   // Patch ejecutor: inyecta CAPACIDAD DE EJECUCIÓN en TODOS los agentes
-  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v6".
-  // v6 añade REGLA CRÍTICA (no afirmar éxito sin [ACTIONS]) y REGLA
-  // AMBIGÜEDAD (preguntar antes de actuar sobre nombres ambiguos) sobre
-  // v5 (stakeholders) sobre v4 (facturas) sobre v3 (asientos + bank movs).
-  // Cualquier versión anterior se reemplaza.
+  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v7".
+  // v7 añade IDENTIDAD DEL USUARIO (Antonio Díaz como parte principal por
+  // defecto, no inferir del listado de miembros) sobre v6 (regla crítica
+  // + ambigüedad) sobre v5 (stakeholders) sobre v4 (facturas) sobre v3
+  // (asientos + bank movs). Cualquier versión anterior se reemplaza.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v6")) return a;             // ya v6
+    if(a.promptBase.includes("ACTIONS_v7")) return a;             // ya v7
     if(a.promptBase.includes("CAPACIDAD DE EJECUCIÓN")) {
-      // versión antigua (v1..v5) → cortamos el bloque y reinyectamos v6
+      // versión antigua (v1..v6) → cortamos el bloque y reinyectamos v7
       const cut = a.promptBase.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
       return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
     }
-    // sin addon previo → añadir v6
+    // sin addon previo → añadir v7
     return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
   });
   // Upgrade promptBase de Héctor: añade la sección COACHING EJECUTIVO si el
