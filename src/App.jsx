@@ -12272,8 +12272,12 @@ export default function TaskFlow(){
         );
       })()}
 
-      {/* Botón flotante global del asesor — siempre visible */}
-      <button className="tf-fab" onClick={()=>setScopeAvatar(activeTab||"global")} title="Asesor IA — habla sobre lo que estás viendo" style={{position:"fixed",bottom:24,right:24,zIndex:1500,width:60,height:60,borderRadius:"50%",background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 8px 24px rgba(127,119,221,0.4)",display:"flex",alignItems:"center",justifyContent:"center"}}>🎙️</button>
+      {/* Botón flotante global del asesor — visible salvo en hector-direct,
+          donde la propia vista es ya un canal conversacional con IA y el FAB
+          se solapa con el bottom nav y el botón "Pro" (📁). */}
+      {activeTab !== "hector-direct" && (
+        <button className="tf-fab" onClick={()=>setScopeAvatar(activeTab||"global")} title="Asesor IA — habla sobre lo que estás viendo" style={{position:"fixed",bottom:24,right:24,zIndex:1500,width:60,height:60,borderRadius:"50%",background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 8px 24px rgba(127,119,221,0.4)",display:"flex",alignItems:"center",justifyContent:"center"}}>🎙️</button>
+      )}
 
       {scopeAvatar && <ScopeAvatarModal
         scope={scopeAvatar}
