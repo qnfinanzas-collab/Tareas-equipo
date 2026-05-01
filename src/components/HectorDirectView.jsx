@@ -172,11 +172,13 @@ export default function HectorDirectView({ data, userId, onRunAgentActions }) {
         }
         /* Mobile: el mic pasa a FAB position:fixed encima del bottom
            nav (64px + safe-area). En desktop sigue inline en el input
-           bar. Right:16px coincide con el inset estándar de iOS. */
+           bar. Right:16px coincide con el inset estándar de iOS.
+           HD-v2: subimos a 72px+safe-area para evitar solape con el
+           bottom nav cuando hay teclado virtual o densidad alta. */
         @media (max-width: 768px) {
           [data-hd="mic-btn"] {
             position: fixed !important;
-            bottom: calc(64px + env(safe-area-inset-bottom) + 12px) !important;
+            bottom: calc(72px + env(safe-area-inset-bottom)) !important;
             right: 16px !important;
             z-index: 1100;
             box-shadow: 0 4px 12px rgba(83, 74, 183, 0.35);

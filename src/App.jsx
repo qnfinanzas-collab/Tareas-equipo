@@ -11945,7 +11945,7 @@ export default function TaskFlow(){
       })()}
 
       {/* MAIN */}
-      <div data-tf="main-content" style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
+      <div data-tf="main-content" data-tf-tab={activeTab} style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
         {/* Top bar — siempre visible. Hamburger móvil + breadcrumb + buscar + Nueva ▾ + avatar. */}
         <div style={{display:"flex",background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"10px 14px",alignItems:"center",gap:10,flexShrink:0}}>
           <button className="tf-only-mobile" onClick={()=>setSidebarOpen(true)} title="Abrir menú" style={{width:38,height:38,borderRadius:8,background:"#f3f4f6",border:"none",fontSize:18,cursor:"pointer",alignItems:"center",justifyContent:"center"}}>☰</button>
@@ -12010,7 +12010,7 @@ export default function TaskFlow(){
           );})()}
         </div>
         {activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="briefings"&&(
-          <div style={{background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px",height:52,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+          <div data-tf-bar="project-header" style={{background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px",height:52,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
               <span style={{fontSize:15,fontWeight:600}}>{proj.name}</span>
@@ -12030,7 +12030,7 @@ export default function TaskFlow(){
           </div>
         )}
         {activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="briefings"&&(
-          <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",background:"#fff",padding:"0 20px",flexShrink:0,overflowX:"auto"}}>
+          <div data-tf-bar="project-tabs" style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",background:"#fff",padding:"0 20px",flexShrink:0,overflowX:"auto"}}>
             {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #7F77DD":"2px solid transparent",color:activeTab===tab.key?"#7F77DD":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
           </div>
         )}
@@ -12294,7 +12294,7 @@ export default function TaskFlow(){
           { id: "hector-direct", icon: "🧙", label: "Héctor",    onClick: () => setActiveTab("hector-direct") },
           { id: "mytasks",       icon: "✅", label: "Tareas",    onClick: () => setActiveTab("mytasks") },
           { id: "dealroom",      icon: "🤝", label: "Negs",      onClick: () => { setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null); } },
-          { id: "projects",      icon: "📁", label: "Proyec",    onClick: () => setActiveTab("projects") },
+          { id: "projects",      icon: "📁", label: "Pro",       onClick: () => setActiveTab("projects") },
         ].map(item => (
           <button
             key={item.id}

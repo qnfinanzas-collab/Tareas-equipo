@@ -135,6 +135,15 @@
       .tf-bottom-nav-item .tf-bn-icon  { display: block; font-size: 22px; line-height: 1; }
       .tf-bottom-nav-item .tf-bn-label { display: block; font-size: 10px; line-height: 1.1; letter-spacing: 0.02em; margin-top: 4px; white-space: nowrap; }
 
+      /* HD-v2: en la vista Héctor (chat directo) la barra de proyecto y la
+         barra de tabs (Tablero/Matriz/...) no aportan nada y solo roban
+         espacio vertical en móvil. data-tf-tab vive en main-content y
+         data-tf-bar marca las dos barras a ocultar. */
+      [data-tf-tab="hector-direct"] [data-tf-bar="project-header"],
+      [data-tf-tab="hector-direct"] [data-tf-bar="project-tabs"] {
+        display: none !important;
+      }
+
       /* Print: ocultar navegación y dejar solo el contenido marcado con .tf-printable.
          Si no hay ningún .tf-printable, imprime el main visible. */
       @media print {
