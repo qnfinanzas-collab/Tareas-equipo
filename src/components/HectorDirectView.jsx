@@ -346,7 +346,11 @@ function TypingIndicator() {
 // ── Estilos ─────────────────────────────────────────────────────────
 
 const rootStyle = {
-  height: "100dvh",
+  // height: 100% para llenar el área main-content de App.jsx (que ya está
+  // BAJO el topbar). 100dvh tomaba el viewport completo y empujaba el
+  // header de HectorDirect fuera de pantalla en móvil (oculto tras el
+  // topbar de la app).
+  height: "100%",
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
