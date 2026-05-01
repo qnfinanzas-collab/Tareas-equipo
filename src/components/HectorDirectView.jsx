@@ -17,6 +17,23 @@ import ActionProposal from "./Shared/ActionProposal.jsx";
 
 const CHAT_MAX = 50;
 
+// Metadatos de especialistas invocables. Las claves coinciden con el
+// regex INVOCAR; agentName mapea al campo `name` del agente en
+// data.agents (lo que necesita callAgentSafe para localizar promptBase).
+const SPECIALIST_META = {
+  mario:   { label: "Mario Legal",         emoji: "⚖️", color: "#7C3AED", agentName: "Mario Legal" },
+  jorge:   { label: "Jorge Finanzas",      emoji: "📊", color: "#0369A1", agentName: "Jorge Finanzas" },
+  alvaro:  { label: "Álvaro Inmobiliario", emoji: "🏠", color: "#B45309", agentName: "Álvaro Inmobiliario" },
+  gonzalo: { label: "Gonzalo Gobernanza",  emoji: "🏛️", color: "#065F46", agentName: "Gonzalo Gobernanza" },
+  diego:   { label: "Diego Finanzas Op.",  emoji: "💰", color: "#B91C1C", agentName: "Diego" },
+};
+
+// Keywords que disparan timeout extendido (90s) para Mario Legal cuando
+// la tarea pide redacción de documentos. Mismo set que App.jsx → Deal Room.
+const REDACCION_KEYS = ["redacta","redactar","contrato","documento","acuerdo","escribe","elabora","borrador","clausula","clausulas","cláusula","cláusulas","arrendamiento","cesion","cesión","convenio","escritura"];
+
+const INVOKE_RE = /\[INVOCAR:(mario|jorge|alvaro|gonzalo|diego):([^\]]+)\]/gi;
+
 // Paleta — derivada de los colores que ya usan los demás componentes.
 // Se exponen como constantes locales en vez de CSS vars porque el
 // proyecto no tiene un sistema de design tokens.
@@ -233,7 +250,28 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
         { timeoutMs: 60000 }
       );
       const proposal = parseAgentActions(reply);
-      const cleanText = proposal ? (cleanAgentResponse(reply) || "(sin texto)") : reply;
+      // Extracción de invocaciones [INVOCAR:agente:tarea]. Antes Héctor
+      // emitía estas etiquetas y se renderizaban como texto plano —
+      // ningún parser las recogía en HectorDirect. Ahora las extraemos
+      // antes de mostrar la respuesta y, tras pintar la burbuja de
+      // Héctor, llamamos secuencialmente a cada especialista.
+      const invocations = [];
+      const seenAg = new Set();
+      let mInv;
+      INVOKE_RE.lastIndex = 0; // reset porque INVOKE_RE es global y mantiene estado
+      while ((mInv = INVOKE_RE.exec(reply)) !== null) {
+        const key = mInv[1].toLowerCase();
+        if (seenAg.has(key)) continue;
+        seenAg.add(key);
+        invocations.push({ key, task: (mInv[2] || "").trim() });
+      }
+      // Limpiamos [ACTIONS] (si hay proposal) y SIEMPRE [INVOCAR:].
+      const stripInvokes = (s) => String(s || "")
+        .replace(/\[INVOCAR:[^\]]+\]/gi, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+      const baseClean = proposal ? cleanAgentResponse(reply) : reply;
+      const cleanText = stripInvokes(baseClean);
       // Detección anti-alucinación: si Héctor afirma éxito ("hecho",
       // "listo", "creado"...) pero NO emitió bloque [ACTIONS], marcamos
       // el mensaje para mostrar un aviso visible al CEO. Sin esto, la app
@@ -244,11 +282,62 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
       const fakeSuccess = !proposal && SUCCESS_RE.test(cleanText);
       setChatHistory(prev => [...prev, {
         role: "assistant",
-        text: cleanText,
+        text: cleanText || "(sin texto)",
         proposal: proposal || null,
         fakeSuccess,
         ts: Date.now(),
       }].slice(-CHAT_MAX));
+
+      // Ejecución secuencial de especialistas. Secuencial > paralelo
+      // porque el orden cronológico de las burbujas debe ser predecible
+      // y porque varias llamadas grandes en paralelo a /api/agent
+      // pueden saturar el rate-limit del proxy.
+      for (const inv of invocations) {
+        const meta = SPECIALIST_META[inv.key];
+        if (!meta) continue;
+        const ag = (data?.agents || []).find(a => a.name === meta.agentName);
+        if (!ag) {
+          setChatHistory(prev => [...prev, {
+            role: "specialist",
+            specialistKey: inv.key,
+            text: `⚠ ${meta.label} no está configurado en este workspace.`,
+            error: true,
+            ts: Date.now(),
+          }].slice(-CHAT_MAX));
+          continue;
+        }
+        const tempId = `sp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        setChatHistory(prev => [...prev, {
+          role: "specialist",
+          specialistKey: inv.key,
+          text: `Consultando con ${meta.label}…`,
+          loading: true,
+          tempId,
+          task: inv.task,
+          ts: Date.now(),
+        }].slice(-CHAT_MAX));
+        try {
+          const sys = (ag.promptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE;
+          const taskLow = inv.task.toLowerCase();
+          const isRedaccion = inv.key === "mario" && REDACCION_KEYS.some(k => taskLow.includes(k));
+          const timeoutMs = isRedaccion ? 90000 : 45000;
+          const userPrompt = `TAREA QUE TE ENCARGA HÉCTOR (Chief of Staff):\n${inv.task}\n\nResponde con la información concreta que pide. Sin disclaimers extensos. Frases claras y accionables.`;
+          const respuesta = await callAgentSafe(
+            { system: sys, messages: [{ role: "user", content: userPrompt }], max_tokens: 2048 },
+            { timeoutMs }
+          );
+          setChatHistory(prev => prev.map(m => m.tempId === tempId
+            ? { ...m, text: respuesta || "(sin respuesta)", loading: false }
+            : m
+          ));
+        } catch (e2) {
+          console.warn(`[HectorDirect] invocación ${inv.key} fallo:`, e2?.message);
+          setChatHistory(prev => prev.map(m => m.tempId === tempId
+            ? { ...m, text: `⚠ ${meta.label} no respondió: ${e2?.message || "error"}`, loading: false, error: true }
+            : m
+          ));
+        }
+      }
     } catch (e) {
       console.warn("[HectorDirect] send fallo:", e?.message);
       setChatHistory(prev => [...prev, {
@@ -364,17 +453,20 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
               if (m.proposal && Array.isArray(m.proposal.actions) && m.proposal.actions.length > 0) return true;
               return false;
             }
+            if (m.role === "specialist") return true;
             return false;
           })
           .map(({ m, i }) => (
-          <MessageBubble
-            key={i}
-            message={m}
-            userInitials={userInitials}
-            onRunAgentActions={onRunAgentActions}
-            onDiscardProposal={() => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
-          />
-        ))}
+            m.role === "specialist"
+              ? <SpecialistBubble key={i} message={m} />
+              : <MessageBubble
+                  key={i}
+                  message={m}
+                  userInitials={userInitials}
+                  onRunAgentActions={onRunAgentActions}
+                  onDiscardProposal={() => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
+                />
+          ))}
         {isLoading && <TypingIndicator />}
         <div ref={endRef} style={{ height: 1 }} />
       </div>
@@ -485,6 +577,43 @@ function MessageBubble({ message, userInitials, onRunAgentActions, onDiscardProp
           ⚠ Héctor afirma éxito pero <b>no emitió ninguna acción real</b>. Nada se ha guardado. Reformula la orden o pídele explícitamente que ejecute.
         </div>
       )}
+    </div>
+  );
+}
+
+function SpecialistBubble({ message }) {
+  const meta = SPECIALIST_META[message.specialistKey] || { label: "Especialista", emoji: "🤖", color: "#6B7280" };
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 10, alignItems: "flex-start", maxWidth: "100%" }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: "50%",
+          background: meta.color, color: "#fff",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 16, flexShrink: 0,
+        }}>{meta.emoji}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: meta.color, letterSpacing: 0.2 }}>
+            {meta.label}{message.task ? ` · ${message.task.slice(0, 60)}${message.task.length > 60 ? "…" : ""}` : ""}
+          </div>
+          <div style={{
+            background: message.error ? "#FEE2E2" : C.bgSecondary,
+            color: message.error ? "#991B1B" : C.textPrimary,
+            borderRadius: "4px 16px 16px 16px",
+            padding: "10px 14px",
+            maxWidth: "100%",
+            fontSize: 14,
+            lineHeight: 1.5,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            border: message.error ? "1px solid #FCA5A5" : `0.5px solid ${C.borderTertiary}`,
+            opacity: message.loading ? 0.7 : 1,
+            fontStyle: message.loading ? "italic" : "normal",
+          }}>
+            {message.text}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
