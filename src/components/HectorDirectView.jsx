@@ -458,7 +458,7 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
           })
           .map(({ m, i }) => (
             m.role === "specialist"
-              ? <SpecialistBubble key={i} message={m} />
+              ? <SpecialistBubble key={i} message={m} data={data} onRunAgentActions={onRunAgentActions}/>
               : <MessageBubble
                   key={i}
                   message={m}
@@ -581,8 +581,122 @@ function MessageBubble({ message, userInitials, onRunAgentActions, onDiscardProp
   );
 }
 
-function SpecialistBubble({ message }) {
+function SpecialistBubble({ message, data, onRunAgentActions }) {
   const meta = SPECIALIST_META[message.specialistKey] || { label: "Especialista", emoji: "🤖", color: "#6B7280" };
+  // Estado UI local de la burbuja: qué picker mostramos y qué feedback
+  // inline tras una acción completada. Se desmonta con la propia burbuja
+  // si el chat se limpia, así que no necesita persistencia.
+  const [picker, setPicker] = useState(null);    // "task" | "neg" | null
+  const [feedback, setFeedback] = useState("");
+  const flash = (txt) => { setFeedback(txt); setTimeout(()=>setFeedback(""), 2400); };
+
+  // Acción 1 — Crear tarea desde la respuesta. Necesita projectCode
+  // porque el executor (create_tasks) lo exige; mostramos picker inline
+  // si hay proyectos, o flash de aviso si no hay ninguno.
+  const handleCreateTask = (projCode) => {
+    const fullText = (message.text || "").trim();
+    const firstLine = fullText.split(/\r?\n/).find(l => l.trim()) || `Acción de ${meta.label}`;
+    const title = firstLine.slice(0, 60).trim() || `Acción de ${meta.label}`;
+    onRunAgentActions?.([{
+      type: "create_tasks",
+      projectCode: projCode,
+      tasks: [{ title, description: fullText, priority: "alta" }],
+    }]);
+    setPicker(null);
+    flash(`✓ Tarea creada en ${projCode}`);
+  };
+
+  // Acción 2 — Generar PDF. Abrimos una ventana con HTML formateado y
+  // disparamos window.print(); en iOS Safari el menú "Compartir" del
+  // diálogo de impresión incluye "Guardar PDF". Si el navegador bloquea
+  // la ventana (popup), caemos a descarga .txt — fallback robusto.
+  const handlePDF = () => {
+    const date = new Date();
+    const dateStr = date.toLocaleString("es-ES");
+    const safeText = (message.text || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"/><title>Informe ${meta.label} — ${dateStr}</title><style>
+      body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;max-width:720px;margin:32px auto;padding:0 24px;color:#111827;line-height:1.55}
+      header{border-bottom:2px solid ${meta.color};padding-bottom:12px;margin-bottom:18px}
+      h1{font-size:18px;margin:0 0 4px;color:${meta.color}}
+      .sub{font-size:12px;color:#6b7280}
+      .task{font-size:13px;color:#374151;margin-top:6px;padding:6px 10px;background:#f9fafb;border-radius:6px;border-left:3px solid ${meta.color}}
+      pre{font-family:inherit;white-space:pre-wrap;word-break:break-word;font-size:14px}
+      footer{margin-top:32px;padding-top:12px;border-top:0.5px solid #e5e7eb;font-size:11px;color:#9ca3af;text-align:center}
+      @media print{body{margin:0;max-width:none}header{break-after:avoid}}
+    </style></head><body>
+      <header>
+        <h1>${meta.emoji} Informe — ${meta.label}</h1>
+        <div class="sub">Generado el ${dateStr}</div>
+        ${message.task ? `<div class="task"><b>Tarea:</b> ${message.task.replace(/</g,"&lt;")}</div>` : ""}
+      </header>
+      <pre>${safeText}</pre>
+      <footer>Generado por SoulBaric · ${dateStr}</footer>
+    </body></html>`;
+    let win = null;
+    try { win = window.open("", "_blank"); } catch {}
+    if (win && win.document) {
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+      // Damos un tick al render antes de imprimir.
+      setTimeout(() => { try { win.focus(); win.print(); } catch {} }, 250);
+      flash("✓ PDF abierto para imprimir/guardar");
+    } else {
+      // Fallback: descarga .txt cuando popup bloqueado (típico iOS).
+      const blob = new Blob([
+        `Informe ${meta.label} — ${dateStr}\n` +
+        (message.task ? `Tarea: ${message.task}\n` : "") +
+        `\n${message.text || ""}\n\n— Generado por SoulBaric (${dateStr})\n`
+      ], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `informe-${meta.label.toLowerCase().replace(/\s+/g,"-")}-${date.toISOString().slice(0,10)}.txt`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+      flash("✓ Informe descargado (.txt)");
+    }
+  };
+
+  // Acción 3 — Adjuntar a negociación. No hay action type para esto en
+  // el executor y updateNegotiation no se expone como prop; el spec del
+  // CEO autoriza explícitamente fallback a localStorage. Persistimos la
+  // respuesta bajo soulbaric.specialist.attachments.${negId} para que un
+  // futuro panel de negociación pueda recuperarlas. La sincronización
+  // con Supabase queda como TODO documentado.
+  const handleAttachNeg = (negId, negCode) => {
+    const key = `soulbaric.specialist.attachments.${negId}`;
+    let existing = [];
+    try { const raw = localStorage.getItem(key); if (raw) existing = JSON.parse(raw); } catch {}
+    if (!Array.isArray(existing)) existing = [];
+    existing.push({
+      specialist: message.specialistKey,
+      label: meta.label,
+      task: message.task || "",
+      response: message.text || "",
+      ts: Date.now(),
+    });
+    try { localStorage.setItem(key, JSON.stringify(existing.slice(-100))); } catch {}
+    setPicker(null);
+    flash(`✓ Adjuntado a ${negCode}`);
+  };
+
+  const projects = (data?.projects || []).filter(p => p && !p.archived && p.code);
+  const ACTIVE_NEG = new Set(["en_curso", "pausado"]);
+  const negs = (data?.negotiations || []).filter(n => n && ACTIVE_NEG.has(n.status));
+
+  const buttons = [
+    { id: "task", label: "📋 Tarea",  onClick: () => {
+        if (!projects.length) { flash("⚠ Crea un proyecto primero"); return; }
+        setPicker(p => p === "task" ? null : "task");
+      } },
+    { id: "pdf",  label: "📄 PDF",    onClick: () => handlePDF() },
+    { id: "neg",  label: "📁 Neg.",   onClick: () => {
+        if (!negs.length) { flash("⚠ Sin negociaciones activas"); return; }
+        setPicker(p => p === "neg" ? null : "neg");
+      } },
+  ];
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
       <div style={{ display: "flex", flexDirection: "row", gap: 10, alignItems: "flex-start", maxWidth: "100%" }}>
@@ -614,6 +728,72 @@ function SpecialistBubble({ message }) {
           </div>
         </div>
       </div>
+
+      {/* Acciones — sólo cuando la respuesta está lista (no loading ni error) */}
+      {!message.loading && !message.error && (
+        <div style={{ display: "flex", gap: 6, marginTop: 6, marginLeft: 42, flexWrap: "wrap" }}>
+          {buttons.map(b => (
+            <button
+              key={b.id}
+              type="button"
+              onClick={b.onClick}
+              style={{
+                fontSize: 11,
+                padding: "5px 11px",
+                borderRadius: 20,
+                border: `0.5px solid ${C.borderTertiary}`,
+                background: picker === b.id ? meta.color : C.bgSecondary,
+                color: picker === b.id ? "#fff" : C.textSecondary,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                lineHeight: 1.4,
+              }}
+            >{b.label}</button>
+          ))}
+        </div>
+      )}
+
+      {/* Feedback inline tras una acción */}
+      {feedback && (
+        <div style={{ marginLeft: 42, marginTop: 4, fontSize: 11, color: meta.color, fontWeight: 500 }}>
+          {feedback}
+        </div>
+      )}
+
+      {/* Picker de proyecto (Acción 1) */}
+      {picker === "task" && projects.length > 0 && (
+        <div style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: "#fff", border: `0.5px solid ${C.borderTertiary}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 12px rgba(0,0,0,0.06)" }}>
+          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: C.bgSecondary }}>Crear tarea en…</div>
+          {projects.slice(0, 12).map(p => (
+            <div key={p.id}
+              onClick={() => handleCreateTask(p.code)}
+              style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: C.textPrimary, borderBottom: `0.5px solid ${C.borderTertiary}` }}
+              onMouseEnter={e => e.currentTarget.style.background = C.bgSecondary}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              <span style={{ fontWeight: 600, color: meta.color }}>[{p.code}]</span> {p.name || "Sin nombre"}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Picker de negociación (Acción 3) */}
+      {picker === "neg" && negs.length > 0 && (
+        <div style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: "#fff", border: `0.5px solid ${C.borderTertiary}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 12px rgba(0,0,0,0.06)" }}>
+          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: C.bgSecondary }}>Adjuntar a negociación…</div>
+          {negs.slice(0, 12).map(n => (
+            <div key={n.id}
+              onClick={() => handleAttachNeg(n.id, n.code || `#${n.id}`)}
+              style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: C.textPrimary, borderBottom: `0.5px solid ${C.borderTertiary}` }}
+              onMouseEnter={e => e.currentTarget.style.background = C.bgSecondary}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              <span style={{ fontWeight: 600, color: meta.color }}>[{n.code || "?"}]</span> {(n.title || "Sin título").slice(0, 50)}
+              {n.counterparty ? <span style={{ fontSize: 11, color: C.textTertiary, marginLeft: 6 }}>· {n.counterparty}</span> : null}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
