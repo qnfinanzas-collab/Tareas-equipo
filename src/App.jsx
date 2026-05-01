@@ -9508,7 +9508,16 @@ export default function TaskFlow(){
   const [showCommandPalette,setShowCommandPalette] = useState(false);
   const [pendingWorkspaceId,setPendingWorkspaceId] = useState(null);
   const [sidebarCollapsed,setSidebarCollapsed] = useState(()=>{
-    try{ return localStorage.getItem("soulbaric.sidebar.collapsed")==="true"; }catch{ return false; }
+    // Default explícito: si NO hay valor guardado (null) → expandido (false).
+    // Solo respetamos la preferencia si fue escrita explícitamente por el
+    // usuario al hacer toggle. Antes la lectura era `getItem(...) === "true"`,
+    // que daba el mismo resultado pero ocultaba la intención y no diferenciaba
+    // "nunca tocó" de "está expandido por preferencia". Si en el futuro
+    // necesitamos lógica distinta por ramo, este split lo deja explícito.
+    try{
+      const stored = localStorage.getItem("soulbaric.sidebar.collapsed");
+      return stored === null ? false : stored === "true";
+    }catch{ return false; }
   });
   const toggleSidebarCollapsed = useCallback(()=>{
     setSidebarCollapsed(c=>{
