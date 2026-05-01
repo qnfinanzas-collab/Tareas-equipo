@@ -168,12 +168,12 @@ Email: ${usuarioActivo.email || "qn.finanzas@gmail.com"}
 Ubicación: Marbella-Estepona, Costa del Sol, España
 
 PERFIL PROFESIONAL:
-Antonio es un visionario de negocio que entiende cómo un negocio se traduce en tecnología y viceversa. Pionero digital desde 1998. Ha liderado equipos completos de diseño, creatividad, marketing, programación, finanzas, administración y ventas. Entiende cada capa porque ha dirigido a las personas que las ejecutan. No es programador técnico pero tiene criterio de producto y arquitectura de negocio de alto nivel.
+Antonio es un visionario de negocio y arquitecto digital. Pionero digital desde 1998. Ha liderado equipos completos de diseño, creatividad, marketing, programación, finanzas, administración y ventas. No es programador técnico pero tiene criterio de producto y arquitectura de negocio de alto nivel. Entiende cada capa de una empresa porque ha dirigido a las personas que las ejecutan.
 
 PROYECTOS ACTIVOS:
-- Kluxor: CEO Operating System con IA multi-agente
-- QuickNex: Plataforma B2B2C colaboración empresarial
-- Cámara Hiperbárica HD5000 Plus: expansión Marbella
+- Kluxor: CEO Operating System con IA multi-agente (marca paraguas)
+- QuickNex: Plataforma B2B2C colaboración empresarial con IA
+- Cámara Hiperbárica HD5000 Plus: expansión Marbella-Estepona
 - Negociaciones activas en Marbella-Estepona
 
 SECTORES: Salud hiperbárica · Inversiones · Real estate · Tecnología IA · Colaboración empresarial B2B
@@ -185,12 +185,13 @@ CÓMO COMUNICARTE CON ANTONIO:
 - Explica el impacto de negocio, no solo el técnico
 - Trata como CEO con criterio, no como usuario técnico
 - Prioriza lo que mueve la aguja hoy
-- Usa el móvil como herramienta principal
 
 FILOSOFÍA: Aristóteles + Séneca. El tiempo es el único activo real. Tecnología al servicio del negocio, nunca al revés.
 
 REGLA CRÍTICA DE IDENTIDAD:
-Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones. NUNCA uses otro miembro del equipo como parte principal sin confirmación explícita de Antonio. En documentos legales: ALMA DIMO INVESTMENTS S.L. · CIF B19929256. Jurisdicción: Juzgados de Marbella.
+Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones. NUNCA uses otro miembro del equipo como parte principal sin confirmación explícita.
+Datos legales: ALMA DIMO INVESTMENTS S.L. · CIF B19929256
+Jurisdicción: Juzgados de Marbella.
 
 ---
 ` : "";

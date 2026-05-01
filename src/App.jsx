@@ -923,23 +923,22 @@ function _migrate(d){
     return a;
   });
   // Patch ejecutor: inyecta CAPACIDAD DE EJECUCIÓN en TODOS los agentes
-  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v8".
-  // v8 prepende PERFIL CEO (Antonio Díaz, ALMA DIMO INVESTMENTS S.L.)
-  // sobre v7 (identidad usuario) sobre v6 (regla crítica + ambigüedad)
-  // sobre v5 (stakeholders) sobre v4 (facturas) sobre v3 (asientos +
-  // bank movs). Como v8 cambia también el inicio del bloque (PERFIL CEO
-  // antes de CAPACIDAD), cortamos por PERFIL CEO si existe, y si no por
-  // CAPACIDAD DE EJECUCIÓN. Reescritura completa garantizada.
+  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v9".
+  // v9 ajusta el wording de PERFIL CEO (sin "CIF" repetido en el resumen,
+  // termina con "En documentos legales es SIEMPRE la parte principal")
+  // sobre v8 (PERFIL CEO añadido) sobre v7 (identidad usuario) sobre v6
+  // (regla crítica + ambigüedad) sobre v5 (stakeholders). Cortamos por
+  // marker "PERFIL CEO:" o "CAPACIDAD DE EJECUCIÓN" según versión previa.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v8")) return a;             // ya v8
+    if(a.promptBase.includes("ACTIONS_v9")) return a;             // ya v9
     let cut = a.promptBase;
     if (cut.includes("PERFIL CEO:")) {
       cut = cut.split(/\n+PERFIL CEO:/)[0];
     } else if (cut.includes("CAPACIDAD DE EJECUCIÓN")) {
       cut = cut.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
     } else {
-      // sin addon previo → añadir v8
+      // sin addon previo → añadir v9
       return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
     }
     return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
