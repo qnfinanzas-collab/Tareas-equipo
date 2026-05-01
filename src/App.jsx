@@ -12,7 +12,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
-import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents } from "./lib/auth.js";
+import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents, updateUserPassword } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME, migrateBase64DocsInData } from "./lib/storage.js";
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel, callAgentSafe } from "./lib/agent.js";
@@ -1823,11 +1823,27 @@ function PortalDropdown({getAnchor, open, onClose, children, minWidth = 170}){
 // se crean manualmente en Supabase Dashboard y se vinculan por
 // supabaseUid en data.members. Esto evita que cualquier desconocido
 // pueda darse de alta.
-function LoginScreen({onAuthed, onLegacySkip}){
+function LoginScreen({onAuthed, onLegacySkip, forceRecovery=false, onRecoveryDone}){
   const [email,setEmail] = useState("");
   const [pwd,setPwd]     = useState("");
   const [busy,setBusy]   = useState(false);
   const [err,setErr]     = useState(null);
+
+  // Detección del flujo de recovery. forceRecovery viene del padre (que
+  // detectó el hash o el evento PASSWORD_RECOVERY de Supabase). Como
+  // fallback local, también miramos el hash en montaje.
+  const [recoveryMode,setRecoveryMode] = useState(()=>{
+    if(forceRecovery) return true;
+    if(typeof window === "undefined") return false;
+    const hash = window.location.hash || "";
+    if(!hash) return false;
+    const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+    return params.get("type") === "recovery";
+  });
+  const [newPwd,setNewPwd]   = useState("");
+  const [newPwd2,setNewPwd2] = useState("");
+  const [resetOk,setResetOk] = useState(false);
+
   const submit = async (e)=>{
     e.preventDefault();
     setErr(null); setBusy(true);
@@ -1838,6 +1854,27 @@ function LoginScreen({onAuthed, onLegacySkip}){
       setErr(e2.message || "Error de autenticación");
     } finally { setBusy(false); }
   };
+
+  const submitNewPassword = async (e)=>{
+    e.preventDefault();
+    setErr(null);
+    if(newPwd.length < 8){ setErr("La contraseña debe tener al menos 8 caracteres."); return; }
+    if(newPwd !== newPwd2){ setErr("Las contraseñas no coinciden."); return; }
+    setBusy(true);
+    try {
+      const session = await updateUserPassword(newPwd);
+      setResetOk(true);
+      // Limpiamos el hash para que un refresh no reactive el modo recovery.
+      try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch {}
+      setTimeout(()=>{
+        if(session){ onAuthed(session); }
+        else { setRecoveryMode(false); onRecoveryDone?.(); }
+      }, 1800);
+    } catch(e2){
+      setErr(e2.message || "Error al actualizar la contraseña.");
+    } finally { setBusy(false); }
+  };
+
   return(
     <div style={{position:"fixed",inset:0,background:"linear-gradient(135deg,#7F77DD22,#E76AA122)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,zIndex:5000}}>
       <div style={{background:"#fff",borderRadius:16,padding:"28px 28px 22px",width:380,maxWidth:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.18)",border:"0.5px solid #E5E7EB"}}>
@@ -1845,23 +1882,47 @@ function LoginScreen({onAuthed, onLegacySkip}){
           <div style={{width:38,height:38,background:"#7F77DD",borderRadius:10,color:"#fff",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>SB</div>
           <div>
             <div style={{fontWeight:700,fontSize:16,color:"#111827"}}>SoulBaric</div>
-            <div style={{fontSize:11,color:"#6B7280"}}>Iniciar sesión</div>
+            <div style={{fontSize:11,color:"#6B7280"}}>{recoveryMode ? "Crear nueva contraseña" : "Iniciar sesión"}</div>
           </div>
         </div>
-        <form onSubmit={submit}>
-          <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Email</label>
-          <input type="email" autoFocus required value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@email.com" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:12}}/>
-          <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Contraseña</label>
-          <input type="password" required value={pwd} onChange={e=>setPwd(e.target.value)} placeholder="••••••••" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:14}}/>
-          {err && <div style={{fontSize:11.5,color:"#B91C1C",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:6,padding:"7px 10px",marginBottom:12}}>{err}</div>}
-          <button type="submit" disabled={busy||!email.trim()||!pwd} style={{width:"100%",padding:"10px 14px",borderRadius:8,background:busy?"#A7B0F5":"#7F77DD",color:"#fff",border:"none",fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit"}}>
-            {busy?"Entrando…":"Entrar"}
-          </button>
-        </form>
-        <div style={{marginTop:12,fontSize:11,color:"#9CA3AF",textAlign:"center"}}>
-          Acceso restringido al equipo. Si no tienes cuenta, contacta con el administrador.
-          {onLegacySkip && <> · <button onClick={onLegacySkip} style={{background:"none",border:"none",color:"#9CA3AF",cursor:"pointer",fontFamily:"inherit",padding:0,fontSize:11,textDecoration:"underline"}}>Modo demo</button></>}
-        </div>
+        {recoveryMode ? (
+          resetOk ? (
+            <div style={{padding:"16px 14px",background:"#ECFDF5",border:"1px solid #6EE7B7",borderRadius:8,fontSize:13,color:"#065F46",textAlign:"center"}}>
+              ✓ Contraseña actualizada. Entrando…
+            </div>
+          ) : (
+            <form onSubmit={submitNewPassword}>
+              <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Nueva contraseña</label>
+              <input type="password" autoFocus required value={newPwd} onChange={e=>setNewPwd(e.target.value)} placeholder="Mínimo 8 caracteres" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:12}}/>
+              <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Repite la contraseña</label>
+              <input type="password" required value={newPwd2} onChange={e=>setNewPwd2(e.target.value)} placeholder="••••••••" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:14}}/>
+              {err && <div style={{fontSize:11.5,color:"#B91C1C",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:6,padding:"7px 10px",marginBottom:12}}>{err}</div>}
+              <button type="submit" disabled={busy||!newPwd||!newPwd2} style={{width:"100%",padding:"10px 14px",borderRadius:8,background:busy?"#A7B0F5":"#7F77DD",color:"#fff",border:"none",fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit"}}>
+                {busy?"Guardando…":"Actualizar contraseña"}
+              </button>
+              <div style={{marginTop:12,fontSize:11,color:"#9CA3AF",textAlign:"center"}}>
+                <button type="button" onClick={()=>{ setRecoveryMode(false); setErr(null); try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch {} onRecoveryDone?.(); }} style={{background:"none",border:"none",color:"#9CA3AF",cursor:"pointer",fontFamily:"inherit",padding:0,fontSize:11,textDecoration:"underline"}}>Volver al inicio de sesión</button>
+              </div>
+            </form>
+          )
+        ) : (
+          <>
+            <form onSubmit={submit}>
+              <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Email</label>
+              <input type="email" autoFocus required value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@email.com" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:12}}/>
+              <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Contraseña</label>
+              <input type="password" required value={pwd} onChange={e=>setPwd(e.target.value)} placeholder="••••••••" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:14}}/>
+              {err && <div style={{fontSize:11.5,color:"#B91C1C",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:6,padding:"7px 10px",marginBottom:12}}>{err}</div>}
+              <button type="submit" disabled={busy||!email.trim()||!pwd} style={{width:"100%",padding:"10px 14px",borderRadius:8,background:busy?"#A7B0F5":"#7F77DD",color:"#fff",border:"none",fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit"}}>
+                {busy?"Entrando…":"Entrar"}
+              </button>
+            </form>
+            <div style={{marginTop:12,fontSize:11,color:"#9CA3AF",textAlign:"center"}}>
+              Acceso restringido al equipo. Si no tienes cuenta, contacta con el administrador.
+              {onLegacySkip && <> · <button onClick={onLegacySkip} style={{background:"none",border:"none",color:"#9CA3AF",cursor:"pointer",fontFamily:"inherit",padding:0,fontSize:11,textDecoration:"underline"}}>Modo demo</button></>}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -9365,11 +9426,29 @@ export default function TaskFlow(){
   const [legacyMode,setLegacyMode]   = useState(()=>{
     try { return localStorage.getItem("soulbaric.legacyMode") === "1"; } catch { return false; }
   });
+  // Cuando Supabase abre la app con un link de recovery, el hash trae
+  // type=recovery + access_token y la SDK crea una sesión automáticamente.
+  // Esa sesión "técnica" sirve para llamar a updateUser(password), pero NO
+  // queremos que entre directo a la app — debe pasar por la pantalla de
+  // "Crear nueva contraseña". Detectamos el modo al montar y lo limpiamos
+  // tras el éxito (LoginScreen llama a history.replaceState).
+  const [isRecoveryFlow,setIsRecoveryFlow] = useState(()=>{
+    if(typeof window === "undefined") return false;
+    const hash = window.location.hash || "";
+    if(!hash) return false;
+    const params = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+    return params.get("type") === "recovery";
+  });
   useEffect(()=>{
     if(!authEnabled()) return;
     let alive = true;
     getSession().then(s=>{ if(alive){ setAuthSession(s); setAuthReady(true); } });
-    const unsub = onAuthStateChange(({session})=>{ setAuthSession(session); });
+    const unsub = onAuthStateChange(({session, event})=>{
+      setAuthSession(session);
+      // event "PASSWORD_RECOVERY" lo emite Supabase al detectar el hash de
+      // recovery — refuerza la detección por si el hash ya se ha consumido.
+      if(event === "PASSWORD_RECOVERY") setIsRecoveryFlow(true);
+    });
     return ()=>{ alive = false; unsub(); };
   },[]);
   // Resuelve el miembro a partir del session.user (uid → fallback email).
@@ -11676,8 +11755,8 @@ export default function TaskFlow(){
     if(!authReady){
       return <div style={{position:"fixed",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#6B7280"}}>Cargando…</div>;
     }
-    if(!authSession){
-      return <LoginScreen onAuthed={s=>setAuthSession(s)} onLegacySkip={enableLegacyMode}/>;
+    if(!authSession || isRecoveryFlow){
+      return <LoginScreen onAuthed={s=>{ setAuthSession(s); setIsRecoveryFlow(false); }} onLegacySkip={enableLegacyMode} forceRecovery={isRecoveryFlow} onRecoveryDone={()=>setIsRecoveryFlow(false)}/>;
     }
     if(!authMemberInfo?.member){
       return <div style={{position:"fixed",inset:0,background:"linear-gradient(135deg,#7F77DD22,#E76AA122)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,zIndex:5000}}>

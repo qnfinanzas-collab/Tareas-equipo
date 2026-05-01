@@ -26,6 +26,19 @@ export async function signOut(){
   await supa.auth.signOut();
 }
 
+// Actualiza la contraseña del usuario actualmente autenticado. Se usa tras
+// el flujo de recovery: Supabase abre la app con un access_token en el hash
+// que crea una sesión temporal, y desde esa sesión podemos llamar a
+// updateUser({password}) para fijar la nueva. Devuelve la sesión resultante
+// (la misma sesión, pero con el password ya cambiado).
+export async function updateUserPassword(password){
+  if(!supa) throw new Error("Auth no disponible (Supabase no configurado)");
+  const { data, error } = await supa.auth.updateUser({ password });
+  if(error) throw new Error(error.message);
+  const { data: sessionData } = await supa.auth.getSession();
+  return sessionData?.session || data?.user || null;
+}
+
 export async function getSession(){
   if(!supa) return null;
   const { data } = await supa.auth.getSession();
