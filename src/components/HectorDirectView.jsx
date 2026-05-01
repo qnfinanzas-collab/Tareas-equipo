@@ -170,6 +170,18 @@ export default function HectorDirectView({ data, userId, onRunAgentActions }) {
           0%, 100% { opacity: 0.3; transform: scale(0.8); }
           50%      { opacity: 1;   transform: scale(1); }
         }
+        /* Mobile: el mic pasa a FAB position:fixed encima del bottom
+           nav (64px + safe-area). En desktop sigue inline en el input
+           bar. Right:16px coincide con el inset estándar de iOS. */
+        @media (max-width: 768px) {
+          [data-hd="mic-btn"] {
+            position: fixed !important;
+            bottom: calc(64px + env(safe-area-inset-bottom) + 12px) !important;
+            right: 16px !important;
+            z-index: 1100;
+            box-shadow: 0 4px 12px rgba(83, 74, 183, 0.35);
+          }
+        }
       `}</style>
 
       {/* ZONA 1 — HEADER */}
@@ -210,7 +222,26 @@ export default function HectorDirectView({ data, userId, onRunAgentActions }) {
             Escribe el primer mensaje a Héctor.
           </div>
         )}
-        {chatHistory.map((m, i) => (
+        {/* Filtramos mensajes sin texto visible (típicamente respuestas
+            del modelo donde solo había bloque [ACTIONS] sin prosa: el
+            cleanAgentResponse devuelve "(sin texto)" pero a veces la
+            propuesta queda en m.proposal y el texto principal está
+            vacío). Si hay proposal sin texto, mantenemos la entrada
+            para que ActionProposal se renderice; si no hay ni texto
+            ni proposal, descartamos. */}
+        {chatHistory
+          .map((m, i) => ({ m, i }))
+          .filter(({ m }) => {
+            if (m.role === "user") return true;
+            if (m.role === "assistant") {
+              const txt = typeof m.text === "string" ? m.text.trim() : "";
+              if (txt.length > 0) return true;
+              if (m.proposal && Array.isArray(m.proposal.actions) && m.proposal.actions.length > 0) return true;
+              return false;
+            }
+            return false;
+          })
+          .map(({ m, i }) => (
           <MessageBubble
             key={i}
             message={m}
@@ -236,6 +267,7 @@ export default function HectorDirectView({ data, userId, onRunAgentActions }) {
         />
         <button
           type="button"
+          data-hd="mic-btn"
           onClick={() => alert("Voz próximamente")}
           title="Dictar (próximamente)"
           style={micButtonStyle}
