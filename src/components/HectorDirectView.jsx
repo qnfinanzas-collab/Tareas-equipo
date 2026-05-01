@@ -146,7 +146,12 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
         .filter(m => m && m.name)
         .map(m => `- id:${m.id} | nombre:"${m.name}"${m.email ? ` | email:${m.email}` : ""}${m.role ? ` | rol:${m.role}` : ""}`)
         .join("\n");
-      const membersBlock = membersLines ? `\n\n---\nMIEMBROS REALES DEL EQUIPO (los únicos válidos para assignees y referencias):\n${membersLines}\n\nReglas:\n- Cuando el CEO mencione un nombre, comprueba primero si coincide EXACTAMENTE con algún miembro de esta lista.\n- Si NO coincide o es ambiguo (ej. "Marc" cuando hay varios "Marc..."), aplica la REGLA AMBIGÜEDAD del bloque CAPACIDAD DE EJECUCIÓN: pregunta antes de actuar.\n- Para assignees usa el id (number) cuando lo conozcas, o el nombre exacto entre comillas.` : "";
+      // Identidad CEO: en cualquier documento/contrato/acción, Antonio
+      // Díaz es la parte principal por defecto. Sin esta línea, Héctor
+      // tendía a coger al primer miembro del array como "parte" en los
+      // contratos generados, lo cual rompe la realidad legal.
+      const ceoBlock = `\n\n---\nUSUARIO ACTIVO — CEO Y PROPIETARIO:\nAntonio Díaz (qn.finanzas@gmail.com)\nEmpresa: ALMA DIMO INVESTMENTS S.L. · CIF: B19929256\nEn cualquier documento, contrato o acción, Antonio Díaz es siempre la parte principal/propietaria salvo indicación explícita en contrario. NUNCA uses a otro miembro como parte principal sin confirmación del CEO.`;
+      const membersBlock = membersLines ? `${ceoBlock}\n\n---\nMIEMBROS REALES DEL EQUIPO (los únicos válidos para assignees y referencias):\n${membersLines}\n\nReglas:\n- Cuando el CEO mencione un nombre, comprueba primero si coincide EXACTAMENTE con algún miembro de esta lista.\n- Si NO coincide o es ambiguo (ej. "Marc" cuando hay varios "Marc..."), aplica la REGLA AMBIGÜEDAD del bloque CAPACIDAD DE EJECUCIÓN: pregunta antes de actuar.\n- Para assignees usa el id (number) cuando lo conozcas, o el nombre exacto entre comillas.` : ceoBlock;
 
       // ── Contexto operativo (HD-context-v1) ────────────────────────
       // Antes Héctor recibía solo promptBase + miembros y respondía a
