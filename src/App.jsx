@@ -24,6 +24,7 @@ import BriefingMatinal from "./components/BriefingMatinal.jsx";
 import CierreDia from "./components/CierreDia.jsx";
 import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
+import HectorDirectView from "./components/HectorDirectView.jsx";
 import FinanceView from "./components/Finanzas/FinanceView.jsx";
 import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
@@ -11743,6 +11744,7 @@ export default function TaskFlow(){
         // (no acceden a Board, Proyectos, Deal Room, Dashboard, Briefings,
         // Memoria — solo ven sus propias tareas asignadas).
         const ALL_PRIMARY=[
+          {id:"hector-direct", icon:"🧙", label:"Héctor",       shortcut:"",    onClick:()=>{setActiveTab("hector-direct");}, adminOnly:false},
           {id:"command",    icon:"🎯", label:"Sala de Mando",shortcut:"",    onClick:()=>{setActiveTab("command");}, adminOnly:false},
           {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}, adminOnly:false},
           {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:false},
@@ -12037,6 +12039,7 @@ export default function TaskFlow(){
               onEdit={n=>setNegModal(n)}
             />;
           })()}
+          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} onRunAgentActions={runAgentActions}/>}
           {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
@@ -12209,10 +12212,10 @@ export default function TaskFlow(){
           hamburguesa. Reusa setActiveTab para no duplicar lógica. */}
       <nav className="tf-bottom-nav" aria-label="Navegación principal móvil">
         {[
-          { id: "command",  icon: "⚡", label: "Mando",     onClick: () => setActiveTab("command") },
-          { id: "mytasks",  icon: "✅", label: "Tareas",    onClick: () => setActiveTab("mytasks") },
-          { id: "dealroom", icon: "🤝", label: "Negs",      onClick: () => { setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null); } },
-          { id: "projects", icon: "📁", label: "Proyectos", onClick: () => setActiveTab("projects") },
+          { id: "hector-direct", icon: "🧙", label: "Héctor",    onClick: () => setActiveTab("hector-direct") },
+          { id: "mytasks",       icon: "✅", label: "Tareas",    onClick: () => setActiveTab("mytasks") },
+          { id: "dealroom",      icon: "🤝", label: "Negs",      onClick: () => { setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null); } },
+          { id: "projects",      icon: "📁", label: "Proyectos", onClick: () => setActiveTab("projects") },
         ].map(item => (
           <button
             key={item.id}
