@@ -169,9 +169,9 @@ PERFIL PROFESIONAL:
 Antonio es un visionario de negocio que entiende cómo un negocio se traduce en tecnología y viceversa. Pionero digital desde 1998. Ha liderado equipos completos de diseño, creatividad, marketing, programación, finanzas, administración y ventas. Entiende cada capa porque ha dirigido a las personas que las ejecutan. No es programador técnico pero tiene criterio de producto y arquitectura de negocio de alto nivel.
 
 PROYECTOS ACTIVOS:
-- SoulBaric: CEO Operating System con IA multi-agente
-- QuickNex: Plataforma B2B2C colaboración empresarial con IA
-- Cámara Hiperbárica HD5000 Plus: expansión Marbella-Estepona
+- Kluxor: CEO Operating System con IA multi-agente
+- QuickNex: Plataforma B2B2C colaboración empresarial
+- Cámara Hiperbárica HD5000 Plus: expansión Marbella
 - Negociaciones activas en Marbella-Estepona
 
 SECTORES: Salud hiperbárica · Inversiones · Real estate · Tecnología IA · Colaboración empresarial B2B
@@ -748,13 +748,13 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
       @media print { body { margin: 30mm; } }
     </style></head><body>
       <div class="header">
-        <div class="logo">SOULBARIC — INFORME ESPECIALISTA</div>
+        <div class="logo">KLUXOR — INFORME ESPECIALISTA</div>
         <h1>Informe ${escHTML(agentNombre)}</h1>
         <div class="meta">Fecha: ${escHTML(fecha)} · Preparado para: Antonio Díaz</div>
         ${message.task ? `<div class="task"><b>Tarea:</b> ${escHTML(message.task)}</div>` : ""}
       </div>
       <div class="content">${escHTML(message.text)}</div>
-      <div class="footer">Documento generado por SoulBaric CEO OS · ${escHTML(fecha)} · Confidencial</div>
+      <div class="footer">Documento generado por Kluxor CEO OS · ${escHTML(fecha)} · Confidencial</div>
     </body></html>`;
     imprimirHTML(html, fileName);
   };
@@ -784,7 +784,7 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
         <div class="firma"><div class="linea-firma"></div><div>EL CEDENTE</div></div>
         <div class="firma"><div class="linea-firma"></div><div>EL CESIONARIO</div></div>
       </div>
-      <div class="footer">Documento preparado con asistencia de SoulBaric CEO OS · ${escHTML(fecha)} · Sujeto a revisión legal</div>
+      <div class="footer">Documento preparado con asistencia de Kluxor CEO OS · ${escHTML(fecha)} · Sujeto a revisión legal</div>
     </body></html>`;
     imprimirHTML(html, fileName);
   };
