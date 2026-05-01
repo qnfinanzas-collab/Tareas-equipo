@@ -12211,10 +12211,10 @@ export default function TaskFlow(){
       {/* Cierre del día — a partir de las 18:00, una vez al día */}
       {showClosing && me && <CierreDia user={me} data={data} onClose={()=>setShowClosing(false)}/>}
 
-      {/* Héctor flotante — siempre visible, fuera de cualquier vista. El
-          panel lateral abre HectorPanel reutilizando los datos globales y
-          los mismos setters de estado para mantener una única fuente. */}
-      {(()=>{
+      {/* Héctor flotante — visible salvo en hector-direct, donde la propia
+          vista YA es el canal con Héctor y el botón flotante (🧙) se solapa
+          con el icono Héctor del bottom nav. */}
+      {activeTab !== "hector-direct" && (()=>{
         const myActive = [];
         Object.entries(data.boards||{}).forEach(([pid,cols])=>{
           const projObj = data.projects.find(p=>p.id===Number(pid));
