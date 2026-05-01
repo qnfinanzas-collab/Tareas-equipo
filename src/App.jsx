@@ -9463,7 +9463,7 @@ export default function TaskFlow(){
     if(!postLoginAppliedRef.current){
       postLoginAppliedRef.current = true;
       const isAdminNow = authMemberInfo.member.accountRole === "admin";
-      setActiveTab(isAdminNow ? "dashboard" : "mytasks");
+      setActiveTab("hector-direct");
     }
   },[authMemberInfo?.member?.id, authMemberInfo?.member?.accountRole]);
   const handleSignOut = async ()=>{
