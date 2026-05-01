@@ -43,7 +43,7 @@ function getAperturaFrase() {
   return "El día casi termina. ¿Qué queda sin cerrar?";
 }
 
-export default function HectorDirectView({ data, userId, onRunAgentActions }) {
+export default function HectorDirectView({ data, userId, onRunAgentActions, onNavigate }) {
   const userKey = userId != null ? userId : "anon";
   // Misma clave que usa HectorPanel.jsx → conversación compartida.
   const CHAT_KEY = `soulbaric.hector.chat.${userKey}`;
@@ -204,6 +204,21 @@ export default function HectorDirectView({ data, userId, onRunAgentActions }) {
         </div>
         <div style={{ fontSize: 12, color: C.textTertiary, fontWeight: 500 }}>Chief of Staff</div>
       </div>
+
+      {/* ZONA 1b — LINK SALA DE MANDO. Acceso discreto al panel completo
+          (HectorPanel) para quien quiera el modo "centro de control" con
+          tabs, urgentes, especialistas, etc. Compartem historial via
+          localStorage, así que volver allí no pierde el contexto. */}
+      {onNavigate && (
+        <div style={{ textAlign: "right", padding: "4px 20px 6px", borderBottom: `0.5px solid ${C.borderTertiary}`, flexShrink: 0, background: C.bgPrimary }}>
+          <span
+            onClick={() => onNavigate("command")}
+            style={{ fontSize: 12, color: C.textTertiary, cursor: "pointer", textDecoration: "underline" }}
+          >
+            Ver Sala de Mando →
+          </span>
+        </div>
+      )}
 
       {/* ZONA 2 — APERTURA (solo si chat vacío y no colapsada) */}
       {showAperturaBlock && (

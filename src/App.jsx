@@ -9317,7 +9317,7 @@ export default function TaskFlow(){
   const [syncReady,setSyncReady]   = useState(!syncEnabled);
   const [syncStatus,setSyncStatus] = useState(syncEnabled?"connecting":"off");
   const [activeProject,setAP]      = useState(0);
-  const [activeTab,setActiveTab]   = useState("command");
+  const [activeTab,setActiveTab]   = useState("hector-direct");
   const [activeMember,setAM]       = useState(()=>{ const u=readStoredUser(); return typeof u?.id==="number"?u.id:5; });
   // Briefing matinal automático: aparece la primera apertura del día
   // (>4h desde el último uso) si todavía no se mostró hoy. La marca
@@ -12118,7 +12118,7 @@ export default function TaskFlow(){
               onEdit={n=>setNegModal(n)}
             />;
           })()}
-          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} onRunAgentActions={runAgentActions}/>}
+          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} onRunAgentActions={runAgentActions} onNavigate={setActiveTab}/>}
           {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
