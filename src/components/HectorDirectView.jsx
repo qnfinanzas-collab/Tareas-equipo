@@ -34,21 +34,21 @@ const REDACCION_KEYS = ["redacta","redactar","contrato","documento","acuerdo","e
 
 const INVOKE_RE = /\[INVOCAR:(mario|jorge|alvaro|gonzalo|diego):([^\]]+)\]/gi;
 
-// Paleta — derivada de los colores que ya usan los demás componentes.
+// Paleta Kluxor — negro/oro premium. Antes era SoulBaric morado/blanco.
 // Se exponen como constantes locales en vez de CSS vars porque el
 // proyecto no tiene un sistema de design tokens.
 const C = {
-  borderTertiary:    "#E5E7EB",
-  bgPrimary:         "#FFFFFF",
-  bgSecondary:       "#FAFAFA",
-  textTertiary:      "#9CA3AF",
-  textSecondary:     "#6B7280",
-  textPrimary:       "#111827",
-  brand:             "#534AB7",   // morado CEO
-  brandLight:        "#EEEDFE",   // fondo del avatar de Héctor
-  hectorEmojiBg:     "#EEEDFE",
-  statusGreen:       "#10B981",
-  statusOrange:      "#F59E0B",
+  borderTertiary:    "#2A2A2A",   // gris medio (separadores)
+  bgPrimary:         "#0A0A0A",   // negro principal
+  bgSecondary:       "#1A1A1A",   // gris oscuro (cards / burbujas)
+  textTertiary:      "#A07830",   // oro oscuro (etiquetas, mate)
+  textSecondary:     "rgba(245,240,232,0.7)", // pearl 70% opacidad
+  textPrimary:       "#F5F0E8",   // blanco perla
+  brand:             "#C9A84C",   // oro
+  brandLight:        "#E8C96A",   // oro claro
+  hectorEmojiBg:     "#1A1A1A",   // gris oscuro (avatar Héctor)
+  statusGreen:       "#C9A84C",   // estado activo = oro
+  statusOrange:      "#E8C96A",   // estado pensando = oro claro
 };
 
 // Frase de apertura según hora local. Cambia 3 veces al día para
@@ -415,24 +415,24 @@ Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones.
   const showAperturaBlock = chatHistory.length === 0 && showApertura;
 
   return (
-    <div style={rootStyle}>
+    <div data-hd="root" style={rootStyle}>
       <style>{`
         @keyframes hd-pulse {
           0%, 100% { opacity: 0.3; transform: scale(0.8); }
           50%      { opacity: 1;   transform: scale(1); }
         }
+        /* Placeholder del textarea sobre fondo oscuro: pearl 30% para
+           que sea visible pero no compita con el texto real. */
+        [data-hd="root"] textarea::placeholder { color: rgba(245,240,232,0.3); }
         /* Mobile: el mic pasa a FAB position:fixed encima del bottom
-           nav (64px + safe-area). En desktop sigue inline en el input
-           bar. Right:16px coincide con el inset estándar de iOS.
-           HD-v2: subimos a 72px+safe-area para evitar solape con el
-           bottom nav cuando hay teclado virtual o densidad alta. */
+           nav. Sombra ahora dorada para coincidir con el brand Kluxor. */
         @media (max-width: 768px) {
           [data-hd="mic-btn"] {
             position: fixed !important;
             bottom: calc(72px + env(safe-area-inset-bottom)) !important;
             right: 16px !important;
             z-index: 1100;
-            box-shadow: 0 4px 12px rgba(83, 74, 183, 0.35);
+            box-shadow: 0 4px 12px rgba(201, 168, 76, 0.35);
           }
         }
       `}</style>
@@ -442,8 +442,8 @@ Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones.
         <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
           <div style={hectorAvatarStyle}>🧙</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 500, color: C.textPrimary, lineHeight: 1.2 }}>Héctor</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSecondary }}>
+            <div style={{ fontSize: 15, fontWeight: 500, color: C.brand, lineHeight: 1.2 }}>Héctor</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "rgba(245,240,232,0.7)" }}>
               <span style={{
                 width: 7, height: 7, borderRadius: "50%",
                 background: isLoading ? C.statusOrange : C.statusGreen,
@@ -464,7 +464,7 @@ Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones.
         <div style={{ textAlign: "right", padding: "4px 20px 6px", borderBottom: `0.5px solid ${C.borderTertiary}`, flexShrink: 0, background: C.bgPrimary }}>
           <span
             onClick={() => onNavigate("command")}
-            style={{ fontSize: 12, color: C.textTertiary, cursor: "pointer", textDecoration: "underline" }}
+            style={{ fontSize: 12, color: "rgba(201,168,76,0.6)", cursor: "pointer", textDecoration: "underline" }}
           >
             Ver Sala de Mando →
           </span>
@@ -543,8 +543,9 @@ Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones.
           title="Dictar (próximamente)"
           style={micButtonStyle}
         >
-          {/* Icono micrófono SVG inline */}
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          {/* Icono micrófono SVG inline. Stroke negro sobre fondo oro
+              para cumplir contraste WCAG (negro sobre #C9A84C ≈ 7.5:1). */}
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
             <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
             <line x1="12" y1="19" x2="12" y2="22"/>
@@ -558,7 +559,7 @@ Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones.
             title="Enviar (Enter)"
             style={{ ...sendButtonStyle, opacity: isLoading ? 0.6 : 1, cursor: isLoading ? "wait" : "pointer" }}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0A0A0A" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="19" x2="12" y2="5"/>
               <polyline points="5 12 12 5 19 12"/>
             </svg>
@@ -589,8 +590,8 @@ function MessageBubble({ message, userInitials, onRunAgentActions, onDiscardProp
           <div style={hectorAvatarSmall}>🧙</div>
         )}
         <div style={{
-          background: isUser ? C.brand : (message.error ? "#FEE2E2" : C.bgSecondary),
-          color: isUser ? "white" : (message.error ? "#991B1B" : C.textPrimary),
+          background: isUser ? C.brand : (message.error ? "#3B0E0E" : C.bgSecondary),
+          color: isUser ? "#0A0A0A" : (message.error ? "#FCA5A5" : C.textPrimary),
           borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
           padding: "10px 14px",
           maxWidth: "78%",
@@ -598,7 +599,7 @@ function MessageBubble({ message, userInitials, onRunAgentActions, onDiscardProp
           lineHeight: 1.5,
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
-          border: message.error ? "1px solid #FCA5A5" : "0.5px solid " + C.borderTertiary,
+          border: message.error ? "1px solid #7F1D1D" : "0.5px solid " + C.borderTertiary,
         }}>
           {text}
         </div>
@@ -737,24 +738,28 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
     const agentNombre = AGENT_PRINT_NAME[message.specialistKey] || meta.label;
     const fileName = `Informe_${message.specialistKey || "agente"}_${Date.now()}`;
     const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${fileName}</title><style>
-      body { font-family: Georgia, 'Times New Roman', serif; margin: 60px; color: #1a1a1a; line-height: 1.6; }
-      .header { border-bottom: 2px solid #534AB7; padding-bottom: 20px; margin-bottom: 30px; }
-      .logo { font-size: 12px; color: #534AB7; font-weight: bold; letter-spacing: 2px; }
-      h1 { font-size: 22px; margin: 8px 0; }
-      .meta { font-size: 13px; color: #666; }
-      .task { font-size: 13px; color: #374151; margin-top: 10px; padding: 8px 12px; background: #f3f0ff; border-left: 3px solid #534AB7; border-radius: 4px; }
+      body { font-family: Georgia, 'Times New Roman', serif; margin: 0; color: #1a1a1a; line-height: 1.6; }
+      .wrap { padding: 60px; }
+      /* Header strip Kluxor: fondo negro, texto pearl, franja oro abajo. */
+      .header { background: #0A0A0A; color: #F5F0E8; padding: 28px 60px; border-bottom: 4px solid #C9A84C; margin: 0 -60px 30px; }
+      .logo { font-size: 11px; color: #C9A84C; font-weight: bold; letter-spacing: 3px; }
+      .header h1 { font-size: 22px; margin: 8px 0 4px; color: #F5F0E8; }
+      .meta { font-size: 13px; color: rgba(245,240,232,0.8); }
+      .task { font-size: 13px; color: #374151; margin-top: 14px; padding: 8px 12px; background: #fdf8ec; border-left: 3px solid #C9A84C; border-radius: 4px; }
       .content { font-size: 15px; white-space: pre-wrap; word-wrap: break-word; }
       .footer { margin-top: 60px; border-top: 1px solid #ddd; padding-top: 12px; font-size: 11px; color: #999; }
-      @media print { body { margin: 30mm; } }
+      @media print { body { margin: 0; } .wrap { padding: 30mm; } .header { margin-left: -30mm; margin-right: -30mm; padding-left: 30mm; padding-right: 30mm; } }
     </style></head><body>
       <div class="header">
         <div class="logo">KLUXOR — INFORME ESPECIALISTA</div>
         <h1>Informe ${escHTML(agentNombre)}</h1>
         <div class="meta">Fecha: ${escHTML(fecha)} · Preparado para: Antonio Díaz</div>
-        ${message.task ? `<div class="task"><b>Tarea:</b> ${escHTML(message.task)}</div>` : ""}
       </div>
-      <div class="content">${escHTML(message.text)}</div>
-      <div class="footer">Documento generado por Kluxor CEO OS · ${escHTML(fecha)} · Confidencial</div>
+      <div class="wrap">
+        ${message.task ? `<div class="task"><b>Tarea:</b> ${escHTML(message.task)}</div><br/>` : ""}
+        <div class="content">${escHTML(message.text)}</div>
+        <div class="footer">Documento generado por Kluxor CEO OS · ${escHTML(fecha)} · Confidencial</div>
+      </div>
     </body></html>`;
     imprimirHTML(html, fileName);
   };
@@ -767,24 +772,35 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
     const fecha = new Date().toLocaleDateString("es-ES", { day:"numeric", month:"long", year:"numeric" });
     const fileName = `Contrato_${Date.now()}`;
     const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${fileName}</title><style>
-      body { font-family: 'Times New Roman', Times, serif; margin: 80px; color: #000; line-height: 1.8; font-size: 14px; }
-      h1 { text-align: center; font-size: 18px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-      .subtitulo { text-align: center; font-size: 13px; color: #333; margin-bottom: 40px; }
+      body { font-family: 'Times New Roman', Times, serif; margin: 0; color: #000; line-height: 1.8; font-size: 14px; }
+      .wrap { padding: 80px; }
+      /* Banda de título Kluxor: fondo negro con título oro, separador
+         dorado fino abajo. El cuerpo se mantiene sobre blanco para
+         legibilidad e impresión sobria. */
+      .titlebar { background: #0A0A0A; color: #C9A84C; padding: 22px 80px; text-align: center; border-bottom: 2px solid #C9A84C; margin: 0 -80px 36px; }
+      .titlebar h1 { color: #C9A84C; font-size: 18px; text-transform: uppercase; letter-spacing: 2px; margin: 0 0 4px; }
+      .titlebar .marca { font-size: 10px; color: rgba(201,168,76,0.7); letter-spacing: 3px; }
+      .subtitulo { text-align: center; font-size: 13px; color: #333; margin-bottom: 36px; }
       .content { text-align: justify; white-space: pre-wrap; word-wrap: break-word; }
       .firmas { margin-top: 80px; display: flex; justify-content: space-between; }
       .firma { text-align: center; width: 200px; }
       .linea-firma { border-top: 1px solid #000; margin-bottom: 8px; }
       .footer { margin-top: 40px; border-top: 1px solid #ccc; padding-top: 10px; font-size: 10px; color: #666; text-align: center; }
-      @media print { body { margin: 40mm; } .no-print { display: none; } }
+      @media print { body { margin: 0; } .wrap { padding: 40mm; } .titlebar { margin-left: -40mm; margin-right: -40mm; padding-left: 40mm; padding-right: 40mm; } .no-print { display: none; } }
     </style></head><body>
-      <h1>Documento Legal</h1>
-      <div class="subtitulo">Elaborado en Marbella, a ${escHTML(fecha)}</div>
-      <div class="content">${escHTML(message.text)}</div>
-      <div class="firmas">
-        <div class="firma"><div class="linea-firma"></div><div>EL CEDENTE</div></div>
-        <div class="firma"><div class="linea-firma"></div><div>EL CESIONARIO</div></div>
+      <div class="titlebar">
+        <div class="marca">KLUXOR</div>
+        <h1>Documento Legal</h1>
       </div>
-      <div class="footer">Documento preparado con asistencia de Kluxor CEO OS · ${escHTML(fecha)} · Sujeto a revisión legal</div>
+      <div class="wrap">
+        <div class="subtitulo">Elaborado en Marbella, a ${escHTML(fecha)}</div>
+        <div class="content">${escHTML(message.text)}</div>
+        <div class="firmas">
+          <div class="firma"><div class="linea-firma"></div><div>EL CEDENTE</div></div>
+          <div class="firma"><div class="linea-firma"></div><div>EL CESIONARIO</div></div>
+        </div>
+        <div class="footer">Documento preparado con asistencia de Kluxor CEO OS · ${escHTML(fecha)} · Sujeto a revisión legal</div>
+      </div>
     </body></html>`;
     imprimirHTML(html, fileName);
   };
@@ -839,20 +855,23 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
           fontSize: 16, flexShrink: 0,
         }}>{meta.emoji}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: meta.color, letterSpacing: 0.2 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: C.brand, letterSpacing: 0.2 }}>
             {meta.label}{message.task ? ` · ${message.task.slice(0, 60)}${message.task.length > 60 ? "…" : ""}` : ""}
           </div>
           <div style={{
-            background: message.error ? "#FEE2E2" : C.bgSecondary,
-            color: message.error ? "#991B1B" : C.textPrimary,
+            background: message.error ? "#3B0E0E" : C.bgSecondary,
+            color: message.error ? "#FCA5A5" : C.textPrimary,
             borderRadius: "4px 16px 16px 16px",
-            padding: "10px 14px",
+            padding: "10px 14px 10px 16px",
             maxWidth: "100%",
             fontSize: 14,
             lineHeight: 1.5,
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
-            border: message.error ? "1px solid #FCA5A5" : `0.5px solid ${C.borderTertiary}`,
+            // Borde izquierdo dorado 2px = sello visual del especialista,
+            // sobre el resto del borde sutil en gris medio.
+            border: message.error ? "1px solid #7F1D1D" : `0.5px solid ${C.borderTertiary}`,
+            borderLeft: message.error ? "2px solid #7F1D1D" : `2px solid ${C.brand}`,
             opacity: message.loading ? 0.7 : 1,
             fontStyle: message.loading ? "italic" : "normal",
           }}>
@@ -861,7 +880,9 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
         </div>
       </div>
 
-      {/* Acciones — sólo cuando la respuesta está lista (no loading ni error) */}
+      {/* Acciones — sólo cuando la respuesta está lista (no loading ni error).
+          Estilo Kluxor: dark con borde oro 0.4 opacidad y texto oro. Activo
+          (picker abierto): fondo oro sólido + texto negro. */}
       {!message.loading && !message.error && (
         <div style={{ display: "flex", gap: 6, marginTop: 6, marginLeft: 42, flexWrap: "wrap" }}>
           {buttons.map(b => (
@@ -869,16 +890,19 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
               key={b.id}
               type="button"
               onClick={b.onClick}
+              onMouseEnter={e => { if (picker !== b.id) { e.currentTarget.style.background = C.brand; e.currentTarget.style.color = "#0A0A0A"; } }}
+              onMouseLeave={e => { if (picker !== b.id) { e.currentTarget.style.background = C.bgSecondary; e.currentTarget.style.color = C.brand; } }}
               style={{
                 fontSize: 11,
                 padding: "5px 11px",
                 borderRadius: 20,
-                border: `0.5px solid ${C.borderTertiary}`,
-                background: picker === b.id ? meta.color : C.bgSecondary,
-                color: picker === b.id ? "#fff" : C.textSecondary,
+                border: "0.5px solid rgba(201,168,76,0.4)",
+                background: picker === b.id ? C.brand : C.bgSecondary,
+                color: picker === b.id ? "#0A0A0A" : C.brand,
                 cursor: "pointer",
                 fontFamily: "inherit",
                 lineHeight: 1.4,
+                transition: "background .15s ease, color .15s ease",
               }}
             >{b.label}</button>
           ))}
@@ -887,40 +911,40 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
 
       {/* Feedback inline tras una acción */}
       {feedback && (
-        <div style={{ marginLeft: 42, marginTop: 4, fontSize: 11, color: meta.color, fontWeight: 500 }}>
+        <div style={{ marginLeft: 42, marginTop: 4, fontSize: 11, color: C.brand, fontWeight: 500 }}>
           {feedback}
         </div>
       )}
 
-      {/* Picker de proyecto (Acción 1) */}
+      {/* Picker de proyecto (Acción 1) — dark theme Kluxor */}
       {picker === "task" && projects.length > 0 && (
-        <div style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: "#fff", border: `0.5px solid ${C.borderTertiary}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 12px rgba(0,0,0,0.06)" }}>
-          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: C.bgSecondary }}>Crear tarea en…</div>
+        <div style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: C.bgSecondary, border: "0.5px solid rgba(201,168,76,0.4)", borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 14px rgba(0,0,0,0.5)" }}>
+          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: "#0F0F0F" }}>Crear tarea en…</div>
           {projects.slice(0, 12).map(p => (
             <div key={p.id}
               onClick={() => handleCreateTask(p.code)}
               style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: C.textPrimary, borderBottom: `0.5px solid ${C.borderTertiary}` }}
-              onMouseEnter={e => e.currentTarget.style.background = C.bgSecondary}
+              onMouseEnter={e => e.currentTarget.style.background = "#262626"}
               onMouseLeave={e => e.currentTarget.style.background = "transparent"}
             >
-              <span style={{ fontWeight: 600, color: meta.color }}>[{p.code}]</span> {p.name || "Sin nombre"}
+              <span style={{ fontWeight: 600, color: C.brand }}>[{p.code}]</span> {p.name || "Sin nombre"}
             </div>
           ))}
         </div>
       )}
 
-      {/* Picker de negociación (Acción 3) */}
+      {/* Picker de negociación (Acción 3) — dark theme Kluxor */}
       {picker === "neg" && negs.length > 0 && (
-        <div style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: "#fff", border: `0.5px solid ${C.borderTertiary}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 12px rgba(0,0,0,0.06)" }}>
-          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: C.bgSecondary }}>Adjuntar a negociación…</div>
+        <div style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: C.bgSecondary, border: "0.5px solid rgba(201,168,76,0.4)", borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 14px rgba(0,0,0,0.5)" }}>
+          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: "#0F0F0F" }}>Adjuntar a negociación…</div>
           {negs.slice(0, 12).map(n => (
             <div key={n.id}
               onClick={() => handleAttachNeg(n.id, n.code || `#${n.id}`)}
               style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: C.textPrimary, borderBottom: `0.5px solid ${C.borderTertiary}` }}
-              onMouseEnter={e => e.currentTarget.style.background = C.bgSecondary}
+              onMouseEnter={e => e.currentTarget.style.background = "#262626"}
               onMouseLeave={e => e.currentTarget.style.background = "transparent"}
             >
-              <span style={{ fontWeight: 600, color: meta.color }}>[{n.code || "?"}]</span> {(n.title || "Sin título").slice(0, 50)}
+              <span style={{ fontWeight: 600, color: C.brand }}>[{n.code || "?"}]</span> {(n.title || "Sin título").slice(0, 50)}
               {n.counterparty ? <span style={{ fontSize: 11, color: C.textTertiary, marginLeft: 6 }}>· {n.counterparty}</span> : null}
             </div>
           ))}
@@ -999,6 +1023,7 @@ const hectorAvatarStyle = {
   height: 44,
   borderRadius: "50%",
   background: C.hectorEmojiBg,
+  border: `1px solid ${C.brand}`,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -1011,6 +1036,7 @@ const hectorAvatarSmall = {
   height: 32,
   borderRadius: "50%",
   background: C.hectorEmojiBg,
+  border: `1px solid ${C.brand}`,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -1023,19 +1049,19 @@ const ceoAvatarStyle = {
   height: 32,
   borderRadius: "50%",
   background: C.brand,
-  color: "white",
+  color: "#0A0A0A",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   fontSize: 13,
-  fontWeight: 500,
+  fontWeight: 600,
   flexShrink: 0,
 };
 
 const aperturaStyle = {
   padding: "12px 20px",
   background: C.bgSecondary,
-  borderBottom: `0.5px solid ${C.borderTertiary}`,
+  borderBottom: "0.5px solid rgba(201,168,76,0.2)",
   fontSize: 13.5,
   color: C.textSecondary,
   cursor: "pointer",
@@ -1073,8 +1099,10 @@ const textareaStyle = {
   maxHeight: 120,
   padding: "12px 16px",
   borderRadius: 28,
-  border: `0.5px solid ${C.borderTertiary}`,
+  border: "0.5px solid rgba(201,168,76,0.3)",
   background: C.bgSecondary,
+  color: C.textPrimary,
+  caretColor: C.brand,
   fontSize: 15,
   resize: "none",
   lineHeight: 1.5,
