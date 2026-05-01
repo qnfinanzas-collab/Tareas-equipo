@@ -144,6 +144,13 @@
         display: none !important;
       }
 
+      /* HD-v3: el input bar de HectorDirect ya tiene su propio botón mic
+         integrado, así que el FAB flotante (que se elevaba sobre el bottom
+         nav) sobra y solo confunde. Lo ocultamos en esta vista. */
+      [data-tf-tab="hector-direct"] [data-hd="mic-btn"] {
+        display: none !important;
+      }
+
       /* Print: ocultar navegación y dejar solo el contenido marcado con .tf-printable.
          Si no hay ningún .tf-printable, imprime el main visible. */
       @media print {

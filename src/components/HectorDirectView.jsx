@@ -384,7 +384,13 @@ const rootStyle = {
   // BAJO el topbar). 100dvh tomaba el viewport completo y empujaba el
   // header de HectorDirect fuera de pantalla en móvil (oculto tras el
   // topbar de la app).
+  // HD-v3: paddingBottom reserva el espacio del bottom nav (64px +
+  // safe-area). main-content ya añade ese padding via CSS global, pero
+  // como el root usa overflow:hidden, el inputBar se quedaba debajo
+  // del nav. Reservamos el espacio aquí también para que el input quede
+  // pegado por encima del nav en móvil.
   height: "100%",
+  paddingBottom: "calc(64px + env(safe-area-inset-bottom))",
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",

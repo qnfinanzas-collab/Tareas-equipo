@@ -12294,7 +12294,7 @@ export default function TaskFlow(){
           { id: "hector-direct", icon: "🧙", label: "Héctor",    onClick: () => setActiveTab("hector-direct") },
           { id: "mytasks",       icon: "✅", label: "Tareas",    onClick: () => setActiveTab("mytasks") },
           { id: "dealroom",      icon: "🤝", label: "Negs",      onClick: () => { setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null); } },
-          { id: "projects",      icon: "📁", label: "Pro",       onClick: () => setActiveTab("projects") },
+          { id: "projects",      icon: "📁", label: "",          onClick: () => setActiveTab("projects") },
         ].map(item => (
           <button
             key={item.id}
