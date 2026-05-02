@@ -12,7 +12,7 @@
 // Responsive: maxWidth 680px en desktop, 600px en tablet, 100% en móvil.
 import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim } from "../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock } from "../lib/agentActions.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
 
 const CHAT_MAX = 50;
@@ -288,10 +288,29 @@ Jurisdicción: Juzgados de Marbella.
       // debe leerse antes que cualquier otra cosa), luego promptBase con
       // sus addons, luego PLAIN_TEXT_RULE, y al final los snapshots
       // operativos (miembros, tareas, proyectos, negs, finanzas, gov).
+      // Instrucción para listar tareas como bloque estructurado
+      // [TASKS_LIST]{json}[/TASKS_LIST]. Scoped solo a HectorDirect
+       // (no toca AGENT_ACTIONS_ADDON ni la migración v10). Si Héctor
+      // no emite el bloque cuando aplica, fallback natural a prosa.
+      const tasksListBlock = `\n\n---\nFORMATO DE LISTA DE TAREAS:
+Cuando el CEO te pida LISTAR, MOSTRAR, CONSULTAR o VER tareas (es decir, recuperar información de tareas que YA existen, NO crear nuevas), responde primero con un bloque [TASKS_LIST] y DESPUÉS añade tu prosa breve. Formato exacto:
+
+[TASKS_LIST]
+{"vencidas":[{"code":"MAR","title":"Documento sesión Rafael","priority":"alta","due":"2026-05-02"}],"proximas":[{"code":"BSF","title":"Formación app","priority":"media","due":"2026-05-07"}]}
+[/TASKS_LIST]
+
+Reglas:
+- Usa SOLO datos reales del bloque "TAREAS URGENTES O VENCIDAS" que aparece arriba en este system prompt. NUNCA inventes tareas que no estén en ese bloque.
+- "vencidas" = dueDate anterior a hoy. "proximas" = dueDate igual o posterior a hoy, o sin fecha.
+- Campos por tarea: code (string, código del proyecto entre 2-4 letras), title (string), priority ("alta"|"media"|"baja"), due ("YYYY-MM-DD" o null si no tiene fecha). Omite campos que no conozcas.
+- El bloque se OCULTA del chat y se renderiza como tarjeta visual. Tu prosa va DESPUÉS del bloque, máximo 1-2 frases (priorización, contexto o pregunta de seguimiento).
+- Si no hay tareas relevantes que listar, NO emitas el bloque — responde solo con prosa.
+- Este formato es SOLO para consultas de lectura. Para crear, modificar, asignar o eliminar tareas sigue siendo [ACTIONS] como hasta ahora.`;
+
       const baseSystem = ceoBlock + (hector?.promptBase
         ? hector.promptBase + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE)
-        + membersBlock + urgentBlock + projBlock + negBlock + finBlock + govBlock;
+        + membersBlock + urgentBlock + projBlock + negBlock + finBlock + govBlock + tasksListBlock;
       // Convertimos el historial a la forma que espera la API.
       // Los mensajes "assistant" llevan el texto limpio (sin proposal).
       const messages = next.map(m => ({
@@ -318,25 +337,33 @@ Jurisdicción: Juzgados de Marbella.
         seenAg.add(key);
         invocations.push({ key, task: (mInv[2] || "").trim() });
       }
-      // Limpiamos [ACTIONS] (si hay proposal) y SIEMPRE [INVOCAR:].
+      // Parser de [TASKS_LIST]…[/TASKS_LIST]: bloque estructurado para
+      // consultas de tareas que ya existen. Convive con [ACTIONS] (que
+      // sigue siendo para crear/modificar). Si Héctor no emite el
+      // bloque cuando aplica, fallback natural: la prosa se renderiza
+      // como texto plano sin TaskListCard.
+      const tasksList = parseTasksList(reply);
+      // Limpiamos [ACTIONS] (si hay proposal), [TASKS_LIST] y SIEMPRE
+      // [INVOCAR:]. Las tres familias de marker se ocultan del chat.
       const stripInvokes = (s) => String(s || "")
         .replace(/\[INVOCAR:[^\]]+\]/gi, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
-      const baseClean = proposal ? cleanAgentResponse(reply) : reply;
-      const cleanText = stripInvokes(baseClean);
+      const afterActions = proposal ? cleanAgentResponse(reply) : reply;
+      const afterTasks   = cleanTasksListBlock(afterActions);
+      const cleanText    = stripInvokes(afterTasks);
       // Detección anti-alucinación (Capa 2 del blindaje anti-fake-success):
       // si la prosa de Héctor afirma éxito y NO viene acompañada de un
-      // bloque [ACTIONS] válido, marcamos el mensaje. La heurística vive
-      // en agentActions.detectFalseSuccessClaim — función única compartida
-      // con HectorPanel y cualquier otra vista futura. Antes era una regex
-      // local con 13 verbos; ahora cubre 30+ patrones (he creado, se ha
-      // guardado, ya está, quedó X, tarea creada, etc.).
-      const fakeSuccess = detectFalseSuccessClaim(cleanText, proposal);
+      // bloque [ACTIONS] válido, marcamos el mensaje. Importante: si la
+      // respuesta es una CONSULTA con [TASKS_LIST], NO la consideramos
+      // afirmación de éxito aunque la prosa contenga verbos como
+      // "actualizado" — es lectura, no ejecución.
+      const fakeSuccess = !tasksList && detectFalseSuccessClaim(cleanText, proposal);
       setChatHistory(prev => [...prev, {
         role: "assistant",
         text: cleanText || "(sin texto)",
         proposal: proposal || null,
+        tasksList: tasksList || null,
         fakeSuccess,
         ts: Date.now(),
       }].slice(-CHAT_MAX));
@@ -513,6 +540,7 @@ Jurisdicción: Juzgados de Marbella.
               const txt = typeof m.text === "string" ? m.text.trim() : "";
               if (txt.length > 0) return true;
               if (m.proposal && Array.isArray(m.proposal.actions) && m.proposal.actions.length > 0) return true;
+              if (m.tasksList && (m.tasksList.vencidas?.length || m.tasksList.proximas?.length)) return true;
               return false;
             }
             if (m.role === "specialist") return true;
@@ -626,6 +654,11 @@ function MessageBubble({ message, userInitials, onRunAgentActions, onDiscardProp
             onConfirm={async (selected) => { await onRunAgentActions(selected); }}
             onCancel={onDiscardProposal}
           />
+        </div>
+      )}
+      {!isUser && message.tasksList && (
+        <div style={{ alignSelf: "stretch", paddingLeft: 42 }}>
+          <TaskListCard tasksList={message.tasksList} />
         </div>
       )}
       {!isUser && message.fakeSuccess && !message.proposal && (
@@ -962,6 +995,127 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
               {n.counterparty ? <span style={{ fontSize: 11, color: C.textTertiary, marginLeft: 6 }}>· {n.counterparty}</span> : null}
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// TaskListCard — card de solo lectura para consultas de tareas. Misma
+// familia visual que ActionProposal (padding/tipografía/badges de
+// prioridad) pero color borde gris azulado #3B5573 para distinguir
+// "consulta" (información) de "propuesta" (acción pendiente). Sin
+// checkboxes, sin botones. Hover sutil preparando deep-link futuro.
+const TASK_BORDER  = "#3B5573";
+const TASK_TINT    = "rgba(59,85,115,0.06)";
+const TASK_HOVER   = "rgba(59,85,115,0.10)";
+const TASK_PRIO_COLOR = { alta: "#B91C1C", media: "#92400E", baja: "#0E7C5A" };
+const TASK_PRIO_LABEL = { alta: "Alta", media: "Media", baja: "Baja" };
+
+function formatDueES(due) {
+  if (!due) return null;
+  const d = new Date(due);
+  if (isNaN(d.getTime())) return String(due);
+  const dia = d.getDate();
+  const mes = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"][d.getMonth()];
+  return `${dia}-${mes}`;
+}
+
+function TaskRow({ task, vencida }) {
+  const prio = (task.priority || "media").toLowerCase();
+  const prioColor = TASK_PRIO_COLOR[prio] || "#6B6B6B";
+  const dueLabel = formatDueES(task.due);
+  return (
+    <div
+      onMouseEnter={e => e.currentTarget.style.background = TASK_HOVER}
+      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "6px 8px",
+        fontSize: 12.5,
+        color: "#1A1A1A",
+        borderBottom: "0.5px dashed #E5E0D5",
+        transition: "background .15s ease",
+      }}
+    >
+      <span style={{ fontSize: 11, color: "#6B6B6B", fontWeight: 600, minWidth: 44 }}>
+        [{task.code || "?"}]
+      </span>
+      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {task.title || "Sin título"}
+      </span>
+      <span style={{
+        fontSize: 10,
+        fontWeight: 600,
+        padding: "1px 6px",
+        background: prioColor + "18",
+        color: prioColor,
+        border: `1px solid ${prioColor}55`,
+      }}>
+        {TASK_PRIO_LABEL[prio] || prio}
+      </span>
+      {dueLabel && (
+        <span style={{
+          fontSize: 10.5,
+          fontWeight: vencida ? 600 : 400,
+          color: vencida ? "#B91C1C" : "#6B6B6B",
+          minWidth: 70,
+          textAlign: "right",
+        }}>
+          {vencida ? `VENCIDA ${dueLabel}` : `vence ${dueLabel}`}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function TaskListCard({ tasksList }) {
+  if (!tasksList) return null;
+  const vencidas = Array.isArray(tasksList.vencidas) ? tasksList.vencidas : [];
+  const proximas = Array.isArray(tasksList.proximas) ? tasksList.proximas : [];
+  const total = vencidas.length + proximas.length;
+  if (total === 0) return null;
+  return (
+    <div style={{
+      marginTop: 10,
+      background: TASK_TINT,
+      border: `2px solid ${TASK_BORDER}`,
+      padding: 14,
+    }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 18 }}>🔍</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>Tareas encontradas</div>
+        </div>
+        <div style={{ fontSize: 11, color: TASK_BORDER, fontWeight: 600 }}>
+          📋 {total}
+        </div>
+      </div>
+
+      {/* Sección VENCIDAS */}
+      {vencidas.length > 0 && (
+        <div style={{ background: "#fff", border: `1px solid ${TASK_BORDER}33`, padding: "8px 10px", marginBottom: proximas.length > 0 ? 8 : 0 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: TASK_BORDER, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+            ▼ Vencidas ({vencidas.length})
+          </div>
+          <div>
+            {vencidas.map((t, i) => <TaskRow key={`v-${i}`} task={t} vencida={true} />)}
+          </div>
+        </div>
+      )}
+
+      {/* Sección PRÓXIMAS */}
+      {proximas.length > 0 && (
+        <div style={{ background: "#fff", border: `1px solid ${TASK_BORDER}33`, padding: "8px 10px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: TASK_BORDER, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+            ▼ Próximas ({proximas.length})
+          </div>
+          <div>
+            {proximas.map((t, i) => <TaskRow key={`p-${i}`} task={t} vencida={false} />)}
+          </div>
         </div>
       )}
     </div>

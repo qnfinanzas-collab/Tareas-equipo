@@ -68,6 +68,42 @@ export function cleanAgentResponse(responseText) {
     .trim();
 }
 
+// Parser y stripper del bloque [TASKS_LIST]…[/TASKS_LIST] que Héctor
+// emite en HectorDirect cuando el CEO le pide LISTAR/MOSTRAR/CONSULTAR
+// tareas. Misma idea que [ACTIONS] pero para datos de solo lectura: el
+// bloque se oculta del chat y se renderiza como TaskListCard. La
+// instrucción al modelo vive scoped en HectorDirectView (no en el
+// AGENT_ACTIONS_ADDON), así que no requiere bump de marker.
+const TASKSLIST_RE = /\[TASKS_LIST\]([\s\S]*?)\[\/TASKS_LIST\]/;
+
+export function parseTasksList(responseText) {
+  if (!responseText || typeof responseText !== "string") return null;
+  const m = responseText.match(TASKSLIST_RE);
+  if (!m) return null;
+  try {
+    let raw = m[1].trim();
+    // Tolerancia: si el modelo envuelve en ```json…``` lo limpiamos.
+    raw = raw.replace(/^```json\s*|\s*```$/g, "").replace(/^```\s*|\s*```$/g, "");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const vencidas = Array.isArray(parsed.vencidas) ? parsed.vencidas : [];
+    const proximas = Array.isArray(parsed.proximas) ? parsed.proximas : [];
+    if (vencidas.length === 0 && proximas.length === 0) return null;
+    return { vencidas, proximas, total: vencidas.length + proximas.length };
+  } catch (e) {
+    console.warn("[agentActions] parseTasksList fallo:", e?.message);
+    return null;
+  }
+}
+
+export function cleanTasksListBlock(responseText) {
+  if (!responseText) return "";
+  return String(responseText)
+    .replace(TASKSLIST_RE, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 // Detector determinista de "afirmación falsa de éxito" — Capa 2 del
 // blindaje anti-fake-success. Devuelve true cuando la prosa del agente
 // contiene un patrón confirmatorio ("he creado", "se ha guardado",
