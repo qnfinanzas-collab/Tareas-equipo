@@ -181,6 +181,111 @@ export function detectFalseSuccessClaim(responseText, parsedActions) {
   return SUCCESS_PATTERNS.some(p => p.test(responseText));
 }
 
+// Validación post-LLM de fechas en propuestas (date-validation-postllm-v1).
+// Sonnet 4.5 con cutoff enero 2025 emite años pasados al razonar fechas
+// relativas ("viernes" → "2025-05-09" en mayo de 2026). Aplicamos un
+// adapter post-parse que detecta dueDates con año < año actual y los
+// reescribe al año actual; si aún siguen en pasado, +1 año.
+//
+// Función PURA: mismo input → mismo output, sin side effects.
+// Devuelve {corrected, wasFixed, originalYear?, correctedYear?}.
+//
+// SCOPE INTENCIONALMENTE REDUCIDO: solo se aplica a task.dueDate vía
+// correctActionsDates(). NO se usa para .date/.dueDate/.paidDate de
+// movimientos, facturas o asientos contables — Diego DEBE poder
+// registrar operaciones reales del pasado (factura de 2025 contabilizada
+// tarde tiene que quedarse en 2025).
+export function validateAndCorrectDueDate(dueDateString) {
+  if (!dueDateString || typeof dueDateString !== "string") {
+    return { corrected: dueDateString, wasFixed: false };
+  }
+  // Solo tocamos formato ISO YYYY-MM-DD. Otros formatos (relativos
+  // "+7d", lenguaje natural, vacíos) los devolvemos tal cual y deja
+  // que resolveDueDate los procese en su momento — esos casos no
+  // sufren el bug porque se calculan desde new Date() actual.
+  const isoMatch = dueDateString.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!isoMatch) return { corrected: dueDateString, wasFixed: false };
+
+  const [, yearStr, monthStr, dayStr] = isoMatch;
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+  const day = parseInt(dayStr, 10);
+  // Validación mínima — meses/días fuera de rango se devuelven sin tocar.
+  if (year < 1900 || month < 1 || month > 12 || day < 1 || day > 31) {
+    return { corrected: dueDateString, wasFixed: false };
+  }
+
+  // Año actual y "hoy" en zona Marbella-Estepona (Europe/Madrid). Se
+  // calcula con Intl.DateTimeFormat para no depender del tz del
+  // navegador del CEO si está viajando.
+  const now = new Date();
+  const todayIso = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Madrid",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(now); // "YYYY-MM-DD" en huso Madrid
+  const currentYearMadrid = parseInt(todayIso.slice(0, 4), 10);
+
+  // Comparación por string ISO (lex-orden coincide con orden temporal
+  // cuando ambos son YYYY-MM-DD). Más robusto que comparar Date objects
+  // por DST y husos horarios.
+  if (dueDateString >= todayIso) {
+    // Fecha emitida es hoy o futuro — la respetamos aunque tenga año
+    // posterior al actual (caso "15 de enero de 2027" del Test 4).
+    return { corrected: dueDateString, wasFixed: false };
+  }
+
+  // Fecha en pasado. Reemplazamos año por el actual.
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  let correctedYear = currentYearMadrid;
+  let candidate = `${correctedYear}-${mm}-${dd}`;
+  // Si tras poner el año actual la fecha sigue siendo pasada (ej.
+  // hoy es 2 de mayo y el modelo emitió "15 de enero de 2025" → con
+  // año actual queda "15 de enero de 2026" que ya pasó), saltamos al
+  // año siguiente. Asunción: el CEO menciona una fecha futura.
+  if (candidate < todayIso) {
+    correctedYear = currentYearMadrid + 1;
+    candidate = `${correctedYear}-${mm}-${dd}`;
+  }
+  return {
+    corrected: candidate,
+    wasFixed: true,
+    originalYear: year,
+    correctedYear,
+  };
+}
+
+// Walker sobre proposal.actions. Recorre SOLO los tipos create_tasks y
+// create_project, y dentro solo el campo task.dueDate. Cualquier otro
+// campo de fecha (action.date de movimientos, action.dueDate de
+// facturas, etc.) queda intacto — los movimientos contables pueden ser
+// legítimamente del pasado y no se deben tocar.
+//
+// Muta el proposal recibido: añade _dateFixed=true a las tareas
+// corregidas para que la UI pueda mostrar un indicador opcional.
+// Retorna el mismo proposal por conveniencia de chaining.
+export function correctActionsDates(proposal) {
+  if (!proposal || !Array.isArray(proposal.actions)) return proposal;
+  proposal.actions.forEach(action => {
+    if (!action) return;
+    if (action.type !== "create_tasks" && action.type !== "create_project") return;
+    if (!Array.isArray(action.tasks)) return;
+    action.tasks.forEach(task => {
+      if (!task || !task.dueDate) return;
+      const r = validateAndCorrectDueDate(task.dueDate);
+      if (r.wasFixed) {
+        console.warn(
+          `📅 [agentActions] Fecha corregida: ${task.dueDate} → ${r.corrected} ` +
+          `(modelo emitió año ${r.originalYear}, ajustado a ${r.correctedYear})`
+        );
+        task.dueDate = r.corrected;
+        task._dateFixed = true;
+      }
+    });
+  });
+  return proposal;
+}
+
 // Resuelve fechas relativas tipo "+7d", "+1m", "+2h" a ISO string. Si la
 // entrada ya parece ISO o YYYY-MM-DD, la devuelve tal cual. Devuelve null
 // para entradas vacías.

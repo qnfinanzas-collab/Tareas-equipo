@@ -12,7 +12,7 @@
 // Responsive: maxWidth 680px en desktop, 600px en tablet, 100% en móvil.
 import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock } from "../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates } from "../lib/agentActions.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
 
 const CHAT_MAX = 50;
@@ -322,6 +322,14 @@ Reglas:
         { timeoutMs: 60000 }
       );
       const proposal = parseAgentActions(reply);
+      // Validación post-LLM de fechas (date-validation-postllm-v1).
+      // Sonnet 4.5 con cutoff enero 2025 emite años pasados al razonar
+      // fechas relativas. correctActionsDates muta proposal in-place
+      // SOLO sobre task.dueDate de create_tasks y create_project. Nada
+      // que ver con .date contables — esos quedan intactos. La función
+      // logea en consola cada corrección y marca task._dateFixed=true
+      // para que ActionProposal pueda mostrar un indicador sutil.
+      correctActionsDates(proposal);
       // Extracción de invocaciones [INVOCAR:agente:tarea]. Antes Héctor
       // emitía estas etiquetas y se renderizaban como texto plano —
       // ningún parser las recogía en HectorDirect. Ahora las extraemos

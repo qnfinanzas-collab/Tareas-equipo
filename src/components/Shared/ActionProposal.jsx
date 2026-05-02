@@ -167,6 +167,13 @@ export default function ActionProposal({ proposal, agentName = "Agente", agentEm
                           {PRIORITY_LABEL[prio] || prio}
                         </span>
                         {t.dueDate && <span style={{ fontSize: 10.5, color: "#9CA3AF" }}>{t.dueDate}</span>}
+                        {t._dateFixed && (
+                          <span
+                            title="Fecha ajustada automáticamente: el modelo emitió un año pasado y se corrigió al actual."
+                            aria-label="Fecha ajustada automáticamente"
+                            style={{ fontSize: 11, color: "#A07830", marginLeft: 2, cursor: "help", userSelect: "none" }}
+                          >ℹ</span>
+                        )}
                       </label>
                     );
                   })}
