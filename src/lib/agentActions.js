@@ -322,6 +322,30 @@ const SUCCESS_PATTERNS = [
   /\bcerrad[oa]\b/i,
   /\bvinculad[oa]\b/i,
   /\bejecutad[oa]\b/i,
+  // Anti-fake-success v2: participios sueltos seguidos de preposición
+  // ("añadidas a PCH", "creadas en MAR", "registrado en sistema")
+  // capturan casos donde el modelo escribe "tres tareas más añadidas
+  // a PCH" — la palabra intermedia "más" rompía los patrones de
+  // sustantivo+verbo adyacentes.
+  /\bañadidas?\s+(a|al|en)\b/i,
+  /\bcreadas?\s+(en|para)\b/i,
+  /\bguardadas?\s+(en|para)\b/i,
+  /\bregistradas?\s+(en|para)\b/i,
+  /\basignadas?\s+(a|al|en)\b/i,
+  /\bcompletadas?\s+(en|para)\b/i,
+  /\bactualizadas?\s+(en|para)\b/i,
+  // Masculino suelto
+  /\bañadidos?\s+(a|al|en)\b/i,
+  /\bcreados?\s+(en|para)\b/i,
+  /\bguardados?\s+(en|para)\b/i,
+  /\bregistrados?\s+(en|para)\b/i,
+  /\basignados?\s+(a|al|en)\b/i,
+  // Formas con palabra intermedia (más, ya, fueron, han sido, etc.)
+  /\btareas\s+\w+\s+añadidas\b/i,
+  /\btareas\s+\w+\s+creadas\b/i,
+  /\btareas\s+\w+\s+guardadas\b/i,
+  /\bproyectos?\s+\w+\s+creados?\b/i,
+  /\bnegociaci[oó]n\s+\w+\s+creada\b/i,
 ];
 
 export function detectFalseSuccessClaim(responseText, parsedActions) {
