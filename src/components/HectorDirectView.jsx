@@ -447,7 +447,22 @@ Reglas:
         .trim();
       const afterActions = proposal ? cleanAgentResponse(reply) : reply;
       const afterTasks   = cleanTasksListBlock(afterActions);
-      const cleanText    = stripInvokes(afterTasks);
+      let   cleanText    = stripInvokes(afterTasks);
+      // Reescritura propositiva extendida (propositive-prose-v1):
+      // si la prosa narrativa de Héctor precede a un ActionProposal,
+      // aplicamos la misma reescritura que ya hacemos al summary.
+      // Cubre el caso "Tres tareas creadas en PCH" donde Héctor genera
+      // prosa con verbos en participio antes de la card. Condición
+      // estricta: solo si proposal.actions existe y no está vacío.
+      // Prosa libre conversacional (sin actions) queda intacta — esa
+      // es la frontera dura de seguridad que evita falsos positivos.
+      if (proposal && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
+        const r = rewriteToPropositive(cleanText);
+        if (r.wasFixed) {
+          console.log(`✏️ [agentActions] Prosa reescrita (precede ActionProposal): '${r.original}' → '${r.rewritten}'`);
+          cleanText = r.rewritten;
+        }
+      }
       // Detección anti-alucinación (Capa 2 del blindaje anti-fake-success):
       // si la prosa de Héctor afirma éxito y NO viene acompañada de un
       // bloque [ACTIONS] válido, marcamos el mensaje. Importante: si la
