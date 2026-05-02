@@ -104,6 +104,76 @@ export function cleanTasksListBlock(responseText) {
     .trim();
 }
 
+// Reescritura propositiva de summaries de ActionProposal
+// (propositive-summary-v1). Bug: cuando Héctor emite el summary del
+// bloque [ACTIONS] con verbos en participio ("Tarea X creada en Y"),
+// el CEO puede leerlo como confirmación de ejecución cuando aún es
+// solo una propuesta pendiente. Reescribimos los participios a forma
+// propositiva con "a + infinitivo" ("Tarea X a crear en Y").
+//
+// Diseño: un solo regex genérico (femenino y masculino, singular y
+// plural) con span lazy [^.\n]{0,80}? entre el sustantivo y el verbo
+// para capturar casos con palabras intermedias ("Tarea de pago a Marc
+// creada"). Mapa de verbos en participio → infinitivo. Tres pases:
+// femenino, masculino y "se ha/se han <participio>".
+//
+// Función pura: mismo input → mismo output. Si entrada es null/vacía
+// o no hay match, devuelve el original con wasFixed=false.
+
+const PROPOSITIVE_VERB_MAP = {
+  // Femenino sing/plural
+  creada: "crear", creadas: "crear",
+  guardada: "guardar", guardadas: "guardar",
+  registrada: "registrar", registradas: "registrar",
+  añadida: "añadir", añadidas: "añadir",
+  actualizada: "actualizar", actualizadas: "actualizar",
+  modificada: "modificar", modificadas: "modificar",
+  eliminada: "eliminar", eliminadas: "eliminar",
+  asignada: "asignar", asignadas: "asignar",
+  // Masculino sing/plural
+  creado: "crear", creados: "crear",
+  guardado: "guardar", guardados: "guardar",
+  registrado: "registrar", registrados: "registrar",
+  añadido: "añadir", añadidos: "añadir",
+  actualizado: "actualizar", actualizados: "actualizar",
+  modificado: "modificar", modificados: "modificar",
+  eliminado: "eliminar", eliminados: "eliminar",
+  asignado: "asignar", asignados: "asignar",
+};
+
+const FEM_NOUNS  = "tarea|tareas|propuesta|propuestas|negociación|negociaciones|nota|notas|factura|facturas";
+const MASC_NOUNS = "proyecto|proyectos|movimiento|movimientos|ingreso|ingresos|gasto|gastos|contrato|contratos|asiento|asientos";
+const FEM_VERBS  = "creada|creadas|guardada|guardadas|registrada|registradas|añadida|añadidas|actualizada|actualizadas|modificada|modificadas|eliminada|eliminadas|asignada|asignadas";
+const MASC_VERBS = "creado|creados|guardado|guardados|registrado|registrados|añadido|añadidos|actualizado|actualizados|modificado|modificados|eliminado|eliminados|asignado|asignados";
+
+const FEM_RE   = new RegExp(`\\b(${FEM_NOUNS})\\b([^.\\n]{0,80}?)\\b(${FEM_VERBS})\\b`, "gi");
+const MASC_RE  = new RegExp(`\\b(${MASC_NOUNS})\\b([^.\\n]{0,80}?)\\b(${MASC_VERBS})\\b`, "gi");
+const SE_HA_RE = /\b(se ha|se han)\s+(creado|guardado|registrado|añadido|actualizado|modificado|eliminado|asignado)\b/gi;
+
+export function rewriteToPropositive(summaryText) {
+  if (!summaryText || typeof summaryText !== "string") {
+    return { rewritten: summaryText, wasFixed: false };
+  }
+  const original = summaryText;
+  let rewritten = summaryText;
+
+  rewritten = rewritten.replace(FEM_RE, (match, sust, mid, verb) => {
+    const inf = PROPOSITIVE_VERB_MAP[verb.toLowerCase()];
+    return inf ? `${sust}${mid} a ${inf}` : match;
+  });
+  rewritten = rewritten.replace(MASC_RE, (match, sust, mid, verb) => {
+    const inf = PROPOSITIVE_VERB_MAP[verb.toLowerCase()];
+    return inf ? `${sust}${mid} a ${inf}` : match;
+  });
+  rewritten = rewritten.replace(SE_HA_RE, (match, prefix, verb) => {
+    const inf = PROPOSITIVE_VERB_MAP[verb.toLowerCase()];
+    return inf ? `${prefix} propuesto ${inf}` : match;
+  });
+
+  const wasFixed = rewritten !== original;
+  return wasFixed ? { rewritten, wasFixed: true, original } : { rewritten, wasFixed: false };
+}
+
 // Aplana data.boards → array de tareas vivas con projectCode anotado.
 // Las tareas viven en data.boards[projectId]:[{name, tasks:[]}] — NO en
 // data.tasks (campo inexistente). Excluimos columna "Hecho" y archived

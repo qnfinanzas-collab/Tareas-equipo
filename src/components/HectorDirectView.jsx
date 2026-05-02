@@ -12,7 +12,7 @@
 // Responsive: maxWidth 680px en desktop, 600px en tablet, 100% en móvil.
 import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase } from "../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive } from "../lib/agentActions.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
 
 const CHAT_MAX = 50;
@@ -330,6 +330,20 @@ Reglas:
       // logea en consola cada corrección y marca task._dateFixed=true
       // para que ActionProposal pueda mostrar un indicador sutil.
       correctActionsDates(proposal);
+      // Reescritura propositiva del summary (propositive-summary-v1).
+      // Cuando Héctor emite "Tarea X creada en Y" en proposal.summary,
+      // el CEO puede leer "creada" como confirmación de ejecución
+      // cuando aún es solo una propuesta pendiente. La reescritura es
+      // invisible para la UI: el wording final queda natural y
+      // propositivo ("a crear"). Sin afectar títulos individuales de
+      // tareas (van en proposal.actions[].tasks[].title) ni prosa libre.
+      if (proposal && proposal.summary) {
+        const r = rewriteToPropositive(proposal.summary);
+        if (r.wasFixed) {
+          console.log(`✏️ [agentActions] Resumen reescrito a propositivo: '${r.original}' → '${r.rewritten}'`);
+          proposal.summary = r.rewritten;
+        }
+      }
       // Extracción de invocaciones [INVOCAR:agente:tarea]. Antes Héctor
       // emitía estas etiquetas y se renderizaban como texto plano —
       // ningún parser las recogía en HectorDirect. Ahora las extraemos
