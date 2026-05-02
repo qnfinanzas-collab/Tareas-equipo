@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#0A0A0A" />
-<title>Kluxor — Silent Luxury Circle</title>
+<title>Kluxor — Por invitación</title>
 <link rel="icon" type="image/svg+xml" href="/icon.svg" />
 
 <!-- Tipografías: serif elegante (display) + sans neutral (UI). -->
@@ -30,6 +30,7 @@ input, textarea, select, button {
 }
 
 html, body { height: 100%; }
+html { scroll-behavior: smooth; }
 body {
   background: #0A0A0A;
   color: #F5F0E8;
@@ -132,6 +133,52 @@ a { color: inherit; text-decoration: none; }
   color: var(--negro);
 }
 
+/* ── PRIMITIVAS DE SECCIÓN ── */
+.kx-section {
+  padding: 120px 32px;
+  position: relative;
+}
+.kx-section-narrow {
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: center;
+}
+.kx-eyebrow {
+  font-size: 11px;
+  letter-spacing: 6px;
+  color: var(--oro-oscuro);
+  text-transform: uppercase;
+  font-weight: 500;
+  display: block;
+}
+.kx-rule {
+  display: block;
+  width: 60px;
+  height: 1px;
+  background: var(--oro);
+  margin: 64px auto;
+}
+.kx-rule-grow {
+  transform-origin: top center;
+  transform: scaleY(0);
+  transition: transform .9s ease;
+}
+.kx-rule-grow.is-visible { transform: scaleY(1); }
+
+/* Texto en oro como acento (palabras seleccionadas, no decoración) */
+.kx-gold { color: var(--oro); }
+
+/* Fade-in al entrar en viewport */
+.kx-fade {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity .8s ease, transform .8s ease;
+}
+.kx-fade.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 /* ── HERO ── */
 .kx-hero {
   min-height: 100vh;
@@ -140,88 +187,250 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 120px 32px 80px;
+  padding: 140px 32px 100px;
   position: relative;
 }
 .kx-hero-label {
-  font-size: 11px;
-  letter-spacing: 6px;
-  text-transform: uppercase;
-  color: var(--oro-oscuro);
   margin-bottom: 56px;
-  font-weight: 500;
   opacity: 0;
   transform: translateY(16px);
-  animation: kxFadeUp .9s ease .6s forwards;
+  animation: kxFadeUp .9s ease .4s forwards;
 }
 .kx-hero-quote {
   font-family: 'Cormorant Garamond', serif;
   font-style: italic;
   font-weight: 400;
-  font-size: clamp(26px, 4.5vw, 52px);
-  line-height: 1.25;
+  font-size: clamp(26px, 4.5vw, 50px);
+  line-height: 1.4;
   color: var(--perla);
-  max-width: 920px;
+  max-width: 760px;
   margin: 0 auto;
   opacity: 0;
   transform: translateY(16px);
-  animation: kxFadeUp .9s ease .9s forwards;
+  animation: kxFadeUp .9s ease .7s forwards;
 }
 .kx-hero-quote em { font-style: italic; color: var(--oro); }
 .kx-hero-author {
-  margin-top: 32px;
+  margin-top: 28px;
   font-size: 11px;
   letter-spacing: 5px;
   color: var(--oro-oscuro);
   font-weight: 500;
   opacity: 0;
   transform: translateY(16px);
-  animation: kxFadeUp .9s ease 1.3s forwards;
+  animation: kxFadeUp .9s ease 1.1s forwards;
 }
-.kx-hero-tagline {
-  margin-top: 72px;
+.kx-hero-rule {
+  display: block;
+  width: 60px;
+  height: 1px;
+  background: var(--oro);
+  margin: 64px auto;
+  opacity: 0;
+  animation: kxFadeIn .8s ease 1.3s forwards;
+}
+.kx-hero-sub {
+  font-family: 'Cormorant Garamond', serif;
   font-weight: 300;
-  font-size: 14px;
-  color: var(--gris-texto);
-  line-height: 1.9;
-  max-width: 560px;
+  font-size: clamp(22px, 3vw, 30px);
+  line-height: 1.4;
+  color: var(--perla);
+  max-width: 640px;
+  margin: 0 auto;
   opacity: 0;
   transform: translateY(16px);
-  animation: kxFadeUp .9s ease 1.6s forwards;
+  animation: kxFadeUp .9s ease 1.4s forwards;
 }
-.kx-hero-tagline span { display: block; }
-.kx-scroll-ind {
-  position: absolute;
-  bottom: 40px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  font-size: 10px;
-  letter-spacing: 4px;
-  color: var(--gris-muted);
-  text-transform: uppercase;
+.kx-hero-tagline {
+  margin-top: 24px;
+  font-size: 13px;
+  font-weight: 300;
+  color: var(--gris-texto);
+  line-height: 1.8;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
   opacity: 0;
-  animation: kxFadeIn 1s ease 2.2s forwards;
-}
-.kx-scroll-ind .line {
-  width: 1px;
-  height: 0;
-  background: var(--oro-oscuro);
-  animation: kxLineGrow 1.4s ease 2.4s forwards, kxPulse 2.4s ease 4s infinite;
+  transform: translateY(16px);
+  animation: kxFadeUp .9s ease 1.7s forwards;
 }
 
-/* ── SECCIÓN LOGIN ── */
+/* ── MANIFIESTO ── */
+.kx-manifesto-text {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-weight: 400;
+  font-size: 22px;
+  line-height: 1.75;
+  color: var(--perla);
+  margin-top: 36px;
+}
+.kx-manifesto-text p + p { margin-top: 22px; }
+
+/* ── HÉCTOR ── */
+.kx-hector-head { text-align: center; }
+.kx-hector-name {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 400;
+  font-size: clamp(48px, 7vw, 80px);
+  line-height: 1.05;
+  color: var(--perla);
+  margin-top: 18px;
+}
+.kx-hector-subtitle {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 18px;
+  color: var(--oro);
+  margin-top: 16px;
+  font-weight: 400;
+}
+.kx-hector-body {
+  max-width: 640px;
+  margin: 56px auto 0;
+  text-align: center;
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 300;
+  font-size: 18px;
+  line-height: 1.85;
+  color: var(--perla);
+}
+
+/* ── EL CÍRCULO ── */
+.kx-circle-wrap { max-width: 1100px; margin: 0 auto; }
+.kx-circle-head { text-align: center; }
+.kx-circle-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 400;
+  font-size: clamp(34px, 4.5vw, 46px);
+  line-height: 1.2;
+  color: var(--perla);
+  margin-top: 18px;
+}
+.kx-circle-sub {
+  font-size: 13px;
+  color: var(--gris-texto);
+  font-weight: 300;
+  max-width: 580px;
+  margin: 14px auto 0;
+  line-height: 1.7;
+}
+.kx-circle-grid {
+  margin-top: 64px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.kx-card {
+  background: var(--gris-oscuro);
+  border: 1px solid var(--gris-borde);
+  padding: 36px 28px;
+  display: flex;
+  flex-direction: column;
+  transition: transform .4s ease, border-color .4s ease, box-shadow .4s ease;
+}
+.kx-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(201, 168, 76, 0.18);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55);
+}
+.kx-card-emoji {
+  font-size: 24px;
+  line-height: 1;
+}
+.kx-card-name {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 500;
+  font-size: 22px;
+  color: var(--perla);
+  margin-top: 18px;
+  line-height: 1.2;
+}
+.kx-card-role {
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--oro-oscuro);
+  text-transform: uppercase;
+  font-weight: 500;
+  margin-top: 4px;
+}
+.kx-card-desc {
+  font-size: 12.5px;
+  color: var(--gris-texto);
+  line-height: 1.75;
+  margin-top: 16px;
+  font-weight: 300;
+}
+
+/* ── DIFERENCIADOR ── */
+.kx-diff-wrap { max-width: 780px; margin: 0 auto; text-align: center; }
+.kx-diff-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 400;
+  font-size: clamp(32px, 4.5vw, 44px);
+  line-height: 1.3;
+  color: var(--perla);
+  margin-top: 24px;
+}
+.kx-diff-body {
+  margin-top: 48px;
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 300;
+  font-size: 18px;
+  line-height: 1.85;
+  color: var(--perla);
+}
+.kx-diff-body p + p { margin-top: 22px; }
+.kx-diff-coda {
+  margin-top: 48px;
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 16px;
+  color: var(--oro-oscuro);
+  line-height: 1.7;
+}
+
+/* ── CEO OS ── */
+.kx-os-wrap { max-width: 760px; margin: 0 auto; text-align: center; }
+.kx-os-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 400;
+  font-size: clamp(34px, 4.5vw, 46px);
+  color: var(--perla);
+  margin-top: 18px;
+  line-height: 1.2;
+}
+.kx-os-tag {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 22px;
+  color: var(--oro);
+  margin-top: 14px;
+  line-height: 1.5;
+}
+.kx-os-body {
+  margin-top: 56px;
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 300;
+  font-size: 17px;
+  line-height: 1.85;
+  color: var(--perla);
+}
+.kx-os-body p + p { margin-top: 22px; }
+
+/* ── LOGIN ── */
 .kx-login {
-  padding: 140px 32px 100px;
+  padding: 40px 32px 100px;
   display: flex;
   justify-content: center;
 }
 .kx-login-inner {
   width: 100%;
   max-width: 420px;
+}
+.kx-login-prelude {
+  text-align: center;
+  margin-bottom: 32px;
 }
 .kx-login-head { text-align: center; margin-bottom: 56px; }
 .kx-login-title {
@@ -353,147 +562,26 @@ a { color: inherit; text-decoration: none; }
 
 #kx-view-forgot { display: none; }
 
-/* Separador "ECOSISTEMA" */
-.kx-divider {
-  display: flex;
-  align-items: center;
-  gap: 28px;
-  max-width: 720px;
-  margin: 100px auto 0;
-  padding: 0 32px;
-}
-.kx-divider-line {
-  flex: 1;
-  height: 1px;
-  background: var(--gris-borde);
-}
-.kx-divider-text {
-  font-size: 10px;
-  letter-spacing: 3px;
-  color: var(--gris-texto);
-  text-transform: uppercase;
-  font-weight: 500;
-}
-
-/* ── ECOSISTEMA ── */
-.kx-eco { padding: 80px 32px 140px; }
-.kx-eco-head { text-align: center; margin-bottom: 80px; }
-.kx-eco-eyebrow {
-  font-size: 10px;
-  letter-spacing: 6px;
-  color: var(--oro-oscuro);
-  text-transform: uppercase;
-  font-weight: 500;
-  margin-bottom: 18px;
-}
-.kx-eco-title {
+/* ── CIERRE SÉNECA ── */
+.kx-closing { padding: 120px 32px; text-align: center; }
+.kx-closing-inner { max-width: 720px; margin: 0 auto; }
+.kx-closing-quote {
   font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
   font-weight: 400;
-  font-size: clamp(28px, 4vw, 42px);
+  font-size: clamp(26px, 4vw, 40px);
+  line-height: 1.4;
   color: var(--perla);
-  line-height: 1.2;
+  margin-top: 36px;
 }
-
-.kx-grid {
-  max-width: 1100px;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
-}
-.kx-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  padding: 40px 32px 32px;
-  background: var(--gris-oscuro);
-  border: 1px solid var(--gris-borde);
-  text-decoration: none;
-  color: var(--perla);
-  transition: transform .35s ease, border-color .35s ease, box-shadow .35s ease;
-  opacity: 0;
-  transform: translateY(28px);
-  min-height: 320px;
-}
-.kx-card.is-visible { opacity: 1; transform: translateY(0); }
-.kx-card::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 2px;
-  background: var(--oro);
-  transform: scaleX(0);
-  transform-origin: left center;
-  transition: transform .45s ease;
-}
-.kx-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(201, 168, 76, 0.2);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
-}
-.kx-card:hover::before { transform: scaleX(1); }
-
-/* Card destacada (Kluxor) */
-.kx-card-featured {
-  border-color: rgba(201, 168, 76, 0.15);
-  background: linear-gradient(135deg, #1A1A1A 0%, rgba(201,168,76,0.05) 100%);
-}
-.kx-card-badge {
-  position: absolute;
-  top: 24px;
-  right: 28px;
-  font-size: 9px;
-  letter-spacing: 3px;
+.kx-closing-quote em { font-style: italic; color: var(--oro); }
+.kx-closing-author {
+  margin-top: 28px;
+  font-size: 11px;
+  letter-spacing: 5px;
   color: var(--oro-oscuro);
-  text-transform: uppercase;
   font-weight: 500;
 }
-.kx-card-icon {
-  font-size: 28px;
-  font-family: 'Cormorant Garamond', serif;
-  color: var(--oro);
-  margin-bottom: 28px;
-  line-height: 1;
-}
-.kx-card-label {
-  font-size: 10px;
-  letter-spacing: 4px;
-  color: var(--oro-oscuro);
-  text-transform: uppercase;
-  font-weight: 500;
-  margin-bottom: 12px;
-}
-.kx-card-title {
-  font-family: 'Cormorant Garamond', serif;
-  font-weight: 500;
-  font-size: 28px;
-  color: var(--perla);
-  margin-bottom: 16px;
-  line-height: 1.15;
-}
-.kx-card-desc {
-  font-size: 13px;
-  font-weight: 300;
-  color: var(--gris-texto);
-  line-height: 1.7;
-  margin-bottom: 32px;
-  flex: 1;
-}
-.kx-card-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-  letter-spacing: 2px;
-  color: var(--oro);
-  font-weight: 500;
-  text-transform: uppercase;
-}
-.kx-card-link .arrow {
-  display: inline-block;
-  transition: transform .35s ease;
-}
-.kx-card:hover .kx-card-link .arrow { transform: translateX(4px); }
 
 /* ── FOOTER ── */
 .kx-footer {
@@ -518,15 +606,8 @@ a { color: inherit; text-decoration: none; }
 .kx-footer-legal b { color: var(--oro-oscuro); font-weight: 500; }
 
 /* ── ANIMACIONES ── */
-@keyframes kxFadeUp {
-  to { opacity: 1; transform: translateY(0); }
-}
+@keyframes kxFadeUp { to { opacity: 1; transform: translateY(0); } }
 @keyframes kxFadeIn { to { opacity: 1; } }
-@keyframes kxLineGrow { to { height: 100px; } }
-@keyframes kxPulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.35; }
-}
 @keyframes kxSpin { to { transform: rotate(360deg); } }
 
 /* ── RESPONSIVE ── */
@@ -534,21 +615,29 @@ a { color: inherit; text-decoration: none; }
   .kx-nav { padding: 22px 24px; }
   .kx-nav.is-scrolled { padding: 14px 24px; }
   .kx-logo-text { display: none; }
-  .kx-hero { padding: 100px 24px 64px; }
-  .kx-hero-label { letter-spacing: 4px; margin-bottom: 36px; }
-  .kx-hero-tagline { margin-top: 48px; }
-  .kx-grid { grid-template-columns: 1fr; gap: 18px; }
-  .kx-eco { padding: 60px 24px 100px; }
-  .kx-eco-head { margin-bottom: 56px; }
-  .kx-login { padding: 100px 24px 80px; }
-  .kx-divider { padding: 0 24px; gap: 20px; margin-top: 80px; }
+  .kx-section { padding: 80px 24px; }
+  .kx-hero { padding: 110px 24px 72px; }
+  .kx-hero-label { margin-bottom: 36px; }
+  .kx-hero-rule, .kx-rule { margin: 48px auto; }
+  .kx-circle-grid { grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 48px; }
+  .kx-card { padding: 28px 22px; }
+  .kx-hector-body { margin-top: 40px; font-size: 17px; }
+  .kx-manifesto-text { font-size: 19px; line-height: 1.7; }
+  .kx-diff-body, .kx-os-body { font-size: 16px; }
+  .kx-os-tag { font-size: 19px; }
+  .kx-login { padding: 28px 24px 72px; }
+  .kx-closing { padding: 80px 24px; }
   .kx-footer { padding: 44px 24px 36px; }
+}
+@media (max-width: 480px) {
+  .kx-circle-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 380px) {
   .kx-nav { padding: 18px 20px; }
-  .kx-hero { padding: 90px 20px 60px; }
-  .kx-eco { padding: 56px 20px 90px; }
-  .kx-login { padding: 90px 20px 70px; }
+  .kx-section { padding: 72px 20px; }
+  .kx-hero { padding: 96px 20px 64px; }
+  .kx-login { padding: 24px 20px 64px; }
+  .kx-closing { padding: 72px 20px; }
   .kx-footer { padding: 40px 20px 32px; }
 }
 
@@ -559,6 +648,8 @@ a { color: inherit; text-decoration: none; }
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  .kx-fade { opacity: 1; transform: none; }
+  .kx-rule-grow { transform: scaleY(1); }
 }
 </style>
 </head>
@@ -575,44 +666,143 @@ a { color: inherit; text-decoration: none; }
   <a href="#acceder" class="kx-nav-cta">ACCEDER</a>
 </nav>
 
-<!-- ══ HERO ════════════════════════════════════════════════════ -->
+<!-- ══ 1. HERO ═════════════════════════════════════════════════ -->
 <section class="kx-hero">
-  <div class="kx-hero-label">SILENT LUXURY CIRCLE</div>
+  <span class="kx-eyebrow kx-hero-label">P&nbsp;O&nbsp;R &nbsp;&nbsp; I&nbsp;N&nbsp;V&nbsp;I&nbsp;T&nbsp;A&nbsp;C&nbsp;I&nbsp;Ó&nbsp;N</span>
   <blockquote class="kx-hero-quote">
-    « No es que tengamos poco <em>tiempo</em>, sino que <em>perdemos</em> mucho »
+    « No puedes conectar los puntos mirando hacia delante. Solo puedes conectarlos <em>mirando hacia atrás</em>. »
   </blockquote>
-  <div class="kx-hero-author">LUCIO ANNEO SÉNECA</div>
+  <div class="kx-hero-author">S&nbsp;T&nbsp;E&nbsp;V&nbsp;E &nbsp;&nbsp; J&nbsp;O&nbsp;B&nbsp;S</div>
+  <span class="kx-hero-rule" aria-hidden="true"></span>
+  <div class="kx-hero-sub">El primer sistema operativo diseñado para CEOs.</div>
   <div class="kx-hero-tagline">
-    <span>Tecnología al servicio de quien dirige.</span>
-    <span>El primer sistema operativo diseñado para CEOs.</span>
-  </div>
-  <div class="kx-scroll-ind" aria-hidden="true">
-    <span>Descubrir</span>
-    <span class="line"></span>
+    Una nueva categoría. Construida en silencio. Reservada para quien dirige.
   </div>
 </section>
 
-<!-- ══ LOGIN ═══════════════════════════════════════════════════ -->
+<!-- ══ 2. MANIFIESTO ═══════════════════════════════════════════ -->
+<section class="kx-section kx-fade">
+  <div class="kx-section-narrow">
+    <span class="kx-eyebrow">M&nbsp;A&nbsp;N&nbsp;I&nbsp;F&nbsp;I&nbsp;E&nbsp;S&nbsp;T&nbsp;O</span>
+    <div class="kx-manifesto-text">
+      <p>Hay un momento en la trayectoria de un CEO en el que comprende que su mayor activo no es lo que tiene, sino <span class="kx-gold">lo que decide</span>.</p>
+      <p>Y que cada decisión depende de la velocidad con la que la información llega a él, y la precisión con la que su voluntad se convierte en acción.</p>
+      <p><span class="kx-gold">Kluxor existe para esa fracción de segundo.</span></p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 3. HÉCTOR ═══════════════════════════════════════════════ -->
+<section class="kx-section kx-fade">
+  <div class="kx-hector-head">
+    <span class="kx-eyebrow">C&nbsp;H&nbsp;I&nbsp;E&nbsp;F &nbsp;&nbsp; O&nbsp;F &nbsp;&nbsp; S&nbsp;T&nbsp;A&nbsp;F&nbsp;F</span>
+    <h2 class="kx-hector-name">Héctor</h2>
+    <div class="kx-hector-subtitle">Su mano derecha. Inteligencia artificial.</div>
+  </div>
+  <p class="kx-hector-body">Un único punto de contacto. Le habla. Él comprende. Él coordina. La operación entera de su empresa en una sola conversación.</p>
+</section>
+
+<!-- ══ 4. EL CÍRCULO ═══════════════════════════════════════════ -->
+<section class="kx-section">
+  <div class="kx-circle-wrap">
+    <div class="kx-circle-head kx-fade">
+      <span class="kx-eyebrow">E&nbsp;L &nbsp;&nbsp; C&nbsp;Í&nbsp;R&nbsp;C&nbsp;U&nbsp;L&nbsp;O</span>
+      <h2 class="kx-circle-title">Seis especialistas. Una sola voz.</h2>
+      <p class="kx-circle-sub">Convocados por Héctor. Disponibles cuando los necesite.</p>
+    </div>
+    <div class="kx-circle-grid" id="kxCircleGrid">
+      <div class="kx-card kx-fade kx-card-stagger">
+        <span class="kx-card-emoji" aria-hidden="true">🧙</span>
+        <h3 class="kx-card-name">Héctor</h3>
+        <div class="kx-card-role">CHIEF OF STAFF</div>
+        <p class="kx-card-desc">Comprende el contexto, prioriza, delega. Coordina al círculo y devuelve resultados.</p>
+      </div>
+      <div class="kx-card kx-fade kx-card-stagger">
+        <span class="kx-card-emoji" aria-hidden="true">⚖️</span>
+        <h3 class="kx-card-name">Mario</h3>
+        <div class="kx-card-role">LEGAL</div>
+        <p class="kx-card-desc">Contratos, acuerdos y cartas de intención redactados con identidad jurídica real.</p>
+      </div>
+      <div class="kx-card kx-fade kx-card-stagger">
+        <span class="kx-card-emoji" aria-hidden="true">💰</span>
+        <h3 class="kx-card-name">Diego</h3>
+        <div class="kx-card-role">FINANCIERO</div>
+        <p class="kx-card-desc">Tesorería, análisis de inversión e informes ejecutivos sobre datos verificables.</p>
+      </div>
+      <div class="kx-card kx-fade kx-card-stagger">
+        <span class="kx-card-emoji" aria-hidden="true">📊</span>
+        <h3 class="kx-card-name">Jorge</h3>
+        <div class="kx-card-role">ANALISTA</div>
+        <p class="kx-card-desc">Lectura de patrones, informes estratégicos, oportunidades latentes.</p>
+      </div>
+      <div class="kx-card kx-fade kx-card-stagger">
+        <span class="kx-card-emoji" aria-hidden="true">🏠</span>
+        <h3 class="kx-card-name">Álvaro</h3>
+        <div class="kx-card-role">INMOBILIARIO</div>
+        <p class="kx-card-desc">Valoración, mercado y due diligence. Para decisiones que cambian el mapa.</p>
+      </div>
+      <div class="kx-card kx-fade kx-card-stagger">
+        <span class="kx-card-emoji" aria-hidden="true">🏛️</span>
+        <h3 class="kx-card-name">Gonzalo</h3>
+        <div class="kx-card-role">GOBERNANZA</div>
+        <p class="kx-card-desc">Estructura societaria, fiscalidad, holdings y protección patrimonial.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 5. DIFERENCIADOR ════════════════════════════════════════ -->
+<section class="kx-section kx-fade" style="padding-top:140px;padding-bottom:140px;">
+  <div class="kx-diff-wrap">
+    <span class="kx-eyebrow">L&nbsp;O &nbsp;&nbsp; Q&nbsp;U&nbsp;E &nbsp;&nbsp; N&nbsp;O &nbsp;&nbsp; E&nbsp;X&nbsp;I&nbsp;S&nbsp;T&nbsp;E &nbsp;&nbsp; F&nbsp;U&nbsp;E&nbsp;R&nbsp;A &nbsp;&nbsp; D&nbsp;E &nbsp;&nbsp; A&nbsp;Q&nbsp;U&nbsp;Í</span>
+    <h2 class="kx-diff-title">Tres especialistas. Una decisión.</h2>
+    <div class="kx-diff-body">
+      <p>Mario redacta el contrato. Diego calcula su impacto. Gonzalo valida la estructura societaria.</p>
+      <p><span class="kx-gold">Estructura, fiscalidad, holdings y protección patrimonial</span> — coordinados en tiempo real, con el contexto completo de su empresa.</p>
+      <p>Lo que antes requería tres despachos, tres facturas y semanas de gestión, ahora ocurre en una sola conversación.</p>
+    </div>
+    <p class="kx-diff-coda">Asesoramiento estratégico permanente. Reservado, hasta hoy, a un puñado de empresas.</p>
+  </div>
+</section>
+
+<!-- ══ 6. CEO OS ═══════════════════════════════════════════════ -->
+<section class="kx-section kx-fade">
+  <div class="kx-os-wrap">
+    <span class="kx-eyebrow">U&nbsp;N&nbsp;A &nbsp;&nbsp; N&nbsp;U&nbsp;E&nbsp;V&nbsp;A &nbsp;&nbsp; C&nbsp;A&nbsp;T&nbsp;E&nbsp;G&nbsp;O&nbsp;R&nbsp;Í&nbsp;A</span>
+    <h2 class="kx-os-title">CEO Operating System.</h2>
+    <div class="kx-os-tag">No competimos con nadie. Hemos abierto un terreno nuevo.</div>
+    <div class="kx-os-body">
+      <p>Kluxor no es software de productividad. No es asistencia. No es automatización.</p>
+      <p>Es la capa donde el CEO opera su empresa entera — desde el móvil, en cualquier parte del mundo, en el idioma que le es natural: el suyo.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 7. LOGIN ════════════════════════════════════════════════ -->
 <section class="kx-login" id="acceder">
   <div class="kx-login-inner">
+
+    <div class="kx-login-prelude kx-fade">
+      <span class="kx-eyebrow">E&nbsp;L &nbsp;&nbsp; C&nbsp;O&nbsp;R&nbsp;D&nbsp;Ó&nbsp;N &nbsp;&nbsp; S&nbsp;E &nbsp;&nbsp; A&nbsp;B&nbsp;R&nbsp;E</span>
+    </div>
 
     <!-- Vista login -->
     <div id="kx-view-login">
       <div class="kx-login-head">
-        <h1 class="kx-login-title">Accede a tu cuenta</h1>
-        <div class="kx-login-sub">Tu tiempo merece un sistema a la altura</div>
+        <h1 class="kx-login-title">Acceder</h1>
+        <div class="kx-login-sub">Sus credenciales le esperan.</div>
       </div>
       <form class="kx-form" id="kxLoginForm" autocomplete="on" novalidate>
         <div class="kx-field">
           <label class="kx-label" for="kxEmail">EMAIL</label>
-          <input class="kx-input" type="email" id="kxEmail" name="email" autocomplete="email" required placeholder="tu@email.com" />
+          <input class="kx-input" type="email" id="kxEmail" name="email" autocomplete="email" required placeholder="su@email.com" />
         </div>
         <div class="kx-field">
           <label class="kx-label" for="kxPwd">CONTRASEÑA</label>
           <input class="kx-input" type="password" id="kxPwd" name="password" autocomplete="current-password" required placeholder="••••••••" />
         </div>
         <div class="kx-row-meta">
-          <button type="button" class="kx-link-mini" id="kxToForgot">¿Olvidaste tu contraseña?</button>
+          <button type="button" class="kx-link-mini" id="kxToForgot">¿Olvidó su contraseña?</button>
         </div>
         <button type="submit" class="kx-btn" id="kxLoginBtn">
           <span class="kx-btn-label">ENTRAR</span>
@@ -627,12 +817,12 @@ a { color: inherit; text-decoration: none; }
       <button type="button" class="kx-back-link" id="kxBackToLogin">← Volver al login</button>
       <div class="kx-login-head">
         <h1 class="kx-login-title">Recuperar acceso</h1>
-        <div class="kx-login-sub">Te enviaremos un enlace para restablecer la contraseña</div>
+        <div class="kx-login-sub">Le enviaremos un enlace para restablecer su contraseña.</div>
       </div>
       <form class="kx-form" id="kxForgotForm" novalidate>
         <div class="kx-field">
           <label class="kx-label" for="kxResetEmail">EMAIL</label>
-          <input class="kx-input" type="email" id="kxResetEmail" required placeholder="tu@email.com" />
+          <input class="kx-input" type="email" id="kxResetEmail" required placeholder="su@email.com" />
         </div>
         <button type="submit" class="kx-btn kx-btn-ghost" id="kxResetBtn">
           <span class="kx-btn-label">ENVIAR ENLACE</span>
@@ -645,50 +835,14 @@ a { color: inherit; text-decoration: none; }
   </div>
 </section>
 
-<!-- Separador -->
-<div class="kx-divider" aria-hidden="true">
-  <span class="kx-divider-line"></span>
-  <span class="kx-divider-text">ECOSISTEMA</span>
-  <span class="kx-divider-line"></span>
-</div>
-
-<!-- ══ ECOSISTEMA ══════════════════════════════════════════════ -->
-<section class="kx-eco">
-  <div class="kx-eco-head">
-    <div class="kx-eco-eyebrow">ECOSISTEMA KLUXOR</div>
-    <h2 class="kx-eco-title">Herramientas que construimos</h2>
-  </div>
-
-  <div class="kx-grid">
-
-    <!-- Card 1: Kluxor (destacada) -->
-    <a class="kx-card kx-card-featured" href="https://tareas-equipo.vercel.app" target="_blank" rel="noopener">
-      <span class="kx-card-badge">PRINCIPAL</span>
-      <div class="kx-card-icon" aria-hidden="true">🧙</div>
-      <div class="kx-card-label">CEO OPERATING SYSTEM</div>
-      <h3 class="kx-card-title">Kluxor</h3>
-      <p class="kx-card-desc">IA multi-agente que opera como tu equipo directivo personal. Héctor, tu Chief of Staff, coordina especialistas en legal, finanzas, análisis e inmobiliario.</p>
-      <span class="kx-card-link">Abrir plataforma <span class="arrow">→</span></span>
-    </a>
-
-    <!-- Card 2: QuickNex -->
-    <a class="kx-card" href="#" target="_blank" rel="noopener">
-      <div class="kx-card-icon" aria-hidden="true">&#9670;</div>
-      <div class="kx-card-label">COLABORACIÓN B2B2C</div>
-      <h3 class="kx-card-title">QuickNex</h3>
-      <p class="kx-card-desc">Plataforma de colaboración empresarial con IA y matchmaking estratégico. Marketplace cruzado para alianzas inteligentes entre empresas.</p>
-      <span class="kx-card-link">Explorar <span class="arrow">→</span></span>
-    </a>
-
-    <!-- Card 3: Hiperbárica HD5000 Plus -->
-    <a class="kx-card" href="https://soulbaric-app.vercel.app/home.html" target="_blank" rel="noopener">
-      <div class="kx-card-icon" aria-hidden="true">&#8599;</div>
-      <div class="kx-card-label">INVERSIÓN · SECTOR HIPERBÁRICO</div>
-      <h3 class="kx-card-title">Cámara Hiperbárica HD5000 Plus</h3>
-      <p class="kx-card-desc">Plataforma de rentabilidad para el sector hiperbárico. Configurador de proyectos, simulador de retornos (TIR, ROI, Payback), CRM comercial con pipeline y generación de propuestas para inversores.</p>
-      <span class="kx-card-link">Ver plataforma <span class="arrow">→</span></span>
-    </a>
-
+<!-- ══ 8. CIERRE SÉNECA ════════════════════════════════════════ -->
+<section class="kx-closing kx-fade">
+  <div class="kx-closing-inner">
+    <span class="kx-rule kx-rule-grow" aria-hidden="true"></span>
+    <blockquote class="kx-closing-quote">
+      « No es que tengamos poco <em>tiempo</em>, sino que <em>perdemos</em> mucho. »
+    </blockquote>
+    <div class="kx-closing-author">S&nbsp;É&nbsp;N&nbsp;E&nbsp;C&nbsp;A</div>
   </div>
 </section>
 
@@ -781,11 +935,11 @@ a { color: inherit; text-decoration: none; }
     const email = emailInput.value.trim();
     const password = pwdInput.value;
     if (!email || !password) {
-      setFeedback(loginFeedback, 'Introduce email y contraseña.', 'error');
+      setFeedback(loginFeedback, 'Introduzca email y contraseña.', 'error');
       return;
     }
     if (!supa) {
-      setFeedback(loginFeedback, 'Configura las claves de Supabase para activar el login.', 'error');
+      setFeedback(loginFeedback, 'El acceso aún no está habilitado en este entorno.', 'error');
       return;
     }
     setLoading(loginBtn, true);
@@ -796,7 +950,7 @@ a { color: inherit; text-decoration: none; }
         const friendly = msg.includes('invalid login') || msg.includes('invalid credentials')
           ? 'Email o contraseña incorrectos.'
           : (msg.includes('email not confirmed')
-              ? 'Confirma tu email antes de entrar.'
+              ? 'Confirme su email antes de entrar.'
               : (error.message || 'No se pudo iniciar sesión.'));
         setFeedback(loginFeedback, friendly, 'error');
         return;
@@ -804,7 +958,7 @@ a { color: inherit; text-decoration: none; }
       setFeedback(loginFeedback, '✓ Acceso concedido. Entrando…', 'success');
       setTimeout(() => { window.location.href = APP_URL; }, 800);
     } catch (err) {
-      setFeedback(loginFeedback, 'Error de red. Intenta de nuevo.', 'error');
+      setFeedback(loginFeedback, 'Error de red. Intente de nuevo.', 'error');
     } finally {
       setLoading(loginBtn, false);
     }
@@ -816,11 +970,11 @@ a { color: inherit; text-decoration: none; }
     setFeedback(resetFeedback, '', null);
     const email = resetEmailInput.value.trim();
     if (!email) {
-      setFeedback(resetFeedback, 'Introduce tu email.', 'error');
+      setFeedback(resetFeedback, 'Introduzca su email.', 'error');
       return;
     }
     if (!supa) {
-      setFeedback(resetFeedback, 'Configura las claves de Supabase para activar el reset.', 'error');
+      setFeedback(resetFeedback, 'El acceso aún no está habilitado en este entorno.', 'error');
       return;
     }
     setLoading(resetBtn, true);
@@ -830,35 +984,60 @@ a { color: inherit; text-decoration: none; }
         setFeedback(resetFeedback, error.message || 'No se pudo enviar el enlace.', 'error');
         return;
       }
-      setFeedback(resetFeedback, '✓ Enlace enviado. Revisa tu bandeja de entrada.', 'success');
+      setFeedback(resetFeedback, '✓ Enlace enviado. Revise su bandeja de entrada.', 'success');
     } catch (err) {
-      setFeedback(resetFeedback, 'Error de red. Intenta de nuevo.', 'error');
+      setFeedback(resetFeedback, 'Error de red. Intente de nuevo.', 'error');
     } finally {
       setLoading(resetBtn, false);
     }
   });
 
-  // ── IntersectionObserver: cards aparecen al entrar en viewport.
-  //    threshold 0.15 = ~15% visible para disparar. Una vez visible,
-  //    desconectamos para ahorrar trabajo en el scroll. ──
+  // ── IntersectionObserver: secciones y cards aparecen al entrar
+  //    en viewport. threshold 0.12 = ~12% visible para disparar.
+  //    Una vez visibles, desconectamos para ahorrar trabajo en el
+  //    scroll. Cards del Círculo: stagger 60ms entre ellas. ──
   if ('IntersectionObserver' in window) {
-    const cards = document.querySelectorAll('.kx-card');
+    const fades = document.querySelectorAll('.kx-fade');
     const io = new IntersectionObserver((entries) => {
-      entries.forEach((entry, i) => {
+      entries.forEach((entry) => {
         if (entry.isIntersecting) {
-          setTimeout(() => entry.target.classList.add('is-visible'), i * 90);
-          io.unobserve(entry.target);
+          const t = entry.target;
+          // Stagger en el grid del círculo
+          if (t.classList.contains('kx-card-stagger')) {
+            const grid = t.parentElement;
+            const idx = Array.from(grid.children).indexOf(t);
+            setTimeout(() => t.classList.add('is-visible'), idx * 60);
+          } else {
+            t.classList.add('is-visible');
+          }
+          io.unobserve(t);
         }
       });
-    }, { threshold: 0.15, rootMargin: '0px 0px -10% 0px' });
-    cards.forEach(c => io.observe(c));
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+    fades.forEach(el => io.observe(el));
+
+    // Línea dorada del cierre Séneca: animación lineDown al entrar.
+    const ruleGrow = document.querySelector('.kx-rule-grow');
+    if (ruleGrow) {
+      const io2 = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            io2.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.5 });
+      io2.observe(ruleGrow);
+    }
   } else {
-    document.querySelectorAll('.kx-card').forEach(c => c.classList.add('is-visible'));
+    document.querySelectorAll('.kx-fade').forEach(el => el.classList.add('is-visible'));
+    const ruleGrow = document.querySelector('.kx-rule-grow');
+    if (ruleGrow) ruleGrow.classList.add('is-visible');
   }
 
-  // ── Scroll suave para el ancla #acceder del CTA. Evita
-  //    el "salto" duro del navegador en navegadores que no
-  //    aplican scroll-behavior:smooth en clicks programáticos. ──
+  // ── Scroll suave para anclas internas. Refuerza el
+  //    scroll-behavior:smooth del CSS en navegadores que no lo
+  //    aplican consistentemente en clicks programáticos. ──
   document.querySelectorAll('a[href^="#"]').forEach(link => {
     link.addEventListener('click', (e) => {
       const id = link.getAttribute('href').slice(1);
