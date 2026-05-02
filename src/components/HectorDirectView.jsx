@@ -12,7 +12,7 @@
 // Responsive: maxWidth 680px en desktop, 600px en tablet, 100% en móvil.
 import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse } from "../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim } from "../lib/agentActions.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
 
 const CHAT_MAX = 50;
@@ -325,14 +325,14 @@ Jurisdicción: Juzgados de Marbella.
         .trim();
       const baseClean = proposal ? cleanAgentResponse(reply) : reply;
       const cleanText = stripInvokes(baseClean);
-      // Detección anti-alucinación: si Héctor afirma éxito ("hecho",
-      // "listo", "creado"...) pero NO emitió bloque [ACTIONS], marcamos
-      // el mensaje para mostrar un aviso visible al CEO. Sin esto, la app
-      // pintaba "Hecho ✅" como si se hubiera ejecutado algo y el CEO
-      // asumía que estaba en BD. Patrón heurístico, no exhaustivo: cubre
-      // los verbos de confirmación habituales en español.
-      const SUCCESS_RE = /\b(hecho|listo|completad[oa]|creado|creada|actualizad[oa]|asignad[oa]|añadid[oa]|guardad[oa]|registrad[oa]|procesad[oa]|cerrad[oa]|vinculad[oa])\b/i;
-      const fakeSuccess = !proposal && SUCCESS_RE.test(cleanText);
+      // Detección anti-alucinación (Capa 2 del blindaje anti-fake-success):
+      // si la prosa de Héctor afirma éxito y NO viene acompañada de un
+      // bloque [ACTIONS] válido, marcamos el mensaje. La heurística vive
+      // en agentActions.detectFalseSuccessClaim — función única compartida
+      // con HectorPanel y cualquier otra vista futura. Antes era una regex
+      // local con 13 verbos; ahora cubre 30+ patrones (he creado, se ha
+      // guardado, ya está, quedó X, tarea creada, etc.).
+      const fakeSuccess = detectFalseSuccessClaim(cleanText, proposal);
       setChatHistory(prev => [...prev, {
         role: "assistant",
         text: cleanText || "(sin texto)",

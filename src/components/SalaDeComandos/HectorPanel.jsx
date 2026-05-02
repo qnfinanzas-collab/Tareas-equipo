@@ -20,7 +20,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import { PLAIN_TEXT_RULE, getEnergyLevel, buildSkillsBlock, detectSkills } from "../../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse } from "../../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim } from "../../lib/agentActions.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
 import { formatCeoMemoryForPrompt } from "../../lib/memory.js";
 
@@ -971,7 +971,13 @@ Reglas para block_task:
       // detectamos (caso poco probable pero defensivo).
       const proposal = proposalFromRaw || parseAgentActions(reply);
       const cleanReply = proposal ? cleanAgentResponse(reply) : reply;
-      setChatHistory((prev) => [...prev, { role: "hector", text: cleanReply || "(sin respuesta)", proposal, ts: Date.now() }].slice(-CHAT_MAX));
+      // Capa 2 del blindaje anti-fake-success: si Héctor afirma éxito en
+      // texto sin bloque [ACTIONS] válido, marcamos el mensaje para que
+      // el render del chat muestre el banner amarillo anclado a la
+      // burbuja. La detección vive en agentActions (compartida con
+      // HectorDirect). Antes esta vista no tenía red de seguridad.
+      const fakeSuccess = detectFalseSuccessClaim(cleanReply, proposal);
+      setChatHistory((prev) => [...prev, { role: "hector", text: cleanReply || "(sin respuesta)", proposal, fakeSuccess, ts: Date.now() }].slice(-CHAT_MAX));
       executeAction(parsedReply);
       if (cleanReply) speakRecommendation(cleanReply);
     } catch (e) {
@@ -1697,6 +1703,24 @@ Reglas para block_task:
                           setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x));
                         }}
                       />
+                    )}
+                    {/* Banner anti-fake-success (Capa 2): se ancla a la
+                        burbuja afectada cuando el detector marca fakeSuccess
+                        y no hay propuesta válida. Mismo wording exacto que
+                        en HectorDirect para no fragmentar la experiencia. */}
+                    {!isUser && m.fakeSuccess && !m.proposal && (
+                      <div style={{
+                        marginTop: 6,
+                        padding: "8px 12px",
+                        background: "#FEF3C7",
+                        border: "1px solid #FCD34D",
+                        borderRadius: 8,
+                        fontSize: 12,
+                        color: "#92400E",
+                        lineHeight: 1.4,
+                      }}>
+                        ⚠ Héctor afirma éxito pero <b>no emitió ninguna acción real</b>. Nada se ha guardado. Reformula la orden o pídele explícitamente que ejecute.
+                      </div>
                     )}
                     <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4, paddingRight: 4 }}>{fmtTs(m.ts)}</div>
                   </div>

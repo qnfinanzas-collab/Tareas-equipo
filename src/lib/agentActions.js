@@ -68,6 +68,83 @@ export function cleanAgentResponse(responseText) {
     .trim();
 }
 
+// Detector determinista de "afirmación falsa de éxito" — Capa 2 del
+// blindaje anti-fake-success. Devuelve true cuando la prosa del agente
+// contiene un patrón confirmatorio ("he creado", "se ha guardado",
+// "ya está"…) Y NO viene acompañada de un bloque [ACTIONS] válido.
+//
+// El segundo argumento puede ser:
+//   - el resultado de parseAgentActions (objeto {actions:[...]})
+//   - un array de actions directamente
+//   - null/undefined cuando no se pudo parsear nada
+//
+// Pensado para llamarse en cada vista que muestre respuestas del agente
+// (HectorDirect, HectorPanel, futuros chats con especialistas) antes
+// de pintar la burbuja, y disparar el banner amarillo si devuelve true.
+//
+// Patrones cubiertos (~30): formas perfectivas en 1ª persona ("he X"),
+// pasiva refleja ("se ha X"), sustantivo + participio ("tarea creada"),
+// verbos sueltos en participio (hecho/listo/guardado/...), perífrasis
+// con "quedó" y muletillas confirmatorias ("ya está", "ya he"). Todos
+// con \b para evitar falsos positivos dentro de otras palabras.
+const SUCCESS_PATTERNS = [
+  /\bhe creado\b/i,
+  /\bhe añadido\b/i,
+  /\bhe guardado\b/i,
+  /\bhe registrado\b/i,
+  /\bhe ejecutado\b/i,
+  /\bhe completado\b/i,
+  /\bhe asignado\b/i,
+  /\bhe actualizado\b/i,
+  /\btarea creada\b/i,
+  /\btarea añadida\b/i,
+  /\bproyecto creado\b/i,
+  /\bnegociación creada\b/i,
+  /\bya está\b/i,
+  /\bya he\b/i,
+  /\blisto\b/i,
+  /\bhecho\b/i,
+  /\bguardado\b/i,
+  /\becho\b/i,
+  /\bcompletado\b/i,
+  /\bañadido al sistema\b/i,
+  /\bregistrado en\b/i,
+  /\bse ha creado\b/i,
+  /\bse ha añadido\b/i,
+  /\bse ha guardado\b/i,
+  /\bse ha registrado\b/i,
+  /\bse ha asignado\b/i,
+  /\bquedó cread/i,
+  /\bquedó añadid/i,
+  /\bquedó guardad/i,
+  /\bquedó registrad/i,
+  // Se preservan (no se eliminan, regla 3 de no-regresión) los verbos
+  // sueltos del detector legacy de HectorDirect que no estaban arriba.
+  /\bcreado\b/i,
+  /\bcreada\b/i,
+  /\bactualizad[oa]\b/i,
+  /\basignad[oa]\b/i,
+  /\bañadid[oa]\b/i,
+  /\bregistrad[oa]\b/i,
+  /\bprocesad[oa]\b/i,
+  /\bcerrad[oa]\b/i,
+  /\bvinculad[oa]\b/i,
+  /\bejecutad[oa]\b/i,
+];
+
+export function detectFalseSuccessClaim(responseText, parsedActions) {
+  if (!responseText || typeof responseText !== "string") return false;
+  // parsedActions puede venir como objeto {actions:[...]}, array directo, o null.
+  let actionsArr = null;
+  if (parsedActions) {
+    if (Array.isArray(parsedActions)) actionsArr = parsedActions;
+    else if (Array.isArray(parsedActions.actions)) actionsArr = parsedActions.actions;
+  }
+  const hasValidActions = Array.isArray(actionsArr) && actionsArr.length > 0;
+  if (hasValidActions) return false;
+  return SUCCESS_PATTERNS.some(p => p.test(responseText));
+}
+
 // Resuelve fechas relativas tipo "+7d", "+1m", "+2h" a ISO string. Si la
 // entrada ya parece ISO o YYYY-MM-DD, la devuelve tal cual. Devuelve null
 // para entradas vacías.
@@ -590,7 +667,7 @@ PERFIL CEO:
 Antonio Díaz · CEO ALMA DIMO INVESTMENTS S.L.
 Visionario digital desde 1998. Ha liderado equipos de diseño, marketing, programación, finanzas y ventas. Comunicación directa · opciones concretas · impacto de negocio · móvil primero · tiempo es el activo real. En documentos legales es SIEMPRE la parte principal.
 
-CAPACIDAD DE EJECUCIÓN (ACTIONS_v9):
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v10):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
@@ -602,6 +679,15 @@ REGLA STAKEHOLDERS: En cualquier acción que incluya el campo stakeholders, usa 
 
 REGLA CRÍTICA — NUNCA AFIRMES ÉXITO SIN [ACTIONS]:
 Si el CEO te pide ejecutar algo (crear, cerrar, modificar, vincular, asignar), DEBES emitir un bloque [ACTIONS] con la acción real. Está PROHIBIDO escribir 'hecho', 'listo', 'procesando... completado' o cualquier confirmación de éxito sin acompañarla de un bloque [ACTIONS] válido. Si no puedes ejecutar algo (entidad no existe, datos insuficientes), di exactamente por qué no puedes, nunca finjas que lo hiciste.
+
+PROHIBICIÓN ABSOLUTA: Si NO emites un bloque [ACTIONS] válido al final de tu respuesta, NO PUEDES usar lenguaje confirmatorio en el texto. Lenguaje confirmatorio prohibido sin [ACTIONS]: 'he creado', 'he añadido', 'he guardado', 'he registrado', 'he ejecutado', 'he completado', 'he asignado', 'he actualizado', 'guardado', 'ejecutado', 'hecho', 'listo', 'tarea creada', 'proyecto creado', 'negociación creada', 'completado', 'añadido al sistema', 'registrado', 'ya está', 'ya he', 'se ha creado', 'se ha añadido', 'se ha guardado', 'se ha registrado', 'se ha asignado', 'quedó creada', 'quedó añadido', 'quedó guardado', 'quedó registrado', y cualquier verbo en pasado o presente perfecto que afirme una acción ejecutada.
+
+Si no puedes ejecutar la acción por cualquier motivo (datos insuficientes, ambigüedad, falta de contexto, error técnico), debes:
+1) DECIRLO EXPLÍCITAMENTE — 'No puedo ejecutar esta acción porque...'
+2) Usar lenguaje condicional/propositivo — 'Podría crear', 'Voy a proponer', 'Necesito que confirmes'
+3) Pedir la información que falta o aclarar la ambigüedad
+
+FINGIR EJECUCIÓN ES LA PEOR VIOLACIÓN POSIBLE DEL SISTEMA. Es preferible decir 'no he podido' diez veces que afirmar éxito una sola vez sin haberlo ejecutado realmente.
 
 REGLA AMBIGÜEDAD — PREGUNTA ANTES DE ACTUAR:
 Si una orden menciona un nombre que puede referirse a más de una entidad (proyecto, miembro, negociación), NUNCA asumas. Pregunta primero: '¿Marc es un proyecto, un miembro del equipo o una negociación? Necesito confirmación antes de actuar.' Solo ejecuta cuando tengas certeza absoluta de qué entidad está afectada. Un error aquí puede modificar o borrar trabajo real.

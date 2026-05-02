@@ -923,22 +923,24 @@ function _migrate(d){
     return a;
   });
   // Patch ejecutor: inyecta CAPACIDAD DE EJECUCIÓN en TODOS los agentes
-  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v9".
-  // v9 ajusta el wording de PERFIL CEO (sin "CIF" repetido en el resumen,
-  // termina con "En documentos legales es SIEMPRE la parte principal")
-  // sobre v8 (PERFIL CEO añadido) sobre v7 (identidad usuario) sobre v6
-  // (regla crítica + ambigüedad) sobre v5 (stakeholders). Cortamos por
-  // marker "PERFIL CEO:" o "CAPACIDAD DE EJECUCIÓN" según versión previa.
+  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v10".
+  // v10 amplía la REGLA CRÍTICA con un bloque PROHIBICIÓN ABSOLUTA que
+  // enumera explícitamente el lenguaje confirmatorio prohibido sin
+  // [ACTIONS] (he creado, ya está, se ha…) y articula la respuesta
+  // correcta cuando no se puede ejecutar. Sobre v9 (wording PERFIL CEO)
+  // sobre v8 (PERFIL CEO) sobre v7 (identidad) sobre v6 (regla crítica
+  // + ambigüedad) sobre v5 (stakeholders). Cortamos por marker
+  // "PERFIL CEO:" o "CAPACIDAD DE EJECUCIÓN" según versión previa.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v9")) return a;             // ya v9
+    if(a.promptBase.includes("ACTIONS_v10")) return a;            // ya v10
     let cut = a.promptBase;
     if (cut.includes("PERFIL CEO:")) {
       cut = cut.split(/\n+PERFIL CEO:/)[0];
     } else if (cut.includes("CAPACIDAD DE EJECUCIÓN")) {
       cut = cut.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
     } else {
-      // sin addon previo → añadir v9
+      // sin addon previo → añadir v10
       return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
     }
     return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
