@@ -226,41 +226,6 @@ Jurisdicción: Juzgados de Marbella.
         ? `\n\n---\nTAREAS URGENTES O VENCIDAS (top ${Math.min(15, urgentRows.length)}):\n${urgentRows.slice(0,15).join("\n")}`
         : "";
 
-      // 1.b) Foco por proyecto (Fix 1 anti-fabrication). Si el mensaje
-      // del usuario menciona el código de uno o más proyectos reales
-      // (matching exacto del código con word boundaries, case-insensitive),
-      // inyectamos todas las tareas vivas de esos proyectos — SIN filtrar
-      // por prioridad/vencimiento. Esto evita que Héctor "rellene" cuando
-      // se le pide una consulta filtrada y solo ve 1 tarea urgente del
-      // proyecto en el contexto global.
-      const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const focusedProjects = (data?.projects || [])
-        .filter(p => p && !p.archived && p.code && /^[A-Z0-9]{2,5}$/i.test(p.code))
-        .filter(p => {
-          const re = new RegExp(`\\b${escapeRe(p.code)}\\b`, "i");
-          return re.test(txt);
-        });
-      let projectFocusBlock = "";
-      if (focusedProjects.length > 0) {
-        const sections = focusedProjects.slice(0, 4).map(p => {
-          const cols = (data?.boards?.[p.id]) || [];
-          const taskRows = [];
-          (cols || []).forEach(col => {
-            if (!col || col.name === "Hecho") return;
-            (col.tasks || []).forEach(t => {
-              if (!t || t.archived) return;
-              const dueMs = t.dueDate ? new Date(t.dueDate).getTime() : NaN;
-              const isOverdue = !isNaN(dueMs) && dueMs < todayMs;
-              taskRows.push(`- ${(t.title||"sin título").slice(0,80)} | prio:${t.priority||"—"} | vence:${t.dueDate || "sin fecha"}${isOverdue?" ⚠VENCIDA":""}`);
-            });
-          });
-          const limited = taskRows.slice(0, 30);
-          const more = taskRows.length > 30 ? `\n(… y ${taskRows.length - 30} más no listadas por límite de contexto)` : "";
-          return `[${p.code}] ${p.name || "Sin nombre"} — ${taskRows.length} tarea${taskRows.length !== 1 ? "s" : ""} viva${taskRows.length !== 1 ? "s" : ""}:\n${limited.join("\n") || "(sin tareas vivas)"}${more}`;
-        });
-        projectFocusBlock = `\n\n---\nENFOQUE POR PROYECTO (códigos detectados en la pregunta del CEO):\n${sections.join("\n\n")}\n\nReglas:\n- Estas son TODAS las tareas vivas de los proyectos mencionados, sin filtro de prioridad. Úsalas como fuente de verdad cuando la consulta es sobre uno de estos proyectos.\n- Si la lista anterior dice "(sin tareas vivas)", responde literalmente que el proyecto no tiene tareas activas. NO inventes.`;
-      }
-
       // 2) Proyectos activos (no archivados). Contamos tareas vivas
       // desde boards para que el dato no dependa de un campo .tasks
       // que el modelo Project no tiene.
@@ -331,23 +296,21 @@ Jurisdicción: Juzgados de Marbella.
 Cuando el CEO te pida LISTAR, MOSTRAR, CONSULTAR o VER tareas (es decir, recuperar información de tareas que YA existen, NO crear nuevas), responde primero con un bloque [TASKS_LIST] y DESPUÉS añade tu prosa breve. Formato exacto:
 
 [TASKS_LIST]
-{"vencidas":[{"code":"MAR","title":"Documento sesión Rafael","priority":"alta","due":"2026-05-02"}],"proximas":[]}
+{"vencidas":[{"code":"MAR","title":"Documento sesión Rafael","priority":"alta","due":"2026-05-02"}],"proximas":[{"code":"BSF","title":"Formación app","priority":"media","due":"2026-05-07"}]}
 [/TASKS_LIST]
 
-Importante: el ejemplo anterior tiene "proximas":[] vacío deliberadamente. Un array vacío es VÁLIDO y preferible a inventar. Si solo hay vencidas, "proximas":[]. Si solo hay próximas, "vencidas":[]. Si solo conoces 1 tarea, emítela y deja el otro array vacío. NUNCA "rellenes" la estructura con tareas plausibles.
-
 Reglas:
-- Usa SOLO datos reales presentes en los bloques "TAREAS URGENTES O VENCIDAS" o "ENFOQUE POR PROYECTO" que aparecen arriba en este system prompt. NUNCA inventes tareas. Si solo ves 1 tarea del proyecto solicitado en el contexto, emite SOLO esa 1 — no añadas tareas verosímiles para "completar la lista".
+- Usa SOLO datos reales del bloque "TAREAS URGENTES O VENCIDAS" que aparece arriba en este system prompt. NUNCA inventes tareas que no estén en ese bloque.
 - "vencidas" = dueDate anterior a hoy. "proximas" = dueDate igual o posterior a hoy, o sin fecha.
 - Campos por tarea: code (string, código del proyecto entre 2-4 letras), title (string), priority ("alta"|"media"|"baja"), due ("YYYY-MM-DD" o null si no tiene fecha). Omite campos que no conozcas.
 - El bloque se OCULTA del chat y se renderiza como tarjeta visual. Tu prosa va DESPUÉS del bloque, máximo 1-2 frases (priorización, contexto o pregunta de seguimiento).
-- Si no hay tareas relevantes que listar, NO emitas el bloque — responde solo con prosa diciendo cuántas ves o que no hay.
+- Si no hay tareas relevantes que listar, NO emitas el bloque — responde solo con prosa.
 - Este formato es SOLO para consultas de lectura. Para crear, modificar, asignar o eliminar tareas sigue siendo [ACTIONS] como hasta ahora.`;
 
       const baseSystem = ceoBlock + (hector?.promptBase
         ? hector.promptBase + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE)
-        + membersBlock + urgentBlock + projectFocusBlock + projBlock + negBlock + finBlock + govBlock + tasksListBlock;
+        + membersBlock + urgentBlock + projBlock + negBlock + finBlock + govBlock + tasksListBlock;
       // Convertimos el historial a la forma que espera la API.
       // Los mensajes "assistant" llevan el texto limpio (sin proposal).
       const messages = next.map(m => ({
