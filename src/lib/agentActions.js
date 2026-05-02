@@ -104,6 +104,92 @@ export function cleanTasksListBlock(responseText) {
     .trim();
 }
 
+// Aplana data.boards → array de tareas vivas con projectCode anotado.
+// Las tareas viven en data.boards[projectId]:[{name, tasks:[]}] — NO en
+// data.tasks (campo inexistente). Excluimos columna "Hecho" y archived
+// para que "vivas" signifique "tareas en flujo activo". Cada item lleva
+// projectCode en MAYÚSCULAS para comparaciones case-insensitive.
+export function flattenRealTasks(data) {
+  const out = [];
+  if (!data || typeof data !== "object") return out;
+  Object.entries(data.boards || {}).forEach(([pid, cols]) => {
+    const proj = (data.projects || []).find(p => p && p.id === Number(pid));
+    if (!proj || proj.archived) return;
+    (cols || []).forEach(col => {
+      if (!col || col.name === "Hecho") return;
+      (col.tasks || []).forEach(t => {
+        if (!t || t.archived) return;
+        out.push({ ...t, projectCode: String(proj.code || "").toUpperCase() });
+      });
+    });
+  });
+  return out;
+}
+
+// Detecta el primer código de proyecto mencionado en un mensaje del CEO
+// (regex \b[A-Z0-9]{2,5}\b case-insensitive contra data.projects[].code).
+// Devuelve el code en MAYÚSCULAS si hay match, o null.
+export function detectProjectCodeFilter(message, projects) {
+  if (!message || typeof message !== "string") return null;
+  if (!Array.isArray(projects)) return null;
+  const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const p of projects) {
+    if (!p || p.archived || !p.code) continue;
+    if (!/^[A-Z0-9]{2,5}$/i.test(p.code)) continue;
+    const re = new RegExp(`\\b${escapeRe(p.code)}\\b`, "i");
+    if (re.test(message)) return p.code.toUpperCase();
+  }
+  return null;
+}
+
+// Validación de tareas emitidas por el modelo contra la BD real.
+// Misma filosofía que validateAndCorrectDueDate: NO tocamos el system
+// prompt, validamos post-LLM. Bug observado: cuando un proyecto tiene
+// pocas tareas urgentes, Héctor inventaba tareas plausibles para
+// "rellenar". Aquí filtramos las que no existen en BD.
+//
+// Argumentos:
+//   emittedTasks      — array de {code, title, priority, due} del modelo
+//   allRealTasks      — array de tareas reales (use flattenRealTasks)
+//   projectCodeFilter — opcional, restringe match a ese projectCode
+//
+// Devuelve {validated, removed, removedCount}. Matching de título es
+// laxo a propósito (==, includes en cualquier dirección): el spec del
+// CEO autoriza falsos positivos antes que descartar tareas reales por
+// matices de wording.
+export function validateTasksAgainstDatabase(emittedTasks, allRealTasks, projectCodeFilter = null) {
+  if (!Array.isArray(emittedTasks) || !Array.isArray(allRealTasks)) {
+    return { validated: emittedTasks || [], removed: [], removedCount: 0 };
+  }
+  const filterUpper = projectCodeFilter ? String(projectCodeFilter).toUpperCase() : null;
+  const removed = [];
+  const validated = emittedTasks.filter(emitted => {
+    if (!emitted) { return false; }
+    const emittedTitle = String(emitted.title || "").trim().toLowerCase();
+    const emittedCode  = String(emitted.code  || "").trim().toUpperCase();
+    if (!emittedTitle) { removed.push(emitted); return false; }
+    const exists = allRealTasks.some(real => {
+      if (!real) return false;
+      const realTitle = String(real.title || "").trim().toLowerCase();
+      const realCode  = String(real.projectCode || "").trim().toUpperCase();
+      if (!realTitle) return false;
+      const titleMatch = realTitle === emittedTitle
+                      || realTitle.includes(emittedTitle)
+                      || emittedTitle.includes(realTitle);
+      // Si hay filtro de proyecto explícito, exigimos coincidencia de
+      // código. Si no, tolerantes: si el modelo no puso code o coincide,
+      // matchea — laxo para minimizar falsos negativos.
+      const codeMatch = filterUpper
+        ? realCode === filterUpper
+        : (!emittedCode || realCode === emittedCode);
+      return titleMatch && codeMatch;
+    });
+    if (!exists) { removed.push(emitted); return false; }
+    return true;
+  });
+  return { validated, removed, removedCount: removed.length };
+}
+
 // Detector determinista de "afirmación falsa de éxito" — Capa 2 del
 // blindaje anti-fake-success. Devuelve true cuando la prosa del agente
 // contiene un patrón confirmatorio ("he creado", "se ha guardado",

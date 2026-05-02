@@ -12,7 +12,7 @@
 // Responsive: maxWidth 680px en desktop, 600px en tablet, 100% en móvil.
 import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates } from "../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase } from "../lib/agentActions.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
 
 const CHAT_MAX = 50;
@@ -350,7 +350,81 @@ Reglas:
       // sigue siendo para crear/modificar). Si Héctor no emite el
       // bloque cuando aplica, fallback natural: la prosa se renderiza
       // como texto plano sin TaskListCard.
-      const tasksList = parseTasksList(reply);
+      const tasksListRaw = parseTasksList(reply);
+      // Validación post-LLM contra BD (task-validation-postllm-v1).
+      // Sonnet 4.5 inventa tareas plausibles cuando ve poco material;
+      // aquí cruzamos con la realidad. Dos modos:
+      //   - BD-driven: si el CEO mencionó un código de proyecto en su
+      //     mensaje, ignoramos lo emitido por Héctor y mostramos TODAS
+      //     las tareas reales de ese proyecto desde data.boards.
+      //   - Validated: consulta global → filtramos cada emitida que no
+      //     exista en BD (matching laxo por título contained-in).
+      // En ambos modos, marcamos _filteredFromLLM para que TaskListCard
+      // muestre el indicador "ℹ Mostrando solo tareas verificadas en
+      // el sistema." debajo de la card.
+      let tasksList = tasksListRaw;
+      if (tasksList) {
+        const projectCodeFilter = detectProjectCodeFilter(txt, data?.projects);
+        const allRealTasks = flattenRealTasks(data);
+        const todayIso = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Europe/Madrid",
+          year: "numeric", month: "2-digit", day: "2-digit",
+        }).format(new Date());
+        if (projectCodeFilter) {
+          // BD-driven: la verdad es la BD, no Héctor.
+          const realInProject = allRealTasks.filter(t => t.projectCode === projectCodeFilter);
+          const emittedTotal = (tasksList.vencidas?.length || 0) + (tasksList.proximas?.length || 0);
+          console.warn(`🔍 [agentActions] Consulta filtrada por proyecto ${projectCodeFilter}: mostrando ${realInProject.length} tareas reales de BD (Héctor emitió ${emittedTotal}, ignoradas)`);
+          if (realInProject.length === 0) {
+            tasksList = null;
+          } else {
+            const vencidas = [];
+            const proximas = [];
+            realInProject.forEach(t => {
+              const item = {
+                code: t.projectCode,
+                title: t.title || "(sin título)",
+                priority: t.priority || "media",
+                due: t.dueDate || null,
+              };
+              if (t.dueDate && t.dueDate < todayIso) vencidas.push(item);
+              else proximas.push(item);
+            });
+            tasksList = {
+              vencidas,
+              proximas,
+              total: realInProject.length,
+              _filteredFromLLM: true,
+            };
+          }
+        } else {
+          // Validated: consulta global. Filtramos emitidas contra BD
+          // por separado en cada array para preservar la clasificación
+          // que Héctor ya hizo (vencidas vs próximas).
+          const venR = validateTasksAgainstDatabase(tasksList.vencidas, allRealTasks, null);
+          const proR = validateTasksAgainstDatabase(tasksList.proximas, allRealTasks, null);
+          const totalRemoved = venR.removedCount + proR.removedCount;
+          if (totalRemoved > 0) {
+            console.warn(`🔍 [agentActions] Filtradas ${totalRemoved} tareas inventadas por Héctor (no existen en BD)`);
+            [...venR.removed, ...proR.removed].forEach(r =>
+              console.warn(`  - removed: '${r?.title || "(sin título)"}'`)
+            );
+          }
+          const totalValid = venR.validated.length + proR.validated.length;
+          if (totalValid === 0) {
+            // Todas inventadas → omitimos card. La prosa de Héctor queda
+            // intacta para que el CEO vea su contexto.
+            tasksList = null;
+          } else {
+            tasksList = {
+              vencidas: venR.validated,
+              proximas: proR.validated,
+              total: totalValid,
+              _filteredFromLLM: totalRemoved > 0,
+            };
+          }
+        }
+      }
       // Limpiamos [ACTIONS] (si hay proposal), [TASKS_LIST] y SIEMPRE
       // [INVOCAR:]. Las tres familias de marker se ocultan del chat.
       const stripInvokes = (s) => String(s || "")
@@ -1124,6 +1198,23 @@ function TaskListCard({ tasksList }) {
           <div>
             {proximas.map((t, i) => <TaskRow key={`p-${i}`} task={t} vencida={false} />)}
           </div>
+        </div>
+      )}
+
+      {/* Indicador post-validación: aparece cuando el frontend tuvo
+          que filtrar tareas inventadas o sustituir por BD-driven (modo
+          "consulta filtrada por proyecto"). Tono neutral, sin alarma. */}
+      {tasksList._filteredFromLLM && (
+        <div style={{
+          marginTop: 10,
+          fontSize: 11,
+          color: "#6B6B6B",
+          fontStyle: "italic",
+          textAlign: "center",
+          paddingTop: 6,
+          borderTop: `0.5px dashed ${TASK_BORDER}33`,
+        }}>
+          ℹ Mostrando solo tareas verificadas en el sistema.
         </div>
       )}
     </div>
