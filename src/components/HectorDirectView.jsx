@@ -139,6 +139,41 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
     setIsLoading(true);
     try {
       const hector = (data?.agents || []).find(a => a.name === "Héctor");
+
+      // Bloque de contexto temporal (date-context-v1). Sonnet 4.5 tiene
+      // cutoff enero 2025 y razona fechas relativas ("viernes", "mañana")
+      // desde su training si no se le contradice — el bug era que Héctor
+      // proponía 2025-05-09 en mayo de 2026. La fecha se lee FRESCA con
+      // new Date() en cada construcción de prompt; nada cacheado. Zona
+      // horaria forzada a Europe/Madrid (Marbella-Estepona) para no
+      // depender del tz del navegador del CEO si está viajando.
+      const buildDateBlock = () => {
+        const now = new Date();
+        const fmtFull = new Intl.DateTimeFormat("es-ES", {
+          timeZone: "Europe/Madrid",
+          weekday: "long", day: "numeric", month: "long", year: "numeric",
+        }).format(now);
+        // Para la fecha ISO en Europe/Madrid usamos los partes de
+        // formatToParts para que día/mes/año reflejen el huso, no UTC.
+        const partsFmt = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Europe/Madrid",
+          year: "numeric", month: "2-digit", day: "2-digit",
+        });
+        const isoLocal = partsFmt.format(now); // "YYYY-MM-DD" en Madrid
+        const fmtTime = new Intl.DateTimeFormat("es-ES", {
+          timeZone: "Europe/Madrid",
+          hour: "2-digit", minute: "2-digit", hour12: false,
+        }).format(now);
+        return `CONTEXTO TEMPORAL:
+Hoy es ${fmtFull}. Fecha ISO: ${isoLocal}. Hora local: ${fmtTime} (zona horaria del CEO: Marbella-Estepona, Europe/Madrid).
+
+Cuando el CEO mencione fechas relativas ("viernes", "mañana", "la próxima semana", "+3 días"), CALCÚLALAS DESDE HOY arriba indicado, NUNCA desde tu fecha de entrenamiento. Tu conocimiento previo puede estar desactualizado — la verdad es la fecha que aparece arriba. Cualquier dueDate que emitas debe estar en el año ${isoLocal.slice(0,4)} o posterior salvo que el CEO especifique un año concreto.
+
+---
+`;
+      };
+      const dateBlock = buildDateBlock();
+
       // Inyección de miembros reales: Héctor recibía solo el promptBase
       // estático y no podía validar si "Marc" o "Antonio" existían como
       // miembros. Sin esa lista, alucinaba assignees inventados. Pasamos
@@ -344,7 +379,7 @@ Reglas:
 - Si no hay tareas relevantes que listar, NO emitas el bloque — responde solo con prosa diciendo cuántas ves o que no hay.
 - Este formato es SOLO para consultas de lectura. Para crear, modificar, asignar o eliminar tareas sigue siendo [ACTIONS] como hasta ahora.`;
 
-      const baseSystem = ceoBlock + (hector?.promptBase
+      const baseSystem = dateBlock + ceoBlock + (hector?.promptBase
         ? hector.promptBase + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE)
         + membersBlock + urgentBlock + projectFocusBlock + projBlock + negBlock + finBlock + govBlock + tasksListBlock;
@@ -434,11 +469,14 @@ Reglas:
           ts: Date.now(),
         }].slice(-CHAT_MAX));
         try {
-          // Propagamos ceoBlock también al especialista para que Mario
-          // redacte contratos con Antonio Díaz como parte principal,
-          // Jorge prepare informes para él, etc. Sin esto cada agente
-          // podía coger al primer miembro como "parte" del documento.
-          const sys = ceoBlock + (ag.promptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE;
+          // Propagamos dateBlock + ceoBlock al especialista. dateBlock
+          // primero para que Mario fechen contratos con la fecha real
+          // (ej. "Elaborado a 2 de mayo de 2026" en lugar de 2025).
+          // ceoBlock asegura Antonio Díaz como parte principal. Mismo
+          // string ya construido arriba — no se reconstruye, así Héctor
+          // y el especialista ven exactamente la misma fecha aunque la
+          // invocación tarde varios segundos.
+          const sys = dateBlock + ceoBlock + (ag.promptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE;
           const taskLow = inv.task.toLowerCase();
           const isRedaccion = inv.key === "mario" && REDACCION_KEYS.some(k => taskLow.includes(k));
           const timeoutMs = isRedaccion ? 90000 : 45000;
