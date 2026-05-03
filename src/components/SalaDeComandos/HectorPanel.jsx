@@ -2014,26 +2014,67 @@ Reglas para block_task:
             </div>
             {latestAnalysis && latestAnalysis.tasks && latestAnalysis.tasks.length > 0 ? (
               <>
-                {/* Summary como banner destacado encima de las cards */}
+                {/* HectorAnalysisCard (commit 5) — sustituye al banner
+                    azul oscuro del summary. Identidad Kluxor: card blanca
+                    con borde gris cálido, avatar cuadrado #1A1A1A con la
+                    H en oro, divider y CTA al pie para profundizar en
+                    HectorDirect. Solo lectura/recomendación; nunca crea
+                    acciones — para eso sigue siendo HectorDirect. */}
                 {latestAnalysis.summary && (
-                  <div style={{
-                    backgroundColor: "#1A252F",
-                    color: "white",
-                    borderRadius: 8,
-                    padding: "14px 18px",
-                    marginBottom: 16,
-                    fontSize: 13,
-                    fontStyle: "italic",
-                    lineHeight: 1.6,
-                    display: "flex",
-                    gap: 10,
-                    alignItems: "flex-start",
-                    maxWidth: "100%",
-                    boxSizing: "border-box",
-                    wordBreak: "break-word",
-                  }}>
-                    <span style={{ fontSize: 16, color: "white", flexShrink: 0 }}>💭</span>
-                    <span style={{ flex: 1 }}>{latestAnalysis.summary}</span>
+                  <div style={{ padding: "12px 20px", marginBottom: 4 }}>
+                    <div style={{
+                      background: "#fff",
+                      border: "0.5px solid #E5E0D5",
+                      padding: 14,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 12,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{
+                          width: 22,
+                          height: 22,
+                          background: "#1A1A1A",
+                          color: "#C9A84C",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          fontFamily: "Georgia, 'Times New Roman', serif",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                        }}>H</div>
+                        <span style={{ fontSize: 11, fontWeight: 500, color: "#1A1A1A", letterSpacing: "0.02em" }}>
+                          Héctor · Chief of Staff
+                        </span>
+                      </div>
+                      <div style={{
+                        fontSize: 13,
+                        lineHeight: 1.6,
+                        color: "#1A1A1A",
+                        wordBreak: "break-word",
+                        whiteSpace: "pre-wrap",
+                      }}>
+                        {latestAnalysis.summary}
+                      </div>
+                      <div style={{ height: 0, borderTop: "0.5px solid #E5E0D5", marginTop: -2 }} />
+                      <button
+                        onClick={() => onNavigate?.("hector-direct")}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          padding: 0,
+                          fontSize: 11,
+                          color: "#C9A84C",
+                          textDecoration: "underline",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                          textAlign: "left",
+                          alignSelf: "flex-start",
+                          letterSpacing: "0.02em",
+                        }}
+                      >Profundizar en HectorDirect →</button>
+                    </div>
                   </div>
                 )}
                 {renderAnalysisGroups(latestAnalysis, handleViewTaskFromCard, handleCompleteFromCard, handlePostponeFromCard)}
