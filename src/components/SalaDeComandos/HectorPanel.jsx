@@ -242,6 +242,11 @@ export default function HectorPanel({
   authUid = null,
   // Proyectos no archivados, para contar "frentes activos" en SaludoCard.
   projects = [],
+  // Negociaciones activas (commit 7) — ya filtradas y ordenadas en
+  // App.jsx: excluye archived/closed/cerrado_*/acuerdo_parcial, top 5
+  // por updatedAt|createdAt desc. Se pintan en NegociacionesList sin
+  // ningún campo financiero (CERO importes / cifras / valores).
+  negotiations = [],
   // Callback para navegar a otras vistas desde HectorPanel (ej. CTA
   // "Hablar con Héctor sobre esto" en FocoCard → vista hector-direct).
   // Firma: (tabKey: string) => void. Si no se pasa, el CTA queda
@@ -2180,6 +2185,76 @@ Reglas para block_task:
                     )}
                   </div>
                 </div>
+                {/* NegociacionesList (commit 7) — resumen breve sin
+                    importes. Solo título + (counterparty || status) +
+                    badge "Activa"|"En espera". Datos vienen ya filtrados
+                    y ordenados desde App.jsx (top 5, no archived/closed).
+                    CERO campos numéricos: ningún value/amount/precio. */}
+                {Array.isArray(negotiations) && negotiations.length > 0 && (
+                  <>
+                    <div style={{
+                      padding: "12px 20px 8px",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: "#6B6B6B",
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                    }}>Negociaciones activas</div>
+                    <div style={{ padding: "0 20px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
+                      {negotiations.map(n => {
+                        const isActive = ["active","en_curso","activa"].includes(n.status);
+                        const badgeLabel = isActive ? "Activa" : "En espera";
+                        const badgeBg    = isActive ? "#E1F5EE" : "#F1EFE8";
+                        const badgeColor = isActive ? "#0F6E56" : "#5F5E5A";
+                        const subtitle = (n.counterparty && String(n.counterparty).trim())
+                          || (n.status && String(n.status).trim())
+                          || "—";
+                        return (
+                          <div key={n.id} style={{
+                            background: "#fff",
+                            border: "0.5px solid #E5E0D5",
+                            padding: "8px 10px",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 10,
+                          }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{
+                                fontSize: 12,
+                                fontWeight: 500,
+                                color: "#1A1A1A",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                lineHeight: 1.3,
+                              }}>{n.title || "(sin título)"}</div>
+                              <div style={{
+                                fontSize: 11,
+                                color: "#6B6B6B",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                lineHeight: 1.3,
+                                marginTop: 2,
+                              }}>{subtitle}</div>
+                            </div>
+                            <span style={{
+                              fontSize: 10,
+                              fontWeight: 600,
+                              padding: "3px 8px",
+                              background: badgeBg,
+                              color: badgeColor,
+                              flexShrink: 0,
+                              letterSpacing: "0.04em",
+                              lineHeight: 1.4,
+                            }}>{badgeLabel}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
                 {renderAnalysisGroups(latestAnalysis, handleViewTaskFromCard, handleCompleteFromCard, handlePostponeFromCard)}
               </>
             ) : (

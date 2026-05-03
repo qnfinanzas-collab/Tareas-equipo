@@ -5177,6 +5177,10 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
               userName={me?.name}
               authUid={authSession?.user?.id || null}
               projects={(data.projects||[]).filter(p=>p && !p.archived)}
+              negotiations={(negotiations||[])
+                .filter(n => n && !["archived","closed","cerrado_ganado","cerrado_perdido","acuerdo_parcial"].includes(n.status))
+                .sort((a,b) => (new Date(b.updatedAt||b.createdAt||0)) - (new Date(a.updatedAt||a.createdAt||0)))
+                .slice(0, 5)}
               onNavigate={onNavigate}
               onStateChange={onHectorStateChange}
               onNewRecommendation={onHectorRecommendation}
