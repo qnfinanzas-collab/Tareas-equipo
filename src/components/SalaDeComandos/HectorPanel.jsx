@@ -247,6 +247,22 @@ export default function HectorPanel({
   // por updatedAt|createdAt desc. Se pintan en NegociacionesList sin
   // ningún campo financiero (CERO importes / cifras / valores).
   negotiations = [],
+  // Foco operativo (commit 9 — integración legacy). El tarea concreta
+  // sobre la que actúan los botones Empezar/Posponer/Hecho de FocoCard.
+  // Si null, no se muestran los botones. Distinto del prop currentFocus
+  // (este es el calculado en CommandRoomView con heurística overdue).
+  focusTask = null,
+  // KPIs del header de Sala de Mando (commit 9): chips clicables
+  // dentro de SaludoCard. Calculados en CommandRoomView con la misma
+  // heurística que el bloque legacy eliminado en este commit.
+  overdueColdCount = 0,
+  coldNegsCount = 0,
+  waitingCount = 0,
+  // Callbacks de navegación de los chips KPI (commit 9):
+  // onGoMytasks(filter) y onGoDealRoom(filter). Si no se pasan, los
+  // chips se muestran pero no son clicables (degradación silenciosa).
+  onGoMytasks,
+  onGoDealRoom,
   // Callback para navegar a otras vistas desde HectorPanel (ej. CTA
   // "Hablar con Héctor sobre esto" en FocoCard → vista hector-direct).
   // Firma: (tabKey: string) => void. Si no se pasa, el CTA queda
@@ -1796,6 +1812,30 @@ Reglas para block_task:
               <div style={{ fontSize: 11, color: "#6B6B6B", marginTop: 4, textTransform: "capitalize" }}>
                 {fechaLarga} · Marbella-Estepona
               </div>
+              {/* Chips KPI (commit 9 — integración legacy). 3 chips
+                  clicables que navegan a Mis tareas (vencidas/waiting)
+                  o Deal Room (frías). Reemplazan al header legacy
+                  eliminado. Border-radius 0 estilo Kluxor. */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => onGoMytasks?.("overdue")}
+                  title="Tareas vencidas sin actividad reciente"
+                  style={{ padding: "3px 10px", background: "#FFF0F0", color: "#E74C3C", border: "1px solid #E74C3C", fontSize: 11, fontWeight: 600, cursor: onGoMytasks ? "pointer" : "default", fontFamily: "inherit", borderRadius: 0 }}
+                >🔴 Vencidas: {overdueColdCount}</button>
+                <button
+                  type="button"
+                  onClick={() => onGoDealRoom?.("cold")}
+                  title="Negociaciones sin actividad >5 días"
+                  style={{ padding: "3px 10px", background: "#F0F7FF", color: "#3498DB", border: "1px solid #3498DB", fontSize: 11, fontWeight: 600, cursor: onGoDealRoom ? "pointer" : "default", fontFamily: "inherit", borderRadius: 0 }}
+                >🔵 Frías: {coldNegsCount}</button>
+                <button
+                  type="button"
+                  onClick={() => onGoMytasks?.("waiting")}
+                  title="Tareas esperando respuesta de alguien"
+                  style={{ padding: "3px 10px", background: "#FFF8E7", color: "#F39C12", border: "1px solid #F39C12", fontSize: 11, fontWeight: 600, cursor: onGoMytasks ? "pointer" : "default", fontFamily: "inherit", borderRadius: 0 }}
+                >🟡 Esperan: {waitingCount}</button>
+              </div>
             </>
           );
         })()}
@@ -2044,6 +2084,42 @@ Reglas para block_task:
                           marginTop: 2,
                         }}
                       >Liberar foco</button>
+                    )}
+                    {/* Acciones rápidas sobre la tarea foco (commit 9 —
+                        integración legacy). Solo si hay focusTask
+                        asociado y los callbacks llegan como props.
+                        Reemplaza los 3 botones del header legacy
+                        eliminado en este commit. Border-radius 0. */}
+                    {focusTask && (onOpenTask || onCompleteTask || onPostponeTask) && (
+                      <>
+                        <div style={{ height: 0, borderTop: "0.5px solid #E5E0D5", marginTop: 6 }} />
+                        <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                          {onOpenTask && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenTask?.(focusTask.id, focusTask.projId)}
+                              title="Abrir la tarea en su tablero"
+                              style={{ background: "#1A1A1A", color: "#fff", border: "none", padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", borderRadius: 0 }}
+                            >▶ Empezar</button>
+                          )}
+                          {onPostponeTask && (
+                            <button
+                              type="button"
+                              onClick={() => onPostponeTask?.(focusTask)}
+                              title="Posponer la tarea +1 día"
+                              style={{ background: "transparent", color: "#6B6B6B", border: "0.5px solid #E5E0D5", padding: "8px 16px", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", borderRadius: 0 }}
+                            >⏸ Posponer</button>
+                          )}
+                          {onCompleteTask && (
+                            <button
+                              type="button"
+                              onClick={() => onCompleteTask?.(focusTask.id, focusTask.projId, focusTask.colId)}
+                              title="Marcar la tarea como hecha"
+                              style={{ background: "#C9A84C", color: "#fff", border: "none", padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", borderRadius: 0 }}
+                            >✓ Hecho</button>
+                          )}
+                        </div>
+                      </>
                     )}
                   </>
                 )}

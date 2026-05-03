@@ -5058,29 +5058,9 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
     return `Vence en ${h}h ${m}min`;
   })();
 
-  const now = new Date();
-
-  // Acciones del Foco. Empezar/Hecho mutan el board mediante callbacks
-  // ya existentes en App; Posponer pide razón inline y mueve la fecha 1 día.
-  const [postponeReason,setPostponeReason] = useState(null); // null | string en edición
   // Kanban del día colapsado por defecto — el CEO normalmente no lo
   // necesita expandido al entrar; ocupa pantalla útil. Se expande al click.
   const [kanbanExpanded,setKanbanExpanded] = useState(false);
-  const startFocus = ()=>{
-    if(!focusTask) return;
-    onOpenTask?.(focusTask.id, focusTask.projId);
-  };
-  const completeFocus = ()=>{
-    if(!focusTask) return;
-    onCompleteTask?.(focusTask.id, focusTask.projId, focusTask.colId);
-  };
-  const submitPostpone = ()=>{
-    if(!focusTask) return;
-    const newDate = new Date(focusTask.dueDate || new Date());
-    newDate.setDate(newDate.getDate()+1);
-    onPostponeTask?.(focusTask, fmt(newDate), "+1d");
-    setPostponeReason(null);
-  };
 
   // Chips de KPIs en el header (mismas heurísticas que RiesgosPanel pero
   // calculadas aquí para mostrar el contador junto al saludo).
@@ -5100,77 +5080,6 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
 
   return(
     <div style={{padding:"20px 22px",maxWidth:1280,margin:"0 auto"}}>
-      {/* Cabecera */}
-      <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",marginBottom:18,gap:12,flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#7F77DD",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4}}>🎯 Sala de Mando</div>
-          <div style={{fontSize:22,fontWeight:700,color:"#111827"}}>Hola{me?`, ${me.name.split(" ")[0]}`:""}</div>
-          <div style={{fontSize:12,color:"#6B7280",marginTop:2,marginBottom:10}}>{active.length} tarea{active.length!==1?"s":""} activa{active.length!==1?"s":""} · {now.toLocaleString("es-ES",{weekday:"long",day:"numeric",month:"long"})}</div>
-          {/* KPIs como chips clicables */}
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            <button
-              onClick={()=>onGoMytasks?.("overdue")}
-              title="Tareas vencidas sin actividad reciente"
-              style={{padding:"6px 12px",borderRadius:20,background:"#FFF0F0",color:"#E74C3C",border:"1px solid #E74C3C",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
-            >🔴 Vencidas: {overdueColdCount}</button>
-            <button
-              onClick={()=>onGoDealRoom?.("cold")}
-              title="Negociaciones sin actividad >5 días"
-              style={{padding:"6px 12px",borderRadius:20,background:"#F0F7FF",color:"#3498DB",border:"1px solid #3498DB",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
-            >🧊 Frías: {coldNegsCount}</button>
-            <button
-              onClick={()=>onGoMytasks?.("waiting")}
-              title="Tareas esperando respuesta de alguien"
-              style={{padding:"6px 12px",borderRadius:20,background:"#FFF8E7",color:"#F39C12",border:"1px solid #F39C12",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
-            >📨 Esperan: {waitingCount}</button>
-          </div>
-        </div>
-        <button onClick={onGoDashboard} style={{padding:"6px 12px",borderRadius:8,background:"#fff",color:"#6B7280",border:"1px solid #E5E7EB",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>📊 Dashboard analítico →</button>
-      </div>
-
-      {/* Foco del Momento — primera tarjeta tras el saludo, ahora full-width
-          porque los riesgos están en chips en el header. */}
-      <div style={{marginBottom:16}}>
-        <div style={{background:"#fff",border:"2px solid #7F77DD33",borderRadius:14,padding:"24px 26px",minHeight:280,display:"flex",flexDirection:"column"}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#7F77DD",textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-            <span>🎯 Foco del momento</span>
-            {focusLoading && <span title="Héctor está decidiendo el siguiente foco" style={{fontSize:9,padding:"2px 7px",borderRadius:10,background:"#FEF3C7",color:"#92400E",border:"1px solid #FCD34D",fontWeight:600,letterSpacing:0,textTransform:"none",fontFamily:"inherit"}}>🤖 Héctor decidiendo…</span>}
-            {!focusLoading && llmFocus && <span title="Decisión actual de Héctor" style={{fontSize:9,padding:"2px 7px",borderRadius:10,background:"#F0F9F1",color:"#0E7C5A",border:"1px solid #86EFAC",fontWeight:600,letterSpacing:0,textTransform:"none",fontFamily:"inherit"}}>🤖 Decidido por Héctor</span>}
-          </div>
-          {!focusTask
-            ? <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10}}>
-                <div style={{fontSize:30}}>✨</div>
-                <div style={{fontSize:15,color:"#6B7280",fontWeight:500}}>Sin tareas pendientes — has ganado la mañana.</div>
-                <button onClick={onGoMytasks} style={{padding:"7px 14px",borderRadius:8,background:"transparent",color:"#7F77DD",border:"1px solid #7F77DD",fontSize:12,cursor:"pointer",fontWeight:600}}>Ver Mis tareas →</button>
-              </div>
-            : <>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-                  <RefBadge code={focusTask.ref}/>
-                  <span style={{fontSize:11,padding:"2px 9px",borderRadius:14,background:`${focusTask.projColor}18`,color:focusTask.projColor,border:`1px solid ${focusTask.projColor}55`,fontWeight:600}}>{focusTask.projEmoji} {focusTask.projName}</span>
-                  {focusCountdown && <span style={{fontSize:11,padding:"2px 9px",borderRadius:14,background:"#FEF3C7",color:"#92400E",border:"1px solid #FCD34D",fontWeight:600}}>⏱ {focusCountdown}</span>}
-                  {llmFocus?.energyRequired && <span title="Energía estimada para esta tarea" style={{fontSize:11,padding:"2px 9px",borderRadius:14,background:"#EEEDFE",color:"#3C3489",border:"1px solid #AFA9EC",fontWeight:600}}>⚡ {llmFocus.energyRequired}</span>}
-                </div>
-                <div style={{fontSize:32,fontWeight:700,color:"#111827",lineHeight:1.2,marginBottom:16}}>{focusTask.title}</div>
-                <div style={{padding:"10px 14px",background:"#F5F3FF",border:"1px solid #DDD6FE",borderRadius:10,marginBottom:18,fontSize:12.5,color:"#5B21B6",fontStyle:"italic",lineHeight:1.5}}>
-                  <b>Héctor:</b> {focusReason}
-                </div>
-                {postponeReason!==null
-                  ? <div style={{display:"flex",gap:8,alignItems:"center",marginTop:"auto"}}>
-                      <input value={postponeReason} onChange={e=>setPostponeReason(e.target.value)} placeholder="¿Por qué pospones? (obligatorio)" style={{flex:1,padding:"9px 12px",borderRadius:8,border:"1.5px solid #FCD34D",fontSize:13,fontFamily:"inherit",outline:"none"}}/>
-                      <button onClick={submitPostpone} disabled={!postponeReason.trim()} style={{padding:"9px 16px",borderRadius:8,background:postponeReason.trim()?"#EF9F27":"#E5E7EB",color:postponeReason.trim()?"#fff":"#9CA3AF",border:"none",fontSize:12.5,cursor:postponeReason.trim()?"pointer":"not-allowed",fontWeight:600,fontFamily:"inherit"}}>Posponer +1d</button>
-                      <button onClick={()=>setPostponeReason(null)} style={{padding:"9px 12px",borderRadius:8,background:"transparent",color:"#6B7280",border:"1px solid #D1D5DB",fontSize:12.5,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
-                    </div>
-                  : <div style={{display:"flex",gap:10,marginTop:"auto"}}>
-                      <button onClick={startFocus} style={{flex:2,padding:"12px 18px",borderRadius:10,background:"#1D9E75",color:"#fff",border:"none",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>▶ Empezar ahora</button>
-                      <button onClick={()=>setPostponeReason("")} style={{flex:1,padding:"12px 14px",borderRadius:10,background:"#fff",color:"#6B7280",border:"1px solid #D1D5DB",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>⏸ Posponer</button>
-                      <button onClick={completeFocus} style={{flex:1,padding:"12px 14px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✓ Hecho</button>
-                    </div>
-                }
-              </>
-          }
-        </div>
-      </div>
-
       {/* HectorPanel — análisis proactivo */}
       {(()=>{
         // Riesgos derivados con campo `level` para que HectorPanel pueda
@@ -5210,6 +5119,12 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
                 .filter(n => n && !["archived","closed","cerrado_ganado","cerrado_perdido","acuerdo_parcial"].includes(n.status))
                 .sort((a,b) => (new Date(b.updatedAt||b.createdAt||0)) - (new Date(a.updatedAt||a.createdAt||0)))
                 .slice(0, 5)}
+              focusTask={focusTask}
+              overdueColdCount={overdueColdCount}
+              coldNegsCount={coldNegsCount}
+              waitingCount={waitingCount}
+              onGoMytasks={onGoMytasks}
+              onGoDealRoom={onGoDealRoom}
               onNavigate={onNavigate}
               onStateChange={onHectorStateChange}
               onNewRecommendation={onHectorRecommendation}
