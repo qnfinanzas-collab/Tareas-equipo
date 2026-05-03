@@ -291,6 +291,11 @@ export default function HectorPanel({
   const [focoLocked, setFocoLocked] = useState(false);
   const [focoEditing, setFocoEditing] = useState(false);
   const [focoEditValue, setFocoEditValue] = useState("");
+  // CEOMemoryList (commit 6) — filas de la tabla ceo_memory cargadas
+  // del último análisis hacia atrás. Solo lectura en este commit (status
+  // se asigna por la regex de detectCEODecision; cambio manual será
+  // commit posterior). Limit 50 para no explotar la UI con histórico.
+  const [ceoMemoryRows, setCeoMemoryRows] = useState([]);
   const [recommendations, setRecommendations] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -588,6 +593,31 @@ export default function HectorPanel({
     } catch (e) {
       console.warn("[HectorPanel] loadPanelState exception:", e?.message);
       return null;
+    }
+  };
+
+  // Carga las decisiones detectadas en HectorDirect desde ceo_memory.
+  // Las pinta en CEOMemoryList (pestaña Análisis). Filtradas por
+  // user_id vía RLS, ordenadas por created_at descendente, cap a 50
+  // entradas. Sin realtime channel — se refresca al recargar Sala de
+  // Mando o tras cada generateHectorThought (puede hacer Refresh manual
+  // si quiere ver decisiones recién creadas en HectorDirect).
+  const loadCEOMemoryRows = async () => {
+    if (!supa || !authUid) return;
+    try {
+      const { data, error } = await supa
+        .from("ceo_memory")
+        .select("*")
+        .eq("user_id", authUid)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) {
+        console.warn("[HectorPanel] loadCEOMemoryRows error:", error.message);
+        return;
+      }
+      setCeoMemoryRows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.warn("[HectorPanel] loadCEOMemoryRows exception:", e?.message);
     }
   };
 
@@ -1357,6 +1387,8 @@ Reglas para block_task:
         // Primera vez del CEO en este proyecto Supabase → generamos.
         generateHectorThought();
       }
+      // CEOMemoryList: cargar en paralelo (no bloquea generación).
+      loadCEOMemoryRows();
     })();
     return () => { alive = false; cancelledRef.current = true; try { stopListenRef.current?.(); } catch {} };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2077,6 +2109,77 @@ Reglas para block_task:
                     </div>
                   </div>
                 )}
+                {/* CEOMemoryList (commit 6) — decisiones detectadas auto
+                    en HectorDirect, persistidas en tabla ceo_memory con
+                    RLS user_id = auth.uid(). Solo lectura: paleta Kluxor,
+                    border-radius 0, fila por decisión con badge status +
+                    decision_text + fecha relativa. Si vacía, muestra
+                    placeholder explicativo. */}
+                <div style={{ padding: "12px 20px", marginBottom: 4 }}>
+                  <div style={{
+                    background: "#fff",
+                    border: "0.5px solid #E5E0D5",
+                    padding: 14,
+                  }}>
+                    <div style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: "#C9A84C",
+                      letterSpacing: "0.12em",
+                      textTransform: "uppercase",
+                      marginBottom: 10,
+                    }}>
+                      Decisiones recientes{ceoMemoryRows.length > 0 ? ` (${ceoMemoryRows.length})` : ""}
+                    </div>
+                    {ceoMemoryRows.length === 0 ? (
+                      <div style={{ fontSize: 12, color: "#9B9B9B", fontStyle: "italic", lineHeight: 1.5 }}>
+                        Aún no hay decisiones detectadas. Las decisiones que tomes hablando con Héctor en HectorDirect (ej. "ponlo en standby", "decidido: X", "aparcamos Y") se guardarán aquí automáticamente.
+                      </div>
+                    ) : (
+                      <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column" }}>
+                        {ceoMemoryRows.map((row, idx) => {
+                          const isStandby   = row.status === "standby";
+                          const isEjecutado = row.status === "ejecutado";
+                          const badgeBg     = isStandby ? "#F0EDE5" : isEjecutado ? "#E8F5EE" : "#FFF6E0";
+                          const badgeColor  = isStandby ? "#6B6B6B" : isEjecutado ? "#2E7D5C" : "#A07830";
+                          const created = row.created_at ? new Date(row.created_at) : null;
+                          const fechaCorta = created ? new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(created) : "";
+                          return (
+                            <li key={row.id} style={{
+                              display: "flex",
+                              alignItems: "flex-start",
+                              gap: 10,
+                              padding: idx === 0 ? "0 0 8px" : "8px 0",
+                              borderTop: idx === 0 ? "none" : "0.5px solid #F0EDE5",
+                            }}>
+                              <span style={{
+                                fontSize: 9,
+                                fontWeight: 600,
+                                padding: "2px 7px",
+                                background: badgeBg,
+                                color: badgeColor,
+                                flexShrink: 0,
+                                letterSpacing: "0.05em",
+                                textTransform: "uppercase",
+                                lineHeight: 1.5,
+                              }}>{row.status || "activo"}</span>
+                              <span style={{
+                                flex: 1,
+                                fontSize: 12.5,
+                                color: "#1A1A1A",
+                                lineHeight: 1.5,
+                                wordBreak: "break-word",
+                              }}>{row.decision_text}</span>
+                              {fechaCorta && (
+                                <span style={{ fontSize: 10, color: "#9B9B9B", flexShrink: 0, whiteSpace: "nowrap" }}>{fechaCorta}</span>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </div>
                 {renderAnalysisGroups(latestAnalysis, handleViewTaskFromCard, handleCompleteFromCard, handlePostponeFromCard)}
               </>
             ) : (

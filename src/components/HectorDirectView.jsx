@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive } from "../lib/agentActions.js";
+import { supa } from "../lib/sync.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
 
 const CHAT_MAX = 50;
@@ -33,6 +34,42 @@ const SPECIALIST_META = {
 const REDACCION_KEYS = ["redacta","redactar","contrato","documento","acuerdo","escribe","elabora","borrador","clausula","clausulas","cláusula","cláusulas","arrendamiento","cesion","cesión","convenio","escritura"];
 
 const INVOKE_RE = /\[INVOCAR:(mario|jorge|alvaro|gonzalo|diego):([^\]]+)\]/gi;
+
+// Detector heurístico de decisiones del CEO (commit 6 — CEOMemoryList).
+// Aplicado SOBRE cleanText (la síntesis de Héctor tras validar). El
+// detected_from de la BD se rellena con el mensaje original del CEO
+// (txt) — el regex sobre cleanText captura cuando Héctor sintetiza la
+// decisión en su prosa ("Vale, lo pongo en standby"; "Decidido: Y va
+// primero"). Sin llamada a LLM, sin dedup, fire-and-forget.
+const CEO_DECISION_PATTERNS = [
+  /\b(ponlo|pon|déjalo|dejalo|pónlo)\s+(en\s+)?standby\b/i,
+  /\besto\s+(va\s+primero|es\s+prioridad)\b/i,
+  /\bno\s+(avanzar|tocar)\s+hasta\b/i,
+  /\b(decidido|decisión|hemos\s+decidido)\s*[:.]?\s/i,
+  /\b(aparcamos|aplazamos|cancelamos)\b/i,
+  /\b(la\s+regla\s+es|a\s+partir\s+de\s+ahora)\b/i,
+];
+
+function detectCEODecision(text) {
+  if (!text || typeof text !== "string") return { isDecision: false };
+  let matchIdx = -1;
+  for (const re of CEO_DECISION_PATTERNS) {
+    const m = text.match(re);
+    if (m && m.index !== undefined) { matchIdx = m.index; break; }
+  }
+  if (matchIdx === -1) return { isDecision: false };
+  // Extraemos la frase contenedora del match (delimitada por . ! ? \n)
+  // para que decision_text quede legible en CEOMemoryList sin volcar
+  // toda la respuesta de Héctor. Cap a 500 chars por seguridad.
+  const before = text.slice(0, matchIdx).split(/[.!?\n]/).pop() || "";
+  const after  = text.slice(matchIdx).split(/[.!?\n]/)[0] || "";
+  const sentence = (before + after).trim().slice(0, 500);
+  const decisionText = sentence || text.slice(0, 500);
+  // Status: si la frase contiene "standby", marcamos en standby; si no,
+  // por defecto activo. CEO podrá cambiarlo en commits posteriores.
+  const status = /\bstandby\b/i.test(decisionText) ? "standby" : "activo";
+  return { isDecision: true, text: decisionText, status };
+}
 
 // Paleta Kluxor "operational" — claro/legible para uso diario, con oro
 // como acento de marca y acción. La paleta dark negro/oro queda solo
@@ -478,6 +515,48 @@ Reglas:
         fakeSuccess,
         ts: Date.now(),
       }].slice(-CHAT_MAX));
+
+      // Detección de decisión del CEO (commit 6 — CEOMemoryList).
+      // Heurística regex sobre cleanText. Si matchea, INSERT directo a
+      // la tabla ceo_memory con detected_from = mensaje original del CEO.
+      // Sin dedup, sin notificación al CEO (silencioso), solo log
+      // consola. Fire-and-forget: un fallo de red no debe interrumpir
+      // el flujo principal. authUid se obtiene en este punto via
+      // supa.auth.getSession() para no requerir nuevos props.
+      try {
+        const detection = detectCEODecision(cleanText);
+        if (detection.isDecision) {
+          (async () => {
+            try {
+              if (!supa) {
+                console.log(`🧠 [CEOMemory] Decisión detectada (${detection.status}) pero sin Supabase: "${detection.text}"`);
+                return;
+              }
+              const { data: sessionData } = await supa.auth.getSession();
+              const sessionUid = sessionData?.session?.user?.id || null;
+              if (!sessionUid) {
+                console.log(`🧠 [CEOMemory] Decisión detectada (${detection.status}) pero sin sesión auth: "${detection.text}"`);
+                return;
+              }
+              const { error } = await supa.from("ceo_memory").insert({
+                user_id: sessionUid,
+                decision_text: detection.text,
+                status: detection.status,
+                detected_from: (txt || "").slice(0, 200),
+              });
+              if (error) {
+                console.warn(`🧠 [CEOMemory] insert error: ${error.message}`);
+              } else {
+                console.log(`🧠 [CEOMemory] Decisión detectada (${detection.status}): "${detection.text}"`);
+              }
+            } catch (e) {
+              console.warn("🧠 [CEOMemory] insert exception:", e?.message);
+            }
+          })();
+        }
+      } catch (e) {
+        console.warn("🧠 [CEOMemory] detection error:", e?.message);
+      }
 
       // Ejecución secuencial de especialistas. Secuencial > paralelo
       // porque el orden cronológico de las burbujas debe ser predecible
