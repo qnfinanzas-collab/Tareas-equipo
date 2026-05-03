@@ -23,7 +23,7 @@ const ATTACH_MAX_MB = 15;      // tope archivo binario (PDF/imagen) — Vercel l
 
 export default function Diego({ data, currentMember, canEdit, selectedCompanyId, onCallAgent, onRunAgentActions }) {
   const userId = currentMember?.id ?? "anon";
-  const storageKey = `soulbaric.diego.chat.${userId}.${selectedCompanyId || "all"}`;
+  const storageKey = `kluxor.diego.chat.${userId}.${selectedCompanyId || "all"}`;
   const [history, setHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem(storageKey) || "[]"); } catch { return []; }
   });

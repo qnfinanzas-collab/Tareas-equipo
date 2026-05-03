@@ -64,7 +64,7 @@ export default function CierreDia({ user, data, onClose }) {
   }, [data, user?.id, user?.name, today, summary]);
 
   const handleClose = () => {
-    try { localStorage.setItem("soulbaric.cierreDia.lastDate", today); } catch {}
+    try { localStorage.setItem("kluxor.cierreDia.lastDate", today); } catch {}
     onClose?.();
   };
 

@@ -1,6 +1,6 @@
 // HectorDirectView — interfaz conversacional dedicada a Héctor.
 // Aditiva al panel "Sala de Mando" (HectorPanel.jsx) — comparte el
-// historial vía localStorage `soulbaric.hector.chat.${userId}` para
+// historial vía localStorage `kluxor.hector.chat.${userId}` para
 // que ambas vistas sigan la misma conversación. La sincronización se
 // hace en montaje (cada vez que el CEO entra a la vista, re-lee
 // localStorage), no en tiempo real bidireccional dentro de la misma
@@ -102,7 +102,7 @@ function getAperturaFrase() {
 export default function HectorDirectView({ data, userId, onRunAgentActions, onNavigate, financeContext }) {
   const userKey = userId != null ? userId : "anon";
   // Misma clave que usa HectorPanel.jsx → conversación compartida.
-  const CHAT_KEY = `soulbaric.hector.chat.${userKey}`;
+  const CHAT_KEY = `kluxor.hector.chat.${userKey}`;
   const userName = (data?.members || []).find(m => m.id === userId)?.name || "CEO";
   const userInitials = userName.split(" ").map(w => (w[0]||"").toUpperCase()).slice(0, 2).join("") || "CE";
 
@@ -966,7 +966,7 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
   };
 
   // Modo 1 — Informe ejecutivo. Tipografía Georgia, header con franja
-  // morada (#534AB7 = brand SoulBaric), prosa preservada con
+  // morada (#534AB7 = brand Kluxor), prosa preservada con
   // white-space: pre-wrap, footer "Confidencial".
   const generarInforme = () => {
     const fecha = new Date().toLocaleDateString("es-ES", { day:"numeric", month:"long", year:"numeric" });
@@ -1043,11 +1043,11 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
   // Acción 3 — Adjuntar a negociación. No hay action type para esto en
   // el executor y updateNegotiation no se expone como prop; el spec del
   // CEO autoriza explícitamente fallback a localStorage. Persistimos la
-  // respuesta bajo soulbaric.specialist.attachments.${negId} para que un
+  // respuesta bajo kluxor.specialist.attachments.${negId} para que un
   // futuro panel de negociación pueda recuperarlas. La sincronización
   // con Supabase queda como TODO documentado.
   const handleAttachNeg = (negId, negCode) => {
-    const key = `soulbaric.specialist.attachments.${negId}`;
+    const key = `kluxor.specialist.attachments.${negId}`;
     let existing = [];
     try { const raw = localStorage.getItem(key); if (raw) existing = JSON.parse(raw); } catch {}
     if (!Array.isArray(existing)) existing = [];

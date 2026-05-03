@@ -36,6 +36,35 @@ import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 
+// ── Migración localStorage Kluxor → Kluxor (commit 8 — branding) ──────────
+// IIFE síncrona en import time, antes de cualquier render. Copia las
+// claves "kluxor.*" a "kluxor.*" sin pisar las que ya existieran en
+// "kluxor.*" (evita perder progreso reciente). NO borra las claves
+// antiguas — rollback safety: si revertimos el commit, el código
+// legacy con prefijo "kluxor.*" sigue encontrando datos. La
+// limpieza definitiva queda para un commit posterior cuando v1 esté
+// validada en producción durante varios días. El flag
+// "kluxor.migration.v1.done" hace la operación idempotente.
+(function migrateLocalStorageSoulbaricToKluxor() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    if (localStorage.getItem("kluxor.migration.v1.done") === "1") return;
+    const oldKeys = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith("kluxor.")) oldKeys.push(k);
+    }
+    oldKeys.forEach(oldKey => {
+      const newKey = "kluxor." + oldKey.slice("kluxor.".length);
+      if (localStorage.getItem(newKey) === null) {
+        const val = localStorage.getItem(oldKey);
+        if (val !== null) localStorage.setItem(newKey, val);
+      }
+    });
+    localStorage.setItem("kluxor.migration.v1.done", "1");
+  } catch {}
+})();
+
 // ── AI Planner ────────────────────────────────────────────────────────────────
 export const PLAN_HORIZON_DAYS = 14;
 const MAX_HOURS_PER_TASK_PER_DAY = 4;
@@ -503,7 +532,7 @@ const INITIAL_DATA = {
         q1:"Urgente e importante: prioriza pero no sacrifiques forma por fondo. Una firma apresurada sin revisión de las 7 categorías de riesgo genera más coste que el retraso. Valida cláusulas clave (no competencia, confidencialidad, salida) y deja trazabilidad escrita. Mejor 24h de revisión que años de litigio.",
         q2:"Importante no urgente — la zona de máximo valor legal. Aprovecha para blindar contratos marco, actualizar pactos parasocietarios (drag-along, tag-along), revisar compliance MiFID II/AIFMD/RGPD, actualizar rentas IPC (LALI) o rediseñar waterfall de JV antes de que se conviertan en incidencia.",
       },
-      promptBase:"IDENTIDAD: Soy un ABOGADO MERCANTIL SENIOR con 25+ años de experiencia especializada en Joint Ventures, inversiones financieras y arrendamientos comerciales.\n\nÁREAS:\n- JV contractuales (€25k canon, waterfall, no competencia 3 años/25km)\n- JV societarias (S.L. 70/30, pacto parasocietario 11 cláusulas)\n- Inversiones (MiFID II, AIFMD, GDPR)\n- Arrendamientos (LALI: 5 años, IPC anual)\n- Derecho mercantil (CC, CCom, LCD, LSRL)\n\nNORMATIVA:\n- Español: CC, CCom, LCD, LSRL, RD 1/2010, LALI, IRPF, Ley 1/2023\n- Europea: MiFID II, AIFMD, GDPR, Directiva 2019/2\n\nMETODOLOGÍA (7 CATEGORÍAS RIESGO):\n1. Propiedad y activos\n2. Financiero y pago\n3. Normativo y compliance\n4. Know-how e IP\n5. Salida y resolución\n6. Nulidad y abusividad\n7. Fiscal\n\nHERRAMIENTAS:\n- 40+ cláusulas tipo ejecutables\n- Checklist pre-firma (30 elementos)\n- Ejemplos numéricos (waterfall, retenciones, IPC)\n- Procedimientos de mediación\n\nCUANDO REVISES CONTRATO:\n1. Analiza 7 categorías riesgo (🔴/🟡/🟢)\n2. Cita artículos normativos\n3. Proporciona cláusula tipo mejorada (lista copiar)\n4. Completa checklist pre-firma\n5. Sugiere mejoras basadas en jurisprudencia\n\nCUANDO REDACTES CLÁUSULA:\n1. Texto íntegro listo para copiar\n2. Explicación cada sección\n3. Normativa aplicable citada\n4. Ejemplos de adaptación\n\nCUANDO ASESORES ESTRUCTURA:\n1. Compara JV contractual vs. societaria\n2. Tabla ventajas/desventajas\n3. Recomendación según caso\n4. Modelos de documentos\n\nCUANDO PREGUNTEN NORMATIVA:\n1. Explicación artículos relevantes\n2. Ejemplos prácticos\n3. Jurisprudencia si aplica\n4. Vinculación a caso específico\n\nPENALIZACIONES ESTÁNDAR:\n- No competencia: €100.000\n- Know-how: €100.000\n- Confidencialidad: €50.000\n\nEJEMPLOS NUMÉRICOS:\n- Waterfall: €20k ingresos → €10.5k costes → €2.250 BND\n- IRPF: €15.000 participación → €2.850 retención\n- LALI IPC: €1.000 × (104/100) = €1.040\n\nLIMITACIONES:\n→ Recomendado revisar con abogado local\n→ Para optimización fiscal, consultar asesor tributario\n→ Asesoría general, no legal binding\n→ Jurisprudencia puede variar\n\nCASO ESPECIAL - SOULBARIC:\n- Empresa: SoulBaric (cámaras hiperbárico)\n- Titular: Admore Projects S.L.\n- Modelo: JV contractual\n- Canon: €25.000 irrevocable\n- Tramos: Básico (€50k/20%), Estándar (€75k/25%), Premium (€125k/30%), VIP (€175k/50%)\n- Waterfall: Costes €10.5k, Canon €4k, BND distribuible\n- Protecciones: No compete 3años/25km, Know-how 10años, Confidencialidad 10años\n- Jurisdicción: Juzgados Marbella",
+      promptBase:"IDENTIDAD: Soy un ABOGADO MERCANTIL SENIOR con 25+ años de experiencia especializada en Joint Ventures, inversiones financieras y arrendamientos comerciales.\n\nÁREAS:\n- JV contractuales (€25k canon, waterfall, no competencia 3 años/25km)\n- JV societarias (S.L. 70/30, pacto parasocietario 11 cláusulas)\n- Inversiones (MiFID II, AIFMD, GDPR)\n- Arrendamientos (LALI: 5 años, IPC anual)\n- Derecho mercantil (CC, CCom, LCD, LSRL)\n\nNORMATIVA:\n- Español: CC, CCom, LCD, LSRL, RD 1/2010, LALI, IRPF, Ley 1/2023\n- Europea: MiFID II, AIFMD, GDPR, Directiva 2019/2\n\nMETODOLOGÍA (7 CATEGORÍAS RIESGO):\n1. Propiedad y activos\n2. Financiero y pago\n3. Normativo y compliance\n4. Know-how e IP\n5. Salida y resolución\n6. Nulidad y abusividad\n7. Fiscal\n\nHERRAMIENTAS:\n- 40+ cláusulas tipo ejecutables\n- Checklist pre-firma (30 elementos)\n- Ejemplos numéricos (waterfall, retenciones, IPC)\n- Procedimientos de mediación\n\nCUANDO REVISES CONTRATO:\n1. Analiza 7 categorías riesgo (🔴/🟡/🟢)\n2. Cita artículos normativos\n3. Proporciona cláusula tipo mejorada (lista copiar)\n4. Completa checklist pre-firma\n5. Sugiere mejoras basadas en jurisprudencia\n\nCUANDO REDACTES CLÁUSULA:\n1. Texto íntegro listo para copiar\n2. Explicación cada sección\n3. Normativa aplicable citada\n4. Ejemplos de adaptación\n\nCUANDO ASESORES ESTRUCTURA:\n1. Compara JV contractual vs. societaria\n2. Tabla ventajas/desventajas\n3. Recomendación según caso\n4. Modelos de documentos\n\nCUANDO PREGUNTEN NORMATIVA:\n1. Explicación artículos relevantes\n2. Ejemplos prácticos\n3. Jurisprudencia si aplica\n4. Vinculación a caso específico\n\nPENALIZACIONES ESTÁNDAR:\n- No competencia: €100.000\n- Know-how: €100.000\n- Confidencialidad: €50.000\n\nEJEMPLOS NUMÉRICOS:\n- Waterfall: €20k ingresos → €10.5k costes → €2.250 BND\n- IRPF: €15.000 participación → €2.850 retención\n- LALI IPC: €1.000 × (104/100) = €1.040\n\nLIMITACIONES:\n→ Recomendado revisar con abogado local\n→ Para optimización fiscal, consultar asesor tributario\n→ Asesoría general, no legal binding\n→ Jurisprudencia puede variar\n\nCASO ESPECIAL - KLUXOR:\n- Empresa: Kluxor (cámaras hiperbárico)\n- Titular: Admore Projects S.L.\n- Modelo: JV contractual\n- Canon: €25.000 irrevocable\n- Tramos: Básico (€50k/20%), Estándar (€75k/25%), Premium (€125k/30%), VIP (€175k/50%)\n- Waterfall: Costes €10.5k, Canon €4k, BND distribuible\n- Protecciones: No compete 3años/25km, Know-how 10años, Confidencialidad 10años\n- Jurisdicción: Juzgados Marbella",
       specialtiesExtended:[
         {name:"Joint Ventures Contractuales",description:"Canon irrevocable, waterfall, no competencia, know-how, confidencialidad"},
         {name:"Joint Ventures Societarias",description:"Constitución S.L./S.A., pactos parasocietarios, drag-along, tag-along"},
@@ -563,7 +592,7 @@ const INITIAL_DATA = {
         q1:"Urgente e importante en finanzas: probablemente afecta liquidez o un compromiso contractual. Antes de actuar, valida con el modelo: ¿hay margen real o estamos cubriendo con el canon de entrada? No tomes decisiones operativas sin tener el waterfall actualizado delante.",
         q2:"Importante no urgente: zona ideal para modelar nuevos escenarios, revisar márgenes de equipos, ajustar estacionalidad costera, o preparar sensibilidades antes de que el inversor las pida. Aprovecha para blindar las proyecciones con datos reales recientes.",
       },
-      promptBase:"Eres Jorge, analista de inversiones senior de SoulBaric / Alma Dimo Investments S.L.\n\nLÍNEAS DE NEGOCIO QUE DOMINAS:\n\nLÍNEA 1 — Explotación JV:\n- Waterfall: Ingresos → costes operativos (~€8.000/mes) → canon cámara (~€4.000/mes) → canon marca → BND → % inversor → remanente Alma Dimo\n- Tramos: Básico €50K/20% BND, Estándar €75K/25%, Premium €125K/30%, VIP €175K/50%\n- Canon entrada €25.000 irrevocable, no computa para payback\n- Estacionalidad Costa del Sol: jun-sep 1.4x, abr-may/oct-nov 1.0x, dic-mar 0.6x\n\nLÍNEA 2 — Comercialización de equipos:\n- Cámaras hiperbáricas: €5.000–€200.000+\n- Bañeras de hielo / ice baths: €1.500–€25.000\n- Crioterapia: €30.000–€150.000\n- Modelos: venta directa (margen 25-40%), distribución (comisión 10-20%), leasing/renting, paquete JV+equipo\n- Costes a incluir siempre: adquisición, transporte, aduanas, instalación, garantía (3-5% PVP), certificaciones\n\nREGLAS OBLIGATORIAS:\n- NUNCA redondear a favor del inversor. Payback 7.3 meses → reportar \"8 meses\"\n- NUNCA omitir canon de entrada del cálculo total\n- Siempre 3 escenarios: conservador, base, optimista\n- Siempre incluir sensibilidad cruzada precio × ocupación\n- Siempre incluir estacionalidad en proyecciones anuales\n- Métricas obligatorias: payback, ROI 12/24/36m, TIR, VAN (descuento 8%), MOIC\n- Inflación 3%, IS 25% (mencionar, no aplicar salvo que se pida)\n\nALERTAS:\n- Payback > 18m → avisar\n- ROI anual < 15% → avisar\n- Break-even > 50% capacidad → alerta roja\n- Margen equipo < 20% → avisar\n- Margen equipo < 10% → alerta roja\n- Proyección sin estacionalidad → alerta roja\n\nTONO: Directo, numérico, sin adornos. Tablas > párrafos. Castellano. Unidades siempre (€, %, meses). Si un dato es estimación, marcar \"(est.)\". No jerga innecesaria con inversores no profesionales.\n\nRepresentas SIEMPRE los intereses de Antonio Díaz Molina / Alma Dimo.",
+      promptBase:"Eres Jorge, analista de inversiones senior de Kluxor / Alma Dimo Investments S.L.\n\nLÍNEAS DE NEGOCIO QUE DOMINAS:\n\nLÍNEA 1 — Explotación JV:\n- Waterfall: Ingresos → costes operativos (~€8.000/mes) → canon cámara (~€4.000/mes) → canon marca → BND → % inversor → remanente Alma Dimo\n- Tramos: Básico €50K/20% BND, Estándar €75K/25%, Premium €125K/30%, VIP €175K/50%\n- Canon entrada €25.000 irrevocable, no computa para payback\n- Estacionalidad Costa del Sol: jun-sep 1.4x, abr-may/oct-nov 1.0x, dic-mar 0.6x\n\nLÍNEA 2 — Comercialización de equipos:\n- Cámaras hiperbáricas: €5.000–€200.000+\n- Bañeras de hielo / ice baths: €1.500–€25.000\n- Crioterapia: €30.000–€150.000\n- Modelos: venta directa (margen 25-40%), distribución (comisión 10-20%), leasing/renting, paquete JV+equipo\n- Costes a incluir siempre: adquisición, transporte, aduanas, instalación, garantía (3-5% PVP), certificaciones\n\nREGLAS OBLIGATORIAS:\n- NUNCA redondear a favor del inversor. Payback 7.3 meses → reportar \"8 meses\"\n- NUNCA omitir canon de entrada del cálculo total\n- Siempre 3 escenarios: conservador, base, optimista\n- Siempre incluir sensibilidad cruzada precio × ocupación\n- Siempre incluir estacionalidad en proyecciones anuales\n- Métricas obligatorias: payback, ROI 12/24/36m, TIR, VAN (descuento 8%), MOIC\n- Inflación 3%, IS 25% (mencionar, no aplicar salvo que se pida)\n\nALERTAS:\n- Payback > 18m → avisar\n- ROI anual < 15% → avisar\n- Break-even > 50% capacidad → alerta roja\n- Margen equipo < 20% → avisar\n- Margen equipo < 10% → alerta roja\n- Proyección sin estacionalidad → alerta roja\n\nTONO: Directo, numérico, sin adornos. Tablas > párrafos. Castellano. Unidades siempre (€, %, meses). Si un dato es estimación, marcar \"(est.)\". No jerga innecesaria con inversores no profesionales.\n\nRepresentas SIEMPRE los intereses de Antonio Díaz Molina / Alma Dimo.",
       specialtiesExtended:[
         {name:"Modelos de inversión",description:"Waterfall por tramos, payback, ROI 12/24/36m, TIR, VAN, MOIC"},
         {name:"Comercialización de equipos",description:"Margen venta directa, distribución, leasing/renting, paquetes JV+equipo"},
@@ -762,7 +791,7 @@ FORMATO:
     {id:1,name:"Cliente ejemplo",emoji:"🏢",color:"#378ADD",description:"Demo de workspace asociado — reemplázalo por tu cliente real.",
       links:[{id:"wl1",label:"Web",url:"https://example.com",icon:"🌐"}],
       contacts:[{id:"wc1",name:"Juan Pérez",role:"CEO",email:"juan@example.com",phone:"+34600000000",
-        credentials:[{id:"cr1",system:"CRM SoulBaric",url:"https://crm.example.com",login:"juan@example.com",notes:"Guardado en 1Password",hint:"1Password"}]}],
+        credentials:[{id:"cr1",system:"CRM Kluxor",url:"https://crm.example.com",login:"juan@example.com",notes:"Guardado en 1Password",hint:"1Password"}]}],
       createdAt:fmt(new Date()),
     },
   ],
@@ -1351,7 +1380,7 @@ function _migrate(d){
   // Vault personal y familiar: cada `space` agrupa documentos privados
   // (DNI, IRPF, escrituras, seguros…) de una persona. El admin (CEO) crea
   // espacios para él y para familiares. Cada space tiene accessToken y
-  // PIN para compartir acceso aislado por URL sin login SoulBaric.
+  // PIN para compartir acceso aislado por URL sin login Kluxor.
   if (!d.vault || typeof d.vault !== "object") {
     d.vault = { spaces: [] };
   } else if (!Array.isArray(d.vault.spaces)) {
@@ -1388,12 +1417,12 @@ function _migrate(d){
     }
     return sp;
   });
-  // ── Seed: Proyecto "Registro y Protección SoulBaric" ──────────────────
+  // ── Seed: Proyecto "Registro y Protección Kluxor" ──────────────────
   // Idempotente: solo siembra si NO existe proyecto con code="REG". Crea
   // proyecto + 11 tareas + negociación vinculada en Deal Room. Asignados:
   // Antonio (admin) y Marc Díaz como members en todo. Reaplicar al limpiar
   // el code "REG" del seed manualmente — la siguiente carga lo regenera.
-  seedRegistroSoulBaric(d);
+  seedRegistroKluxor(d);
   // Seed cuenta Qonto de Alma Dimo. Idempotente: solo si NO existe ya
   // una cuenta con ese IBAN en data.bankAccounts.
   seedQontoAlmaDimo(d);
@@ -1433,7 +1462,7 @@ function seedQontoAlmaDimo(d){
 // Extraído del cuerpo de _migrate para que sea testable y legible. Toda
 // la lógica es síncrona y no toca claves fuera de projects, boards,
 // negotiations.
-function seedRegistroSoulBaric(d){
+function seedRegistroKluxor(d){
   if ((d.projects || []).some(p => p.code === "REG")) return; // ya sembrado
 
   const admin = (d.members || []).find(m => m.accountRole === "admin")
@@ -1458,7 +1487,7 @@ function seedRegistroSoulBaric(d){
   // Proyecto
   const newProject = {
     id: PROJ_ID,
-    name: "Registro y Protección SoulBaric",
+    name: "Registro y Protección Kluxor",
     desc: "Gestión completa del registro de marca, protección de propiedad intelectual, constitución societaria y protección de código fuente",
     color: "#8E44AD",
     emoji: "🛡️",
@@ -1522,13 +1551,13 @@ function seedRegistroSoulBaric(d){
 
   const tasks = [
     mkTask(1,
-      "Buscar disponibilidad marca SoulBaric en EUIPO",
+      "Buscar disponibilidad marca Kluxor en EUIPO",
       offset(2), "alta",
-      "Acceder a https://euipo.europa.eu/eSearch y buscar \"SoulBaric\" en clases 9, 35, 42. Verificar que no existe marca igual o similar. Documentar con captura.",
+      "Acceder a https://euipo.europa.eu/eSearch y buscar \"Kluxor\" en clases 9, 35, 42. Verificar que no existe marca igual o similar. Documentar con captura.",
       ["urgente", "marca"],
-      "ACCIÓN CRÍTICA: Si alguien registra SoulBaric antes, recuperarla costará 5.000-30.000€. Buscar HOY."),
+      "ACCIÓN CRÍTICA: Si alguien registra Kluxor antes, recuperarla costará 5.000-30.000€. Buscar HOY."),
     mkTask(2,
-      "Registrar dominios soulbaric.com .es .io .app .eu",
+      "Registrar dominios kluxor.com .es .io .app .eu",
       offset(2), "alta",
       "Registrar 5 dominios principales (Namecheap, GoDaddy, Arsys). Si alguno no está disponible, documentar quién lo tiene. Coste: 40-60€/año.",
       ["urgente", "dominios"],
@@ -1536,7 +1565,7 @@ function seedRegistroSoulBaric(d){
     mkTask(3,
       "Solicitar registro marca EUIPO — 3 clases (9, 35, 42)",
       offset(7), "alta",
-      "Solicitar marca UE \"SoulBaric\".\nClase 9: Software, aplicaciones\nClase 35: Gestión negocios, asesoría\nClase 42: SaaS, desarrollo software\n\nCoste: 850€ (3 clases) + 300-500€ agente marcas\nDuración: 10 años renovables — 27 países UE\n\nOpciones:\nA) Online directo en euipo.europa.eu\nB) Agente de marcas (recomendado)",
+      "Solicitar marca UE \"Kluxor\".\nClase 9: Software, aplicaciones\nClase 35: Gestión negocios, asesoría\nClase 42: SaaS, desarrollo software\n\nCoste: 850€ (3 clases) + 300-500€ agente marcas\nDuración: 10 años renovables — 27 países UE\n\nOpciones:\nA) Online directo en euipo.europa.eu\nB) Agente de marcas (recomendado)",
       ["urgente", "marca", "euipo"]),
     mkTask(4,
       "Depósito notarial del código fuente y skills",
@@ -1544,7 +1573,7 @@ function seedRegistroSoulBaric(d){
       "Preparar USB con:\n- Código fuente (src/)\n- Skills (.claude/skills/)\n- Prompts de agentes\n- CLAUDE.md\n- Capturas de la app\n- README\n\nDepositar ante notario. Coste: 100-200€. Da FECHA CIERTA de autoría.",
       ["urgente", "ip", "notario"]),
     mkTask(5,
-      "Constituir SoulBaric Technologies SL",
+      "Constituir Kluxor Technologies SL",
       offset(30), "alta",
       "Capital mínimo 1€ (Ley Crea y Crece).\nObjeto: \"Desarrollo, explotación y licencia de software, plataformas SaaS, servicios asesoría empresarial mediante IA\"\n\nPasos:\n1. Certificación negativa nombre (RM Central)\n2. Cuenta bancaria + depósito capital\n3. Escritura pública notario\n4. CIF provisional\n5. Inscripción RM\n6. Alta censal (036)\n7. Alta SS si empleados\n\nCoste: 300-600€",
       ["estructura", "sl"]),
@@ -1596,7 +1625,7 @@ function seedRegistroSoulBaric(d){
       return "NEG-" + String(i).padStart(3, "0");
     })();
     const factsList = [
-      "Marca SoulBaric no registrada — riesgo de registro por tercero",
+      "Marca Kluxor no registrada — riesgo de registro por tercero",
       "Código fuente y 9 skills sin protección formal",
       "Presupuesto total: 1.963-3.590€",
       "Valoración activo a proteger: 300.000-1.500.000€",
@@ -1614,8 +1643,8 @@ function seedRegistroSoulBaric(d){
     const newNeg = {
       id: NEG_ID,
       code: negCode,
-      title: "Registro y Protección IP — SoulBaric",
-      counterparty: "Equipo interno SoulBaric",
+      title: "Registro y Protección IP — Kluxor",
+      counterparty: "Equipo interno Kluxor",
       status: "en_curso",
       value: null,
       currency: "EUR",
@@ -1888,7 +1917,7 @@ function LoginScreen({onAuthed, onLegacySkip, forceRecovery=false, onRecoveryDon
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
           <div style={{width:38,height:38,background:"#7F77DD",borderRadius:10,color:"#fff",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>SB</div>
           <div>
-            <div style={{fontWeight:700,fontSize:16,color:"#111827"}}>SoulBaric</div>
+            <div style={{fontWeight:700,fontSize:16,color:"#111827"}}>Kluxor</div>
             <div style={{fontSize:11,color:"#6B7280"}}>{recoveryMode ? "Crear nueva contraseña" : "Iniciar sesión"}</div>
           </div>
         </div>
@@ -2494,7 +2523,7 @@ function generatePDF({title, render, filename}){
     // HEADER
     doc.setFont("helvetica","bold"); doc.setFontSize(13);
     doc.setTextColor(127,119,221);
-    doc.text("SoulBaric", PDF_MARGIN_L, 14);
+    doc.text("Kluxor", PDF_MARGIN_L, 14);
     doc.setFont("helvetica","normal"); doc.setFontSize(10);
     doc.setTextColor(55,65,81);
     doc.text(String(title||"").slice(0,70), PDF_MARGIN_L + 36, 14);
@@ -2507,7 +2536,7 @@ function generatePDF({title, render, filename}){
     doc.line(PDF_MARGIN_L, 280, pageW - PDF_MARGIN_R, 280);
     doc.setFont("helvetica","normal"); doc.setFontSize(8);
     doc.setTextColor(156,163,175);
-    doc.text("Generado por SoulBaric · Confidencial", PDF_MARGIN_L, 286);
+    doc.text("Generado por Kluxor · Confidencial", PDF_MARGIN_L, 286);
     doc.text(`Página ${i} de ${pageCount}`, pageW - PDF_MARGIN_R, 286, { align:"right" });
   }
 
@@ -4264,14 +4293,14 @@ function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onT
     },
     {
       id:"agents", emoji:"🤖", title:"Agentes IA", badge:"Nuevo",
-      tooltip:"Asesores virtuales con contexto de SoulBaric y memoria persistente",
+      tooltip:"Asesores virtuales con contexto de Kluxor y memoria persistente",
       tagline:"Asesores virtuales personalizados para marketing, ventas, y estrategia",
-      description:"Conversa por voz o texto con agentes especializados que entienden el contexto de SoulBaric. Pídeles que redacten emails de prospección, analicen competencia, sugieran estrategias de captación, o respondan dudas técnicas. Cada agente tiene memoria persistente y aprende de tus conversaciones anteriores.",
+      description:"Conversa por voz o texto con agentes especializados que entienden el contexto de Kluxor. Pídeles que redacten emails de prospección, analicen competencia, sugieran estrategias de captación, o respondan dudas técnicas. Cada agente tiene memoria persistente y aprende de tus conversaciones anteriores.",
       features:[
         `${agentsCount} agente${agentsCount!==1?"s":""} configurado${agentsCount!==1?"s":""}`,
         "Conversación bidireccional por voz o texto",
         "Memoria persistente entre sesiones",
-        "Respuestas contextualizadas a SoulBaric",
+        "Respuestas contextualizadas a Kluxor",
       ],
       stats: `Tienes ${agentsCount} agente${agentsCount!==1?"s":""} disponible${agentsCount!==1?"s":""} para consultar`,
       videoLabel:"Usar agentes IA para redactar propuestas (5 min)",
@@ -4913,7 +4942,7 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
     return active.length>0 ? {task:active[0], reason:"Avanza esta primero, libera atención"} : null;
   })();
   // Cache key específico por usuario activo
-  const FOCUS_CACHE_KEY = `soulbaric.focus.${activeMember}`;
+  const FOCUS_CACHE_KEY = `kluxor.focus.${activeMember}`;
   const FOCUS_TTL_MS = 5*60*1000; // 5 minutos
   // Hash compacto de las tareas activas — invalida cache cuando cambian
   // (id, columna, fecha, prioridad). No incluye campos dinámicos de tiempo.
@@ -5818,7 +5847,7 @@ function AlertPanel({alerts,members,activeMemberId,onClose,onEmailSend,onOpenTas
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",flexShrink:0}}>{[["mine","Mis alertas"],["advisor","Asesor IA"],["team","Equipo"]].map(([k,l])=><div key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"9px 0",textAlign:"center",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400}}>{l}</div>)}</div>
         <div style={{flex:1,overflowY:"auto",padding:12}}>
           {shown.length===0&&<div style={{textAlign:"center",padding:30,color:"#9ca3af",fontSize:13}}>Sin alertas activas</div>}
-          {shown.map(alert=>{ const s=ls[alert.level]||ls.info; const m=members.find(x=>x.id===alert.memberId); const wu=waUrl(m,`Alerta SoulBaric: ${alert.taskTitle||"Aviso"} — ${alert.msg}`);
+          {shown.map(alert=>{ const s=ls[alert.level]||ls.info; const m=members.find(x=>x.id===alert.memberId); const wu=waUrl(m,`Alerta Kluxor: ${alert.taskTitle||"Aviso"} — ${alert.msg}`);
             const clickable = !!alert.taskId;
             return(
               <div
@@ -5839,7 +5868,7 @@ function AlertPanel({alerts,members,activeMemberId,onClose,onEmailSend,onOpenTas
                       {tab==="team"&&<span style={{fontSize:11,color:"#6b7280"}}>{m?.name}</span>}
                       <div style={{marginLeft:"auto",display:"flex",gap:5}}>
                         {wu&&<a href={wu} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{fontSize:11,padding:"2px 8px",borderRadius:6,background:"#dcfce7",color:"#166534",border:"1px solid #4ade80",textDecoration:"none",fontWeight:500}}>WA</a>}
-                        <button onClick={e=>{e.stopPropagation();setSent(p=>({...p,[alert.id]:true}));onEmailSend({to:m?.email,subject:`[SoulBaric] ${alert.taskTitle||"Alerta"}`,body:alert.msg});}} style={{fontSize:11,padding:"2px 8px",borderRadius:6,border:`1px solid ${s.border}`,background:"transparent",color:s.text,cursor:"pointer",fontWeight:500}}>{sent[alert.id]?"Enviado":"Email"}</button>
+                        <button onClick={e=>{e.stopPropagation();setSent(p=>({...p,[alert.id]:true}));onEmailSend({to:m?.email,subject:`[Kluxor] ${alert.taskTitle||"Alerta"}`,body:alert.msg});}} style={{fontSize:11,padding:"2px 8px",borderRadius:6,border:`1px solid ${s.border}`,background:"transparent",color:s.text,cursor:"pointer",fontWeight:500}}>{sent[alert.id]?"Enviado":"Email"}</button>
                       </div>
                     </div>
                   </div>
@@ -6053,7 +6082,7 @@ function WorkspaceModal({workspace,onClose,onSave,onDelete}){
           </div>
 
           <div style={{background:"#FFF7E6",border:"1px solid #F0B85B",borderRadius:8,padding:"8px 12px",marginTop:14,fontSize:11,color:"#7C4A02"}}>
-            ⚠ Nunca guardes contraseñas aquí. Usa tu gestor (1Password, Bitwarden, llavero). SoulBaric vive en localStorage sin cifrado.
+            ⚠ Nunca guardes contraseñas aquí. Usa tu gestor (1Password, Bitwarden, llavero). Kluxor vive en localStorage sin cifrado.
           </div>
 
           <div style={{display:"flex",gap:8,justifyContent:"space-between",marginTop:20,alignItems:"center"}}>
@@ -7448,12 +7477,12 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   // mini-llamada de clasificación que decide si conviene invocar a Mario o
   // Jorge. Persistido en localStorage por dispositivo (no en data).
   const [autoSpecialistsOn,setAutoSpecialistsOn] = useState(()=>{
-    try { return localStorage.getItem("soulbaric.autoSpecialists") !== "0"; } catch { return true; }
+    try { return localStorage.getItem("kluxor.autoSpecialists") !== "0"; } catch { return true; }
   });
   const toggleAutoSpecialists = ()=>{
     setAutoSpecialistsOn(v=>{
       const nv = !v;
-      try { localStorage.setItem("soulbaric.autoSpecialists", nv?"1":"0"); } catch {}
+      try { localStorage.setItem("kluxor.autoSpecialists", nv?"1":"0"); } catch {}
       return nv;
     });
   };
@@ -8580,7 +8609,7 @@ function AttendeesModal({session,members,onClose,onSave,onToast}){
 
   const addInternal = (m)=>{
     if(attendees.some(a=>a.memberId===m.id)){ onToast?.("Este miembro ya está en la lista","info"); return; }
-    setAttendees([...attendees,{id:_uid("att"),memberId:m.id,name:m.name,company:"SoulBaric",role:m.role||"Miembro del equipo",lead:attendees.length===0,external:false}]);
+    setAttendees([...attendees,{id:_uid("att"),memberId:m.id,name:m.name,company:"Kluxor",role:m.role||"Miembro del equipo",lead:attendees.length===0,external:false}]);
   };
   const addExternal = ()=>{
     if(!extName.trim()){ onToast?.("Nombre obligatorio","error"); return; }
@@ -8732,7 +8761,7 @@ function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialRespon
             <>
               <ExportPDFButton
                 title={`${kind==="briefing"?"Briefing":"Consejo"} — ${agent.name}${negotiation?` — ${negotiation.title}`:""}`}
-                filename={`${kind==="briefing"?"briefing":"consejo"}-${(negotiation?.title||agent.name||"soulbaric").slice(0,40)}`}
+                filename={`${kind==="briefing"?"briefing":"consejo"}-${(negotiation?.title||agent.name||"kluxor").slice(0,40)}`}
                 render={(doc,y)=>renderChat(doc,y,[
                   {role:"user",content:(prompt||""),timestamp:new Date().toISOString()},
                   {role:"assistant",content:response.trim(),timestamp:new Date().toISOString(),kind:kind==="briefing"?"briefing":null},
@@ -9283,7 +9312,7 @@ function UserSelectionModal({members,onSelectUser}){
     <div style={{position:"fixed",inset:0,background:"rgba(17,24,39,0.65)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,animation:"tf-fade-in .2s ease",opacity:leaving?0:1,transition:"opacity .2s"}}>
       <div style={{background:"#fff",borderRadius:16,width:480,maxWidth:"96vw",maxHeight:"92vh",display:"flex",flexDirection:"column",borderTop:"4px solid #7F77DD",boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
         <div style={{padding:"20px 24px 10px",textAlign:"center"}}>
-          <div style={{fontSize:18,fontWeight:700,marginBottom:4}}>Bienvenido a SoulBaric</div>
+          <div style={{fontSize:18,fontWeight:700,marginBottom:4}}>Bienvenido a Kluxor</div>
           <div style={{fontSize:13,color:"#6b7280"}}>Selecciona tu usuario:</div>
         </div>
         <div style={{padding:"6px 16px 10px",overflowY:"auto",flex:1,display:"flex",flexDirection:"column",gap:8}}>
@@ -9335,8 +9364,8 @@ export default function TaskFlow(){
   const [activeMember,setAM]       = useState(()=>{ const u=readStoredUser(); return typeof u?.id==="number"?u.id:5; });
   // Briefing matinal automático: aparece la primera apertura del día
   // (>4h desde el último uso) si todavía no se mostró hoy. La marca
-  // "soulbaric.briefingMatinal.lastDate" la pone el propio modal al
-  // cerrarse. "soulbaric.lastOpenTs" se actualiza al final del trigger
+  // "kluxor.briefingMatinal.lastDate" la pone el propio modal al
+  // cerrarse. "kluxor.lastOpenTs" se actualiza al final del trigger
   // para no auto-disparar de nuevo en la misma sesión.
   const [showBriefing,setShowBriefing] = useState(false);
   // Contexto financiero para Héctor — combina las heurísticas legacy del
@@ -9402,21 +9431,21 @@ export default function TaskFlow(){
   useEffect(()=>{
     try{
       const today = fmt(new Date());
-      const lastOpen = Number(localStorage.getItem("soulbaric.lastOpenTs")||0);
-      const lastBriefing = localStorage.getItem("soulbaric.briefingMatinal.lastDate")||"";
+      const lastOpen = Number(localStorage.getItem("kluxor.lastOpenTs")||0);
+      const lastBriefing = localStorage.getItem("kluxor.briefingMatinal.lastDate")||"";
       const sinceLastOpen = Date.now() - lastOpen;
       const fourH = 4*60*60*1000;
       if(lastBriefing!==today && sinceLastOpen>fourH){
         setShowBriefing(true);
       }
-      localStorage.setItem("soulbaric.lastOpenTs", String(Date.now()));
+      localStorage.setItem("kluxor.lastOpenTs", String(Date.now()));
     }catch{}
   },[]);
   useEffect(()=>{
     const evalClosing = ()=>{
       try{
         const today = fmt(new Date());
-        const lastClosing = localStorage.getItem("soulbaric.cierreDia.lastDate")||"";
+        const lastClosing = localStorage.getItem("kluxor.cierreDia.lastDate")||"";
         if(lastClosing===today) return;
         if(new Date().getHours()<18) return;
         setShowClosing(true);
@@ -9438,7 +9467,7 @@ export default function TaskFlow(){
   const [authSession,setAuthSession] = useState(null);
   const [authReady,setAuthReady]     = useState(!authEnabled());
   const [legacyMode,setLegacyMode]   = useState(()=>{
-    try { return localStorage.getItem("soulbaric.legacyMode") === "1"; } catch { return false; }
+    try { return localStorage.getItem("kluxor.legacyMode") === "1"; } catch { return false; }
   });
   // Cuando Supabase abre la app con un link de recovery, el hash trae
   // type=recovery + access_token y la SDK crea una sesión automáticamente.
@@ -9514,7 +9543,7 @@ export default function TaskFlow(){
   },[isAdmin, activeTab, authReady, authSession, data.permissions, activeMember]);
   const enableLegacyMode = ()=>{
     setLegacyMode(true);
-    try { localStorage.setItem("soulbaric.legacyMode","1"); } catch {}
+    try { localStorage.setItem("kluxor.legacyMode","1"); } catch {}
   };
   const [showUserModal,setShowUserModal] = useState(()=>!readStoredUser());
   const [userMenuOpen,setUserMenuOpen]   = useState(false);
@@ -9528,13 +9557,13 @@ export default function TaskFlow(){
     // "nunca tocó" de "está expandido por preferencia". Si en el futuro
     // necesitamos lógica distinta por ramo, este split lo deja explícito.
     try{
-      const stored = localStorage.getItem("soulbaric.sidebar.collapsed");
+      const stored = localStorage.getItem("kluxor.sidebar.collapsed");
       return stored === null ? false : stored === "true";
     }catch{ return false; }
   });
   const toggleSidebarCollapsed = useCallback(()=>{
     setSidebarCollapsed(c=>{
-      const nc=!c; try{ localStorage.setItem("soulbaric.sidebar.collapsed",String(nc)); }catch{} return nc;
+      const nc=!c; try{ localStorage.setItem("kluxor.sidebar.collapsed",String(nc)); }catch{} return nc;
     });
   },[]);
   const [nuevaOpen,setNuevaOpen]         = useState(false);
@@ -11763,8 +11792,8 @@ export default function TaskFlow(){
   const TABS=[{key:"board",l:"Tablero"},{key:"eisenhower",l:"Matriz"},{key:"reports",l:"Tiempos"},{key:"team",l:"Equipo"}];
 
   // Acceso invitado: si la URL es /vault/:token, salimos antes que el
-  // auth-gate de SoulBaric. El invitado solo necesita el PIN del space,
-  // no tiene cuenta en SoulBaric. Así un familiar abre su vault desde
+  // auth-gate de Kluxor. El invitado solo necesita el PIN del space,
+  // no tiene cuenta en Kluxor. Así un familiar abre su vault desde
   // un link en WhatsApp sin tener que registrarse.
   if(guestVaultToken){
     return <VaultGuestView token={guestVaultToken} data={data} onUpdateVault={updateVault}/>;
@@ -11876,9 +11905,9 @@ export default function TaskFlow(){
         <div className={`tf-sidebar${sidebarOpen?" open":""}`} data-sb-no-close style={{width:sidebarCollapsed?60:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column",transition:"width .18s ease"}}>
           {/* Header: logo + brand + collapse button */}
           <div style={{padding:sidebarCollapsed?"14px 8px":"14px 14px 12px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:sidebarCollapsed?0:10,justifyContent:sidebarCollapsed?"center":"flex-start"}}>
-            <div title="SoulBaric" style={{width:30,height:30,background:"#7F77DD",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700,flexShrink:0}}>SB</div>
+            <div title="Kluxor" style={{width:30,height:30,background:"#7F77DD",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700,flexShrink:0}}>SB</div>
             {!sidebarCollapsed&&<>
-              <span style={{fontWeight:600,fontSize:15,flex:1}}>SoulBaric</span>
+              <span style={{fontWeight:600,fontSize:15,flex:1}}>Kluxor</span>
               <span title={syncStatus==="connected"?"Sincronizado con Supabase":syncStatus==="connecting"?"Conectando…":syncStatus==="error"?"Error de sincronización":"Solo local (sin sync)"} style={{width:8,height:8,borderRadius:"50%",background:syncStatus==="connected"?"#10b981":syncStatus==="connecting"?"#f59e0b":syncStatus==="error"?"#ef4444":"#9ca3af",flexShrink:0}}/>
               <button onClick={toggleSidebarCollapsed} title="Colapsar sidebar (⌘\\)" style={{width:22,height:22,borderRadius:5,background:"transparent",border:"none",fontSize:12,cursor:"pointer",color:"#9CA3AF",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
             </>}

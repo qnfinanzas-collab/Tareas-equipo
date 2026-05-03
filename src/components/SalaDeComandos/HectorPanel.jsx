@@ -8,8 +8,8 @@
 //     con formatCeoMemoryForPrompt — Héctor "recuerda" entre sesiones.
 //   • energía: getEnergyLevel(hour) compartido en lib/agent.js.
 //   • persistencia scoped por userId en localStorage:
-//       soulbaric.hector.recs.<id>   → últimas 3 recomendaciones
-//       soulbaric.hector.chat.<id>   → últimas 50 entradas de chat
+//       kluxor.hector.recs.<id>   → últimas 3 recomendaciones
+//       kluxor.hector.chat.<id>   → últimas 50 entradas de chat
 //
 // Chat bidireccional:
 //   - Input + botón enviar + botón micrófono (SpeechRecognition).
@@ -268,9 +268,9 @@ export default function HectorPanel({
   // las cards (complete/postpone/view). Firma: (taskId, entry).
   onAddTimelineEntry,
 }) {
-  const STORAGE_KEY = `soulbaric.hector.recs.${userId ?? "anon"}`;
-  const CHAT_KEY = `soulbaric.hector.chat.${userId ?? "anon"}`;
-  const SESSION_KEY = `soulbaric.hector.session.${userId ?? "anon"}`;
+  const STORAGE_KEY = `kluxor.hector.recs.${userId ?? "anon"}`;
+  const CHAT_KEY = `kluxor.hector.chat.${userId ?? "anon"}`;
+  const SESSION_KEY = `kluxor.hector.session.${userId ?? "anon"}`;
 
   const [hectorState, setHectorState] = useState("listening");
   const [currentThought, setCurrentThought] = useState("");
@@ -311,7 +311,7 @@ export default function HectorPanel({
   });
   const [chatHistory, setChatHistory] = useState(() => {
     // Si userId todavía no está hidratado (auth cargando) no leemos
-    // localStorage — la clave caería a "soulbaric.hector.chat.anon" y nos
+    // localStorage — la clave caería a "kluxor.hector.chat.anon" y nos
     // quedaríamos pegados a esa clave aunque userId se defina después.
     // El useEffect [userId] de abajo se encarga de re-hidratar cuando ya
     // tenemos un userId real.
@@ -419,7 +419,7 @@ export default function HectorPanel({
   }, [recommendations, STORAGE_KEY]);
 
   // Persistencia: chat (últimos CHAT_MAX). Guard contra userId indefinido
-  // — sin él la clave colapsa a "soulbaric.hector.chat.anon" y pisaríamos
+  // — sin él la clave colapsa a "kluxor.hector.chat.anon" y pisaríamos
   // chats de sesiones futuras o perderíamos el state real al recargar.
   useEffect(() => {
     if (!userId) return;

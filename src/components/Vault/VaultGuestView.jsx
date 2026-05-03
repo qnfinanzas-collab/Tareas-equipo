@@ -1,6 +1,6 @@
 // VaultGuestView — vista aislada para acceso invitado vía /vault/:token.
-// Renderizada por App.jsx ANTES del shell de SoulBaric (sin sidebar, sin
-// auth de SoulBaric). El invitado introduce el PIN del space y accede
+// Renderizada por App.jsx ANTES del shell de Kluxor (sin sidebar, sin
+// auth de Kluxor). El invitado introduce el PIN del space y accede
 // solo a sus propios documentos. NO ve nada del resto de la app.
 //
 // Persistencia: las mutaciones se guardan en data.vault.spaces vía el
@@ -122,7 +122,7 @@ function FullScreenShell({ children }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "#F9FAFB", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "system-ui, -apple-system, sans-serif" }}>
       <div style={{ background: "#fff", border: "0.5px solid #E5E7EB", borderRadius: 16, padding: "40px 32px", maxWidth: 440, width: "100%", textAlign: "center", boxShadow: "0 8px 32px rgba(0,0,0,0.08)" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "#1D9E75", letterSpacing: 1.5, marginBottom: 16 }}>SOULBARIC · VAULT PERSONAL</div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#1D9E75", letterSpacing: 1.5, marginBottom: 16 }}>KLUXOR · VAULT PERSONAL</div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0 }}>{children}</div>
       </div>
     </div>
@@ -218,7 +218,7 @@ function GuestVault({ space, data, onUpdateVault, onLogout }) {
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#1D9E75", letterSpacing: 1.5 }}>SOULBARIC · VAULT</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#1D9E75", letterSpacing: 1.5 }}>KLUXOR · VAULT</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: "#111827", marginTop: 2 }}>🔐 {space.name}</div>
           </div>
           <button onClick={onLogout} style={{ padding: "7px 14px", borderRadius: 8, background: "transparent", border: "1px solid #D1D5DB", fontSize: 12, fontWeight: 600, cursor: "pointer", color: "#6B7280", fontFamily: "inherit" }}>Cerrar sesión</button>

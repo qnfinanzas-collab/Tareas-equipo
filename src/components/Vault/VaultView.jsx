@@ -308,7 +308,7 @@ function SpaceModal({ space, onClose, onSave, onDelete }) {
   };
   const shareViaWhatsApp = () => {
     if (!shareUrl) return;
-    const text = encodeURIComponent(`🔐 Acceso a tu vault personal de SoulBaric.\n\nLink: ${shareUrl}\nPIN: ${pin}\n\nAccede desde aquí para subir, ver y compartir tus documentos.`);
+    const text = encodeURIComponent(`🔐 Acceso a tu vault personal de Kluxor.\n\nLink: ${shareUrl}\nPIN: ${pin}\n\nAccede desde aquí para subir, ver y compartir tus documentos.`);
     window.open(`https://wa.me/?text=${text}`, "_blank", "noopener,noreferrer");
   };
   return (
@@ -352,7 +352,7 @@ function SpaceModal({ space, onClose, onSave, onDelete }) {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "#065F46", marginBottom: 2 }}>🔗 Compartir acceso con {name || space.name}</div>
-                  <div style={{ fontSize: 11, color: "#0E7C5A" }}>Link privado + PIN. Solo accede a su vault, no a SoulBaric.</div>
+                  <div style={{ fontSize: 11, color: "#0E7C5A" }}>Link privado + PIN. Solo accede a su vault, no a Kluxor.</div>
                 </div>
                 <button onClick={() => setShowShare(v => !v)} style={{ padding: "5px 12px", borderRadius: 6, background: "#1D9E75", color: "#fff", border: "none", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>{showShare ? "Ocultar" : "Mostrar enlace"}</button>
               </div>
@@ -364,7 +364,7 @@ function SpaceModal({ space, onClose, onSave, onDelete }) {
                     <button onClick={copyShareUrl} style={{ padding: "6px 10px", borderRadius: 6, background: "#fff", border: "1px solid #86EFAC", color: "#065F46", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>📋 Copiar link</button>
                     <button onClick={shareViaWhatsApp} style={{ padding: "6px 10px", borderRadius: 6, background: "#fff", border: "1px solid #86EFAC", color: "#065F46", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>💬 WhatsApp</button>
                   </div>
-                  <div style={{ fontSize: 10.5, color: "#92400E" }}>⚠️ Este link da acceso SOLO al vault personal de {name || space.name}, no al resto de SoulBaric.</div>
+                  <div style={{ fontSize: 10.5, color: "#92400E" }}>⚠️ Este link da acceso SOLO al vault personal de {name || space.name}, no al resto de Kluxor.</div>
                 </div>
               )}
             </div>

@@ -1354,7 +1354,7 @@ export async function extractMemoryFromChat(recentMessages, negTitle){
     "Clasifica cada dato en UNO de estos tipos:",
     "- preference: preferencia personal del CEO (ej: 'prefiere JV",
     "  contractual', 'no le gustan respuestas largas').",
-    "- keyFact: hecho factual relevante mencionado (ej: 'SoulBaric",
+    "- keyFact: hecho factual relevante mencionado (ej: 'Kluxor",
     "  fabrica cámaras hiperbáricas', 'socio principal: Emilio Calvo').",
     "- decision: decisión tomada por el CEO en esta conversación (ej:",
     "  'decidió canon irrevocable 25k para el Showroom').",

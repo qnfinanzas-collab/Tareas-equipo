@@ -516,7 +516,7 @@ const CHAT_MAX = 50;
 
 function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
   const userId = currentMember?.id ?? "anon";
-  const storageKey = `soulbaric.gonzalo.chat.${userId}`;
+  const storageKey = `kluxor.gonzalo.chat.${userId}`;
   const [history, setHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem(storageKey) || "[]"); } catch { return []; }
   });

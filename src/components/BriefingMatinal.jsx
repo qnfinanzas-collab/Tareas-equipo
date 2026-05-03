@@ -59,7 +59,7 @@ export default function BriefingMatinal({ user, data, onClose }) {
   }, [data, user?.id, user?.name]);
 
   const handleClose = () => {
-    try { localStorage.setItem("soulbaric.briefingMatinal.lastDate", fmt(new Date())); } catch {}
+    try { localStorage.setItem("kluxor.briefingMatinal.lastDate", fmt(new Date())); } catch {}
     onClose?.();
   };
 
