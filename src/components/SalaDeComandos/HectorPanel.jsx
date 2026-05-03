@@ -242,6 +242,11 @@ export default function HectorPanel({
   authUid = null,
   // Proyectos no archivados, para contar "frentes activos" en SaludoCard.
   projects = [],
+  // Callback para navegar a otras vistas desde HectorPanel (ej. CTA
+  // "Hablar con Héctor sobre esto" en FocoCard → vista hector-direct).
+  // Firma: (tabKey: string) => void. Si no se pasa, el CTA queda
+  // inactivo (visualmente igual pero sin onClick efectivo).
+  onNavigate,
   // Contexto financiero opcional. Si llega, se inyecta en el prompt para
   // que Héctor pondere recomendaciones según runway y caja disponible.
   financeContext,
@@ -273,6 +278,19 @@ export default function HectorPanel({
   // la generación automática inicial); este es solo para feedback UI
   // del click manual del CEO.
   const [refreshLoading, setRefreshLoading] = useState(false);
+  // Foco del momento (commit 4 — FocoCard con override CEO).
+  // - focoTexto: el texto del foco actualmente mostrado.
+  // - focoSource: "hector" cuando lo decide el modelo, "ceo" cuando el
+  //   propio Antonio lo fija manualmente vía el icono ✏️.
+  // - focoLocked: true bloquea futuras sobrescrituras de generateHector
+  //   Thought; el foco solo cambia si el CEO pulsa "Liberar foco".
+  // - focoEditing: estado UI para mostrar input editable inline.
+  // - focoEditValue: valor temporal del input mientras se edita.
+  const [focoTexto, setFocoTexto] = useState("");
+  const [focoSource, setFocoSource] = useState("hector");
+  const [focoLocked, setFocoLocked] = useState(false);
+  const [focoEditing, setFocoEditing] = useState(false);
+  const [focoEditValue, setFocoEditValue] = useState("");
   const [recommendations, setRecommendations] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -535,22 +553,36 @@ export default function HectorPanel({
       }
       if (!data) return null;
       // Hidratar el chat con el análisis previo si existe.
+      let parsedAnalysis = null;
       if (data.hector_analysis) {
         try {
-          const parsed = JSON.parse(data.hector_analysis);
+          parsedAnalysis = JSON.parse(data.hector_analysis);
           const analysisMsg = {
             role: "hector_analysis",
-            analysis: parsed,
+            analysis: parsedAnalysis,
             ts: data.updated_at ? Date.parse(data.updated_at) : Date.now(),
           };
           setChatHistory((prev) => [...prev, analysisMsg].slice(-CHAT_MAX));
-          if (parsed.thought || parsed.summary) {
-            setCurrentThought(parsed.thought || parsed.summary || "");
+          if (parsedAnalysis.thought || parsedAnalysis.summary) {
+            setCurrentThought(parsedAnalysis.thought || parsedAnalysis.summary || "");
           }
         } catch (e) {
           console.warn("[HectorPanel] análisis JSON corrupto:", e?.message);
         }
       }
+      // Foco (commit 4): hidratar los tres campos. Si foco_texto es null
+      // pero hay analysis con thought, usamos thought como fallback —
+      // el commit 3 no guardaba foco_texto separado (siempre derivaba),
+      // así que filas creadas antes de v4 pueden tener foco_texto vacío.
+      const fTexto = (data.foco_texto && String(data.foco_texto).trim())
+        || (parsedAnalysis?.thought)
+        || (parsedAnalysis?.summary)
+        || "";
+      const fSource = data.foco_source === "ceo" ? "ceo" : "hector";
+      const fLocked = !!data.foco_locked;
+      setFocoTexto(fTexto);
+      setFocoSource(fSource);
+      setFocoLocked(fLocked);
       if (data.updated_at) setLastUpdatedAt(data.updated_at);
       return data;
     } catch (e) {
@@ -559,23 +591,42 @@ export default function HectorPanel({
     }
   };
 
-  // Persiste un análisis recién generado vía UPSERT con onConflict en
-  // user_id (UNIQUE en la tabla — una fila por CEO). Llamado desde
-  // generateHectorThought al final del éxito.
-  const savePanelState = async (analysis) => {
+  // Persiste estado del panel vía UPSERT con onConflict en user_id
+  // (UNIQUE en la tabla — una fila por CEO). Dos firmas:
+  //   savePanelState(analysis)               → guarda análisis + foco
+  //                                            actuales del state.
+  //   savePanelState(analysis, overrides)    → guarda con overrides
+  //                                            de focoTexto/Source/Locked
+  //                                            (útil cuando setFocoX se
+  //                                            acaba de llamar y el
+  //                                            state aún no se ha re-
+  //                                            renderizado).
+  //   savePanelState(null, overrides)        → guarda solo foco, sin
+  //                                            tocar hector_analysis
+  //                                            (útil al editar/liberar
+  //                                            el foco sin nuevo análisis).
+  const savePanelState = async (analysis, overrides = null) => {
     if (!supa || !authUid) return;
     try {
       const nowIso = new Date().toISOString();
+      const fTexto  = overrides?.focoTexto  ?? focoTexto;
+      const fSource = overrides?.focoSource ?? focoSource;
+      const fLocked = overrides?.focoLocked ?? focoLocked;
       const payload = {
         user_id: authUid,
         saludo: null,
-        foco_texto: (analysis?.thought || analysis?.summary || "").slice(0, 1000),
-        foco_source: "hector",
-        foco_locked: false,
-        hector_analysis: JSON.stringify(analysis),
+        foco_texto: (fTexto || "").slice(0, 1000) || null,
+        foco_source: fSource,
+        foco_locked: fLocked,
         negociaciones_snapshot: null,
         updated_at: nowIso,
       };
+      // Solo escribimos hector_analysis si tenemos uno nuevo. Si analysis
+      // es null preservamos el campo (no lo enviamos para que el upsert
+      // mantenga el valor existente en la fila).
+      if (analysis) {
+        payload.hector_analysis = JSON.stringify(analysis);
+      }
       const { error } = await supa
         .from("hector_panel_state")
         .upsert(payload, { onConflict: "user_id" });
@@ -587,6 +638,50 @@ export default function HectorPanel({
     } catch (e) {
       console.warn("[HectorPanel] savePanelState exception:", e?.message);
     }
+  };
+
+  // Handlers de FocoCard (commit 4 — override del CEO).
+  // ----------------------------------------------------
+  // Iniciar edición: copiamos el foco actual al input y entramos en
+  // modo editing. El render condicional muestra <input> en lugar del
+  // texto + botón ✏️ desaparece hasta confirmar/cancelar.
+  const handleStartEditFoco = () => {
+    setFocoEditValue(focoTexto || "");
+    setFocoEditing(true);
+  };
+  const handleCancelEditFoco = () => {
+    setFocoEditing(false);
+    setFocoEditValue("");
+  };
+  // Confirmar: trim + guard de vacío. Pasa source="ceo" + locked=true
+  // para que el siguiente generateHectorThought NO sobreescriba.
+  // Persistimos solo el foco (analysis=null) — no regeneramos análisis.
+  const handleSaveFoco = () => {
+    const trimmed = (focoEditValue || "").trim();
+    if (!trimmed) { handleCancelEditFoco(); return; }
+    setFocoTexto(trimmed);
+    setFocoSource("ceo");
+    setFocoLocked(true);
+    setFocoEditing(false);
+    setFocoEditValue("");
+    savePanelState(null, { focoTexto: trimmed, focoSource: "ceo", focoLocked: true });
+  };
+  // Liberar: vuelve a foco automático del análisis. Buscamos el último
+  // mensaje "hector_analysis" en chatHistoryRef para extraer thought/
+  // summary; si no hay, vaciamos el foco. source="hector", locked=false.
+  // Próximo generateHectorThought lo sobreescribirá libremente.
+  const handleReleaseFoco = () => {
+    const hist = chatHistoryRef.current || [];
+    let lastA = null;
+    for (let i = hist.length - 1; i >= 0; i--) {
+      const m = hist[i];
+      if (m && m.role === "hector_analysis" && m.analysis) { lastA = m.analysis; break; }
+    }
+    const analysisFoco = (lastA?.thought || lastA?.summary || "").trim();
+    setFocoTexto(analysisFoco);
+    setFocoSource("hector");
+    setFocoLocked(false);
+    savePanelState(null, { focoTexto: analysisFoco, focoSource: "hector", focoLocked: false });
   };
 
   const generateHectorThought = async () => {
@@ -839,11 +934,26 @@ Reglas:
         onNewRecommendation?.(rec);
       }
       setState("recommending");
+      // Foco (commit 4): si el CEO no ha bloqueado su propio foco,
+      // actualizamos focoTexto con el thought del nuevo análisis y
+      // marcamos source = "hector". Si focoLocked === true, NO tocamos
+      // foco — el CEO ha fijado su prioridad y se respeta hasta que
+      // pulse "Liberar foco". Pasamos overrides al save para evitar el
+      // race con setState (que es asíncrono).
+      let focoOverrides = null;
+      if (!focoLocked) {
+        const newFoco = (analysis.thought || analysis.summary || focoTexto || "").trim();
+        if (newFoco) {
+          setFocoTexto(newFoco);
+          setFocoSource("hector");
+          focoOverrides = { focoTexto: newFoco, focoSource: "hector", focoLocked: false };
+        }
+      }
       // Persistencia Supabase (commit 3): guardar el análisis para que
       // al reabrir Sala de Mando aparezca instantáneo sin nueva llamada.
       // No-await intencional — fire and forget; un fallo de red no
       // debería bloquear la UI ni revertir lo que ya pintamos.
-      savePanelState(analysis);
+      savePanelState(analysis, focoOverrides);
       // Voz: lee el summary (más estratégico que cada acción individual).
       if (analysis.summary) speakRecommendation(analysis.summary);
       // Publica en el timeline de cada tarea CRÍTICA recomendada. Una
@@ -1737,44 +1847,170 @@ Reglas para block_task:
                 - resto:     pensamiento real o placeholder neutral
                 Mobile: oculto (data-hp="thought" + display:none ≤768px)
                 para priorizar el chat sobre el "Foco del momento". */}
-            <div key={thoughtFlash} data-hp="thought" style={{
-              background: hectorState === "paused" ? "#F3F4F6" : "#F0F7FF",
-              border: `2px solid ${hectorState === "paused" ? "#9CA3AF" : "#3498DB"}`,
-              borderRadius: 10,
-              padding: "10px 14px",
-              fontSize: 12.5,
-              color: hectorState === "paused" ? "#374151" : "#1E3A8A",
-              lineHeight: 1.5,
+            {/* FocoCard (commit 4) — sustituye al antiguo data-hp="thought".
+                Visual Kluxor: contenedor exterior #FAFAF7 con padding
+                12px 20px; card interior blanca con borde izquierdo 2.5px
+                oro, padding 12px 14px, border-radius 0. Estados:
+                - analyzing/thinking → spinner donde iría el título.
+                - paused             → botón Reintentar inline.
+                - normal             → label · badge · título · ✏️ · CTA · liberar */}
+            <div data-hp="thought" key={thoughtFlash} style={{
+              padding: "12px 20px",
               animation: "hp-fade .35s ease",
-              display: "flex",
-              gap: 8,
-              alignItems: "flex-start",
-              marginBottom: 12,
-              overflow: "hidden",
+              flexShrink: 0,
             }}>
-              {hectorState === "analyzing" || isThinking ? (
-                <>
-                  <span style={{ fontSize: 14, animation: "hp-pulse-dot 1.2s infinite" }}>⏳</span>
-                  <span style={{ flex: 1 }}>Héctor está analizando tu día…</span>
-                </>
-              ) : hectorState === "paused" ? (
-                <>
-                  <span style={{ fontSize: 14 }}>⏸</span>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, marginBottom: 2 }}>Héctor está pausado</div>
-                    <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 6 }}>Sin créditos API o error de conexión.</div>
-                    <button
-                      onClick={() => { lastCallTime.current = 0; generateHectorThought(); }}
-                      style={{ padding: "4px 10px", borderRadius: 6, background: "#fff", color: "#374151", border: "1px solid #D1D5DB", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
-                    >↺ Reintentar</button>
+              <div style={{
+                background: "#fff",
+                borderLeft: "2.5px solid #C9A84C",
+                padding: "12px 14px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: "#C9A84C",
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                  }}>FOCO DEL MOMENTO</span>
+                  {/* Badge source — solo cuando no estamos editando ni en
+                      estados especiales (analyzing/paused) y hay foco real. */}
+                  {!focoEditing && hectorState !== "analyzing" && hectorState !== "paused" && !isThinking && focoTexto && (
+                    <span style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: "2px 8px",
+                      background: focoSource === "ceo" ? "#E8F0FF" : "#F1EFE8",
+                      color: focoSource === "ceo" ? "#2B5CD9" : "#6B6B6B",
+                      letterSpacing: "0.04em",
+                    }}>
+                      {focoSource === "ceo" ? "Fijado por ti" : "Decidido por Héctor"}
+                    </span>
+                  )}
+                </div>
+
+                {/* Cuerpo: tres ramas mutuamente excluyentes según estado. */}
+                {hectorState === "analyzing" || isThinking ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#6B6B6B" }}>
+                    <span style={{ fontSize: 14, animation: "hp-pulse-dot 1.2s infinite" }}>⏳</span>
+                    <span>Héctor está analizando tu día…</span>
                   </div>
-                </>
-              ) : (
-                <>
-                  <span style={{ fontSize: 14 }}>💭</span>
-                  <span style={{ flex: 1, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", maxHeight: 40 }}>{currentThought || "Héctor está observando — el primer pensamiento llegará en breve."}</span>
-                </>
-              )}
+                ) : hectorState === "paused" ? (
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <span style={{ fontSize: 14 }}>⏸</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: "#1A1A1A", marginBottom: 2 }}>Héctor está pausado</div>
+                      <div style={{ fontSize: 11, color: "#6B6B6B", marginBottom: 6 }}>Sin créditos API o error de conexión.</div>
+                      <button
+                        onClick={() => { lastCallTime.current = 0; generateHectorThought(); }}
+                        style={{ padding: "4px 10px", background: "#fff", color: "#1A1A1A", border: "1px solid #C9A84C", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", borderRadius: 0 }}
+                      >↺ Reintentar</button>
+                    </div>
+                  </div>
+                ) : focoEditing ? (
+                  // Modo edición inline. Enter confirma, Esc cancela.
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={focoEditValue}
+                      onChange={(e) => setFocoEditValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); handleSaveFoco(); }
+                        else if (e.key === "Escape") { e.preventDefault(); handleCancelEditFoco(); }
+                      }}
+                      placeholder="¿Cuál es tu foco hoy?"
+                      maxLength={500}
+                      style={{
+                        flex: 1,
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: "#1A1A1A",
+                        padding: "6px 8px",
+                        border: "1px solid #C9A84C",
+                        borderRadius: 0,
+                        outline: "none",
+                        fontFamily: "inherit",
+                        background: "#FAFAF7",
+                      }}
+                    />
+                    <button
+                      onClick={handleSaveFoco}
+                      style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", border: "none", background: "#C9A84C", color: "#fff", cursor: "pointer", fontFamily: "inherit", borderRadius: 0, letterSpacing: "0.04em" }}
+                    >Fijar</button>
+                    <button
+                      onClick={handleCancelEditFoco}
+                      style={{ fontSize: 11, padding: "5px 8px", border: "none", background: "transparent", color: "#6B6B6B", cursor: "pointer", fontFamily: "inherit" }}
+                    >Cancelar</button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Modo lectura: título + ✏️ a la derecha */}
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      <span style={{
+                        flex: 1,
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: "#1A1A1A",
+                        lineHeight: 1.5,
+                        wordBreak: "break-word",
+                      }}>
+                        {focoTexto || "Héctor aún no ha decidido tu foco. Pulsa Actualizar o fija el tuyo."}
+                      </span>
+                      <button
+                        onClick={handleStartEditFoco}
+                        title="Editar foco manualmente"
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          fontSize: 14,
+                          cursor: "pointer",
+                          padding: 2,
+                          fontFamily: "inherit",
+                          color: "#6B6B6B",
+                          flexShrink: 0,
+                          lineHeight: 1,
+                        }}
+                      >✏️</button>
+                    </div>
+                    {/* CTA Hablar con Héctor (siempre visible bajo el título) */}
+                    <button
+                      onClick={() => onNavigate?.("hector-direct")}
+                      style={{
+                        background: "transparent",
+                        border: "none",
+                        padding: 0,
+                        fontSize: 11,
+                        color: "#C9A84C",
+                        textDecoration: "underline",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        textAlign: "left",
+                        marginTop: 2,
+                      }}
+                    >Hablar con Héctor sobre esto →</button>
+                    {/* Liberar foco — solo si lo fijó el CEO */}
+                    {focoSource === "ceo" && (
+                      <button
+                        onClick={handleReleaseFoco}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          padding: 0,
+                          fontSize: 11,
+                          color: "#6B6B6B",
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                          textAlign: "left",
+                          marginTop: 2,
+                        }}
+                      >Liberar foco</button>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
             {latestAnalysis && latestAnalysis.tasks && latestAnalysis.tasks.length > 0 ? (
               <>
