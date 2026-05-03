@@ -20,7 +20,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import { PLAIN_TEXT_RULE, getEnergyLevel, buildSkillsBlock, detectSkills } from "../../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim } from "../../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, rewriteToPropositive, validateTasksAgainstDatabase, validateAndCorrectDueDate } from "../../lib/agentActions.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
 import { formatCeoMemoryForPrompt } from "../../lib/memory.js";
 
@@ -686,6 +686,36 @@ Reglas:
           assignedTo: t.assignedTo || null,
         })) : [],
       };
+      // Validaciones post-LLM (commit 2a):
+      // 1. Reescritura propositiva sobre los textos visibles del análisis.
+      //    Si Héctor escribió "Tarea creada en X" en thought/summary, queda
+      //    como "a crear" — el campo es texto user-facing.
+      if (analysis.thought) {
+        const r = rewriteToPropositive(analysis.thought);
+        if (r.wasFixed) {
+          console.log(`✏️ [HectorPanel.thought] '${r.original}' → '${r.rewritten}'`);
+          analysis.thought = r.rewritten;
+        }
+      }
+      if (analysis.summary) {
+        const r = rewriteToPropositive(analysis.summary);
+        if (r.wasFixed) {
+          console.log(`✏️ [HectorPanel.summary] '${r.original}' → '${r.rewritten}'`);
+          analysis.summary = r.rewritten;
+        }
+      }
+      // 2. Defensa: corregir dueDate de tareas copiadas si el modelo
+      //    reescribió el año (cutoff 2025 de Sonnet 4.5). En este flujo
+      //    las tasks vienen del state real, así que normalmente
+      //    wasFixed=false y no muta nada — es solo red de seguridad.
+      analysis.tasks.forEach((t) => {
+        if (!t.dueDate) return;
+        const r = validateAndCorrectDueDate(t.dueDate);
+        if (r.wasFixed) {
+          console.log(`📅 [HectorPanel.task ${t.taskId || "?"}] '${t.dueDate}' → '${r.corrected}'`);
+          t.dueDate = r.corrected;
+        }
+      });
       setCurrentThought(analysis.thought || analysis.summary || "");
       setThoughtFlash((v) => v + 1);
       // Dedup: misma firma de análisis → no añadir, no leer voz, evitar bucle.
@@ -970,12 +1000,38 @@ Reglas para block_task:
       // Si Héctor incluyó propuesta dentro del campo reply, también la
       // detectamos (caso poco probable pero defensivo).
       const proposal = proposalFromRaw || parseAgentActions(reply);
-      const cleanReply = proposal ? cleanAgentResponse(reply) : reply;
+      let cleanReply = proposal ? cleanAgentResponse(reply) : reply;
+      // Validaciones post-LLM (commit 2a):
+      // 1. Reescritura propositiva sobre el reply user-facing. NO toca
+      //    parsedReply.action (mecánico) — solo el texto que ve el CEO.
+      if (cleanReply) {
+        const r = rewriteToPropositive(cleanReply);
+        if (r.wasFixed) {
+          console.log(`✏️ [HectorPanel.reply] '${r.original}' → '${r.rewritten}'`);
+          cleanReply = r.rewritten;
+        }
+      }
+      // 2. Defensa: si el modelo extiende parsedReply con tasks que
+      //    incluyan dueDate (no es el shape estándar pero es defensivo
+      //    ante futuras evoluciones), corregimos años pasados.
+      if (Array.isArray(parsedReply.tasks)) {
+        parsedReply.tasks.forEach((t) => {
+          if (t && t.dueDate) {
+            const r = validateAndCorrectDueDate(t.dueDate);
+            if (r.wasFixed) {
+              console.log(`📅 [HectorPanel.order.task ${t.taskId || "?"}] '${t.dueDate}' → '${r.corrected}'`);
+              t.dueDate = r.corrected;
+            }
+          }
+        });
+      }
       // Capa 2 del blindaje anti-fake-success: si Héctor afirma éxito en
       // texto sin bloque [ACTIONS] válido, marcamos el mensaje para que
       // el render del chat muestre el banner amarillo anclado a la
       // burbuja. La detección vive en agentActions (compartida con
-      // HectorDirect). Antes esta vista no tenía red de seguridad.
+      // HectorDirect). Importante: corre SOBRE el cleanReply ya
+      // reescrito a propositivo — los participios convertidos a
+      // infinitivo no disparan falsos positivos del detector.
       const fakeSuccess = detectFalseSuccessClaim(cleanReply, proposal);
       setChatHistory((prev) => [...prev, { role: "hector", text: cleanReply || "(sin respuesta)", proposal, fakeSuccess, ts: Date.now() }].slice(-CHAT_MAX));
       executeAction(parsedReply);
