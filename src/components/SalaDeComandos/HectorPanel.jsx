@@ -21,6 +21,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import { PLAIN_TEXT_RULE, getEnergyLevel, buildSkillsBlock, detectSkills } from "../../lib/agent.js";
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, rewriteToPropositive, validateTasksAgainstDatabase, validateAndCorrectDueDate } from "../../lib/agentActions.js";
+import { supa } from "../../lib/sync.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
 import { formatCeoMemoryForPrompt } from "../../lib/memory.js";
 
@@ -235,6 +236,12 @@ export default function HectorPanel({
   onOpenTask,
   userId,
   userName,
+  // UUID del usuario en Supabase Auth (auth.uid()). Necesario para
+  // queries con RLS user_id = auth.uid() en hector_panel_state y
+  // ceo_memory. Si null (modo legacy/demo), persistencia BD desactivada.
+  authUid = null,
+  // Proyectos no archivados, para contar "frentes activos" en SaludoCard.
+  projects = [],
   // Contexto financiero opcional. Si llega, se inyecta en el prompt para
   // que Héctor pondere recomendaciones según runway y caja disponible.
   financeContext,
@@ -257,6 +264,15 @@ export default function HectorPanel({
 
   const [hectorState, setHectorState] = useState("listening");
   const [currentThought, setCurrentThought] = useState("");
+  // Timestamp del último análisis guardado en Supabase. Se muestra en el
+  // PanelHeader como "Actualizado a las HH:MM". Null si nunca se ha
+  // generado/cargado un análisis (estado primera-vez del CEO).
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
+  // Flag local para el spinner del botón ACTUALIZAR del PanelHeader.
+  // Distinto de hectorState (que también puede pasar a "thinking" desde
+  // la generación automática inicial); este es solo para feedback UI
+  // del click manual del CEO.
+  const [refreshLoading, setRefreshLoading] = useState(false);
   const [recommendations, setRecommendations] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -499,6 +515,79 @@ export default function HectorPanel({
   };
 
   const setState = (s) => { setHectorState(s); onStateChange?.(s); };
+
+  // ── Persistencia Supabase (commit 3 — Sala de Mando v2) ──────────
+  // Carga el último estado del panel desde la tabla hector_panel_state.
+  // Devuelve la fila si existe, null si no. Hidrata chatHistory con el
+  // último análisis (rol "hector_analysis") para que el CEO vea su
+  // sesión anterior al abrir Sala de Mando.
+  const loadPanelState = async () => {
+    if (!supa || !authUid) return null;
+    try {
+      const { data, error } = await supa
+        .from("hector_panel_state")
+        .select("*")
+        .eq("user_id", authUid)
+        .maybeSingle();
+      if (error) {
+        console.warn("[HectorPanel] loadPanelState error:", error.message);
+        return null;
+      }
+      if (!data) return null;
+      // Hidratar el chat con el análisis previo si existe.
+      if (data.hector_analysis) {
+        try {
+          const parsed = JSON.parse(data.hector_analysis);
+          const analysisMsg = {
+            role: "hector_analysis",
+            analysis: parsed,
+            ts: data.updated_at ? Date.parse(data.updated_at) : Date.now(),
+          };
+          setChatHistory((prev) => [...prev, analysisMsg].slice(-CHAT_MAX));
+          if (parsed.thought || parsed.summary) {
+            setCurrentThought(parsed.thought || parsed.summary || "");
+          }
+        } catch (e) {
+          console.warn("[HectorPanel] análisis JSON corrupto:", e?.message);
+        }
+      }
+      if (data.updated_at) setLastUpdatedAt(data.updated_at);
+      return data;
+    } catch (e) {
+      console.warn("[HectorPanel] loadPanelState exception:", e?.message);
+      return null;
+    }
+  };
+
+  // Persiste un análisis recién generado vía UPSERT con onConflict en
+  // user_id (UNIQUE en la tabla — una fila por CEO). Llamado desde
+  // generateHectorThought al final del éxito.
+  const savePanelState = async (analysis) => {
+    if (!supa || !authUid) return;
+    try {
+      const nowIso = new Date().toISOString();
+      const payload = {
+        user_id: authUid,
+        saludo: null,
+        foco_texto: (analysis?.thought || analysis?.summary || "").slice(0, 1000),
+        foco_source: "hector",
+        foco_locked: false,
+        hector_analysis: JSON.stringify(analysis),
+        negociaciones_snapshot: null,
+        updated_at: nowIso,
+      };
+      const { error } = await supa
+        .from("hector_panel_state")
+        .upsert(payload, { onConflict: "user_id" });
+      if (error) {
+        console.warn("[HectorPanel] savePanelState error:", error.message);
+        return;
+      }
+      setLastUpdatedAt(nowIso);
+    } catch (e) {
+      console.warn("[HectorPanel] savePanelState exception:", e?.message);
+    }
+  };
 
   const generateHectorThought = async () => {
     if (typeof document !== "undefined" && document.hidden) return;
@@ -750,6 +839,11 @@ Reglas:
         onNewRecommendation?.(rec);
       }
       setState("recommending");
+      // Persistencia Supabase (commit 3): guardar el análisis para que
+      // al reabrir Sala de Mando aparezca instantáneo sin nueva llamada.
+      // No-await intencional — fire and forget; un fallo de red no
+      // debería bloquear la UI ni revertir lo que ya pintamos.
+      savePanelState(analysis);
       // Voz: lee el summary (más estratégico que cada acción individual).
       if (analysis.summary) speakRecommendation(analysis.summary);
       // Publica en el timeline de cada tarea CRÍTICA recomendada. Una
@@ -1136,14 +1230,27 @@ Reglas para block_task:
     stopListenRef.current = startSession();
   };
 
-  // Setup proactivo: una sola vez con interval cada 60s + throttle interno.
+  // Setup al montar (commit 3 — Sala de Mando v2): carga el último
+  // análisis desde Supabase. Si no hay fila (primera vez del CEO),
+  // dispara generateHectorThought automáticamente. Si ya hay fila,
+  // muestra el análisis guardado y NO regenera — el CEO controla
+  // manualmente las nuevas generaciones con el botón ACTUALIZAR.
+  // Eliminado el polling cada 60s del flujo legacy: ahora la única
+  // llamada periódica es la del usuario.
   useEffect(() => {
     cancelledRef.current = false;
-    generateHectorThought();
-    const id = setInterval(generateHectorThought, 60 * 1000);
-    return () => { cancelledRef.current = true; clearInterval(id); try { stopListenRef.current?.(); } catch {} };
+    let alive = true;
+    (async () => {
+      const loaded = await loadPanelState();
+      if (!alive || cancelledRef.current) return;
+      if (!loaded) {
+        // Primera vez del CEO en este proyecto Supabase → generamos.
+        generateHectorThought();
+      }
+    })();
+    return () => { alive = false; cancelledRef.current = true; try { stopListenRef.current?.(); } catch {} };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authUid]);
 
   const toggleMute = () => {
     setMuted((prev) => {
@@ -1446,18 +1553,105 @@ Reglas para block_task:
         );
       })()}
 
-      {/* Header (64px fijo) */}
-      <div data-hp="header" style={{ height: 64, padding: "0 16px", display: "flex", alignItems: "center", gap: 10, borderBottom: "0.5px solid #E5E7EB", flexShrink: 0 }}>
-        <div style={{ width: 38, height: 38, borderRadius: "50%", background: "linear-gradient(135deg,#1D9E75,#0E7C5A)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🧙</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", lineHeight: 1.1 }}>Héctor</div>
-          <div style={{ fontSize: 10.5, color: "#6B7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Chief of Staff · {displayName}</div>
+      {/* PanelHeader Kluxor (commit 3 — Sala de Mando v2). Tres líneas
+          stack izquierda: marca KLUXOR · Sala de Mando · timestamp.
+          Botón ACTUALIZAR a la derecha = única vía de regenerar análisis
+          desde la UI. Mute conservado como icono pequeño antes del CTA
+          para no perder el toggle de voz. Border-radius 0 en todo. */}
+      <div data-hp="header" style={{
+        padding: "14px 20px",
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        borderBottom: "0.5px solid #E5E0D5",
+        background: "#FAFAF7",
+        flexShrink: 0,
+      }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.12em", color: "#C9A84C", textTransform: "uppercase", lineHeight: 1 }}>KLUXOR</div>
+          <div style={{ fontSize: 15, fontWeight: 500, color: "#1A1A1A", lineHeight: 1.2 }}>Sala de Mando</div>
+          <div style={{ fontSize: 11, color: "#6B6B6B", lineHeight: 1.2 }}>
+            {lastUpdatedAt ? (
+              `Actualizado a las ${new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(lastUpdatedAt))}`
+            ) : (
+              isThinking || refreshLoading ? "Generando primer análisis…" : "Sin análisis aún"
+            )}
+          </div>
         </div>
-        <button onClick={toggleMute} title={muted ? "Activar voz de Héctor" : "Silenciar voz de Héctor"} style={{ background: "transparent", border: "1px solid #E5E7EB", borderRadius: 8, width: 30, height: 30, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, fontFamily: "inherit", color: muted ? "#9CA3AF" : "#1D9E75" }}>{muted ? "🔇" : "🔊"}</button>
-        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "3px 9px", borderRadius: 12, background: stateInfo.bg, color: stateInfo.fg, border: `1px solid ${stateInfo.border}`, display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: stateInfo.border, animation: isThinking ? "hp-pulse-dot 1.2s infinite" : "none" }} />
-          {stateInfo.label}
-        </span>
+        <button
+          onClick={toggleMute}
+          title={muted ? "Activar voz de Héctor" : "Silenciar voz de Héctor"}
+          style={{
+            background: "transparent",
+            border: "0.5px solid #E5E0D5",
+            width: 32,
+            height: 32,
+            fontSize: 13,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 0,
+            fontFamily: "inherit",
+            color: muted ? "#9B9B9B" : "#1A1A1A",
+            flexShrink: 0,
+          }}
+        >{muted ? "🔇" : "🔊"}</button>
+        <button
+          onClick={() => { if (refreshLoading || isThinking) return; setRefreshLoading(true); lastCallTime.current = 0; generateHectorThought().finally(() => setRefreshLoading(false)); }}
+          disabled={refreshLoading || isThinking}
+          title="Regenerar análisis con el contexto actual"
+          style={{
+            background: "transparent",
+            border: "1px solid #C9A84C",
+            color: refreshLoading || isThinking ? "#A07830" : "#C9A84C",
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            padding: "8px 16px",
+            cursor: refreshLoading || isThinking ? "wait" : "pointer",
+            fontFamily: "inherit",
+            opacity: refreshLoading || isThinking ? 0.7 : 1,
+            transition: "background .15s ease, color .15s ease",
+            flexShrink: 0,
+          }}
+          onMouseEnter={(e) => { if (!refreshLoading && !isThinking) { e.currentTarget.style.background = "#C9A84C"; e.currentTarget.style.color = "#FFFFFF"; } }}
+          onMouseLeave={(e) => { if (!refreshLoading && !isThinking) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#C9A84C"; } }}
+        >
+          {refreshLoading || isThinking ? "ACTUALIZANDO…" : "ACTUALIZAR"}
+        </button>
+      </div>
+
+      {/* SaludoCard (commit 3) — siempre visible bajo el header. Saludo
+          cortés según hora local + nº de proyectos activos como "frentes
+          activos hoy". Sin alarmismo, sin badges, lenguaje propositivo. */}
+      <div style={{
+        padding: "16px 20px",
+        background: "#FAFAF7",
+        borderBottom: "0.5px solid #E5E0D5",
+        flexShrink: 0,
+      }}>
+        {(() => {
+          const h = new Date().getHours();
+          const saludo = h < 14 ? "Buenos días" : h < 20 ? "Buenas tardes" : "Buenas noches";
+          const firstName = (userName || "Antonio").split(" ")[0];
+          const frentes = (projects || []).length;
+          const fechaLarga = new Intl.DateTimeFormat("es-ES", {
+            timeZone: "Europe/Madrid",
+            weekday: "long", day: "numeric", month: "long",
+          }).format(new Date());
+          return (
+            <>
+              <div style={{ fontSize: 15, color: "#1A1A1A", lineHeight: 1.5, fontWeight: 400 }}>
+                {saludo}, {firstName}. <span style={{ color: "#1A1A1A", fontWeight: 500 }}>{frentes} {frentes === 1 ? "frente activo" : "frentes activos"}</span> hoy.
+              </div>
+              <div style={{ fontSize: 11, color: "#6B6B6B", marginTop: 4, textTransform: "capitalize" }}>
+                {fechaLarga} · Marbella-Estepona
+              </div>
+            </>
+          );
+        })()}
       </div>
 
       {/* Chips de skills consultados — visible cuando Héctor detecta expertos */}
