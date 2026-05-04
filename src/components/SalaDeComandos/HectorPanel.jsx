@@ -1582,9 +1582,9 @@ Reglas para block_task:
   // punto de color + línea fina debajo, cards en blanco limpio sin tintes,
   // botones sin caja — solo jerarquía tipográfica.
   const URGENCY_GROUPS = [
-    { key: "critical", label: "🔥 URGENTE · IMPORTANTE — Actuar ahora" },
-    { key: "high",     label: "⏳ IMPORTANTE — Hoy" },
-    { key: "medium",   label: "📋 PLANIFICAR — Esta semana" },
+    { key: "critical", label: "🔥 URGENTE · IMPORTANTE — Actuar ahora", refColor: "#7A1F1F" },
+    { key: "high",     label: "⏳ IMPORTANTE — Hoy",                    refColor: "#A07830" },
+    { key: "medium",   label: "📋 PLANIFICAR — Esta semana",            refColor: "#9B9B9B" },
   ];
 
   // Formatea ISO/string a "DD mmm" en castellano. Devuelve "Sin fecha" si
@@ -1604,7 +1604,7 @@ Reglas para block_task:
     return p || "—";
   };
 
-  const renderTaskCard = (t, key, onView, onComplete, onPostpone) => {
+  const renderTaskCard = (t, key, onView, onComplete, onPostpone, refColor) => {
     const startTxt = formatDate(t.startDate);
     const endTxt   = formatDate(t.dueDate);
     const cardDisabled = actionInFlight ? { opacity: 0.5, pointerEvents: "none" } : null;
@@ -1617,11 +1617,11 @@ Reglas para block_task:
               onClick={() => onView(t.taskId, t.title)}
               title={`Ir a ${t.ref}`}
               style={{
-                backgroundColor: "#1A1A1A",
-                color: "#C9A84C",
+                background: "transparent",
+                color: refColor || "#9B9B9B",
                 borderRadius: 0,
-                padding: "2px 8px",
-                fontSize: 11,
+                padding: "2px 0",
+                fontSize: 13,
                 fontWeight: 700,
                 marginRight: 2,
                 border: "none",
@@ -1668,7 +1668,7 @@ Reglas para block_task:
           <div key={g.key}>
             <div style={{ background: "transparent", color: "#1A1A1A", padding: "8px 0", fontWeight: 400, fontSize: 13, letterSpacing: "1.5px", textTransform: "uppercase", borderRadius: 0, borderBottom: "0.5px solid #E5E0D5", marginBottom: 12, marginTop: 24 }}>{g.label}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {items.slice(0, 5).map((t, j) => renderTaskCard(t, `${g.key}-${j}`, onView, onComplete, onPostpone))}
+              {items.slice(0, 5).map((t, j) => renderTaskCard(t, `${g.key}-${j}`, onView, onComplete, onPostpone, g.refColor))}
             </div>
           </div>
         );
