@@ -20,7 +20,8 @@
 import React, { useEffect, useState, useRef } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import { PLAIN_TEXT_RULE, getEnergyLevel, buildSkillsBlock, detectSkills } from "../../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, rewriteToPropositive, validateTasksAgainstDatabase, validateAndCorrectDueDate } from "../../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, rewriteToPropositive, validateTasksAgainstDatabase, validateAndCorrectDueDate, buildOrderInterpreterSystemPrompt, parseOrderInterpreterJson } from "../../lib/agentActions.js";
+import { callAgentSafe as callAgentSafeShared } from "../../lib/agent.js";
 import { supa } from "../../lib/sync.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
 import { formatCeoMemoryForPrompt } from "../../lib/memory.js";
@@ -234,6 +235,9 @@ export default function HectorPanel({
   onAssignTask,
   onArchiveTask,
   onOpenTask,
+  // Commit 20: aplicar cambios parciales a una tarea desde una orden
+  // interpretada por LLM. Recibe (taskId, partialChanges, meta).
+  onApplyTaskChanges,
   userId,
   userName,
   // UUID del usuario en Supabase Auth (auth.uid()). Necesario para
@@ -334,6 +338,16 @@ export default function HectorPanel({
   const [expandedTaskId, setExpandedTaskId] = useState(null);
   const [orderDraft, setOrderDraft] = useState("");
   const orderTextareaRef = useRef(null);
+  // Commit 20: estado para la ejecución directa de la orden vía LLM.
+  // orderApplying = spinner durante la llamada (5-15s típico).
+  // orderError    = mensaje inline si el intérprete devolvió error o si
+  //                 falló la red. Mantiene el desplegable abierto para
+  //                 que el CEO pueda corregir y reintentar.
+  // orderAbortRef = AbortController activo para que "Cancelar" pueda
+  //                 abortar la fetch en curso sin esperar al timeout.
+  const [orderApplying, setOrderApplying] = useState(false);
+  const [orderError, setOrderError] = useState(null);
+  const orderAbortRef = useRef(null);
   const [recommendations, setRecommendations] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -1495,13 +1509,16 @@ Reglas para block_task:
     sendOrderToHector(inputMessage);
   };
 
-  // Commit 19: orden contextual a Héctor desde una task card del análisis.
-  // El prefijo lleva ref + título + urgencia para que Héctor sepa de qué
-  // tarea hablamos sin que el CEO tenga que repetirlo. Reutiliza el mismo
-  // sendOrderToHector que el input grande — sin tocar system prompt.
-  const submitTaskOrder = (t) => {
+  // Commit 20: ejecución directa de la orden sobre la tarea. El draft
+  // se manda al intérprete LLM (system prompt en agentActions.js) que
+  // devuelve un partial JSON con los campos a modificar. El frontend
+  // aplica vía onApplyTaskChanges (updateTaskAnywhere en App.jsx) +
+  // dismiss óptico + burbuja de trazabilidad en chatHistory. Sin pasar
+  // por el chat conversacional, sin tocar JSON-mode de sendOrderToHector.
+  const submitTaskOrder = async (t) => {
     const draft = orderDraft.trim();
-    if (!draft || chatLoading) return;
+    if (!draft || orderApplying) return;
+    // Cortar mic + TTS por si el CEO acababa de dictar.
     if (wantsListeningRef.current || isListening) {
       wantsListeningRef.current = false;
       try { stopListenRef.current?.(); } catch {}
@@ -1510,13 +1527,66 @@ Reglas para block_task:
       listenRetryRef.current = 0;
     }
     try { stopSpeaking(); } catch {}
-    const refStr = t.ref || t.taskId || "";
-    const urgencyStr = t.urgency ? ` (${t.urgency})` : "";
-    const prefix = `Sobre la tarea ${refStr} "${t.title}"${urgencyStr}: `;
-    setExpandedTaskId(null);
-    setOrderDraft("");
-    setActiveTab("chat");
-    sendOrderToHector(prefix + draft);
+    setOrderApplying(true);
+    setOrderError(null);
+    const ctrl = new AbortController();
+    orderAbortRef.current = ctrl;
+    try {
+      const todayISO = new Date().toISOString().slice(0, 10);
+      const system = buildOrderInterpreterSystemPrompt(todayISO);
+      const refStr = t.ref || t.taskId || "(sin ref)";
+      const urgencyStr = t.urgency || "—";
+      const userPrompt = `Tarea ${refStr} "${t.title}" (estado: ${urgencyStr}) — orden: "${draft}"`;
+      const text = await callAgentSafeShared(
+        { system, messages: [{ role: "user", content: userPrompt }], max_tokens: 500, signal: ctrl.signal },
+        { timeoutMs: 30000 }
+      );
+      const parsed = parseOrderInterpreterJson(text);
+      if (parsed.error) {
+        setOrderError(parsed.error);
+        return;
+      }
+      const changes = { ...parsed.changes };
+      // Validación post-LLM: corregir dueDate con año pasado del cutoff
+      // de Sonnet 4.5 si aplica.
+      if (changes.dueDate) {
+        const v = validateAndCorrectDueDate(changes.dueDate);
+        if (v.wasFixed) {
+          console.log(`📅 [HectorPanel.order] '${changes.dueDate}' → '${v.corrected}'`);
+          changes.dueDate = v.corrected;
+        }
+      }
+      // Aplicar mutación real.
+      onApplyTaskChanges?.(t.taskId, changes, { commandText: draft });
+      // Dismiss óptico (commit 13): si el cambio puede sacar la tarea
+      // del análisis actual, la quitamos al instante. La fuente de
+      // verdad sigue siendo el snapshot del LLM hasta el siguiente
+      // generateHectorThought.
+      setDismissedTaskIds(prev => { const n = new Set(prev); n.add(String(t.taskId)); return n; });
+      // Burbuja de trazabilidad en el chat (role="system"). Resumen
+      // legible para el CEO sin pintar el JSON completo.
+      const summary = Object.entries(changes)
+        .map(([k, v]) => `${k} → ${typeof v === "object" ? JSON.stringify(v) : v}`)
+        .join(", ");
+      setChatHistory(prev => [...prev, {
+        role: "system",
+        text: `✓ Aplicado en ${refStr}: ${summary}`,
+        ts: Date.now(),
+      }].slice(-CHAT_MAX));
+      publishTimeline(t.taskId, `Orden CEO: "${draft}" → ${summary}`);
+      // Cerrar desplegable solo en éxito.
+      setExpandedTaskId(null);
+      setOrderDraft("");
+    } catch (e) {
+      if (e?.name === "AbortError") {
+        setOrderError("Cancelado.");
+      } else {
+        setOrderError(e?.message || "Error inesperado al interpretar la orden.");
+      }
+    } finally {
+      setOrderApplying(false);
+      orderAbortRef.current = null;
+    }
   };
 
   // Auto-focus al textarea recién expandido. Usa rAF para asegurar que
@@ -1717,17 +1787,29 @@ Reglas para block_task:
                   submitTaskOrder(t);
                 }
               }}
+              disabled={orderApplying}
               placeholder="¿Qué quieres que haga Héctor con esta tarea?"
-              style={{ width: "100%", minHeight: 80, maxHeight: 100, overflow: "auto", border: "0.5px solid #E5E0D5", borderRadius: 0, background: "#FFFFFF", padding: 8, fontSize: 13, fontFamily: "inherit", color: "#1A1A1A", boxSizing: "border-box", resize: "none", outline: "none" }}
+              style={{ width: "100%", minHeight: 80, maxHeight: 100, overflow: "auto", border: "0.5px solid #E5E0D5", borderRadius: 0, background: "#FFFFFF", padding: 8, fontSize: 13, fontFamily: "inherit", color: "#1A1A1A", boxSizing: "border-box", resize: "none", outline: "none", opacity: orderApplying ? 0.6 : 1 }}
             />
+            {orderError && (
+              <div style={{ marginTop: 8, padding: "6px 8px", border: "0.5px solid #C24A4A", background: "#FDF5F5", color: "#7A1F1F", fontSize: 12, lineHeight: 1.4 }}>{orderError}</div>
+            )}
             <div style={{ display: "flex", alignItems: "center", marginTop: 8 }}>
               <button
                 onClick={() => submitTaskOrder(t)}
-                disabled={chatLoading || !orderDraft.trim()}
-                style={{ padding: "6px 16px", borderRadius: 0, background: "#C9A84C", color: "#1A1A1A", border: "none", fontSize: 12, fontWeight: 600, cursor: (chatLoading || !orderDraft.trim()) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (chatLoading || !orderDraft.trim()) ? 0.5 : 1 }}
-              >Enviar a Héctor</button>
+                disabled={orderApplying || !orderDraft.trim()}
+                style={{ padding: "6px 16px", borderRadius: 0, background: "#C9A84C", color: "#1A1A1A", border: "none", fontSize: 12, fontWeight: 600, cursor: (orderApplying || !orderDraft.trim()) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (orderApplying || !orderDraft.trim()) ? 0.5 : 1 }}
+              >{orderApplying ? "Aplicando…" : "Enviar a Héctor"}</button>
               <button
-                onClick={() => { setExpandedTaskId(null); setOrderDraft(""); }}
+                onClick={() => {
+                  if (orderApplying) {
+                    try { orderAbortRef.current?.abort(); } catch {}
+                  } else {
+                    setExpandedTaskId(null);
+                    setOrderDraft("");
+                    setOrderError(null);
+                  }
+                }}
                 style={{ marginLeft: 12, padding: 0, borderRadius: 0, background: "transparent", color: "#9B9B9B", border: "none", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
               >Cancelar</button>
             </div>
@@ -2623,6 +2705,19 @@ Reglas para block_task:
                       <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4 }}>{fmtTs(m.ts)}</div>
                     </div>
                   </div>
+                  </React.Fragment>
+                );
+              }
+              // Burbuja de sistema (commit 20): trazabilidad de órdenes
+              // ejecutadas vía orderInterpreter. Texto centrado en gris,
+              // sin avatar — diferenciado de Héctor y CEO.
+              if (m.role === "system") {
+                return (
+                  <React.Fragment key={i}>
+                    {separatorNode}
+                    <div style={{ textAlign: "center", padding: "4px 0" }}>
+                      <span style={{ fontSize: 12, color: "#6B6B6B", fontStyle: "italic" }}>{m.text}</span>
+                    </div>
                   </React.Fragment>
                 );
               }

@@ -1015,3 +1015,82 @@ Si una orden menciona un nombre que puede referirse a más de una entidad (proye
 
 IDENTIDAD DEL USUARIO:
 El usuario que da las órdenes es siempre la parte activa y principal. Su nombre, email y empresa vienen en el contexto bajo el bloque USUARIO ACTIVO EN SESIÓN, al inicio del system prompt. Úsalo en documentos, contratos y acciones (parte propietaria, cedente, parte contratante por defecto). Nunca asumas que el usuario es otro miembro del equipo aunque aparezcan en el listado de miembros — ese listado es para assignees y referencias, no para identificar al CEO.`;
+
+// ─────────────────────────────────────────────────────────────────────────
+// Order Interpreter (commit 20) — intérprete de órdenes natural-language
+// sobre una tarea concreta. Diferente del flujo [ACTIONS]: aquí el LLM
+// SOLO devuelve un partial JSON con los campos a modificar en la tarea
+// objetivo. La mutación real la hace el frontend con updateTaskAnywhere.
+// ─────────────────────────────────────────────────────────────────────────
+
+// Whitelist de campos modificables. Cualquier campo fuera de este set en
+// la respuesta del LLM se descarta silenciosamente. Doble protección:
+// (a) el system prompt lo prohíbe, (b) el parser lo filtra.
+export const ORDER_FIELD_WHITELIST = [
+  "dueDate",
+  "priority",
+  "status",
+  "title",
+  "description",
+  "desc",
+  "assignee",
+  "assignees",
+];
+
+export function buildOrderInterpreterSystemPrompt(todayISO) {
+  const date = todayISO || new Date().toISOString().slice(0, 10);
+  return `Eres un intérprete de órdenes sobre tareas. Recibes el contexto de una tarea y una orden en lenguaje natural del CEO. Devuelves SOLO un JSON con los campos a modificar. Nada más.
+
+Campos modificables: dueDate (ISO 8601), priority ("Alta"/"Media"/"Baja"), status, title, description, assignee.
+
+Hoy es: ${date}
+
+Reglas:
+- Devuelve SOLO los campos mencionados en la orden (partial update).
+- Si la orden no aplica cambios a la tarea, devuelve: { "error": "Esta orden no aplica cambios a la tarea — usa el chat principal" }
+- Nunca inventes campos fuera de la whitelist.
+- dueDate siempre en formato ISO completo (YYYY-MM-DD).
+- Interpretar fechas relativas con la fecha de hoy como referencia.
+- Sin markdown, sin comentarios, sin prosa fuera del JSON.
+
+Ejemplo input: Tarea ORC-002 "Documento presentación" — orden: "ponla para mañana urgente"
+Ejemplo output: {"dueDate":"${date}","priority":"Alta"}`;
+}
+
+// Parser tolerante. Quita fences markdown, recorta prosa antes/después,
+// valida que sea JSON. Si la respuesta tiene "error", lo devuelve. Si no,
+// filtra cambios contra ORDER_FIELD_WHITELIST. Devuelve { error } o
+// { changes }. Nunca lanza — el caller decide qué hacer con cada caso.
+export function parseOrderInterpreterJson(text) {
+  if (!text || typeof text !== "string") {
+    return { error: "Respuesta vacía del intérprete." };
+  }
+  let t = text.trim();
+  t = t.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  const firstBrace = t.indexOf("{");
+  const lastBrace  = t.lastIndexOf("}");
+  if (firstBrace < 0 || lastBrace <= firstBrace) {
+    return { error: "Respuesta no JSON del intérprete." };
+  }
+  const candidate = t.slice(firstBrace, lastBrace + 1);
+  let parsed;
+  try { parsed = JSON.parse(candidate); }
+  catch { return { error: "JSON inválido en la respuesta del intérprete." }; }
+  if (parsed && typeof parsed === "object" && typeof parsed.error === "string" && parsed.error.trim()) {
+    return { error: parsed.error.trim() };
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return { error: "El intérprete no devolvió un objeto válido." };
+  }
+  // Filtrado por whitelist. Aliases comunes: description ↔ desc, assignee ↔ assignees.
+  const changes = {};
+  for (const key of ORDER_FIELD_WHITELIST) {
+    if (parsed[key] !== undefined && parsed[key] !== null) {
+      changes[key] = parsed[key];
+    }
+  }
+  if (Object.keys(changes).length === 0) {
+    return { error: "El intérprete no devolvió ningún campo modificable." };
+  }
+  return { changes };
+}

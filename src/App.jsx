@@ -4908,7 +4908,7 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
 // del día). Esta primera versión usa heurísticas deterministas; la
 // selección por LLM y el resto de funcionalidades inteligentes se añaden
 // en commits posteriores.
-function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,onCompleteTask,onPostponeTask,onArchiveTask,onGoDashboard,onGoMytasks,onGoDealRoom,currentFocus,onSetCurrentFocus,onHectorStateChange,onHectorRecommendation,financeContext,onAddTimelineEntry,onRunAgentActions}){
+function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,onCompleteTask,onPostponeTask,onArchiveTask,onApplyTaskChanges,onGoDashboard,onGoMytasks,onGoDealRoom,currentFocus,onSetCurrentFocus,onHectorStateChange,onHectorRecommendation,financeContext,onAddTimelineEntry,onRunAgentActions}){
   const {boards,projects,members,negotiations}=data;
   const me = (members||[]).find(m=>m.id===activeMember);
   // Tareas del usuario activo (asignadas a mí), enriquecidas con metadatos
@@ -5144,6 +5144,7 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
               }}
               onArchiveTask={onArchiveTask}
               onOpenTask={onOpenTask}
+              onApplyTaskChanges={onApplyTaskChanges}
               financeContext={financeContext}
               onAddTimelineEntry={onAddTimelineEntry}
               onRunAgentActions={onRunAgentActions}
@@ -9905,6 +9906,71 @@ export default function TaskFlow(){
     });
     addToast(`📅 Pospuesta hasta ${label||newDate}`,"info");
   },[addToast]);
+  // Commit 20: aplica cambios parciales a una tarea desde una orden
+  // interpretada por LLM (HectorPanel → orderInterpreter → este callback).
+  // Whitelist defensiva en frontend además de la del parser. Mapea aliases
+  // (description→desc, assignee→assignees) y normaliza priority. Añade
+  // entrada de timeline con auditoría del comando del CEO.
+  const applyTaskChanges = useCallback((taskId, partial, meta = {}) => {
+    if (!taskId || !partial || typeof partial !== "object") return;
+    setData(prev => {
+      const newBoards = {};
+      for (const pid in prev.boards) {
+        newBoards[pid] = prev.boards[pid].map(col => ({
+          ...col,
+          tasks: col.tasks.map(t => {
+            if (t.id !== taskId) return t;
+            const next = { ...t };
+            if (typeof partial.title === "string" && partial.title.trim()) next.title = partial.title.trim();
+            if (typeof partial.desc === "string") next.desc = partial.desc;
+            else if (typeof partial.description === "string") next.desc = partial.description;
+            if (typeof partial.dueDate === "string" && partial.dueDate) next.dueDate = partial.dueDate;
+            if (typeof partial.status === "string" && partial.status.trim()) next.status = partial.status.trim();
+            if (typeof partial.priority === "string") {
+              const p = partial.priority.toLowerCase();
+              if (p === "alta" || p === "high")        next.priority = "alta";
+              else if (p === "media" || p === "medium") next.priority = "media";
+              else if (p === "baja" || p === "low")     next.priority = "baja";
+            }
+            // assignee/assignees → IDs si vienen como nombres conocidos.
+            const rawAssignees = Array.isArray(partial.assignees)
+              ? partial.assignees
+              : (partial.assignee != null ? [partial.assignee] : null);
+            if (rawAssignees) {
+              const ids = rawAssignees.map(a => {
+                if (typeof a === "number") return a;
+                if (typeof a !== "string") return null;
+                const trimmed = a.trim();
+                if (!trimmed) return null;
+                const numeric = Number(trimmed);
+                if (!Number.isNaN(numeric) && (prev.members||[]).some(m => m.id === numeric)) return numeric;
+                const found = (prev.members||[]).find(m => (m.name||"").toLowerCase() === trimmed.toLowerCase()
+                  || (m.initials||"").toLowerCase() === trimmed.toLowerCase());
+                return found ? found.id : null;
+              }).filter(x => x != null);
+              if (ids.length > 0) next.assignees = ids;
+            }
+            const audit = {
+              id: `tl_ord_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+              type: "ai",
+              author: "Héctor",
+              authorId: "hector",
+              authorAvatar: "🧙",
+              text: meta.commandText
+                ? `Orden CEO: "${meta.commandText}" → ${JSON.stringify(partial)}`
+                : `Orden CEO aplicada: ${JSON.stringify(partial)}`,
+              timestamp: new Date().toISOString(),
+              isMilestone: false,
+            };
+            next.timeline = [...(t.timeline || []), audit];
+            return next;
+          })
+        }));
+      }
+      return { ...prev, boards: newBoards };
+    });
+    addToast("✓ Tarea actualizada");
+  }, [addToast]);
   const addTask = useCallback((colId,title)=>{
     if(!ensureCanEditProj(proj.id)) return;
     setData(prev=>{
@@ -12086,7 +12152,7 @@ export default function TaskFlow(){
             />;
           })()}
           {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext}/>}
-          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} authSession={authSession} onNavigate={setActiveTab} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
+          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} authSession={authSession} onNavigate={setActiveTab} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onApplyTaskChanges={applyTaskChanges} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission} onSetAgentPermission={setMemberAgentPermission}/>}
