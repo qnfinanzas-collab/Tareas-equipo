@@ -1578,13 +1578,13 @@ Reglas para block_task:
   const displayName = userName || userId || "CEO";
 
   // ── Sub-renderers de cards (extraídos para reuso entre tabs) ────────────
-  // Paleta Kluxor operacional (commit 15): jerarquía visual restaurada.
-  // Cada nivel pinta cabecera + borde izquierdo card + fondo card tintado.
-  // CTA Hecho destaca con oro (#C9A84C). Sin emojis, sin colores Tailwind.
+  // Estilo Eisenhower minimalista (commit 16): cabecera tipográfica con
+  // punto de color + línea fina debajo, cards en blanco limpio sin tintes,
+  // botones sin caja — solo jerarquía tipográfica.
   const URGENCY_GROUPS = [
-    { key: "critical", label: "URGENTE",     fg: "#7A1F1F", fgWeight: 700, accent: "#7A1F1F", bg: "#FDF5F5" },
-    { key: "high",     label: "HOY",         fg: "#A07830", fgWeight: 700, accent: "#A07830", bg: "#FDFAF5" },
-    { key: "medium",   label: "ESTA SEMANA", fg: "#6B6B6B", fgWeight: 600, accent: "#E5E0D5", bg: "#fff" },
+    { key: "critical", label: "🔴 URGENTE · IMPORTANTE — Actuar ahora" },
+    { key: "high",     label: "🟠 IMPORTANTE — Hoy" },
+    { key: "medium",   label: "🟡 PLANIFICAR — Esta semana" },
   ];
 
   // Formatea ISO/string a "DD mmm" en castellano. Devuelve "Sin fecha" si
@@ -1604,12 +1604,12 @@ Reglas para block_task:
     return p || "—";
   };
 
-  const renderTaskCard = (t, key, onView, onComplete, onPostpone, accent, bg) => {
+  const renderTaskCard = (t, key, onView, onComplete, onPostpone) => {
     const startTxt = formatDate(t.startDate);
     const endTxt   = formatDate(t.dueDate);
     const cardDisabled = actionInFlight ? { opacity: 0.5, pointerEvents: "none" } : null;
     return (
-      <div key={key} style={{ background: bg || "#fff", border: "0.5px solid #E5E0D5", borderLeft: `4px solid ${accent}`, borderRadius: 0, padding: "10px 12px", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden", ...cardDisabled }}>
+      <div key={key} style={{ background: "#FFFFFF", border: "0.5px solid #E5E0D5", borderLeft: "3px solid #E5E0D5", borderRadius: 0, padding: "10px 12px", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden", ...cardDisabled }}>
         {/* Línea 1: ref + título + badge proyecto (board) */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
           {t.ref && (
@@ -1638,7 +1638,7 @@ Reglas para block_task:
           )}
         </div>
         {/* Línea 2: urgencia */}
-        <div style={{ fontSize: 10.5, color: accent, fontWeight: 600, marginBottom: 5, letterSpacing: "0.04em", textTransform: "uppercase" }}>{t.urgency}</div>
+        <div style={{ fontSize: 10.5, color: "#6B6B6B", fontWeight: 600, marginBottom: 5, letterSpacing: "0.04em", textTransform: "uppercase" }}>{t.urgency}</div>
         {/* Línea 3: metadata (fechas + prioridad + asignado) */}
         <div style={{ display: "flex", gap: 14, fontSize: 10.5, color: "#6B6B6B", margin: "2px 0 6px", flexWrap: "wrap", alignItems: "center" }}>
           <span>Inicio: {startTxt || "—"} → Fin: {endTxt || "—"}</span>
@@ -1647,12 +1647,13 @@ Reglas para block_task:
         </div>
         {/* Línea 4: acción imperativa */}
         {t.action && <div style={{ fontSize: 11.5, color: "#1A1A1A", fontStyle: "italic", marginBottom: 8, lineHeight: 1.4 }}>{t.action}</div>}
-        {/* Línea 5: botones — tres niveles. Hecho oro (CTA), Posponer
-            perla (secundario), Ver tarea link subrayado (terciario). */}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          <button onClick={() => onComplete(t.taskId, t.title)} style={{ padding: "6px 16px", borderRadius: 0, background: "#C9A84C", color: "#1A1A1A", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.02em" }}>Hecho</button>
-          <button onClick={() => onPostpone(t.taskId, t.title)} style={{ padding: "6px 16px", borderRadius: 0, background: "#F0EDE5", color: "#6B6B6B", border: "0.5px solid #E5E0D5", fontSize: 11, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.02em" }}>Posponer</button>
-          <button onClick={() => onView(t.taskId, t.title)}     style={{ padding: "6px 8px",  borderRadius: 0, background: "transparent", color: "#1A1A1A", border: "none", fontSize: 11, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.02em", textDecoration: "underline" }}>Ver tarea</button>
+        {/* Línea 5: botones — minimalismo lujo. Solo jerarquía
+            tipográfica: HECHO (negro 700) > Posponer (gris 500) >
+            Ver tarea (gris claro 400 subrayado). Sin caja, sin borde. */}
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+          <button onClick={() => onComplete(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#1A1A1A", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.5px" }}>Hecho</button>
+          <button onClick={() => onPostpone(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#6B6B6B", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>Posponer</button>
+          <button onClick={() => onView(t.taskId, t.title)}     style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#9B9B9B", border: "none", fontSize: 13, fontWeight: 400, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Ver tarea</button>
         </div>
       </div>
     );
@@ -1664,10 +1665,10 @@ Reglas para block_task:
         const items = (analysis.tasks || []).filter((t) => t.urgencyLevel === g.key);
         if (!items.length) return null;
         return (
-          <div key={g.key} style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 10, fontWeight: g.fgWeight || 600, color: g.fg, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 6 }}>{g.label}</div>
+          <div key={g.key}>
+            <div style={{ background: "transparent", color: "#1A1A1A", padding: "8px 0", fontWeight: 400, fontSize: 13, letterSpacing: "1.5px", textTransform: "uppercase", borderRadius: 0, borderBottom: "0.5px solid #E5E0D5", marginBottom: 12, marginTop: 24 }}>{g.label}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {items.slice(0, 5).map((t, j) => renderTaskCard(t, `${g.key}-${j}`, onView, onComplete, onPostpone, g.accent, g.bg))}
+              {items.slice(0, 5).map((t, j) => renderTaskCard(t, `${g.key}-${j}`, onView, onComplete, onPostpone))}
             </div>
           </div>
         );
