@@ -328,6 +328,12 @@ export default function HectorPanel({
   // El Set guarda taskIds (string) y se resetea cuando llega un análisis
   // nuevo — la fuente de verdad sigue siendo el snapshot del LLM.
   const [dismissedTaskIds, setDismissedTaskIds] = useState(() => new Set());
+  // Commit 19: desplegable "Ordenar a Héctor" inline en cada task card.
+  // Solo una card expandida a la vez (expandedTaskId guarda el taskId).
+  // orderDraft = texto que el CEO va escribiendo en el textarea.
+  const [expandedTaskId, setExpandedTaskId] = useState(null);
+  const [orderDraft, setOrderDraft] = useState("");
+  const orderTextareaRef = useRef(null);
   const [recommendations, setRecommendations] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -1489,6 +1495,40 @@ Reglas para block_task:
     sendOrderToHector(inputMessage);
   };
 
+  // Commit 19: orden contextual a Héctor desde una task card del análisis.
+  // El prefijo lleva ref + título + urgencia para que Héctor sepa de qué
+  // tarea hablamos sin que el CEO tenga que repetirlo. Reutiliza el mismo
+  // sendOrderToHector que el input grande — sin tocar system prompt.
+  const submitTaskOrder = (t) => {
+    const draft = orderDraft.trim();
+    if (!draft || chatLoading) return;
+    if (wantsListeningRef.current || isListening) {
+      wantsListeningRef.current = false;
+      try { stopListenRef.current?.(); } catch {}
+      setIsListening(false);
+      setInterimText("");
+      listenRetryRef.current = 0;
+    }
+    try { stopSpeaking(); } catch {}
+    const refStr = t.ref || t.taskId || "";
+    const urgencyStr = t.urgency ? ` (${t.urgency})` : "";
+    const prefix = `Sobre la tarea ${refStr} "${t.title}"${urgencyStr}: `;
+    setExpandedTaskId(null);
+    setOrderDraft("");
+    setActiveTab("chat");
+    sendOrderToHector(prefix + draft);
+  };
+
+  // Auto-focus al textarea recién expandido. Usa rAF para asegurar que
+  // el nodo ya está montado en el DOM antes de pedir foco.
+  useEffect(() => {
+    if (!expandedTaskId) return;
+    const id = requestAnimationFrame(() => {
+      try { orderTextareaRef.current?.focus(); } catch {}
+    });
+    return () => cancelAnimationFrame(id);
+  }, [expandedTaskId]);
+
   // Wrappers de acciones para el tab Análisis: ejecutan + dejan rastro en
   // el chat + cambian al tab Chat para que el CEO vea la confirmación.
   // También publican en el timeline de la tarea — el CEO ve más adelante
@@ -1654,7 +1694,45 @@ Reglas para block_task:
           <button onClick={() => onComplete(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.5px" }}>Hecho</button>
           <button onClick={() => onPostpone(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>Posponer</button>
           <button onClick={() => onView(t.taskId, t.title)}     style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 400, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Ver tarea</button>
+          <button
+            onClick={() => {
+              setExpandedTaskId(prev => prev === t.taskId ? null : t.taskId);
+              setOrderDraft("");
+            }}
+            style={{ padding: "6px 8px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 400, cursor: "pointer", fontFamily: "inherit" }}
+          >Ordenar a Héctor →</button>
         </div>
+        {/* Bloque expandido (commit 19): textarea + Enviar/Cancelar.
+            Solo visible cuando expandedTaskId === t.taskId. Reusa
+            sendOrderToHector con prefijo contextual. */}
+        {expandedTaskId === t.taskId && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: "0.5px solid #E5E0D5" }}>
+            <textarea
+              ref={orderTextareaRef}
+              value={orderDraft}
+              onChange={(e) => setOrderDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submitTaskOrder(t);
+                }
+              }}
+              placeholder="¿Qué quieres que haga Héctor con esta tarea?"
+              style={{ width: "100%", minHeight: 80, maxHeight: 100, overflow: "auto", border: "0.5px solid #E5E0D5", borderRadius: 0, background: "#FFFFFF", padding: 8, fontSize: 13, fontFamily: "inherit", color: "#1A1A1A", boxSizing: "border-box", resize: "none", outline: "none" }}
+            />
+            <div style={{ display: "flex", alignItems: "center", marginTop: 8 }}>
+              <button
+                onClick={() => submitTaskOrder(t)}
+                disabled={chatLoading || !orderDraft.trim()}
+                style={{ padding: "6px 16px", borderRadius: 0, background: "#C9A84C", color: "#1A1A1A", border: "none", fontSize: 12, fontWeight: 600, cursor: (chatLoading || !orderDraft.trim()) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (chatLoading || !orderDraft.trim()) ? 0.5 : 1 }}
+              >Enviar a Héctor</button>
+              <button
+                onClick={() => { setExpandedTaskId(null); setOrderDraft(""); }}
+                style={{ marginLeft: 12, padding: 0, borderRadius: 0, background: "transparent", color: "#9B9B9B", border: "none", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}
+              >Cancelar</button>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
