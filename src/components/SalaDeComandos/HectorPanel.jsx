@@ -348,6 +348,10 @@ export default function HectorPanel({
   const [orderApplying, setOrderApplying] = useState(false);
   const [orderError, setOrderError] = useState(null);
   const orderAbortRef = useRef(null);
+  // Commit 21: "Ver tarea" abre un detalle inline en la card. State
+  // independiente de expandedTaskId — solo uno de los dos puede estar
+  // abierto a la vez. Abrir uno cierra el otro automáticamente.
+  const [viewTaskId, setViewTaskId] = useState(null);
   const [recommendations, setRecommendations] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -1637,10 +1641,22 @@ Reglas para block_task:
     }, 600);
   };
 
-  const handleViewTaskFromCard = (taskId, title) => {
-    guardedAction(() => {
-      goToTask(taskId, title);
-      switchToChatWithMessage(`Abriendo "${title}".`);
+  // Commit 21: "Ver tarea" deja de navegar al tablero por defecto. Ahora
+  // hace toggle del detalle inline en la propia card. Mutual exclusivo
+  // con "Ordenar a Héctor" — abrir uno cierra el otro. La navegación
+  // completa al tablero sigue disponible vía el botón "Abrir en tablero →"
+  // dentro del propio detalle (usa goToTask como antes).
+  const handleViewTaskFromCard = (taskId /*, title */) => {
+    if (orderApplying) return;
+    setViewTaskId((prev) => {
+      const next = prev === taskId ? null : taskId;
+      if (next !== null) {
+        // Cerrar "Ordenar" si estaba abierto en cualquier card.
+        setExpandedTaskId(null);
+        setOrderDraft("");
+        setOrderError(null);
+      }
+      return next;
     });
   };
   const handleCompleteFromCard = (taskId, title) => {
@@ -1719,7 +1735,7 @@ Reglas para block_task:
     const endTxt   = formatDate(t.dueDate);
     const cardDisabled = actionInFlight ? { opacity: 0.5, pointerEvents: "none" } : null;
     return (
-      <div key={key} style={{ background: "#FFFFFF", border: "0.5px solid #E5E0D5", borderLeft: "3px solid #E5E0D5", borderRadius: 0, padding: "10px 12px", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden", ...cardDisabled }}>
+      <div key={key} style={{ background: "#FFFFFF", border: "0.5px solid #E5E0D5", borderLeft: `4px solid ${refColor || "#E5E0D5"}`, borderRadius: 0, padding: "10px 12px", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden", ...cardDisabled }}>
         {/* Línea 1: ref + título + badge proyecto (board) */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
           {t.ref && (
@@ -1766,8 +1782,17 @@ Reglas para block_task:
           <button onClick={() => onView(t.taskId, t.title)}     style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 400, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Ver tarea</button>
           <button
             onClick={() => {
-              setExpandedTaskId(prev => prev === t.taskId ? null : t.taskId);
+              if (orderApplying) return;
+              setExpandedTaskId(prev => {
+                const next = prev === t.taskId ? null : t.taskId;
+                if (next !== null) {
+                  // Cerrar "Ver tarea" si estaba abierto.
+                  setViewTaskId(null);
+                }
+                return next;
+              });
               setOrderDraft("");
+              setOrderError(null);
             }}
             style={{ padding: "6px 8px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 400, cursor: "pointer", fontFamily: "inherit" }}
           >Ordenar a Héctor →</button>
@@ -1815,6 +1840,123 @@ Reglas para block_task:
             </div>
           </div>
         )}
+        {/* Detalle inline (commit 21): vista completa de la tarea sin
+            salir de la Sala de Mando. Resuelve la tarea real con
+            findTask para acceder a desc/comments/timeline/subtasks/etc.
+            que NO viven en el snapshot del LLM. Si findTask devuelve
+            null (snapshot huérfano), pinta placeholder. */}
+        {viewTaskId === t.taskId && (() => {
+          const real = findTask(t.taskId, t.title);
+          if (!real) {
+            return (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #E5E0D5", fontSize: 12, color: "#9B9B9B", fontStyle: "italic" }}>
+                Tarea no encontrada en el sistema.
+              </div>
+            );
+          }
+          const detStart = formatDate(real.startDate);
+          const detEnd   = formatDate(real.dueDate);
+          const dueTime  = (real.dueTime || "").trim();
+          const estH     = Number(real.estimatedHours) || 0;
+          const loggedSec = Array.isArray(real.timeLogs) ? real.timeLogs.reduce((s, l) => s + (Number(l.seconds) || 0), 0) : 0;
+          const loggedH   = loggedSec ? (loggedSec / 3600) : 0;
+          const subs = Array.isArray(real.subtasks) ? real.subtasks : [];
+          const subsDone = subs.filter(s => s && s.done).length;
+          const tags = Array.isArray(real.tags) ? real.tags : [];
+          const assigneeNames = Array.isArray(real.assigneeNames) && real.assigneeNames.length
+            ? real.assigneeNames
+            : (real.assigneeName ? [real.assigneeName] : []);
+          // Comentarios: priorizamos timeline (autor textual) sobre comments
+          // (autor numérico). Mostramos los 3 más recientes.
+          const timelineRecent = Array.isArray(real.timeline)
+            ? real.timeline.slice(-3).reverse().map(e => ({ author: e.author || "—", text: e.text || "", ts: e.timestamp || "" }))
+            : [];
+          const commentsRecent = (timelineRecent.length === 0 && Array.isArray(real.comments))
+            ? real.comments.slice(-3).reverse().map(c => ({ author: "", text: c.text || "", ts: c.time || "" }))
+            : [];
+          const recent = timelineRecent.length ? timelineRecent : commentsRecent;
+          return (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #E5E0D5", maxHeight: 320, overflow: "auto" }}>
+              {/* a. Cabecera */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  {real.ref && <span style={{ fontFamily: "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace", fontWeight: 700, fontSize: 12, color: refColor || "#9B9B9B", letterSpacing: "0.04em" }}>{real.ref}</span>}
+                  <span style={{ fontWeight: 600, fontSize: 13, color: "#1A1A1A", lineHeight: 1.3 }}>{real.title}</span>
+                </div>
+              </div>
+              {/* b. Proyecto + columna */}
+              <div style={{ fontSize: 12, color: "#6B6B6B", marginBottom: 6 }}>
+                {real.projEmoji ? `${real.projEmoji} ` : ""}{real.projName || "—"}{real.colName ? ` · ${real.colName}` : ""}
+              </div>
+              {/* c. Fechas */}
+              <div style={{ fontSize: 12, color: "#6B6B6B", marginBottom: 6 }}>
+                Inicio: {detStart || "—"} → Fin: {detEnd || "—"}{dueTime ? ` · ${dueTime}` : ""}
+              </div>
+              {/* d. Estado: prioridad + urgencia + esfuerzo */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                <span style={{ fontSize: 11, padding: "2px 8px", background: "#F0EDE5", color: "#6B6B6B", borderRadius: 0, border: "0.5px solid #E5E0D5" }}>Prioridad: {PRIO_LABEL(real.priority)}</span>
+                {t.urgency && <span style={{ fontSize: 11, padding: "2px 8px", background: "#F0EDE5", color: "#6B6B6B", borderRadius: 0, border: "0.5px solid #E5E0D5" }}>{t.urgency}</span>}
+                {estH > 0 && <span style={{ fontSize: 11, padding: "2px 8px", background: "#F0EDE5", color: "#6B6B6B", borderRadius: 0, border: "0.5px solid #E5E0D5" }}>Estimado: {estH}h{loggedH > 0 ? ` · Reg.: ${loggedH.toFixed(1)}h` : ""}</span>}
+              </div>
+              {/* e. Asignados */}
+              {assigneeNames.length > 0 && (
+                <div style={{ fontSize: 12, color: "#1A1A1A", marginBottom: 8 }}>
+                  Asignado: <span style={{ color: "#6B6B6B" }}>{assigneeNames.join(", ")}</span>
+                </div>
+              )}
+              {/* f. Descripción */}
+              {real.desc && real.desc.trim() && (
+                <div style={{ fontSize: 12, fontStyle: "italic", color: "#6B6B6B", marginBottom: 8, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
+                  {real.desc}
+                </div>
+              )}
+              {/* g. Subtareas */}
+              {subs.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, color: "#1A1A1A", marginBottom: 4 }}>
+                    Subtareas: <span style={{ color: "#6B6B6B" }}>{subsDone}/{subs.length} completadas</span>
+                  </div>
+                  <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                    {subs.slice(0, 6).map((s, i) => (
+                      <li key={i} style={{ fontSize: 11.5, color: s?.done ? "#9B9B9B" : "#1A1A1A", textDecoration: s?.done ? "line-through" : "none" }}>
+                        · {s?.title || s?.label || "(sin título)"}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {/* h. Tags */}
+              {tags.length > 0 && (
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+                  {tags.map((tag, i) => (
+                    <span key={i} style={{ background: "#F0EDE5", color: "#6B6B6B", fontSize: 10, padding: "2px 8px", borderRadius: 0, border: "0.5px solid #E5E0D5" }}>{tag?.l || tag?.label || tag}</span>
+                  ))}
+                </div>
+              )}
+              {/* i. Últimos comentarios / timeline */}
+              {recent.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 10, color: "#9B9B9B", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Reciente</div>
+                  <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+                    {recent.map((entry, i) => (
+                      <li key={i} style={{ fontSize: 11, color: "#9B9B9B", lineHeight: 1.4 }}>
+                        {entry.author ? <span style={{ color: "#6B6B6B" }}>{entry.author}: </span> : null}
+                        {entry.text}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {/* j. Abrir en tablero */}
+              <div style={{ marginTop: 10 }}>
+                <button
+                  onClick={() => goToTask(t.taskId, t.title)}
+                  style={{ padding: "6px 0", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 400, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}
+                >Abrir en tablero →</button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   };
