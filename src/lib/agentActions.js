@@ -1094,3 +1094,45 @@ export function parseOrderInterpreterJson(text) {
   }
   return { changes };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Emoji para negociaciones (commit 29) — heurística determinista que
+// elige UN emoji a partir del título + descripción de la negociación.
+// Función pura, sin LLM, sin red. Reglas en orden de prioridad: la
+// primera regex que matche gana. Fallback "🤝" para genéricas.
+// ─────────────────────────────────────────────────────────────────────────
+
+export const NEGOTIATION_EMOJIS = [
+  "🤝","📋","💰","🏠","🚗","🏥","💻","📣","⚖️","🏦",
+  "🏨","🎨","💎","🔑","🌊","🌍","⚡","🏗️",
+];
+
+const NEG_EMOJI_RULES = [
+  { re: /\b(contrato|acuerdo|firma)\b/i,                                                emoji: "📋" },
+  { re: /\b(inversi[oó]n|capital|funding|runway|financiaci[oó]n)\b/i,                   emoji: "💰" },
+  { re: /\b(banco|cr[eé]dito|pr[eé]stamo|deuda)\b/i,                                    emoji: "🏦" },
+  { re: /\b(inmueble|villa|piso|local|showroom|oficina)\b/i,                            emoji: "🏠" },
+  { re: /\b(coche|autom[oó]vil|veh[ií]culo|concesionario|motor)\b/i,                    emoji: "🚗" },
+  { re: /\b(salud|m[eé]dico|cl[ií]nica|hiperb[aá]rica|c[aá]mara)\b/i,                   emoji: "🏥" },
+  { re: /\b(tecnolog[ií]a|software|app|digital|web)\b/i,                                emoji: "💻" },
+  { re: /\b(marca|branding|marketing|publicidad)\b/i,                                   emoji: "📣" },
+  { re: /\b(legal|abogado|notario|registro|euipo)\b/i,                                  emoji: "⚖️" },
+  { re: /\b(socio|partner|colaboraci[oó]n|joint)\b/i,                                   emoji: "🤝" },
+  { re: /\b(hotel|hosteler[ií]a|restaurante|turismo)\b/i,                               emoji: "🏨" },
+  { re: /\b(arte|colecci[oó]n|galer[ií]a|subasta)\b/i,                                  emoji: "🎨" },
+  { re: /\b(reloj|joyer[ií]a|lujo|exclusivo)\b/i,                                       emoji: "💎" },
+  { re: /\b(club|membres[ií]a|privado|socio)\b/i,                                       emoji: "🔑" },
+  { re: /\b(marbella|costa|m[aá]laga|estepona)\b/i,                                     emoji: "🌊" },
+  { re: /\b(exportaci[oó]n|importaci[oó]n|internacional)\b/i,                           emoji: "🌍" },
+  { re: /\b(energ[ií]a|solar|renovable)\b/i,                                            emoji: "⚡" },
+  { re: /\b(construcci[oó]n|obra|reforma)\b/i,                                          emoji: "🏗️" },
+  { re: /\b(venta|vender|comercial|cliente)\b/i,                                        emoji: "🤝" },
+];
+
+export function suggestNegotiationEmoji(title, description) {
+  const text = `${title || ""} ${description || ""}`.toLowerCase();
+  for (const r of NEG_EMOJI_RULES) {
+    if (r.re.test(text)) return r.emoji;
+  }
+  return "🤝";
+}

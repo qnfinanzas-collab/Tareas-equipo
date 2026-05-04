@@ -2827,7 +2827,7 @@ Reglas para block_task:
                                 textOverflow: "ellipsis",
                                 whiteSpace: "nowrap",
                                 lineHeight: 1.3,
-                              }}>{n.title || "(sin título)"}</div>
+                              }}>{n.emoji ? `${n.emoji} ` : ""}{n.title || "(sin título)"}</div>
                               <div style={{
                                 fontSize: 12,
                                 fontWeight: 300,

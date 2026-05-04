@@ -30,7 +30,7 @@ import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
 import VaultGuestView, { parseVaultGuestPath } from "./components/Vault/VaultGuestView.jsx";
 import { generatePersonalDocuments } from "./components/Vault/personalTemplates.js";
-import { AGENT_ACTIONS_ADDON } from "./lib/agentActions.js";
+import { AGENT_ACTIONS_ADDON, suggestNegotiationEmoji, NEGOTIATION_EMOJIS } from "./lib/agentActions.js";
 import { buildFinanceSummary, renderFinanceSummaryForPrompt } from "./lib/financeSummary.js";
 import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
@@ -807,6 +807,14 @@ function _migrate(d){
   // dispositivos del mismo workspace) por decisión del CEO; si en el
   // futuro se quiere per-user, basta migrar este array a member.X.
   if(!Array.isArray(d.favoriteProjectIds)) d.favoriteProjectIds = [];
+  // Commit 29: backfill emoji en negociaciones. Si no tiene emoji,
+  // calculamos uno con la heurística y marcamos _emojiAuto=true para
+  // que se recalcule automáticamente cuando cambie el título.
+  d.negotiations = d.negotiations.map(n=>{
+    if(!n) return n;
+    if(typeof n.emoji === "string" && n.emoji.trim()) return n;
+    return { ...n, emoji: suggestNegotiationEmoji(n.title, n.description), _emojiAuto: true };
+  });
   // FASE 1.5: negociaciones complejas — multi-proyecto, relaciones,
   // stakeholders; y tasks con refs cruzadas a neg/sesión.
   d.negotiations = d.negotiations.map(n=>{
@@ -6877,6 +6885,20 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
   const [relationships,setRelationships]     = useState(negotiation?.relationships||[]);
   const [stakeholders,setStakeholders]       = useState(negotiation?.stakeholders||[]);
   const [agentId,setAgentId] = useState(negotiation?.agentId??"");
+  // Commit 29: emoji con tracking de auto vs manual. Por defecto, en
+  // creación arrancamos con la heurística sobre el título vacío (→🤝);
+  // en edición usamos el emoji existente o lo recalculamos. _emojiAuto
+  // indica si fue colocado por la heurística (true) o por el CEO (false).
+  const [emoji,setEmoji] = useState(()=>{
+    const initial = negotiation?.emoji && String(negotiation.emoji).trim();
+    if (initial) return initial;
+    return suggestNegotiationEmoji(negotiation?.title, negotiation?.description);
+  });
+  const [emojiAuto,setEmojiAuto] = useState(()=>{
+    if (typeof negotiation?._emojiAuto === "boolean") return negotiation._emojiAuto;
+    // Si la negociación venía sin emoji explícito, queda como auto.
+    return !(negotiation?.emoji && String(negotiation.emoji).trim());
+  });
   const [pendingDel,setPendingDel] = useState(false);
   const [pendingClose,setPendingClose] = useState(false);
   const [transferOpen,setTransferOpen] = useState(false);
@@ -6885,6 +6907,16 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
   const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,visibility,members:selMembers,relatedProjects,relationships,stakeholders,agentId})!==initialSnap;
   const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
   useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
+  // Commit 29: recálculo del emoji cuando cambia título/descripción y el
+  // emoji estaba en modo automático. Si el CEO pulsó un emoji a mano,
+  // emojiAuto pasa a false y este efecto deja de actualizarlo.
+  useEffect(()=>{
+    if (!emojiAuto) return;
+    const next = suggestNegotiationEmoji(title, description);
+    if (next !== emoji) setEmoji(next);
+  // emoji intencionalmente fuera de las deps para no entrar en loop con setEmoji.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[title, description, emojiAuto]);
   const [showCloseFlow,setShowCloseFlow] = useState(false);
   const owner = isEdit ? (members||[]).find(m=>m.id===negotiation.ownerId) : null;
   const isOwner = isEdit && currentMember && (currentMember.id === negotiation.ownerId || currentMember.accountRole === "admin");
@@ -6895,7 +6927,7 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
     // huérfano. Si Marc transfiere a Antonio antes de guardar, la transferencia
     // ya añade a Antonio; si el owner sigue siendo el actual, lo aseguramos.
     const finalMembers = selMembers.includes(ownerId) ? selMembers : [...selMembers, ownerId];
-    return {title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),visibility,members:finalMembers,projectId:primaryProjectId,agentId:agentId===""?null:Number(agentId),relatedProjects,relationships,stakeholders};
+    return {title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),visibility,members:finalMembers,projectId:primaryProjectId,agentId:agentId===""?null:Number(agentId),relatedProjects,relationships,stakeholders,emoji,_emojiAuto:emojiAuto};
   };
   const save=()=>{
     if(!title.trim()||!counterparty.trim()) return;
@@ -6965,6 +6997,26 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
         </div>
         {pendingClose&&<DiscardBanner onKeep={()=>setPendingClose(false)} onDiscard={()=>{setPendingClose(false);onClose();}}/>}
         <div style={{padding:20}}>
+          {/* Commit 29: selector de emoji. Por defecto se calcula con
+              heurística sobre el título; al pulsar un emoji distinto,
+              _emojiAuto pasa a false y deja de recalcularse. */}
+          <FL c="Emoji"/>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:10}}>
+            <span style={{fontSize:24,lineHeight:1,minWidth:30,textAlign:"center"}}>{emoji}</span>
+            <div style={{display:"flex",gap:5,flexWrap:"wrap",flex:1,minWidth:0}}>
+              {NEGOTIATION_EMOJIS.map(e=>(
+                <button
+                  key={e}
+                  onClick={()=>{ setEmoji(e); setEmojiAuto(false); }}
+                  title={e===emoji?"Seleccionado":"Elegir este emoji"}
+                  style={{width:30,height:30,borderRadius:7,border:`2px solid ${emoji===e?"#3B82F6":"#e5e7eb"}`,background:emoji===e?"#EFF6FF":"transparent",fontSize:16,cursor:"pointer"}}
+                >{e}</button>
+              ))}
+            </div>
+            {emojiAuto && (
+              <span style={{fontSize:10,color:"#9ca3af",fontStyle:"italic",flexShrink:0}}>auto</span>
+            )}
+          </div>
           <FL c="Título *"/><FI value={title} onChange={setTitle} placeholder="Ej: Venta local Calle Mayor 23"/>
           <FL c="Contraparte *"/><FI value={counterparty} onChange={setCP} placeholder="Ej: Inversores Madrid SL"/>
           <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10}}>
@@ -7446,6 +7498,7 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2,flexWrap:"wrap"}}>
                         <RefBadge code={n.code}/>
+                        {n.emoji && <span style={{fontSize:18,lineHeight:1,flexShrink:0}}>{n.emoji}</span>}
                         <div style={{fontSize:16,fontWeight:600,color:"#111827"}}>{n.title}</div>
                         {alertLevel==="critical"&&<span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:10,background:"#FEE2E2",border:"1px solid #FCA5A5",color:"#B91C1C"}}>🚨 Crítico</span>}
                         {alertLevel==="warning"&&<span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:10,background:"#FEF3C7",border:"1px solid #FCD34D",color:"#92400E"}}>⚠️ Atención</span>}
@@ -7711,6 +7764,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
       <div style={{marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
           <RefBadge code={negotiation.code}/>
+          {negotiation.emoji && <span style={{fontSize:24,lineHeight:1,flexShrink:0}}>{negotiation.emoji}</span>}
           <div style={{fontSize:22,fontWeight:700,color:"#111827"}}>{negotiation.title}</div>
           <span style={{fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:14,background:st.color+"18",color:st.color}}>{st.label}</span>
         </div>
@@ -11327,8 +11381,19 @@ export default function TaskFlow(){
       const finalOwnerId = isAdminMe && payload.ownerId != null ? payload.ownerId : activeMember;
       const baseMembers = Array.isArray(payload.members) ? payload.members : [];
       const finalMembers = baseMembers.includes(activeMember) ? baseMembers : [activeMember, ...baseMembers];
+      // Commit 29: si el caller no pasa emoji, lo calculamos automáticamente
+      // y marcamos _emojiAuto para futuro recálculo al cambiar título.
+      const hasEmojiInPayload = typeof payload.emoji === "string" && payload.emoji.trim();
+      const finalEmoji = hasEmojiInPayload
+        ? payload.emoji
+        : suggestNegotiationEmoji(payload.title, payload.description);
+      const finalEmojiAuto = hasEmojiInPayload
+        ? (payload._emojiAuto === true)
+        : true;
       return{...prev,negotiations:[...(prev.negotiations||[]),{
         id,code,...payload,
+        emoji:      finalEmoji,
+        _emojiAuto: finalEmojiAuto,
         ownerId:    finalOwnerId,
         createdBy:  activeMember,
         createdAt:  now,
