@@ -322,6 +322,12 @@ export default function HectorPanel({
   // el state sirve para feedback visual (deshabilitar botones).
   const actionInFlightRef = useRef(false);
   const [actionInFlight, setActionInFlight] = useState(false);
+  // BUG 4 commit 13: optimistic dismiss. Cuando el CEO marca Hecho o
+  // Posponer en una task card del análisis, la tarea desaparece de la
+  // lista al instante sin esperar al próximo generateHectorThought.
+  // El Set guarda taskIds (string) y se resetea cuando llega un análisis
+  // nuevo — la fuente de verdad sigue siendo el snapshot del LLM.
+  const [dismissedTaskIds, setDismissedTaskIds] = useState(() => new Set());
   const [recommendations, setRecommendations] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -995,6 +1001,10 @@ Reglas:
         const filtered = (prev || []).filter(m => m && m.role !== "hector_analysis");
         return [...filtered, analysisMsg].slice(-CHAT_MAX);
       });
+      // BUG 4 commit 13: nuevo análisis = lista limpia. El LLM ya filtró
+      // las que el CEO resolvió (las que estén en Hecho no llegan al
+      // prompt), así que el dismiss optimista deja de ser necesario.
+      setDismissedTaskIds(new Set());
       // Mantén la sección "Recomendaciones" sincronizada con la primera
       // tarea por urgencia para no romper consumidores externos
       // (onNewRecommendation, badge en HectorFloat, etc.).
@@ -1526,6 +1536,7 @@ Reglas para block_task:
   const handleCompleteFromCard = (taskId, title) => {
     guardedAction(() => {
       completeFromCard(taskId, title);
+      setDismissedTaskIds((prev) => { const n = new Set(prev); n.add(String(taskId)); return n; });
       switchToChatWithMessage(`✓ Marcada como hecha: "${title}".`);
       publishTimeline(taskId, `Marcada como hecha desde la Sala de Mando.`);
     });
@@ -1533,6 +1544,7 @@ Reglas para block_task:
   const handlePostponeFromCard = (taskId, title) => {
     guardedAction(() => {
       postponeFromCard(taskId, title);
+      setDismissedTaskIds((prev) => { const n = new Set(prev); n.add(String(taskId)); return n; });
       switchToChatWithMessage(`⏸ Pospuesta +1d: "${title}".`);
       publishTimeline(taskId, `Pospuesta 1 día desde la Sala de Mando.`);
     });
@@ -1552,6 +1564,14 @@ Reglas para block_task:
     }
     return null;
   })();
+  // BUG 4 commit 13: vista filtrada por dismiss optimista. El snapshot
+  // original sigue intacto en chatHistory (fuente de verdad para
+  // sincronización Supabase); aquí solo escondemos las que el CEO ya
+  // resolvió en esta sesión hasta que llegue un análisis nuevo.
+  const visibleAnalysis = latestAnalysis ? {
+    ...latestAnalysis,
+    tasks: (latestAnalysis.tasks || []).filter(t => !dismissedTaskIds.has(String(t.taskId))),
+  } : null;
   const unreadCount = Math.max(0, chatHistory.length - lastSeenChatLength);
 
   const stateInfo = STATE_LABEL[hectorState] || STATE_LABEL.listening;
@@ -2196,7 +2216,7 @@ Reglas para block_task:
                 )}
               </div>
             </div>
-            {latestAnalysis && latestAnalysis.tasks && latestAnalysis.tasks.length > 0 ? (
+            {visibleAnalysis && visibleAnalysis.tasks && visibleAnalysis.tasks.length > 0 ? (
               <>
                 {/* HectorAnalysisCard (commit 5) — sustituye al banner
                     azul oscuro del summary. Identidad Kluxor: card blanca
@@ -2402,7 +2422,7 @@ Reglas para block_task:
                     </div>
                   </>
                 )}
-                {renderAnalysisGroups(latestAnalysis, handleViewTaskFromCard, handleCompleteFromCard, handlePostponeFromCard)}
+                {renderAnalysisGroups(visibleAnalysis, handleViewTaskFromCard, handleCompleteFromCard, handlePostponeFromCard)}
               </>
             ) : (
               <div style={{ fontSize: 12, color: "#9CA3AF", fontStyle: "italic", padding: "20px 8px", textAlign: "center" }}>Héctor está observando — el primer análisis llegará en cuanto tenga contexto suficiente.</div>
