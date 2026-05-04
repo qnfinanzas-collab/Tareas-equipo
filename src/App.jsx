@@ -5325,20 +5325,20 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
           const readOnly = !canEdit;
           const isFav = favSet.has(p.id);
           return(
-            <div key={p.id} style={{position:"relative",background:"#fff",border:`0.5px solid ${isPending?"#E24B4A":p.color+"44"}`,borderTop:`4px solid ${isPending?"#E24B4A":p.color}`,borderRadius:12,padding:16,cursor:"pointer",opacity:readOnly?0.92:1}} onClick={()=>!isPending&&onSelectProject(i)}>
-            {onToggleFavorite && (
-              <button
-                onClick={(e)=>{ e.stopPropagation(); onToggleFavorite(p.id); }}
-                title={isFav ? "Quitar de favoritos" : "Marcar como favorito"}
-                style={{position:"absolute",top:8,right:8,background:"transparent",border:"none",fontSize:18,cursor:"pointer",color: isFav ? "#C9A84C" : "#E5E0D5",padding:8,lineHeight:1,transition:"color 0.2s ease",fontFamily:"inherit"}}
-              >★</button>
-            )}
+            <div key={p.id} style={{background:"#fff",border:`0.5px solid ${isPending?"#E24B4A":p.color+"44"}`,borderTop:`4px solid ${isPending?"#E24B4A":p.color}`,borderRadius:12,padding:16,cursor:"pointer",opacity:readOnly?0.92:1}} onClick={()=>!isPending&&onSelectProject(i)}>
               <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:12}}>
                 <div style={{fontSize:26,lineHeight:1}}>{p.emoji||"📋"}</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
                     <div style={{fontSize:14,fontWeight:700,color:p.color}}>{p.name}</div>
                     <RefBadge code={p.code}/>
+                    {onToggleFavorite && (
+                      <button
+                        onClick={(e)=>{ e.stopPropagation(); onToggleFavorite(p.id); }}
+                        title={isFav ? "Quitar de favoritos" : "Marcar como favorito"}
+                        style={{background:"transparent",border:"none",fontSize:16,cursor:"pointer",color: isFav ? "#C9A84C" : "#E5E0D5",padding:0,lineHeight:1,transition:"color 0.2s ease",fontFamily:"inherit"}}
+                      >★</button>
+                    )}
                     <span title={visTitle} style={{fontSize:13,lineHeight:1}}>{visIcon}</span>
                     {isMine && <span title="Eres el owner de este proyecto" style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:10,background:"#1D9E7518",color:"#0E7C5A",border:"0.5px solid #1D9E7555",textTransform:"uppercase",letterSpacing:"0.04em"}}>Tuyo</span>}
                     {readOnly && <span title="Solo puedes ver este proyecto" style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:10,background:"#F3F4F6",color:"#6B7280",border:"0.5px solid #D1D5DB",textTransform:"uppercase",letterSpacing:"0.04em"}}>Solo lectura</span>}
