@@ -802,6 +802,11 @@ const LS_KEY = 'taskflow_v1';
 function _migrate(d){
   if(!d.workspaces) d.workspaces = [];
   if(!d.negotiations) d.negotiations = [];
+  // Commit 28: favoritos de proyectos. Migración blanda — si la fila
+  // viene sin el array, lo añadimos vacío. Es global (compartido entre
+  // dispositivos del mismo workspace) por decisión del CEO; si en el
+  // futuro se quiere per-user, basta migrar este array a member.X.
+  if(!Array.isArray(d.favoriteProjectIds)) d.favoriteProjectIds = [];
   // FASE 1.5: negociaciones complejas — multi-proyecto, relaciones,
   // stakeholders; y tasks con refs cruzadas a neg/sesión.
   d.negotiations = d.negotiations.map(n=>{
@@ -4975,7 +4980,7 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
 // del día). Esta primera versión usa heurísticas deterministas; la
 // selección por LLM y el resto de funcionalidades inteligentes se añaden
 // en commits posteriores.
-function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,onCompleteTask,onPostponeTask,onArchiveTask,onApplyTaskChanges,onOpenNegotiation,onGoDashboard,onGoMytasks,onGoDealRoom,currentFocus,onSetCurrentFocus,onHectorStateChange,onHectorRecommendation,financeContext,onAddTimelineEntry,onRunAgentActions}){
+function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,onCompleteTask,onPostponeTask,onArchiveTask,onApplyTaskChanges,onOpenNegotiation,onOpenProject,onToggleFavorite,onGoDashboard,onGoMytasks,onGoDealRoom,currentFocus,onSetCurrentFocus,onHectorStateChange,onHectorRecommendation,financeContext,onAddTimelineEntry,onRunAgentActions}){
   const {boards,projects,members,negotiations}=data;
   const me = (members||[]).find(m=>m.id===activeMember);
   // Tareas del usuario activo (asignadas a mí), enriquecidas con metadatos
@@ -5213,6 +5218,9 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
               onOpenTask={onOpenTask}
               onApplyTaskChanges={onApplyTaskChanges}
               onOpenNegotiation={onOpenNegotiation}
+              onOpenProject={onOpenProject}
+              onToggleFavorite={onToggleFavorite}
+              favoriteProjectIds={data.favoriteProjectIds||[]}
               financeContext={financeContext}
               onAddTimelineEntry={onAddTimelineEntry}
               onRunAgentActions={onRunAgentActions}
@@ -5251,7 +5259,7 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
 }
 
 // ── Projects Home View ────────────────────────────────────────────────────────
-function ProjectsView({projects,members,boards,currentMember,onSelectProject,onCreateProject,onEditProject,onDeleteProject}){
+function ProjectsView({projects,members,boards,currentMember,onSelectProject,onCreateProject,onEditProject,onDeleteProject,favoriteProjectIds=[],onToggleFavorite}){
   const total=pid=>(boards[pid]||[]).flatMap(c=>c.tasks).length;
   const done=pid=>(boards[pid]||[]).filter(c=>c.name==="Hecho").flatMap(c=>c.tasks).length;
   const [pendingDel,setPendingDel]=useState(null);
@@ -5293,22 +5301,21 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
       </div>
     );
   }
-  return(
-    <div style={{padding:20}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
-        <div><div style={{fontSize:16,fontWeight:700,marginBottom:2}}>Todos los proyectos</div><div style={{fontSize:12,color:"#6b7280"}}>{visibleCount} proyectos activos</div></div>
-        <button onClick={onCreateProject} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo proyecto</button>
-      </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
-        {projects.map((p,i)=>{
-          if(!isVisible(p)) return null;
+  // Commit 28: partición de proyectos en favoritos y resto. Preservamos
+  // el índice maestro (i) para que onEditProject/onDeleteProject sigan
+  // apuntando al elemento correcto del array data.projects.
+  const favSet = new Set(favoriteProjectIds || []);
+  const visibleEntries = (projects||[])
+    .map((p,i)=>({p,i}))
+    .filter(({p})=>isVisible(p));
+  const favEntries  = visibleEntries.filter(({p})=>favSet.has(p.id));
+  const restEntries = visibleEntries.filter(({p})=>!favSet.has(p.id));
+  // Card render extraído a closure para reutilizar entre las dos
+  // secciones (Favoritos y Proyectos) sin duplicar JSX.
+  const renderProjectCard = (p, i) => {
           const t=total(p.id),d=done(p.id),pct=t>0?Math.round(d/t*100):0;
           const projMs=p.members.map(mid=>members.find(m=>m.id===mid)).filter(Boolean);
           const isPending=pendingDel===i;
-          // Indicadores de propiedad y permisos. visIcon refleja la
-          // visibilidad del proyecto; isMine destaca proyectos cuyo owner es
-          // el miembro activo; readOnly se aplica cuando puede ver pero no
-          // editar (típico de proyectos "team"/"public" sin pertenencia).
           const visIcon = p.visibility === "private" ? "🔒"
             : p.visibility === "public" ? "🌍" : "👥";
           const visTitle = p.visibility === "private" ? "Privado — solo miembros"
@@ -5316,8 +5323,16 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
           const isMine = currentMember && p.ownerId === currentMember.id;
           const canEdit = canEditProject(currentMember, p);
           const readOnly = !canEdit;
+          const isFav = favSet.has(p.id);
           return(
-            <div key={p.id} style={{background:"#fff",border:`0.5px solid ${isPending?"#E24B4A":p.color+"44"}`,borderTop:`4px solid ${isPending?"#E24B4A":p.color}`,borderRadius:12,padding:16,cursor:"pointer",opacity:readOnly?0.92:1}} onClick={()=>!isPending&&onSelectProject(i)}>
+            <div key={p.id} style={{position:"relative",background:"#fff",border:`0.5px solid ${isPending?"#E24B4A":p.color+"44"}`,borderTop:`4px solid ${isPending?"#E24B4A":p.color}`,borderRadius:12,padding:16,cursor:"pointer",opacity:readOnly?0.92:1}} onClick={()=>!isPending&&onSelectProject(i)}>
+            {onToggleFavorite && (
+              <button
+                onClick={(e)=>{ e.stopPropagation(); onToggleFavorite(p.id); }}
+                title={isFav ? "Quitar de favoritos" : "Marcar como favorito"}
+                style={{position:"absolute",top:8,right:8,background:"transparent",border:"none",fontSize:18,cursor:"pointer",color: isFav ? "#C9A84C" : "#E5E0D5",padding:8,lineHeight:1,transition:"color 0.2s ease",fontFamily:"inherit"}}
+              >★</button>
+            )}
               <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:12}}>
                 <div style={{fontSize:26,lineHeight:1}}>{p.emoji||"📋"}</div>
                 <div style={{flex:1,minWidth:0}}>
@@ -5397,7 +5412,24 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
               )}
             </div>
           );
-        })}
+  };
+  return(
+    <div style={{padding:20}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <div><div style={{fontSize:16,fontWeight:700,marginBottom:2}}>Todos los proyectos</div><div style={{fontSize:12,color:"#6b7280"}}>{visibleCount} proyectos activos</div></div>
+        <button onClick={onCreateProject} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo proyecto</button>
+      </div>
+      {favEntries.length > 0 && (
+        <>
+          <div style={{fontSize:11,letterSpacing:"3px",color:"#C9A84C",textTransform:"uppercase",marginBottom:12,fontWeight:600}}>★ Favoritos</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14,marginBottom:24,paddingBottom:24,borderBottom:"0.5px solid #E5E0D5"}}>
+            {favEntries.map(({p,i})=>renderProjectCard(p,i))}
+          </div>
+        </>
+      )}
+      <div style={{fontSize:11,letterSpacing:"3px",color:"#9B9B9B",textTransform:"uppercase",marginBottom:12,fontWeight:600}}>Proyectos</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+        {restEntries.map(({p,i})=>renderProjectCard(p,i))}
         <div onClick={onCreateProject} style={{border:"2px dashed #d1d5db",borderRadius:12,padding:16,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:180,gap:8}}>
           <div style={{width:40,height:40,borderRadius:"50%",background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>+</div>
           <div style={{fontSize:13,fontWeight:500,color:"#6b7280"}}>Nuevo proyecto</div>
@@ -9839,7 +9871,9 @@ export default function TaskFlow(){
     const isBoardTab = ["board","eisenhower","reports","team"].includes(activeTab);
     if(isBoardTab){
       items.push({label:"Proyectos", onClick:()=>setActiveTab("projects")});
-      items.push({label:proj.name, onClick: activeTab==="board" ? null : ()=>setActiveTab("board")});
+      // Commit 28: marcar el item del proyecto para que el render del
+      // breadcrumb pinte la estrella de favorito tras el nombre.
+      items.push({label:proj.name, projectId: proj.id, onClick: activeTab==="board" ? null : ()=>setActiveTab("board")});
       if(activeTab!=="board"){
         const sub={eisenhower:"Matriz",reports:"Tiempos",team:"Equipo"}[activeTab];
         if(sub) items.push({label:sub});
@@ -10046,6 +10080,18 @@ export default function TaskFlow(){
     setActiveNegId(id);
     setActiveSessId(null);
   }, [data.negotiations, addToast]);
+  // Commit 28: toggle global de favoritos. Si pasa de 8 avisa al CEO
+  // (UX defensiva: HectorPanel se llena visualmente). Sin límite duro.
+  const toggleFavoriteProject = useCallback((pid) => {
+    setData(prev => {
+      const favs = Array.isArray(prev.favoriteProjectIds) ? prev.favoriteProjectIds : [];
+      const newFavs = favs.includes(pid) ? favs.filter(f => f !== pid) : [...favs, pid];
+      if (newFavs.length > 8) {
+        addToast("Tienes muchos favoritos — el panel se está llenando", "info");
+      }
+      return { ...prev, favoriteProjectIds: newFavs };
+    });
+  }, [addToast]);
   const applyTaskChanges = useCallback((taskId, partial, meta = {}) => {
     if (!taskId || !partial || typeof partial !== "object") return;
     setData(prev => {
@@ -12160,6 +12206,9 @@ export default function TaskFlow(){
           <nav aria-label="Breadcrumb" style={{display:"flex",alignItems:"center",gap:6,flex:1,minWidth:0,overflow:"hidden"}}>
             {breadcrumb.map((item,i)=>{
               const isLast = i===breadcrumb.length-1;
+              // Commit 28: estrella de favorito junto al nombre del proyecto.
+              const isFavCandidate = typeof item.projectId === "number";
+              const isFav = isFavCandidate && (data.favoriteProjectIds||[]).includes(item.projectId);
               return(
                 <React.Fragment key={i}>
                   {i>0&&<span style={{color:"#D1D5DB",fontSize:13,flexShrink:0}}>›</span>}
@@ -12167,6 +12216,13 @@ export default function TaskFlow(){
                     ? <button onClick={item.onClick} style={{background:"none",border:"none",color:"#6B7280",cursor:"pointer",fontFamily:"inherit",fontSize:13,padding:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}} onMouseEnter={e=>e.currentTarget.style.color="#374151"} onMouseLeave={e=>e.currentTarget.style.color="#6B7280"}>{item.label}</button>
                     : <span style={{color:isLast?"#111827":"#6B7280",fontWeight:isLast?600:400,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:260}}>{item.label}</span>
                   }
+                  {isFavCandidate && (
+                    <button
+                      onClick={()=>toggleFavoriteProject(item.projectId)}
+                      title={isFav ? "Quitar de favoritos" : "Marcar como favorito"}
+                      style={{background:"transparent",border:"none",fontSize:14,cursor:"pointer",color: isFav ? "#C9A84C" : "#E5E0D5",padding:"0 4px",lineHeight:1,transition:"color 0.2s ease",fontFamily:"inherit",flexShrink:0}}
+                    >★</button>
+                  )}
                 </React.Fragment>
               );
             })}
@@ -12325,9 +12381,9 @@ export default function TaskFlow(){
             />;
           })()}
           {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext}/>}
-          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} authSession={authSession} onNavigate={setActiveTab} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onApplyTaskChanges={applyTaskChanges} onOpenNegotiation={openNegotiationById} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
+          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} authSession={authSession} onNavigate={setActiveTab} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onApplyTaskChanges={applyTaskChanges} onOpenNegotiation={openNegotiationById} onOpenProject={pid=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); } }} onToggleFavorite={toggleFavoriteProject} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
-          {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
+          {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} favoriteProjectIds={data.favoriteProjectIds||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject} onToggleFavorite={toggleFavoriteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission} onSetAgentPermission={setMemberAgentPermission}/>}
           {activeTab==="finance"   &&(()=>{
             const myMember = (data.members||[]).find(x=>x.id===activeMember);

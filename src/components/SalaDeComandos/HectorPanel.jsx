@@ -240,6 +240,9 @@ export default function HectorPanel({
   onApplyTaskChanges,
   // Commit 25: abrir una negociación concreta en NegotiationDetailView.
   onOpenNegotiation,
+  // Commit 28: navegación al board de un proyecto + lista de favoritos.
+  onOpenProject,
+  favoriteProjectIds = [],
   userId,
   userName,
   // UUID del usuario en Supabase Auth (auth.uid()). Necesario para
@@ -2704,6 +2707,73 @@ Reglas para block_task:
                     )}
                   </div>
                 </div>
+                {/* ProyectosFavoritosList (commit 28) — proyectos
+                    marcados con estrella en ProjectsView/breadcrumb.
+                    Click → navega al board del proyecto. Muestra
+                    contadores de tareas vencidas (rojo) + total (gris)
+                    sobre la vista del CEO activo. */}
+                {(() => {
+                  const favIds = Array.isArray(favoriteProjectIds) ? favoriteProjectIds : [];
+                  if (!favIds.length) return null;
+                  const favProjects = (projects || []).filter(p => p && favIds.includes(p.id));
+                  if (!favProjects.length) return null;
+                  const allTasks = tasks || [];
+                  const todayMid = new Date(); todayMid.setHours(0,0,0,0);
+                  return (
+                    <>
+                      <div style={{
+                        padding: "12px 20px 8px",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "#C9A84C",
+                        letterSpacing: "3px",
+                        textTransform: "uppercase",
+                      }}>★ Proyectos favoritos</div>
+                      <div style={{ padding: "0 20px 14px", display: "flex", flexDirection: "column", gap: 6 }}>
+                        {favProjects.map(p => {
+                          const myTasksHere = allTasks.filter(t => Number(t.projId) === Number(p.id));
+                          const overdue = myTasksHere.filter(t => {
+                            if (!t.dueDate) return false;
+                            const d = new Date(t.dueDate);
+                            return !isNaN(d.getTime()) && d.getTime() < todayMid.getTime();
+                          }).length;
+                          const total = myTasksHere.length;
+                          return (
+                            <div
+                              key={p.id}
+                              onClick={() => onOpenProject?.(p.id)}
+                              onMouseEnter={(e) => { e.currentTarget.style.background = "#FBF5E6"; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.background = "#FDFAF5"; }}
+                              style={{
+                                background: "#FDFAF5",
+                                border: "0.5px solid #E8D5A3",
+                                borderLeft: "3px solid #C9A84C",
+                                borderRadius: 0,
+                                padding: "12px 16px",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 10,
+                                cursor: onOpenProject ? "pointer" : "default",
+                                transition: "background 0.15s ease",
+                              }}
+                            >
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1A1A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.3 }}>
+                                  {p.emoji ? `${p.emoji} ` : ""}{p.name}
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", gap: 10, fontSize: 11, flexShrink: 0 }}>
+                                {overdue > 0 && <span style={{ color: "#7A1F1F", fontWeight: 600 }}>{overdue} vencida{overdue===1?"":"s"}</span>}
+                                <span style={{ color: "#9B9B9B" }}>{total} tarea{total===1?"":"s"}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  );
+                })()}
                 {/* NegociacionesList (commit 7) — resumen breve sin
                     importes. Solo título + (counterparty || status) +
                     badge "Activa"|"En espera". Datos vienen ya filtrados
