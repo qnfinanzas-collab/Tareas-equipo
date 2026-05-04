@@ -1647,13 +1647,13 @@ Reglas para block_task:
         </div>
         {/* Línea 4: acción imperativa */}
         {t.action && <div style={{ fontSize: 11.5, color: "#1A1A1A", fontStyle: "italic", marginBottom: 8, lineHeight: 1.4 }}>{t.action}</div>}
-        {/* Línea 5: botones — minimalismo lujo. Solo jerarquía
-            tipográfica: HECHO (negro 700) > Posponer (gris 500) >
-            Ver tarea (gris claro 400 subrayado). Sin caja, sin borde. */}
+        {/* Línea 5: botones en oro Kluxor — solo el peso tipográfico
+            distingue jerarquía: Hecho (700) > Posponer (500) > Ver
+            tarea (400 subrayado). Sin caja, sin borde. */}
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-          <button onClick={() => onComplete(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#1A1A1A", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.5px" }}>Hecho</button>
-          <button onClick={() => onPostpone(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#6B6B6B", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>Posponer</button>
-          <button onClick={() => onView(t.taskId, t.title)}     style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#9B9B9B", border: "none", fontSize: 13, fontWeight: 400, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Ver tarea</button>
+          <button onClick={() => onComplete(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.5px" }}>Hecho</button>
+          <button onClick={() => onPostpone(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>Posponer</button>
+          <button onClick={() => onView(t.taskId, t.title)}     style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 400, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Ver tarea</button>
         </div>
       </div>
     );
