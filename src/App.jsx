@@ -5255,6 +5255,14 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
   const total=pid=>(boards[pid]||[]).flatMap(c=>c.tasks).length;
   const done=pid=>(boards[pid]||[]).filter(c=>c.name==="Hecho").flatMap(c=>c.tasks).length;
   const [pendingDel,setPendingDel]=useState(null);
+  // Commit 27: doble confirmación obligatoria para borrado desde la
+  // grid de proyectos (mismo patrón que ProjectModal). pendingDel = idx
+  // del proyecto en flujo destructivo. delStep = 1 (input código) o 2
+  // (advertencia final). delCode = input vivo (uppercased).
+  const [delStep,setDelStep]=useState(1);
+  const [delCode,setDelCode]=useState("");
+  const cancelDelete = () => { setPendingDel(null); setDelStep(1); setDelCode(""); };
+  const startDelete = (i) => { setPendingDel(i); setDelStep(1); setDelCode(""); };
   // Guard: si todavía no resolvimos el miembro activo, NO renderizamos
   // nada. Antes había un flash con todos los proyectos "team" porque
   // canViewProject(undefined, p) devolvía true para visibility "team"/
@@ -5325,25 +5333,68 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
                 <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
                   {!isPending&&canEdit&&<>
                     <button onClick={()=>onEditProject(i)} style={{width:26,height:26,borderRadius:6,border:"0.5px solid #e5e7eb",background:"#f9fafb",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✏️</button>
-                    <button onClick={()=>setPendingDel(i)} style={{width:26,height:26,borderRadius:6,border:"0.5px solid #e5e7eb",background:"#f9fafb",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>🗑️</button>
+                    <button onClick={()=>startDelete(i)} style={{width:26,height:26,borderRadius:6,border:"0.5px solid #e5e7eb",background:"#f9fafb",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>🗑️</button>
                   </>}
-                  {isPending&&<>
-                    <button onClick={()=>{onDeleteProject(i);setPendingDel(null);}} style={{padding:"3px 8px",borderRadius:6,background:"#E24B4A",color:"#fff",border:"none",fontSize:11,cursor:"pointer",fontWeight:600}}>Confirmar</button>
-                    <button onClick={()=>setPendingDel(null)} style={{padding:"3px 8px",borderRadius:6,background:"transparent",border:"0.5px solid #d1d5db",fontSize:11,cursor:"pointer"}}>No</button>
-                  </>}
+                  {isPending&&(
+                    <button onClick={cancelDelete} title="Cancelar" style={{width:26,height:26,borderRadius:6,border:"0.5px solid #E5E0D5",background:"#fff",fontSize:14,cursor:"pointer",color:"#6B6B6B",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+                  )}
                 </div>
               </div>
-              <div style={{marginBottom:12}}>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#6b7280",marginBottom:4}}><span>Progreso</span><span style={{fontWeight:600,color:p.color}}>{d}/{t} · {pct}%</span></div>
-                <div style={{height:6,background:"#f3f4f6",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:p.color,borderRadius:20}}/></div>
-              </div>
-              <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
-                {(boards[p.id]||[]).map(col=><div key={col.id} style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:`${p.color}14`,color:p.color,border:`0.5px solid ${p.color}33`,fontWeight:500}}>{col.name} ({col.tasks.length})</div>)}
-              </div>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                <div style={{display:"flex"}}>{projMs.slice(0,5).map((m,mi)=>{ const mp2=MP[m.id]||MP[0]; return <div key={m.id} title={m.name} style={{marginLeft:mi>0?-8:0,zIndex:10-mi,width:26,height:26,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,border:"2px solid #fff"}}>{m.initials}</div>; })}</div>
-                <span style={{fontSize:11,color:"#9ca3af"}}>{projMs.length} miembro{projMs.length!==1?"s":""}</span>
-              </div>
+              {!isPending && (<>
+                <div style={{marginBottom:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#6b7280",marginBottom:4}}><span>Progreso</span><span style={{fontWeight:600,color:p.color}}>{d}/{t} · {pct}%</span></div>
+                  <div style={{height:6,background:"#f3f4f6",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:p.color,borderRadius:20}}/></div>
+                </div>
+                <div style={{display:"flex",gap:4,marginBottom:12,flexWrap:"wrap"}}>
+                  {(boards[p.id]||[]).map(col=><div key={col.id} style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:`${p.color}14`,color:p.color,border:`0.5px solid ${p.color}33`,fontWeight:500}}>{col.name} ({col.tasks.length})</div>)}
+                </div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{display:"flex"}}>{projMs.slice(0,5).map((m,mi)=>{ const mp2=MP[m.id]||MP[0]; return <div key={m.id} title={m.name} style={{marginLeft:mi>0?-8:0,zIndex:10-mi,width:26,height:26,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,border:"2px solid #fff"}}>{m.initials}</div>; })}</div>
+                  <span style={{fontSize:11,color:"#9ca3af"}}>{projMs.length} miembro{projMs.length!==1?"s":""}</span>
+                </div>
+              </>)}
+              {/* Commit 27: doble confirmación dentro de la card. Sustituye
+                  al body normal (progreso/columnas/miembros) cuando hay
+                  un borrado en curso. Paso 1 = input código exacto.
+                  Paso 2 = última advertencia. Solo paso 2 ejecuta. */}
+              {isPending && delStep === 1 && (
+                <div onClick={e=>e.stopPropagation()} style={{padding:"12px 14px",border:"0.5px solid #E5E0D5",background:"#FDF5F5"}}>
+                  <div style={{fontSize:12.5,color:"#1A1A1A",lineHeight:1.5,marginBottom:8}}>
+                    ¿Eliminar este proyecto y todas sus tareas? Esta acción no se puede deshacer.
+                  </div>
+                  <div style={{fontSize:11,color:"#6B6B6B",marginBottom:6}}>
+                    Escribe el código del proyecto para confirmar (ej: {p.code || "ABC"})
+                  </div>
+                  <input
+                    value={delCode}
+                    onChange={e=>setDelCode((e.target.value||"").toUpperCase())}
+                    placeholder={`Escribe ${p.code || ""} para confirmar`}
+                    style={{width:"100%",border:"0.5px solid #E5E0D5",borderRadius:0,padding:8,fontSize:13,fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",letterSpacing:"0.08em",textTransform:"uppercase",outline:"none",boxSizing:"border-box",marginBottom:10}}
+                  />
+                  <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center"}}>
+                    <button onClick={cancelDelete} style={{padding:"6px 14px",borderRadius:0,background:"transparent",border:"0.5px solid #E5E0D5",color:"#6B6B6B",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+                    <button
+                      onClick={()=>setDelStep(2)}
+                      disabled={delCode !== (p.code || "")}
+                      style={{padding:"8px 20px",borderRadius:0,background: delCode === (p.code || "") ? "#7A1F1F" : "#E5E0D5", color: delCode === (p.code || "") ? "#FFFFFF" : "#9B9B9B", border:"none", fontSize:12, fontWeight:600, cursor: delCode === (p.code || "") ? "pointer" : "not-allowed", fontFamily:"inherit"}}
+                    >Confirmar eliminación</button>
+                  </div>
+                </div>
+              )}
+              {isPending && delStep === 2 && (
+                <div onClick={e=>e.stopPropagation()} style={{padding:"12px 14px",border:"0.5px solid #7A1F1F",background:"#FDF5F5"}}>
+                  <div style={{fontSize:13,color:"#7A1F1F",fontWeight:600,lineHeight:1.5,marginBottom:10}}>
+                    ⚠ ÚLTIMA ADVERTENCIA — El tablero de {p.name} y todas sus tareas serán eliminados definitivamente. No podrás echarte atrás.
+                  </div>
+                  <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center"}}>
+                    <button onClick={cancelDelete} style={{padding:"6px 14px",borderRadius:0,background:"transparent",border:"0.5px solid #E5E0D5",color:"#6B6B6B",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+                    <button
+                      onClick={()=>{ onDeleteProject(i); cancelDelete(); }}
+                      style={{padding:"8px 20px",borderRadius:0,background:"#7A1F1F",color:"#FFFFFF",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}
+                    >Sí, eliminar definitivamente</button>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
