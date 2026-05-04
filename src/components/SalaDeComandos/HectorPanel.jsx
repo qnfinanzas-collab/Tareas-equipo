@@ -1578,10 +1578,12 @@ Reglas para block_task:
   const displayName = userName || userId || "CEO";
 
   // ── Sub-renderers de cards (extraídos para reuso entre tabs) ────────────
+  // Paleta Kluxor operacional (commit 14): cabeceras sobrias, acento por
+  // borde izquierdo de la card. Sin emojis, sin colores Tailwind vivos.
   const URGENCY_GROUPS = [
-    { key: "critical", label: "🔴 URGENTE",     fg: "#991B1B", border: "#FCA5A5", urgencyColor: "#B91C1C" },
-    { key: "high",     label: "🟠 HOY",         fg: "#92400E", border: "#FCD34D", urgencyColor: "#B45309" },
-    { key: "medium",   label: "🟡 ESTA SEMANA", fg: "#854D0E", border: "#FDE68A", urgencyColor: "#A16207" },
+    { key: "critical", label: "URGENTE",     fg: "#1A1A1A", accent: "#7A1F1F" },
+    { key: "high",     label: "HOY",         fg: "#1A1A1A", accent: "#A07830" },
+    { key: "medium",   label: "ESTA SEMANA", fg: "#6B6B6B", accent: "#9B9B9B" },
   ];
 
   // Formatea ISO/string a "DD mmm" en castellano. Devuelve "Sin fecha" si
@@ -1601,24 +1603,25 @@ Reglas para block_task:
     return p || "—";
   };
 
-  const renderTaskCard = (t, key, onView, onComplete, onPostpone, urgencyColor, border) => {
+  const renderTaskCard = (t, key, onView, onComplete, onPostpone, accent) => {
     const startTxt = formatDate(t.startDate);
     const endTxt   = formatDate(t.dueDate);
+    const cardDisabled = actionInFlight ? { opacity: 0.5, pointerEvents: "none" } : null;
     return (
-      <div key={key} style={{ background: "#fff", border: `1px solid ${border}`, borderLeft: `4px solid ${border}`, borderRadius: 8, padding: "8px 10px", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden" }}>
+      <div key={key} style={{ background: "#fff", border: "0.5px solid #E5E0D5", borderLeft: `3px solid ${accent}`, borderRadius: 0, padding: "10px 12px", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden", ...cardDisabled }}>
         {/* Línea 1: ref + título + badge proyecto (board) */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
           {t.ref && (
             <button
               onClick={() => onView(t.taskId, t.title)}
               title={`Ir a ${t.ref}`}
               style={{
-                backgroundColor: "#2C3E50",
-                color: "white",
-                borderRadius: 4,
+                backgroundColor: "#1A1A1A",
+                color: "#C9A84C",
+                borderRadius: 0,
                 padding: "2px 8px",
                 fontSize: 11,
-                fontWeight: "bold",
+                fontWeight: 700,
                 marginRight: 2,
                 border: "none",
                 fontFamily: "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
@@ -1628,26 +1631,26 @@ Reglas para block_task:
               }}
             >{t.ref}</button>
           )}
-          <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: "#1A1A1A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
           {t.board && (
-            <span title={t.board} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: "#EEEDFE", color: "#3C3489", border: "1px solid #AFA9EC", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.board}</span>
+            <span title={t.board} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 0, background: "#F0EDE5", color: "#6B6B6B", border: "0.5px solid #E5E0D5", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.board}</span>
           )}
         </div>
         {/* Línea 2: urgencia */}
-        <div style={{ fontSize: 10.5, color: urgencyColor, fontWeight: 600, marginBottom: 4 }}>{t.urgency}</div>
+        <div style={{ fontSize: 10.5, color: accent, fontWeight: 600, marginBottom: 5, letterSpacing: "0.04em", textTransform: "uppercase" }}>{t.urgency}</div>
         {/* Línea 3: metadata (fechas + prioridad + asignado) */}
-        <div style={{ display: "flex", gap: 12, fontSize: 10.5, color: "#666", margin: "2px 0 4px", flexWrap: "wrap", alignItems: "center" }}>
-          <span>📅 {startTxt || "Sin inicio"} → {endTxt || "Sin fin"}</span>
-          <span>⚡ {PRIO_LABEL(t.priority)}</span>
-          <span>👤 {t.assignedTo || "Sin asignar"}</span>
+        <div style={{ display: "flex", gap: 14, fontSize: 10.5, color: "#6B6B6B", margin: "2px 0 6px", flexWrap: "wrap", alignItems: "center" }}>
+          <span>Inicio: {startTxt || "—"} → Fin: {endTxt || "—"}</span>
+          <span>Prioridad: {PRIO_LABEL(t.priority)}</span>
+          <span>Asignado: {t.assignedTo || "Sin asignar"}</span>
         </div>
         {/* Línea 4: acción imperativa */}
-        {t.action && <div style={{ fontSize: 11, color: "#374151", fontStyle: "italic", marginBottom: 6 }}>{t.action}</div>}
-        {/* Línea 5: botones */}
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          <button onClick={() => onView(t.taskId, t.title)}      style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#1E40AF", border: "1px solid #BFDBFE", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>→ Ver tarea</button>
-          <button onClick={() => onComplete(t.taskId, t.title)}  style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#065F46", border: "1px solid #86EFAC", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>✓ Hecho</button>
-          <button onClick={() => onPostpone(t.taskId, t.title)}  style={{ padding: "3px 8px", borderRadius: 5, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>⏸ Posponer</button>
+        {t.action && <div style={{ fontSize: 11.5, color: "#1A1A1A", fontStyle: "italic", marginBottom: 8, lineHeight: 1.4 }}>{t.action}</div>}
+        {/* Línea 5: botones — Hecho es el CTA primario (negro+oro). */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <button onClick={() => onView(t.taskId, t.title)}     style={{ padding: "6px 12px", borderRadius: 0, background: "#fff", color: "#1A1A1A", border: "0.5px solid #E5E0D5", fontSize: 11, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.02em" }}>Ver tarea</button>
+          <button onClick={() => onComplete(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 0, background: "#1A1A1A", color: "#C9A84C", border: "0.5px solid #1A1A1A", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.02em" }}>Hecho</button>
+          <button onClick={() => onPostpone(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 0, background: "#fff", color: "#1A1A1A", border: "0.5px solid #E5E0D5", fontSize: 11, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.02em" }}>Posponer</button>
         </div>
       </div>
     );
@@ -1659,10 +1662,10 @@ Reglas para block_task:
         const items = (analysis.tasks || []).filter((t) => t.urgencyLevel === g.key);
         if (!items.length) return null;
         return (
-          <div key={g.key} style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 9.5, fontWeight: 700, color: g.fg, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>{g.label}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {items.slice(0, 5).map((t, j) => renderTaskCard(t, `${g.key}-${j}`, onView, onComplete, onPostpone, g.urgencyColor, g.border))}
+          <div key={g.key} style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: g.fg, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 6 }}>{g.label}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {items.slice(0, 5).map((t, j) => renderTaskCard(t, `${g.key}-${j}`, onView, onComplete, onPostpone, g.accent))}
             </div>
           </div>
         );
