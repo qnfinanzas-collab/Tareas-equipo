@@ -317,6 +317,11 @@ export default function HectorPanel({
   // se asigna por la regex de detectCEODecision; cambio manual será
   // commit posterior). Limit 50 para no explotar la UI con histórico.
   const [ceoMemoryRows, setCeoMemoryRows] = useState([]);
+  // Guard contra clicks múltiples en los botones Hecho/Posponer/Ver
+  // (BUG 1 commit 11). El ref es la barrera real (lectura síncrona),
+  // el state sirve para feedback visual (deshabilitar botones).
+  const actionInFlightRef = useRef(false);
+  const [actionInFlight, setActionInFlight] = useState(false);
   const [recommendations, setRecommendations] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -1302,7 +1307,15 @@ Reglas para block_task:
       // HectorDirect). Importante: corre SOBRE el cleanReply ya
       // reescrito a propositivo — los participios convertidos a
       // infinitivo no disparan falsos positivos del detector.
-      const fakeSuccess = detectFalseSuccessClaim(cleanReply, proposal);
+      // BUG 2 commit 11: GATING. HectorPanel está en JSON-mode, así
+      // que proposal casi siempre es null. Para evitar falsos positivos
+      // en respuestas informativas (consultas con verbos en pasado
+      // legítimos como "completadas"), solo invocamos al detector
+      // cuando el modelo prometió una ACCIÓN real (action !== "none").
+      // En consultas (action === "none" o ausente), executeAction no
+      // dispara nada y la prosa es lectura — fakeSuccess = false.
+      const promisedAction = parsedReply && parsedReply.action && parsedReply.action !== "none";
+      const fakeSuccess = promisedAction ? detectFalseSuccessClaim(cleanReply, proposal) : false;
       setChatHistory((prev) => [...prev, { role: "hector", text: cleanReply || "(sin respuesta)", proposal, fakeSuccess, ts: Date.now() }].slice(-CHAT_MAX));
       executeAction(parsedReply);
       if (cleanReply) speakRecommendation(cleanReply);
@@ -1464,25 +1477,57 @@ Reglas para block_task:
   // el rastro de la decisión sin entrar al chat.
   const switchToChatWithMessage = (text) => {
     setActiveTab("chat");
-    if (text) setChatHistory((prev) => [...prev, { role: "hector", text, ts: Date.now() }].slice(-CHAT_MAX));
+    if (text) setChatHistory((prev) => {
+      // BUG 3 commit 11: dedupe acks. Antes de añadir la nueva burbuja,
+      // borramos las anteriores del mismo tipo (Marcada / Pospuesta /
+      // Abriendo) para que solo la más reciente quede visible y no se
+      // acumulen confirmaciones a lo largo de la sesión.
+      const filtered = (prev || []).filter((m) => {
+        if (m.role !== "hector" || typeof m.text !== "string") return true;
+        const t = m.text;
+        return !(t.startsWith("✓ Marcada") || t.startsWith("⏸ Pospuesta") || t.startsWith("Abriendo"));
+      });
+      return [...filtered, { role: "hector", text, ts: Date.now() }].slice(-CHAT_MAX);
+    });
   };
   const publishTimeline = (taskId, text) => {
     if (!onAddTimelineEntry || !taskId) return;
     onAddTimelineEntry(taskId, { type: "ai", author: "Héctor", authorId: "hector", authorAvatar: "🧙", text });
   };
+  // Guard común para los handlers de las cards (BUG 1 commit 11).
+  // Activa el ref y el state (UI feedback), ejecuta el efecto, y libera
+  // ambos tras 600ms — suficiente para que React asiente el re-render
+  // y la siguiente pulsación del CEO se registre como nueva intención.
+  const guardedAction = (fn) => {
+    if (actionInFlightRef.current) return;
+    actionInFlightRef.current = true;
+    setActionInFlight(true);
+    try { fn(); } catch (e) { console.warn("[HectorPanel] guardedAction:", e?.message); }
+    setTimeout(() => {
+      actionInFlightRef.current = false;
+      setActionInFlight(false);
+    }, 600);
+  };
+
   const handleViewTaskFromCard = (taskId, title) => {
-    goToTask(taskId, title);
-    switchToChatWithMessage(`Abriendo "${title}".`);
+    guardedAction(() => {
+      goToTask(taskId, title);
+      switchToChatWithMessage(`Abriendo "${title}".`);
+    });
   };
   const handleCompleteFromCard = (taskId, title) => {
-    completeFromCard(taskId, title);
-    switchToChatWithMessage(`✓ Marcada como hecha: "${title}".`);
-    publishTimeline(taskId, `Marcada como hecha desde la Sala de Mando.`);
+    guardedAction(() => {
+      completeFromCard(taskId, title);
+      switchToChatWithMessage(`✓ Marcada como hecha: "${title}".`);
+      publishTimeline(taskId, `Marcada como hecha desde la Sala de Mando.`);
+    });
   };
   const handlePostponeFromCard = (taskId, title) => {
-    postponeFromCard(taskId, title);
-    switchToChatWithMessage(`⏸ Pospuesta +1d: "${title}".`);
-    publishTimeline(taskId, `Pospuesta 1 día desde la Sala de Mando.`);
+    guardedAction(() => {
+      postponeFromCard(taskId, title);
+      switchToChatWithMessage(`⏸ Pospuesta +1d: "${title}".`);
+      publishTimeline(taskId, `Pospuesta 1 día desde la Sala de Mando.`);
+    });
   };
 
   // Sincroniza el contador de no-leídos cuando el tab Chat está activo.
@@ -2108,29 +2153,32 @@ Reglas para block_task:
                     {focusTask && (onOpenTask || onCompleteTask || onPostponeTask) && (
                       <>
                         <div style={{ height: 0, borderTop: "0.5px solid #E5E0D5", marginTop: 6 }} />
-                        <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap", opacity: actionInFlight ? 0.5 : 1, pointerEvents: actionInFlight ? "none" : "auto", transition: "opacity .2s ease" }}>
                           {onOpenTask && (
                             <button
                               type="button"
-                              onClick={() => onOpenTask?.(focusTask.id, focusTask.projId)}
+                              disabled={actionInFlight}
+                              onClick={() => guardedAction(() => onOpenTask?.(focusTask.id, focusTask.projId))}
                               title="Abrir la tarea en su tablero"
-                              style={{ background: "#1A1A1A", color: "#fff", border: "none", padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", borderRadius: 0 }}
+                              style={{ background: "#1A1A1A", color: "#fff", border: "none", padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: actionInFlight ? "wait" : "pointer", fontFamily: "inherit", borderRadius: 0 }}
                             >▶ Empezar</button>
                           )}
                           {onPostponeTask && (
                             <button
                               type="button"
-                              onClick={() => onPostponeTask?.(focusTask)}
+                              disabled={actionInFlight}
+                              onClick={() => guardedAction(() => onPostponeTask?.(focusTask))}
                               title="Posponer la tarea +1 día"
-                              style={{ background: "transparent", color: "#6B6B6B", border: "0.5px solid #E5E0D5", padding: "8px 16px", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", borderRadius: 0 }}
+                              style={{ background: "transparent", color: "#6B6B6B", border: "0.5px solid #E5E0D5", padding: "8px 16px", fontSize: 12, fontWeight: 500, cursor: actionInFlight ? "wait" : "pointer", fontFamily: "inherit", borderRadius: 0 }}
                             >⏸ Posponer</button>
                           )}
                           {onCompleteTask && (
                             <button
                               type="button"
-                              onClick={() => onCompleteTask?.(focusTask.id, focusTask.projId, focusTask.colId)}
+                              disabled={actionInFlight}
+                              onClick={() => guardedAction(() => onCompleteTask?.(focusTask.id, focusTask.projId, focusTask.colId))}
                               title="Marcar la tarea como hecha"
-                              style={{ background: "#C9A84C", color: "#fff", border: "none", padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", borderRadius: 0 }}
+                              style={{ background: "#C9A84C", color: "#fff", border: "none", padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: actionInFlight ? "wait" : "pointer", fontFamily: "inherit", borderRadius: 0 }}
                             >✓ Hecho</button>
                           )}
                         </div>
