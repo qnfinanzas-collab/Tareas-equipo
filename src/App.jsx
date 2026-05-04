@@ -4717,7 +4717,7 @@ function TimeReportsView({boards,members,projects}){
 }
 
 // ── Project Modal ─────────────────────────────────────────────────────────────
-function ProjectModal({project,members,workspaces,allProjects,currentMember,onClose,onSave,onTransferOwnership}){
+function ProjectModal({project,members,workspaces,allProjects,currentMember,onClose,onSave,onTransferOwnership,onDelete}){
   const isEdit=!!project;
   const [name,setName]=useState(project?.name||"");
   const [desc,setDesc]=useState(project?.desc||"");
@@ -4732,6 +4732,13 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
   const [pendingClose,setPendingClose]=useState(false);
   const [transferOpen,setTransferOpen]=useState(false);
   const [transferTarget,setTransferTarget]=useState("");
+  // Commit 26: doble confirmación para eliminar proyecto. deleteStep:
+  //   null → botón "Eliminar proyecto" visible.
+  //   1    → bloque expandido pidiendo escribir el código del proyecto.
+  //   2    → última advertencia con botón "Sí, eliminar definitivamente".
+  // deleteCode = input del paso 1 (debe igualar project.code).
+  const [deleteStep,setDeleteStep]=useState(null);
+  const [deleteCode,setDeleteCode]=useState("");
   const [initialSnap]=useState(()=>JSON.stringify({
     name:project?.name||"", desc:project?.desc||"",
     color:project?.color||PROJECT_COLORS[0], emoji:project?.emoji||"🚀",
@@ -4894,6 +4901,66 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
             <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
             <button onClick={save} disabled={!canSave} style={{padding:"8px 20px",borderRadius:8,background:canSave?color:"#e5e7eb",color:canSave?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:canSave?"pointer":"default",fontWeight:600}}>{isEdit?"Guardar cambios":"Crear proyecto"}</button>
           </div>
+          {/* Commit 26: zona destructiva. Solo visible en edición y solo
+              para el owner. Doble confirmación obligatoria — paso 1
+              pide escribir el código del proyecto exactamente, paso 2
+              advertencia final antes de ejecutar. */}
+          {isEdit && isOwner && onDelete && (
+            <div style={{marginTop:24,paddingTop:16,borderTop:"0.5px solid #E5E0D5"}}>
+              {deleteStep === null && (
+                <div style={{textAlign:"left"}}>
+                  <button
+                    onClick={()=>{ setDeleteStep(1); setDeleteCode(""); }}
+                    style={{background:"transparent",border:"none",color:"#9B9B9B",fontSize:12,cursor:"pointer",fontFamily:"inherit",padding:0}}
+                  >Eliminar proyecto</button>
+                </div>
+              )}
+              {deleteStep === 1 && (
+                <div style={{padding:"12px 14px",border:"0.5px solid #E5E0D5",background:"#FDF5F5"}}>
+                  <div style={{fontSize:12.5,color:"#1A1A1A",lineHeight:1.5,marginBottom:8}}>
+                    ¿Eliminar este proyecto y todas sus tareas? Esta acción no se puede deshacer.
+                  </div>
+                  <div style={{fontSize:11,color:"#6B6B6B",marginBottom:6}}>
+                    Escribe el código del proyecto para confirmar (ej: {project?.code || "ABC"})
+                  </div>
+                  <input
+                    value={deleteCode}
+                    onChange={e=>setDeleteCode((e.target.value||"").toUpperCase())}
+                    placeholder={`Escribe ${project?.code || ""} para confirmar`}
+                    style={{width:"100%",border:"0.5px solid #E5E0D5",borderRadius:0,padding:8,fontSize:13,fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",letterSpacing:"0.08em",textTransform:"uppercase",outline:"none",boxSizing:"border-box",marginBottom:10}}
+                  />
+                  <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center"}}>
+                    <button
+                      onClick={()=>{ setDeleteStep(null); setDeleteCode(""); }}
+                      style={{padding:"6px 14px",borderRadius:0,background:"transparent",border:"0.5px solid #E5E0D5",color:"#6B6B6B",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}
+                    >Cancelar</button>
+                    <button
+                      onClick={()=>setDeleteStep(2)}
+                      disabled={deleteCode !== (project?.code || "")}
+                      style={{padding:"8px 20px",borderRadius:0,background: deleteCode === (project?.code || "") ? "#7A1F1F" : "#E5E0D5", color: deleteCode === (project?.code || "") ? "#FFFFFF" : "#9B9B9B", border:"none", fontSize:12, fontWeight:600, cursor: deleteCode === (project?.code || "") ? "pointer" : "not-allowed", fontFamily:"inherit"}}
+                    >Confirmar eliminación</button>
+                  </div>
+                </div>
+              )}
+              {deleteStep === 2 && (
+                <div style={{padding:"12px 14px",border:"0.5px solid #7A1F1F",background:"#FDF5F5"}}>
+                  <div style={{fontSize:13,color:"#7A1F1F",fontWeight:600,lineHeight:1.5,marginBottom:10}}>
+                    ⚠ ÚLTIMA ADVERTENCIA — El tablero de {project?.name} y todas sus tareas serán eliminados definitivamente. No podrás echarte atrás.
+                  </div>
+                  <div style={{display:"flex",gap:8,justifyContent:"flex-end",alignItems:"center"}}>
+                    <button
+                      onClick={()=>{ setDeleteStep(null); setDeleteCode(""); }}
+                      style={{padding:"6px 14px",borderRadius:0,background:"transparent",border:"0.5px solid #E5E0D5",color:"#6B6B6B",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}
+                    >Cancelar</button>
+                    <button
+                      onClick={()=>{ onDelete(); }}
+                      style={{padding:"8px 20px",borderRadius:0,background:"#7A1F1F",color:"#FFFFFF",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}
+                    >Sí, eliminar definitivamente</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -11779,10 +11846,48 @@ export default function TaskFlow(){
     setAgentModal(null); addToast("Agente eliminado","info");
   },[addToast]);
 
+  // Commit 26: borrado en cascada del proyecto. Además de quitarlo del
+  // array y borrar su board, limpiamos referencias huérfanas:
+  //   - negotiations.projectId === pid       → null
+  //   - negotiations.relatedProjects[].projectId === pid → fuera
+  //   - tasks de OTROS proyectos con linkedProjects[pid] → quitar pid
+  // Las tareas DEL proyecto borrado mueren con `delete boards[pid]`
+  // (modelo estructural: viven dentro del board).
   const deleteProject = useCallback((idx)=>{
-    setData(prev=>{ const p=prev.projects[idx]; const projects=prev.projects.filter((_,i)=>i!==idx); const boards={...prev.boards}; delete boards[p.id]; return{...prev,projects,boards}; });
+    let projectName = "";
+    let taskCount = 0;
+    setData(prev=>{
+      const p = prev.projects[idx];
+      if(!p) return prev;
+      const pid = p.id;
+      projectName = p.name || "(sin nombre)";
+      taskCount = (prev.boards[pid] || []).reduce((s,c)=>s+((c.tasks||[]).length||0),0);
+      const projects = prev.projects.filter((_,i)=>i!==idx);
+      const newBoards = {};
+      for(const otherPid in prev.boards){
+        if(Number(otherPid) === pid) continue;
+        newBoards[otherPid] = prev.boards[otherPid].map(col=>({
+          ...col,
+          tasks: (col.tasks||[]).map(t=>({
+            ...t,
+            linkedProjects: Array.isArray(t.linkedProjects)
+              ? t.linkedProjects.filter(lp=>lp!==pid)
+              : (t.linkedProjects || []),
+          })),
+        }));
+      }
+      const negotiations = (prev.negotiations || []).map(n=>{
+        const out = {...n};
+        if(out.projectId === pid) out.projectId = null;
+        if(Array.isArray(out.relatedProjects)){
+          out.relatedProjects = out.relatedProjects.filter(rp=>rp && rp.projectId !== pid);
+        }
+        return out;
+      });
+      return {...prev, projects, boards: newBoards, negotiations};
+    });
     setAP(0); setActiveTab("projects");
-    addToast("Proyecto eliminado","info");
+    addToast(`✓ Proyecto ${projectName} y ${taskCount} tarea${taskCount===1?"":"s"} eliminado${taskCount===1?"":"s"}.`, "info");
   },[addToast]);
 
   const totalTasks=board.reduce((s,c)=>s+c.tasks.length,0);
@@ -12218,7 +12323,7 @@ export default function TaskFlow(){
       <Toast toasts={toasts}/>
       {profileMember&&<ProfileModal member={profileMember} onClose={()=>setPM(null)} onSave={avail=>{saveMemberProfile(profileMember.id,avail);setPM(null);}}/>}
       {projectModal==="create"&&<ProjectModal members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setProjModal(null)} onSave={createProject}/>}
-      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)} onTransferOwnership={transferProjectOwnership}/>}
+      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)} onTransferOwnership={transferProjectOwnership} onDelete={()=>{ deleteProject(projectModal); setProjModal(null); }}/>}
       {memberModal==="create"&&<MemberEditModal allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={createMember}/>}
       {memberModal&&memberModal!=="create"&&<MemberEditModal member={memberModal} allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={d=>updateMember(d,memberModal.id)} onDelete={id=>{deleteMember(id);setMemberModal(null);}}/>}
       {agentModal==="create"&&<AgentEditModal onClose={()=>setAgentModal(null)} onSave={createAgent}/>}
