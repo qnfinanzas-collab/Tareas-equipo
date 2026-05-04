@@ -1927,20 +1927,68 @@ Reglas para block_task:
                   ))}
                 </div>
               )}
-              {/* i. Últimos comentarios / timeline */}
-              {recent.length > 0 && (
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontSize: 10, color: "#9B9B9B", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Reciente</div>
-                  <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 4 }}>
-                    {recent.map((entry, i) => (
-                      <li key={i} style={{ fontSize: 11, color: "#9B9B9B", lineHeight: 1.4 }}>
-                        {entry.author ? <span style={{ color: "#6B6B6B" }}>{entry.author}: </span> : null}
-                        {entry.text}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              {/* i. Reciente — una línea por entrada con dos columnas
+                  (timestamp izq, texto der). Resumen compacto cuando la
+                  entrada es una "Orden CEO:" auditada (commit 20): se
+                  parsea el JSON de cambios y se muestra "✓ Fecha → X ·
+                  Prioridad → Y" en lugar del JSON crudo. */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 9, color: "#9B9B9B", textTransform: "uppercase", letterSpacing: "3px", marginBottom: 8 }}>Reciente</div>
+                {recent.length === 0 ? (
+                  <div style={{ fontSize: 11, color: "#9B9B9B" }}>Sin actividad reciente</div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                    {recent.slice(0, 3).map((entry, i) => {
+                      const txt = String(entry.text || "");
+                      let displayText = "";
+                      let isOrder = false;
+                      const orderMatch = txt.match(/Orden CEO[^→]*→\s*(\{[\s\S]*\})/);
+                      if (orderMatch) {
+                        isOrder = true;
+                        try {
+                          const parsed = JSON.parse(orderMatch[1]);
+                          const parts = [];
+                          if (parsed.dueDate) parts.push(`Fecha → ${formatDate(parsed.dueDate) || parsed.dueDate}`);
+                          if (parsed.priority) parts.push(`Prioridad → ${PRIO_LABEL(parsed.priority)}`);
+                          if (parsed.status) parts.push(`Estado → ${parsed.status}`);
+                          if (parsed.title) parts.push(`Título actualizado`);
+                          if (parsed.desc !== undefined || parsed.description !== undefined) parts.push(`Descripción actualizada`);
+                          if (parsed.assignees !== undefined || parsed.assignee !== undefined) parts.push(`Asignado actualizado`);
+                          displayText = parts.length ? parts.join(" · ") : "Cambios aplicados";
+                        } catch {
+                          displayText = "Cambios aplicados";
+                        }
+                      } else if (txt.includes("{") && txt.includes("}")) {
+                        const before = txt.split("{")[0].trim().replace(/[:\s→-]+$/u, "");
+                        displayText = before || "Cambios aplicados";
+                        if (displayText.length > 60) displayText = displayText.slice(0, 60) + "...";
+                      } else {
+                        displayText = txt.length > 60 ? txt.slice(0, 60) + "..." : txt;
+                      }
+                      // Timestamp legible. Si ts es ISO válido → "DD MMM HH:MM"
+                      // español. Si es texto libre ("hace 2h") → tal cual.
+                      let tsLabel = "—";
+                      if (entry.ts) {
+                        const d = new Date(entry.ts);
+                        if (!isNaN(d.getTime())) {
+                          tsLabel = d.toLocaleString("es-ES", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).replace(",", "");
+                        } else {
+                          tsLabel = String(entry.ts).slice(0, 12);
+                        }
+                      }
+                      return (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "0.5px solid #E5E0D5", gap: 8 }}>
+                          <span style={{ fontSize: 10, color: "#9B9B9B", minWidth: 80, fontFamily: "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace", flexShrink: 0 }}>{tsLabel}</span>
+                          <span style={{ fontSize: 11, color: "#6B6B6B", textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>
+                            {isOrder && <span style={{ color: "#C9A84C", marginRight: 4 }}>✓</span>}
+                            {displayText}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               {/* j. Abrir en tablero */}
               <div style={{ marginTop: 10 }}>
                 <button
