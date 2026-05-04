@@ -1877,14 +1877,8 @@ Reglas para block_task:
           const recent = timelineRecent.length ? timelineRecent : commentsRecent;
           return (
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: "0.5px solid #E5E0D5", maxHeight: 320, overflow: "auto" }}>
-              {/* a. Cabecera */}
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                  {real.ref && <span style={{ fontFamily: "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace", fontWeight: 700, fontSize: 12, color: refColor || "#9B9B9B", letterSpacing: "0.04em" }}>{real.ref}</span>}
-                  <span style={{ fontWeight: 600, fontSize: 13, color: "#1A1A1A", lineHeight: 1.3 }}>{real.title}</span>
-                </div>
-              </div>
-              {/* b. Proyecto + columna */}
+              {/* Proyecto + columna (commit 22: cabecera ref+título eliminada
+                  por estar duplicada con la fila superior de la card). */}
               <div style={{ fontSize: 12, color: "#6B6B6B", marginBottom: 6 }}>
                 {real.projEmoji ? `${real.projEmoji} ` : ""}{real.projName || "—"}{real.colName ? ` · ${real.colName}` : ""}
               </div>
