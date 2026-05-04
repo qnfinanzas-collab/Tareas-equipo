@@ -4908,7 +4908,7 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
 // del día). Esta primera versión usa heurísticas deterministas; la
 // selección por LLM y el resto de funcionalidades inteligentes se añaden
 // en commits posteriores.
-function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,onCompleteTask,onPostponeTask,onArchiveTask,onApplyTaskChanges,onGoDashboard,onGoMytasks,onGoDealRoom,currentFocus,onSetCurrentFocus,onHectorStateChange,onHectorRecommendation,financeContext,onAddTimelineEntry,onRunAgentActions}){
+function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,onCompleteTask,onPostponeTask,onArchiveTask,onApplyTaskChanges,onOpenNegotiation,onGoDashboard,onGoMytasks,onGoDealRoom,currentFocus,onSetCurrentFocus,onHectorStateChange,onHectorRecommendation,financeContext,onAddTimelineEntry,onRunAgentActions}){
   const {boards,projects,members,negotiations}=data;
   const me = (members||[]).find(m=>m.id===activeMember);
   // Tareas del usuario activo (asignadas a mí), enriquecidas con metadatos
@@ -5145,6 +5145,7 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
               onArchiveTask={onArchiveTask}
               onOpenTask={onOpenTask}
               onApplyTaskChanges={onApplyTaskChanges}
+              onOpenNegotiation={onOpenNegotiation}
               financeContext={financeContext}
               onAddTimelineEntry={onAddTimelineEntry}
               onRunAgentActions={onRunAgentActions}
@@ -9911,6 +9912,22 @@ export default function TaskFlow(){
   // Whitelist defensiva en frontend además de la del parser. Mapea aliases
   // (description→desc, assignee→assignees) y normaliza priority. Añade
   // entrada de timeline con auditoría del comando del CEO.
+  // Commit 25: navegación directa a una negociación concreta desde
+  // HectorPanel. Misma tripleta state que el resto de quick-opens
+  // (Command Palette, BriefingsView). Comprueba existencia antes de
+  // navegar — si el id quedó huérfano (borrada entre renders) avisa
+  // con toast y no cambia de pestaña para evitar vista vacía.
+  const openNegotiationById = useCallback((id) => {
+    if (!id) return;
+    const exists = (data.negotiations || []).some(x => x.id === id);
+    if (!exists) {
+      addToast("Negociación no encontrada", "error");
+      return;
+    }
+    setActiveTab("dealroom");
+    setActiveNegId(id);
+    setActiveSessId(null);
+  }, [data.negotiations, addToast]);
   const applyTaskChanges = useCallback((taskId, partial, meta = {}) => {
     if (!taskId || !partial || typeof partial !== "object") return;
     setData(prev => {
@@ -12152,7 +12169,7 @@ export default function TaskFlow(){
             />;
           })()}
           {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext}/>}
-          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} authSession={authSession} onNavigate={setActiveTab} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onApplyTaskChanges={applyTaskChanges} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
+          {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} authSession={authSession} onNavigate={setActiveTab} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onApplyTaskChanges={applyTaskChanges} onOpenNegotiation={openNegotiationById} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission} onSetAgentPermission={setMemberAgentPermission}/>}

@@ -238,6 +238,8 @@ export default function HectorPanel({
   // Commit 20: aplicar cambios parciales a una tarea desde una orden
   // interpretada por LLM. Recibe (taskId, partialChanges, meta).
   onApplyTaskChanges,
+  // Commit 25: abrir una negociación concreta en NegotiationDetailView.
+  onOpenNegotiation,
   userId,
   userName,
   // UUID del usuario en Supabase Auth (auth.uid()). Necesario para
@@ -2728,17 +2730,24 @@ Reglas para block_task:
                           || (n.status && String(n.status).trim())
                           || "—";
                         return (
-                          <div key={n.id} style={{
-                            background: "#FDFAF5",
-                            border: "0.5px solid #E8D5A3",
-                            borderRadius: 6,
-                            padding: "16px 20px",
-                            marginBottom: 4,
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: 10,
-                          }}>
+                          <div
+                            key={n.id}
+                            onClick={() => onOpenNegotiation?.(n.id)}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = "#FBF5E6"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = "#FDFAF5"; }}
+                            style={{
+                              background: "#FDFAF5",
+                              border: "0.5px solid #E8D5A3",
+                              borderRadius: 6,
+                              padding: "16px 20px",
+                              marginBottom: 4,
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              gap: 10,
+                              cursor: onOpenNegotiation ? "pointer" : "default",
+                              transition: "background 0.15s ease",
+                            }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{
                                 fontSize: 14,
