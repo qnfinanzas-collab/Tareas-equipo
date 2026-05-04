@@ -5332,20 +5332,20 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
                     <div style={{fontSize:14,fontWeight:700,color:p.color}}>{p.name}</div>
                     <RefBadge code={p.code}/>
-                    {onToggleFavorite && (
-                      <button
-                        onClick={(e)=>{ e.stopPropagation(); onToggleFavorite(p.id); }}
-                        title={isFav ? "Quitar de favoritos" : "Marcar como favorito"}
-                        style={{background:"transparent",border:"none",fontSize:16,cursor:"pointer",color: isFav ? "#C9A84C" : "#E5E0D5",padding:0,lineHeight:1,transition:"color 0.2s ease",fontFamily:"inherit"}}
-                      >★</button>
-                    )}
                     <span title={visTitle} style={{fontSize:13,lineHeight:1}}>{visIcon}</span>
                     {isMine && <span title="Eres el owner de este proyecto" style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:10,background:"#1D9E7518",color:"#0E7C5A",border:"0.5px solid #1D9E7555",textTransform:"uppercase",letterSpacing:"0.04em"}}>Tuyo</span>}
                     {readOnly && <span title="Solo puedes ver este proyecto" style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:10,background:"#F3F4F6",color:"#6B7280",border:"0.5px solid #D1D5DB",textTransform:"uppercase",letterSpacing:"0.04em"}}>Solo lectura</span>}
                   </div>
                   {p.desc&&<div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.desc}</div>}
                 </div>
-                <div style={{display:"flex",gap:4}} onClick={e=>e.stopPropagation()}>
+                <div style={{display:"flex",gap:4,alignItems:"center"}} onClick={e=>e.stopPropagation()}>
+                  {!isPending && onToggleFavorite && (
+                    <button
+                      onClick={()=>onToggleFavorite(p.id)}
+                      title={isFav ? "Quitar de favoritos" : "Marcar como favorito"}
+                      style={{background:"transparent",border:"none",fontSize:22,cursor:"pointer",color:"#C9A84C",opacity: isFav ? 1 : 0.3,padding:6,lineHeight:1,transition:"opacity 0.2s ease",fontFamily:"inherit"}}
+                    >★</button>
+                  )}
                   {!isPending&&canEdit&&<>
                     <button onClick={()=>onEditProject(i)} style={{width:26,height:26,borderRadius:6,border:"0.5px solid #e5e7eb",background:"#f9fafb",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✏️</button>
                     <button onClick={()=>startDelete(i)} style={{width:26,height:26,borderRadius:6,border:"0.5px solid #e5e7eb",background:"#f9fafb",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>🗑️</button>
