@@ -588,7 +588,13 @@ export default function HectorPanel({
             analysis: parsedAnalysis,
             ts: data.updated_at ? Date.parse(data.updated_at) : Date.now(),
           };
-          setChatHistory((prev) => [...prev, analysisMsg].slice(-CHAT_MAX));
+          // Commit 10: si localStorage ya traía mensajes hector_analysis
+          // antiguos, los eliminamos antes de hidratar con el de BD para
+          // que NO se dupliquen. Solo el más reciente vive en el chat.
+          setChatHistory((prev) => {
+            const filtered = (prev || []).filter(m => m && m.role !== "hector_analysis");
+            return [...filtered, analysisMsg].slice(-CHAT_MAX);
+          });
           if (parsedAnalysis.thought || parsedAnalysis.summary) {
             setCurrentThought(parsedAnalysis.thought || parsedAnalysis.summary || "");
           }
@@ -961,12 +967,21 @@ Reglas:
       }
       lastRecTitleRef.current = sig;
       // Persiste como mensaje rico de chat (kind:"hector_analysis").
+      // Commit 10: antes de añadir el nuevo, ELIMINAMOS los mensajes
+      // anteriores con el mismo rol para que el chat solo conserve el
+      // último análisis. Antes se acumulaban tantos como Actualizaciones
+      // hubiera pulsado el CEO; ahora la pestaña Análisis (HectorAnalysisCard
+      // + renderAnalysisGroups) es la fuente única para el último estado,
+      // y el chat queda limpio para la conversación real.
       const analysisMsg = {
         role: "hector_analysis",
         analysis,
         ts: Date.now(),
       };
-      setChatHistory((prev) => [...prev, analysisMsg].slice(-CHAT_MAX));
+      setChatHistory((prev) => {
+        const filtered = (prev || []).filter(m => m && m.role !== "hector_analysis");
+        return [...filtered, analysisMsg].slice(-CHAT_MAX);
+      });
       // Mantén la sección "Recomendaciones" sincronizada con la primera
       // tarea por urgencia para no romper consumidores externos
       // (onNewRecommendation, badge en HectorFloat, etc.).
@@ -2383,14 +2398,18 @@ Reglas para block_task:
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ padding: "10px 12px", background: "#F0F7FF", border: "0.5px solid #BFDBFE", borderRadius: "12px 12px 12px 0", maxWidth: "100%", boxSizing: "border-box" }}>
                         {m.analysis.thought && <div style={{ fontSize: 11, fontStyle: "italic", color: "#1E3A8A", marginBottom: 8 }}>💭 {m.analysis.thought}</div>}
-                        {/* Summary como banner destacado arriba de las cards */}
+                        {/* Solo prosa en el chat (commit 10): el summary se
+                            muestra como banner discreto, sin task cards.
+                            Las cards viven exclusivamente en la pestaña
+                            Análisis (HectorAnalysisCard + renderAnalysisGroups
+                            allí). Aquí evitamos duplicación + tareas hechas
+                            que persistían en snapshots viejos. */}
                         {m.analysis.summary && (
                           <div style={{
                             backgroundColor: "#1A252F",
                             color: "white",
                             borderRadius: 8,
                             padding: "14px 18px",
-                            marginBottom: 16,
                             fontSize: 13,
                             fontStyle: "italic",
                             lineHeight: 1.6,
@@ -2405,7 +2424,6 @@ Reglas para block_task:
                             <span style={{ flex: 1 }}>{m.analysis.summary}</span>
                           </div>
                         )}
-                        {renderAnalysisGroups(m.analysis, handleViewTaskFromCard, handleCompleteFromCard, handlePostponeFromCard)}
                       </div>
                       <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4 }}>{fmtTs(m.ts)}</div>
                     </div>
