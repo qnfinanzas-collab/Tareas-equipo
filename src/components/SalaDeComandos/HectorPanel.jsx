@@ -2721,16 +2721,21 @@ Reglas para block_task:
                       {negotiations.map(n => {
                         const isActive = ["active","en_curso","activa"].includes(n.status);
                         const badgeLabel = isActive ? "Activa" : "En espera";
-                        const badgeBg    = isActive ? "#E1F5EE" : "#F1EFE8";
-                        const badgeColor = isActive ? "#0F6E56" : "#5F5E5A";
+                        // Activa = oro Kluxor (CTA visual). En espera mantiene
+                        // tono perla apagado para no competir con la activa.
+                        const badgeBg    = isActive ? "#C9A84C" : "#F1EFE8";
+                        const badgeColor = isActive ? "#1A1A1A" : "#5F5E5A";
                         const subtitle = (n.counterparty && String(n.counterparty).trim())
                           || (n.status && String(n.status).trim())
                           || "—";
                         return (
                           <div key={n.id} style={{
-                            background: "#fff",
-                            border: "0.5px solid #E5E0D5",
-                            padding: "8px 10px",
+                            background: "#F5EFE0",
+                            border: "0.5px solid #E8D5A3",
+                            borderLeft: "3px solid #C9A84C",
+                            borderRadius: 0,
+                            padding: "16px 20px",
+                            marginBottom: 1,
                             display: "flex",
                             justifyContent: "space-between",
                             alignItems: "center",
@@ -2738,7 +2743,7 @@ Reglas para block_task:
                           }}>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{
-                                fontSize: 12,
+                                fontSize: 14,
                                 fontWeight: 500,
                                 color: "#1A1A1A",
                                 overflow: "hidden",
@@ -2747,7 +2752,7 @@ Reglas para block_task:
                                 lineHeight: 1.3,
                               }}>{n.title || "(sin título)"}</div>
                               <div style={{
-                                fontSize: 11,
+                                fontSize: 12,
                                 color: "#6B6B6B",
                                 overflow: "hidden",
                                 textOverflow: "ellipsis",
@@ -2759,11 +2764,13 @@ Reglas para block_task:
                             <span style={{
                               fontSize: 10,
                               fontWeight: 600,
-                              padding: "3px 8px",
+                              padding: "4px 10px",
                               background: badgeBg,
                               color: badgeColor,
                               flexShrink: 0,
-                              letterSpacing: "0.04em",
+                              letterSpacing: "2px",
+                              textTransform: "uppercase",
+                              borderRadius: 0,
                               lineHeight: 1.4,
                             }}>{badgeLabel}</span>
                           </div>
