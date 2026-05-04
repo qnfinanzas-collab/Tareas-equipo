@@ -1582,9 +1582,9 @@ Reglas para block_task:
   // punto de color + línea fina debajo, cards en blanco limpio sin tintes,
   // botones sin caja — solo jerarquía tipográfica.
   const URGENCY_GROUPS = [
-    { key: "critical", label: "🔴 URGENTE · IMPORTANTE — Actuar ahora" },
-    { key: "high",     label: "🟠 IMPORTANTE — Hoy" },
-    { key: "medium",   label: "🟡 PLANIFICAR — Esta semana" },
+    { key: "critical", label: "🔥 URGENTE · IMPORTANTE — Actuar ahora" },
+    { key: "high",     label: "⏳ IMPORTANTE — Hoy" },
+    { key: "medium",   label: "📋 PLANIFICAR — Esta semana" },
   ];
 
   // Formatea ISO/string a "DD mmm" en castellano. Devuelve "Sin fecha" si
