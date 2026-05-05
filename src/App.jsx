@@ -31,7 +31,8 @@ import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
 import VaultGuestView, { parseVaultGuestPath } from "./components/Vault/VaultGuestView.jsx";
 import { generatePersonalDocuments } from "./components/Vault/personalTemplates.js";
-import { AGENT_ACTIONS_ADDON, suggestNegotiationEmoji, NEGOTIATION_EMOJIS } from "./lib/agentActions.js";
+import { AGENT_ACTIONS_ADDON, suggestNegotiationEmoji, NEGOTIATION_EMOJIS, parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, correctActionsDates } from "./lib/agentActions.js";
+import ActionProposal from "./components/Shared/ActionProposal.jsx";
 import { buildFinanceSummary, renderFinanceSummaryForPrompt } from "./lib/financeSummary.js";
 import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
@@ -7569,7 +7570,7 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,currentMember,permissions,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onSummarizeAndClearChat,onRouteAutoLearn,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,currentMember,permissions,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onSummarizeAndClearChat,onRouteAutoLearn,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask,onRunAgentActions}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessionsAsc = (negotiation.sessions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -7598,6 +7599,11 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   // mobile via CSS media query — desktop renderiza todo a la vez. Default
   // "hector" porque el motivo principal de entrar es chatear sobre la deal.
   const [mobileTab,setMobileTab] = useState("hector");
+  // Commit 42: Set local de timestamps de propuestas descartadas en
+  // esta sesión. No se persiste — al recargar la negociación la card
+  // oro vuelve a aparecer si la propuesta sigue en chatMsgs. Suficiente
+  // para evitar repetir el render dentro de la misma sesión.
+  const [discardedPropTs,setDiscardedPropTs] = useState(()=>new Set());
   // lastSeenChatLength: para el badge unread de la tab Héctor. Marca
   // los mensajes vistos cuando el CEO está en esa tab; al cambiar a otra,
   // los mensajes nuevos cuentan como unread.
@@ -8546,6 +8552,25 @@ ${taskLines||"(ninguna)"}`;
                       }
                       const isUser=m.role==="user";
                       const isSpeaking = !isUser && m.timestamp===speakingMsgTs;
+                      // Commit 42: parseo de [ACTIONS] al render. Si Héctor
+                      // emitió una propuesta, mostramos card oro
+                      // ActionProposal en lugar del JSON crudo. El texto
+                      // del mensaje queda limpio del bloque. Si en su lugar
+                      // afirma éxito sin acción, mostramos banner amarillo.
+                      // Solo aplica a mensajes assistant sin kind especial.
+                      const proposalParsed = (!isUser && !m.kind)
+                        ? parseAgentActions(m.content || "")
+                        : null;
+                      if (proposalParsed && Array.isArray(proposalParsed.actions)) {
+                        try { correctActionsDates(proposalParsed); } catch {}
+                      }
+                      const showProposal = proposalParsed && !discardedPropTs.has(m.timestamp);
+                      const cleanText = proposalParsed
+                        ? cleanAgentResponse(m.content || "")
+                        : (m.content || "");
+                      const fakeSuccess = (!isUser && !m.kind && !proposalParsed)
+                        ? detectFalseSuccessClaim(cleanText, null)
+                        : false;
                       return(
                         <div key={i} style={{display:"flex",justifyContent:isUser?"flex-end":"flex-start"}}>
                           <div style={{maxWidth:"88%",padding:"9px 12px",borderRadius:8,background:isUser?CHAT_PALETTE.brandLight:m.kind==="briefing"?"#FDFAF5":m.kind==="analysis"?"#F0EDE5":CHAT_PALETTE.bgSecondary,border:`0.5px solid ${isSpeaking?"#10B981":isUser?"transparent":m.kind==="briefing"?"#E8D5A3":m.kind==="analysis"?"#E5E0D5":"transparent"}`,fontSize:12.5,color:CHAT_PALETTE.textPrimary,lineHeight:1.55,whiteSpace:"pre-wrap",position:"relative",transition:"border-color .2s"}}>
@@ -8554,7 +8579,34 @@ ${taskLines||"(ninguna)"}`;
                             )}
                             {m.kind==="briefing"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#A07830",textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div><ExportPDFButton title={`Briefing — ${negotiation.title}`} filename={`briefing-${negotiation.title.slice(0,40)}`} render={(doc,y)=>renderSection(doc,y,"Briefing estratégico",m.content,[14,124,90])}/></div>}
                             {m.kind==="analysis"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#6B6B6B",textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div><ExportPDFButton title={`Análisis batch — ${negotiation.title}`} filename={`analisis-${negotiation.title.slice(0,40)}`} render={(doc,y)=>renderAnalysis(doc,y,negotiation.hectorAnalysis,criticalTasks,relProjs)}/></div>}
-                            {m.content}
+                            {cleanText}
+                            {showProposal && onRunAgentActions && (
+                              <div style={{marginTop:8}}>
+                                <ActionProposal
+                                  proposal={proposalParsed}
+                                  agentName="Héctor"
+                                  agentEmoji="🧙"
+                                  color="#C9A84C"
+                                  onConfirm={async (selected) => { await onRunAgentActions(selected); setDiscardedPropTs(prev => { const s = new Set(prev); s.add(m.timestamp); return s; }); }}
+                                  onCancel={() => { setDiscardedPropTs(prev => { const s = new Set(prev); s.add(m.timestamp); return s; }); }}
+                                />
+                              </div>
+                            )}
+                            {fakeSuccess && (
+                              <div style={{
+                                marginTop: 8,
+                                padding: "8px 12px",
+                                background: "#FEF3C7",
+                                border: "1px solid #FCD34D",
+                                borderRadius: 8,
+                                fontSize: 12,
+                                color: "#92400E",
+                                lineHeight: 1.4,
+                                whiteSpace: "normal",
+                              }}>
+                                ⚠ Héctor afirma éxito pero <b>no emitió ninguna acción real</b>. Nada se ha guardado. Reformula la orden o pídele explícitamente que ejecute.
+                              </div>
+                            )}
                             <div style={{fontSize:10,color:"#9CA3AF",marginTop:4,opacity:0.8,display:"flex",alignItems:"center",gap:8}}>
                               <span style={{flex:1}}>{m.timestamp?new Date(m.timestamp).toLocaleString("es-ES",{hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"}):""}</span>
                               {!isUser && !isSpeaking && voiceSupported().tts && (
@@ -12526,6 +12578,7 @@ export default function TaskFlow(){
                 onRouteAutoLearn={routeAutoLearnItems}
                 onMemorized={({count,agentName})=>addToast(`🧠 ${agentName} ha memorizado ${count} dato${count!==1?"s":""} nuevo${count!==1?"s":""}`,"info",{ttl:5000,onClick:()=>setActiveTab("memory")})}
                 onOverlayTask={id=>setOverlayTaskId(id)}
+                onRunAgentActions={runAgentActions}
               />;
             }
             return <DealRoomView
