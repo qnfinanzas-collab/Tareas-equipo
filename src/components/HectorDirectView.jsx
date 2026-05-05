@@ -15,6 +15,7 @@ import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive } from "../lib/agentActions.js";
 import { supa } from "../lib/sync.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
+import ChatBubble, { CHAT_PALETTE, ceoAvatarStyle, hectorAvatarSmall } from "./Shared/ChatBubble.jsx";
 
 const CHAT_MAX = 50;
 
@@ -71,24 +72,10 @@ function detectCEODecision(text) {
   return { isDecision: true, text: decisionText, status };
 }
 
-// Paleta Kluxor "operational" — claro/legible para uso diario, con oro
-// como acento de marca y acción. La paleta dark negro/oro queda solo
-// para los PDFs (comunicación externa). Filosofía: como un Rolls Royce
-// — negro por fuera (PDFs), claro por dentro (la herramienta).
-const C = {
-  borderTertiary:    "#E5E0D5",   // borde sutil cálido
-  bgPrimary:         "#FAFAF7",   // blanco roto cálido (fondo principal)
-  bgSecondary:       "#F0EDE5",   // gris perla cálido (burbujas Héctor)
-  textTertiary:      "#9B9B9B",   // gris claro (etiquetas, meta)
-  textSecondary:     "#6B6B6B",   // gris medio (texto secundario)
-  textPrimary:       "#1A1A1A",   // negro suave (texto principal)
-  brand:             "#C9A84C",   // oro Kluxor (acción, énfasis)
-  brandLight:        "#E8DFC4",   // oro suave (fondos sutiles, CEO bubble)
-  brandHover:        "#B89638",   // oro más oscuro (hover)
-  hectorEmojiBg:     "#F0EDE5",   // gris perla (avatar Héctor en header)
-  statusGreen:       "#4A8B5C",   // verde estado (activo)
-  statusOrange:      "#B89638",   // oro oscuro como estado "pensando"
-};
+// Paleta Kluxor "operational" — fuente de verdad en Shared/ChatBubble
+// para que HectorDirect y HectorPanel compartan exactamente los
+// mismos colores. Aquí solo aliasamos como `C` por brevedad.
+const C = CHAT_PALETTE;
 
 // Frase de apertura según hora local. Cambia 3 veces al día para
 // situar al CEO en el momento del día — no es generación con LLM.
@@ -739,12 +726,13 @@ Reglas:
           .map(({ m, i }) => (
             m.role === "specialist"
               ? <SpecialistBubble key={i} message={m} data={data} onRunAgentActions={onRunAgentActions}/>
-              : <MessageBubble
+              : <ChatBubble
                   key={i}
                   message={m}
                   userInitials={userInitials}
                   onRunAgentActions={onRunAgentActions}
                   onDiscardProposal={() => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
+                  renderTaskList={(tasksList) => <TaskListCard tasksList={tasksList} />}
                 />
           ))}
         {isLoading && <TypingIndicator />}
@@ -799,77 +787,8 @@ Reglas:
 }
 
 // ── Subcomponentes ──────────────────────────────────────────────────
-
-function MessageBubble({ message, userInitials, onRunAgentActions, onDiscardProposal }) {
-  const isUser = message.role === "user";
-  const text = message.text || "";
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: isUser ? "flex-end" : "flex-start" }}>
-      <div style={{
-        display: "flex",
-        flexDirection: isUser ? "row-reverse" : "row",
-        gap: 10,
-        alignItems: "flex-start",
-        maxWidth: "100%",
-      }}>
-        {isUser ? (
-          <div style={ceoAvatarStyle}>{userInitials}</div>
-        ) : (
-          <div style={hectorAvatarSmall}>🧙</div>
-        )}
-        <div style={{
-          background: isUser ? C.brandLight : (message.error ? "#FEF2F2" : C.bgSecondary),
-          color: message.error ? "#991B1B" : C.textPrimary,
-          borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
-          padding: "10px 14px",
-          maxWidth: "78%",
-          fontSize: 14,
-          lineHeight: 1.5,
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-          // Spec: burbuja Héctor sin borde; user bubble tampoco lo necesita
-          // sobre el fondo cálido. Solo error mantiene borde rojo.
-          border: message.error ? "1px solid #FCA5A5" : "none",
-        }}>
-          {text}
-        </div>
-      </div>
-      {!isUser && message.proposal && onRunAgentActions && (
-        <div style={{ alignSelf: "stretch", paddingLeft: 42 }}>
-          <ActionProposal
-            proposal={message.proposal}
-            agentName="Héctor"
-            agentEmoji="🧙"
-            color={C.brand}
-            onConfirm={async (selected) => { await onRunAgentActions(selected); }}
-            onCancel={onDiscardProposal}
-          />
-        </div>
-      )}
-      {!isUser && message.tasksList && (
-        <div style={{ alignSelf: "stretch", paddingLeft: 42 }}>
-          <TaskListCard tasksList={message.tasksList} />
-        </div>
-      )}
-      {!isUser && message.fakeSuccess && !message.proposal && (
-        <div style={{
-          alignSelf: "stretch",
-          marginLeft: 42,
-          marginTop: 4,
-          padding: "8px 12px",
-          background: "#FEF3C7",
-          border: "1px solid #FCD34D",
-          borderRadius: 8,
-          fontSize: 12,
-          color: "#92400E",
-          lineHeight: 1.4,
-        }}>
-          ⚠ Héctor afirma éxito pero <b>no emitió ninguna acción real</b>. Nada se ha guardado. Reformula la orden o pídele explícitamente que ejecute.
-        </div>
-      )}
-    </div>
-  );
-}
+// MessageBubble se mudó a Shared/ChatBubble.jsx (commit 37) para que
+// HectorDirect y HectorPanel compartan exactamente el mismo render.
 
 function SpecialistBubble({ message, data, onRunAgentActions }) {
   const meta = SPECIALIST_META[message.specialistKey] || { label: "Especialista", emoji: "🤖", color: "#6B7280" };
@@ -1406,34 +1325,8 @@ const hectorAvatarStyle = {
   flexShrink: 0,
 };
 
-const hectorAvatarSmall = {
-  width: 32,
-  height: 32,
-  borderRadius: "50%",
-  // Avatar pequeño dentro de las burbujas: ligeramente más blanco para
-  // diferenciarse del fondo de la burbuja Héctor (que es #F0EDE5).
-  background: "#FAFAF7",
-  border: `1px solid ${C.brand}`,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: 16,
-  flexShrink: 0,
-};
-
-const ceoAvatarStyle = {
-  width: 32,
-  height: 32,
-  borderRadius: "50%",
-  background: C.brand,
-  color: "#FFFFFF",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  fontSize: 13,
-  fontWeight: 600,
-  flexShrink: 0,
-};
+// hectorAvatarSmall y ceoAvatarStyle se importan desde Shared/ChatBubble
+// (commit 37) — fuente de verdad compartida con HectorPanel.
 
 const aperturaStyle = {
   padding: "12px 20px",

@@ -24,6 +24,7 @@ import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, rewrite
 import { callAgentSafe as callAgentSafeShared } from "../../lib/agent.js";
 import { supa } from "../../lib/sync.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
+import ChatBubble from "../Shared/ChatBubble.jsx";
 import { formatCeoMemoryForPrompt } from "../../lib/memory.js";
 
 const STATE_LABEL = {
@@ -1726,6 +1727,13 @@ Reglas para block_task:
 
   const stateInfo = STATE_LABEL[hectorState] || STATE_LABEL.listening;
   const displayName = userName || userId || "CEO";
+  // Iniciales del CEO para el avatar redondo (commit 37). userName puede
+  // ser "Antonio Díaz" → "AD". Fallback "CE" si no hay userName.
+  const userInitials = (userName || "")
+    .split(" ")
+    .map(w => (w[0] || "").toUpperCase())
+    .slice(0, 2)
+    .join("") || "CE";
 
   // ── Sub-renderers de cards (extraídos para reuso entre tabs) ────────────
   // Estilo Eisenhower minimalista (commit 16): cabecera tipográfica con
@@ -3062,64 +3070,22 @@ Reglas para block_task:
                   </React.Fragment>
                 );
               }
-              const isUser = m.role === "user";
+              // Commit 37: render default unificado con HectorDirect via
+              // ChatBubble compartido (Shared/ChatBubble.jsx). El componente
+              // gestiona avatar circular, paleta Kluxor, ActionProposal,
+              // banner fakeSuccess y timestamp opcional.
               return (
                 <React.Fragment key={i}>
                   {separatorNode}
-                <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", gap: 6, alignItems: "flex-start" }}>
-                  {!isUser && <span style={{ fontSize: 14, lineHeight: "20px" }}>🧙</span>}
-                  <div style={{ maxWidth: "82%", display: "flex", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
-                    <div style={{
-                      padding: "8px 12px",
-                      borderRadius: isUser ? "12px 12px 0 12px" : "12px 12px 12px 0",
-                      background: isUser ? "#F0F0F0" : "#F0F7FF",
-                      border: `0.5px solid ${isUser ? "#E5E7EB" : "#BFDBFE"}`,
-                      fontSize: 12,
-                      color: "#111827",
-                      whiteSpace: "pre-wrap",
-                      lineHeight: 1.4,
-                      wordBreak: "break-word",
-                    }}>{m.text}</div>
-                    {/* Si Héctor incluyó un bloque [ACTIONS] en su respuesta,
-                        renderizamos ActionProposal aquí. El CEO confirma o
-                        descarta. El bloque ya viene parseado en m.proposal. */}
-                    {!isUser && m.proposal && onRunAgentActions && (
-                      <ActionProposal
-                        proposal={m.proposal}
-                        agentName="Héctor"
-                        agentEmoji="🧙"
-                        color="#3498DB"
-                        onConfirm={async (selected) => {
-                          await onRunAgentActions(selected);
-                        }}
-                        onCancel={() => {
-                          // Marcamos la propuesta como descartada para no
-                          // volver a renderizar el panel al re-hidratar.
-                          setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x));
-                        }}
-                      />
-                    )}
-                    {/* Banner anti-fake-success (Capa 2): se ancla a la
-                        burbuja afectada cuando el detector marca fakeSuccess
-                        y no hay propuesta válida. Mismo wording exacto que
-                        en HectorDirect para no fragmentar la experiencia. */}
-                    {!isUser && m.fakeSuccess && !m.proposal && (
-                      <div style={{
-                        marginTop: 6,
-                        padding: "8px 12px",
-                        background: "#FEF3C7",
-                        border: "1px solid #FCD34D",
-                        borderRadius: 8,
-                        fontSize: 12,
-                        color: "#92400E",
-                        lineHeight: 1.4,
-                      }}>
-                        ⚠ Héctor afirma éxito pero <b>no emitió ninguna acción real</b>. Nada se ha guardado. Reformula la orden o pídele explícitamente que ejecute.
-                      </div>
-                    )}
-                    <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4, paddingRight: 4 }}>{fmtTs(m.ts)}</div>
-                  </div>
-                </div>
+                  <ChatBubble
+                    message={m}
+                    userInitials={userInitials}
+                    onRunAgentActions={onRunAgentActions}
+                    onDiscardProposal={() => {
+                      setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x));
+                    }}
+                    showTimestamp={true}
+                  />
                 </React.Fragment>
               );
               });
