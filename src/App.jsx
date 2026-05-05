@@ -7836,7 +7836,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           [data-neg="hector-actions"] {
             padding: 8px 12px !important;
           }
-          /* Especialistas en una línea scrolleable horizontal. */
+          /* Tu equipo en una línea scrolleable horizontal. */
           [data-spec-row] {
             flex-wrap: nowrap !important;
             overflow-x: auto !important;
