@@ -7787,30 +7787,62 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
       <style>{`
         [data-mobile-tabs] { display: none; }
         @media (max-width: 900px) {
-          /* Reducir padding del outer en mobile para que la tab bar
-             pueda pegarse a top:0 sin un hueco arriba. tf-main-pad ya
-             reduce los laterales globalmente; aquí también top/bottom
-             y solo en NegotiationDetailView vía [data-active-tab]. */
+          /* Outer: padding-top 44px para compensar la tab bar fija. */
           [data-active-tab] {
-            padding-top: 12px !important;
+            padding-top: 44px !important;
             padding-bottom: 0 !important;
           }
-          [data-mobile-tabs] {
+          /* Tabs FIXED en mobile (commit 44): sticky no sobrevive el
+             overflow:hidden de [data-tf="main-content"] en algunos
+             navegadores iOS. Fijar al viewport garantiza que se vean
+             siempre y elimina la dependencia de la cadena de scroll. */
+          [data-neg="tabs-bar"] {
             display: flex !important;
-            position: sticky !important;
+            position: fixed !important;
             top: 0 !important;
-            z-index: 10 !important;
+            left: 0 !important;
+            right: 0 !important;
+            z-index: 100 !important;
+            background: #FAFAF7 !important;
+            border-bottom: 0.5px solid #E5E0D5 !important;
+            margin-bottom: 0 !important;
           }
           [data-mobile-section] { display: none !important; }
           [data-active-tab="hector"]      [data-mobile-section="hector"]      { display: flex !important; }
           [data-active-tab="negociacion"] [data-mobile-section="negociacion"] { display: block !important; }
           [data-active-tab="docs"]        [data-mobile-section="docs"]        { display: block !important; }
           [data-active-tab="sesiones"]    [data-mobile-section="sesiones"]    { display: block !important; }
+          /* Card Héctor — altura completa y libera flex children. */
           [data-neg="hector-card"] {
             position: static !important;
             height: calc(100dvh - 160px) !important;
             max-height: calc(100dvh - 160px) !important;
+            min-height: 0 !important;
             top: auto !important;
+          }
+          /* Cabecera Héctor compacta. */
+          [data-neg="hector-header"] {
+            padding: 8px 12px !important;
+          }
+          [data-neg="hector-header"] > div:first-child {
+            width: 32px !important;
+            height: 32px !important;
+            font-size: 14px !important;
+          }
+          [data-neg="hector-subtitle"] {
+            display: none !important;
+          }
+          [data-neg="hector-actions"] {
+            padding: 8px 12px !important;
+          }
+          /* Especialistas en una línea scrolleable horizontal. */
+          [data-spec-row] {
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+          }
+          [data-spec-row] > * {
+            flex-shrink: 0;
           }
           [data-neg="title"] { font-size: 18px !important; }
           [data-neg="header-btn"] { min-height: 44px; padding: 10px 16px !important; }
@@ -7821,7 +7853,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
       {/* Tab bar mobile (commit 41) — solo visible ≤900px. Default
           "hector" para que el CEO entre directo al chat. Badge unread
           en Héctor cuando hay mensajes nuevos no vistos. */}
-      <div data-mobile-tabs style={{borderBottom:"0.5px solid #E5E0D5",background:"#FAFAF7",marginBottom:14}}>
+      <div data-mobile-tabs data-neg="tabs-bar" style={{borderBottom:"0.5px solid #E5E0D5",background:"#FAFAF7",marginBottom:14}}>
         {[
           { key: "hector",      label: "🧙 Héctor",      badge: unreadHector },
           { key: "negociacion", label: "📋 Negociación", badge: 0 },
@@ -8477,11 +8509,11 @@ ${taskLines||"(ninguna)"}`;
           return(
             <div data-neg="hector-card" data-mobile-section="hector" style={{position:"sticky",top:20,background:"#fff",border:"0.5px solid #E5E0D5",borderRadius:8,minWidth:0,display:"flex",flexDirection:"column",minHeight:380,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
               {/* Header */}
-              <div style={{padding:"12px 16px",borderBottom:"0.5px solid #E5E0D5",display:"flex",alignItems:"center",gap:10}}>
+              <div data-neg="hector-header" style={{padding:"12px 16px",borderBottom:"0.5px solid #E5E0D5",display:"flex",alignItems:"center",gap:10}}>
                 <div style={{width:38,height:38,borderRadius:"50%",background:"#1A1A1A",color:"#C9A84C",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,fontFamily:"Georgia, 'Times New Roman', serif",flexShrink:0}}>H</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:14,fontWeight:700,color:"#111827"}}>Héctor</div>
-                  <div style={{fontSize:11,color:"#6B7280"}}>Chief of Staff Estratégico</div>
+                  <div data-neg="hector-subtitle" style={{fontSize:11,color:"#6B7280"}}>Chief of Staff Estratégico</div>
                 </div>
                 {(()=>{
                   const hasErrors = (chatMsgs||[]).some(m=>m.role==="assistant"&&(m.content||"").startsWith("⚠"));
@@ -8492,7 +8524,7 @@ ${taskLines||"(ninguna)"}`;
                 {chatMsgs.length>0&&<button onClick={()=>{ if(window.confirm("¿Limpiar el chat con Héctor? Antes se resumirá y guardará en memoria.")) onSummarizeAndClearChat?.(negotiation.id); }} title="Limpiar todo el chat" style={{background:"none",border:"none",fontSize:14,cursor:"pointer",color:"#9CA3AF"}}>🗑</button>}
               </div>
               {/* Acciones */}
-              <div style={{padding:"10px 16px",borderBottom:"1px solid #F3F4F6",display:"flex",gap:8,flexWrap:"wrap"}}>
+              <div data-neg="hector-actions" style={{padding:"10px 16px",borderBottom:"1px solid #F3F4F6",display:"flex",gap:8,flexWrap:"wrap"}}>
                 <button onClick={handleBriefing} disabled={!hector||chatLoading} title={!hector?"Añade a Héctor como agente IA para usar esto":"Briefing estratégico — se guarda y queda en el chat"} style={{padding:"7px 12px",borderRadius:6,background:hector&&!chatLoading?"#1A1A1A":"#E5E7EB",color:hector&&!chatLoading?"#FFFFFF":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading?"pointer":"not-allowed",fontWeight:600}}>🎯 {negotiation.briefing?"Actualizar":"Pedir"} briefing</button>
                 <button onClick={handleAnalysis} disabled={!hector||chatLoading||(criticalTasks.length===0&&relProjs.length===0)} title="Análisis batch — recomendación por tarea y proyecto" style={{padding:"7px 12px",borderRadius:6,background:"#F0EDE5",color:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"#1A1A1A":"#9CA3AF",border:"0.5px solid #E5E0D5",fontSize:12,cursor:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"pointer":"not-allowed",fontWeight:600}}>🔍 Análisis</button>
                 {negotiation.hectorAnalysis&&<span title={`Análisis generado ${timeAgoIso(negotiation.hectorAnalysis.generatedAt)}`} style={{fontSize:10,color:"#6B7280",display:"inline-flex",alignItems:"center",gap:4,alignSelf:"center"}}>· {Object.keys(negotiation.hectorAnalysis.tasks||{}).length}t/{Object.keys(negotiation.hectorAnalysis.projects||{}).length}p · {timeAgoIso(negotiation.hectorAnalysis.generatedAt)}</span>}
