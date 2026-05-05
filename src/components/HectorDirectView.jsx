@@ -16,6 +16,7 @@ import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTa
 import { supa } from "../lib/sync.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
 import ChatBubble, { CHAT_PALETTE, ceoAvatarStyle, hectorAvatarSmall } from "./Shared/ChatBubble.jsx";
+import AgentAvatar from "./Shared/AgentAvatar.jsx";
 
 const CHAT_MAX = 50;
 
@@ -660,7 +661,7 @@ Reglas:
       {/* ZONA 1 — HEADER */}
       <div style={headerStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-          <div style={hectorAvatarStyle}>🧙</div>
+          <AgentAvatar agent="hector" size={40} />
           <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 500, color: C.textPrimary, lineHeight: 1.2 }}>Héctor</div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: C.textSecondary }}>
@@ -1012,12 +1013,7 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
       <div style={{ display: "flex", flexDirection: "row", gap: 10, alignItems: "flex-start", maxWidth: "100%" }}>
-        <div style={{
-          width: 32, height: 32, borderRadius: "50%",
-          background: meta.color, color: "#fff",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 16, flexShrink: 0,
-        }}>{meta.emoji}</div>
+        <AgentAvatar agent={message.specialistKey} size={32} />
         <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 11, fontWeight: 500, color: C.brand, letterSpacing: 0.2 }}>
             {meta.label}{message.task ? ` · ${message.task.slice(0, 60)}${message.task.length > 60 ? "…" : ""}` : ""}
@@ -1261,7 +1257,7 @@ function TaskListCard({ tasksList }) {
 function TypingIndicator() {
   return (
     <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-      <div style={hectorAvatarSmall}>🧙</div>
+      <AgentAvatar agent="hector" size={32} />
       <div style={{
         background: C.bgSecondary,
         borderRadius: "4px 16px 16px 16px",

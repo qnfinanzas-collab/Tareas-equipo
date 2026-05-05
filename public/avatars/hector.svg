@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 90">
+<circle cx="45" cy="45" r="45" fill="#FDF5E0"/>
+<path d="M15,85 Q15,68 30,64 L45,70 L60,64 Q75,68 75,85" fill="#1A1A1A"/>
+<rect x="38" y="60" width="14" height="12" fill="#D4A980"/>
+<path d="M30,64 Q35,58 45,57 Q55,58 60,64" fill="#2A2A2A"/>
+<ellipse cx="45" cy="46" rx="20" ry="22" fill="#D4A980"/>
+<ellipse cx="45" cy="27" rx="21" ry="12" fill="#1A1A1A"/>
+<circle cx="30" cy="32" r="8" fill="#1A1A1A"/>
+<circle cx="60" cy="32" r="8" fill="#1A1A1A"/>
+<circle cx="24" cy="40" r="6" fill="#1A1A1A"/>
+<circle cx="66" cy="40" r="6" fill="#1A1A1A"/>
+<circle cx="38" cy="47" r="3.5" fill="#FAFAF7"/>
+<circle cx="38" cy="47" r="2" fill="#1A1A1A"/>
+<circle cx="52" cy="47" r="3.5" fill="#FAFAF7"/>
+<circle cx="52" cy="47" r="2" fill="#1A1A1A"/>
+<rect x="33" y="41" width="10" height="2.5" rx="1.5" fill="#1A1A1A"/>
+<rect x="47" y="41" width="10" height="2.5" rx="1.5" fill="#1A1A1A"/>
+<ellipse cx="45" cy="53" rx="3" ry="2" fill="#C49A70"/>
+<path d="M37,59 Q45,65 53,59" stroke="#C49A70" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+<circle cx="80" cy="12" r="10" fill="#C9A84C"/>
+<text x="80" y="16" text-anchor="middle" font-size="10" font-weight="700" fill="#0A0A0A" font-family="system-ui">H</text>
+</svg>

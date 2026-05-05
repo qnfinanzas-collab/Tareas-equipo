@@ -20,6 +20,7 @@
 // caller inline.
 import React from "react";
 import ActionProposal from "./ActionProposal.jsx";
+import AgentAvatar from "./AgentAvatar.jsx";
 
 // Paleta operativa Kluxor — claro/legible para uso diario, oro como
 // acento de marca y acción. La paleta dark negro/oro queda solo para
@@ -103,7 +104,7 @@ export default function ChatBubble({
         {isUser ? (
           <div style={ceoAvatarStyle}>{userInitials}</div>
         ) : (
-          <div style={hectorAvatarSmall}>🧙</div>
+          <AgentAvatar agent="hector" size={32} />
         )}
         <div style={{
           background: isUser ? C.brandLight : (message.error ? "#FEF2F2" : C.bgSecondary),

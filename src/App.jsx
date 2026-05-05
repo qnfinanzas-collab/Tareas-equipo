@@ -26,6 +26,7 @@ import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import HectorDirectView from "./components/HectorDirectView.jsx";
 import { CHAT_PALETTE } from "./components/Shared/ChatBubble.jsx";
+import AgentAvatar from "./components/Shared/AgentAvatar.jsx";
 import FinanceView from "./components/Finanzas/FinanceView.jsx";
 import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
@@ -7824,9 +7825,9 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           [data-neg="hector-header"] {
             padding: 8px 12px !important;
           }
-          [data-neg="hector-header"] > div:first-child {
-            width: 32px !important;
-            height: 32px !important;
+          [data-neg="hector-header"] > *:first-child {
+            width: 36px !important;
+            height: 36px !important;
             font-size: 14px !important;
           }
           [data-neg="hector-subtitle"] {
@@ -8510,7 +8511,7 @@ ${taskLines||"(ninguna)"}`;
             <div data-neg="hector-card" data-mobile-section="hector" style={{position:"sticky",top:20,background:"#fff",border:"0.5px solid #E5E0D5",borderRadius:8,minWidth:0,display:"flex",flexDirection:"column",minHeight:380,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
               {/* Header */}
               <div data-neg="hector-header" style={{padding:"12px 16px",borderBottom:"0.5px solid #E5E0D5",display:"flex",alignItems:"center",gap:10}}>
-                <div style={{width:38,height:38,borderRadius:"50%",background:"#1A1A1A",color:"#C9A84C",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,fontFamily:"Georgia, 'Times New Roman', serif",flexShrink:0}}>H</div>
+                <AgentAvatar agent="hector" size={48} />
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:14,fontWeight:700,color:"#111827"}}>Héctor</div>
                   <div data-neg="hector-subtitle" style={{fontSize:11,color:"#6B7280"}}>Chief of Staff Estratégico</div>
