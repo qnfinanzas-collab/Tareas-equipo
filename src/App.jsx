@@ -25,6 +25,7 @@ import CierreDia from "./components/CierreDia.jsx";
 import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import HectorDirectView from "./components/HectorDirectView.jsx";
+import { CHAT_PALETTE } from "./components/Shared/ChatBubble.jsx";
 import FinanceView from "./components/Finanzas/FinanceView.jsx";
 import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
@@ -2575,7 +2576,7 @@ function ExportPDFButton({title, filename, render, plainText, size="sm", label="
   const pad = size==="sm" ? "5px 10px" : "7px 14px";
   const fs  = size==="sm" ? 11 : 12.5;
   return(
-    <button onClick={run} disabled={busy} title="Descargar como PDF" style={{padding:pad,borderRadius:6,background:busy?"#FEF3C7":"#fff",color:"#7F77DD",border:"1px solid #7F77DD",fontSize:fs,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}>
+    <button onClick={run} disabled={busy} title="Descargar como PDF" style={{padding:pad,borderRadius:6,background:busy?"#FEF3C7":"transparent",color:"#6B6B6B",border:"0.5px solid #E5E0D5",fontSize:fs,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}>
       {busy?"⋯":"📄"} {busy?"Generando":label}
     </button>
   );
@@ -8362,10 +8363,10 @@ ${taskLines||"(ninguna)"}`;
           };
           const chatMsgs = negotiation.hectorChat||[];
           return(
-            <div style={{position:"sticky",top:20,background:"#fff",border:"1.5px solid #E5E7EB",borderTop:"4px solid #1D9E75",borderRadius:12,minWidth:0,display:"flex",flexDirection:"column",minHeight:380,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
+            <div style={{position:"sticky",top:20,background:"#fff",border:"0.5px solid #E5E0D5",borderRadius:8,minWidth:0,display:"flex",flexDirection:"column",minHeight:380,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
               {/* Header */}
-              <div style={{padding:"12px 16px",borderBottom:"1px solid #F3F4F6",display:"flex",alignItems:"center",gap:10}}>
-                <div style={{width:38,height:38,borderRadius:"50%",background:"linear-gradient(135deg,#1D9E75,#0E7C5A)",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,flexShrink:0}}>H</div>
+              <div style={{padding:"12px 16px",borderBottom:"0.5px solid #E5E0D5",display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:38,height:38,borderRadius:"50%",background:"#1A1A1A",color:"#C9A84C",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,fontFamily:"Georgia, 'Times New Roman', serif",flexShrink:0}}>H</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:14,fontWeight:700,color:"#111827"}}>Héctor</div>
                   <div style={{fontSize:11,color:"#6B7280"}}>Chief of Staff Estratégico</div>
@@ -8380,8 +8381,8 @@ ${taskLines||"(ninguna)"}`;
               </div>
               {/* Acciones */}
               <div style={{padding:"10px 16px",borderBottom:"1px solid #F3F4F6",display:"flex",gap:8,flexWrap:"wrap"}}>
-                <button onClick={handleBriefing} disabled={!hector||chatLoading} title={!hector?"Añade a Héctor como agente IA para usar esto":"Briefing estratégico — se guarda y queda en el chat"} style={{padding:"7px 12px",borderRadius:8,background:hector&&!chatLoading?"#1D9E75":"#E5E7EB",color:hector&&!chatLoading?"#fff":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading?"pointer":"not-allowed",fontWeight:600}}>🎯 {negotiation.briefing?"Actualizar":"Pedir"} briefing</button>
-                <button onClick={handleAnalysis} disabled={!hector||chatLoading||(criticalTasks.length===0&&relProjs.length===0)} title="Análisis batch — recomendación por tarea y proyecto" style={{padding:"7px 12px",borderRadius:8,background:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"#378ADD":"#E5E7EB",color:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"#fff":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"pointer":"not-allowed",fontWeight:600}}>🔍 Análisis</button>
+                <button onClick={handleBriefing} disabled={!hector||chatLoading} title={!hector?"Añade a Héctor como agente IA para usar esto":"Briefing estratégico — se guarda y queda en el chat"} style={{padding:"7px 12px",borderRadius:6,background:hector&&!chatLoading?"#1A1A1A":"#E5E7EB",color:hector&&!chatLoading?"#FFFFFF":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading?"pointer":"not-allowed",fontWeight:600}}>🎯 {negotiation.briefing?"Actualizar":"Pedir"} briefing</button>
+                <button onClick={handleAnalysis} disabled={!hector||chatLoading||(criticalTasks.length===0&&relProjs.length===0)} title="Análisis batch — recomendación por tarea y proyecto" style={{padding:"7px 12px",borderRadius:6,background:"#F0EDE5",color:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"#1A1A1A":"#9CA3AF",border:"0.5px solid #E5E0D5",fontSize:12,cursor:hector&&!chatLoading&&(criticalTasks.length>0||relProjs.length>0)?"pointer":"not-allowed",fontWeight:600}}>🔍 Análisis</button>
                 {negotiation.hectorAnalysis&&<span title={`Análisis generado ${timeAgoIso(negotiation.hectorAnalysis.generatedAt)}`} style={{fontSize:10,color:"#6B7280",display:"inline-flex",alignItems:"center",gap:4,alignSelf:"center"}}>· {Object.keys(negotiation.hectorAnalysis.tasks||{}).length}t/{Object.keys(negotiation.hectorAnalysis.projects||{}).length}p · {timeAgoIso(negotiation.hectorAnalysis.generatedAt)}</span>}
                 {chatMsgs.length>0&&(
                   <div style={{marginLeft:"auto",display:"flex",gap:6}}>
@@ -8455,12 +8456,12 @@ ${taskLines||"(ninguna)"}`;
                       const isSpeaking = !isUser && m.timestamp===speakingMsgTs;
                       return(
                         <div key={i} style={{display:"flex",justifyContent:isUser?"flex-end":"flex-start"}}>
-                          <div style={{maxWidth:"88%",padding:"9px 12px",borderRadius:10,background:isUser?"#EEEDFE":m.kind==="briefing"?"#F0F9F1":m.kind==="analysis"?"#EFF6FF":"#F9FAFB",border:`1px solid ${isSpeaking?"#10B981":isUser?"#CFC9F3":m.kind==="briefing"?"#86EFAC":m.kind==="analysis"?"#BFDBFE":"#E5E7EB"}`,fontSize:12.5,color:"#1f2937",lineHeight:1.55,whiteSpace:"pre-wrap",position:"relative",transition:"border-color .2s"}}>
+                          <div style={{maxWidth:"88%",padding:"9px 12px",borderRadius:8,background:isUser?CHAT_PALETTE.brandLight:m.kind==="briefing"?"#FDFAF5":m.kind==="analysis"?"#F0EDE5":CHAT_PALETTE.bgSecondary,border:`0.5px solid ${isSpeaking?"#10B981":isUser?"transparent":m.kind==="briefing"?"#E8D5A3":m.kind==="analysis"?"#E5E0D5":"transparent"}`,fontSize:12.5,color:CHAT_PALETTE.textPrimary,lineHeight:1.55,whiteSpace:"pre-wrap",position:"relative",transition:"border-color .2s"}}>
                             {isSpeaking&&(
                               <button onClick={e=>{e.stopPropagation();stopSpeaking();setSpeakingMsgTs(null);}} title="Leyendo — click para detener" style={{display:"inline-flex",alignItems:"center",gap:4,padding:"2px 8px",borderRadius:10,background:"#10B981",color:"#fff",border:"none",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginBottom:6,animation:"tf-speak-pulse 1.4s infinite"}}>🔊 Leyendo</button>
                             )}
-                            {m.kind==="briefing"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div><ExportPDFButton title={`Briefing — ${negotiation.title}`} filename={`briefing-${negotiation.title.slice(0,40)}`} render={(doc,y)=>renderSection(doc,y,"Briefing estratégico",m.content,[14,124,90])}/></div>}
-                            {m.kind==="analysis"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#1E40AF",textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div><ExportPDFButton title={`Análisis batch — ${negotiation.title}`} filename={`analisis-${negotiation.title.slice(0,40)}`} render={(doc,y)=>renderAnalysis(doc,y,negotiation.hectorAnalysis,criticalTasks,relProjs)}/></div>}
+                            {m.kind==="briefing"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#A07830",textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div><ExportPDFButton title={`Briefing — ${negotiation.title}`} filename={`briefing-${negotiation.title.slice(0,40)}`} render={(doc,y)=>renderSection(doc,y,"Briefing estratégico",m.content,[14,124,90])}/></div>}
+                            {m.kind==="analysis"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#6B6B6B",textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div><ExportPDFButton title={`Análisis batch — ${negotiation.title}`} filename={`analisis-${negotiation.title.slice(0,40)}`} render={(doc,y)=>renderAnalysis(doc,y,negotiation.hectorAnalysis,criticalTasks,relProjs)}/></div>}
                             {m.content}
                             <div style={{fontSize:10,color:"#9CA3AF",marginTop:4,opacity:0.8,display:"flex",alignItems:"center",gap:8}}>
                               <span style={{flex:1}}>{m.timestamp?new Date(m.timestamp).toLocaleString("es-ES",{hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"}):""}</span>
@@ -8478,7 +8479,7 @@ ${taskLines||"(ninguna)"}`;
                     })}
                 {chatLoading&&(
                   <div style={{display:"flex",justifyContent:"flex-start"}}>
-                    <div style={{padding:"9px 12px",borderRadius:10,background:"#F9FAFB",border:"1px solid #E5E7EB",fontSize:12,color:"#6B7280",fontStyle:"italic"}}>⏳ Héctor está respondiendo…</div>
+                    <div style={{padding:"9px 12px",borderRadius:8,background:CHAT_PALETTE.bgSecondary,border:"0.5px solid transparent",fontSize:12,color:CHAT_PALETTE.textSecondary,fontStyle:"italic"}}>⏳ Héctor está respondiendo…</div>
                   </div>
                 )}
               </div>
@@ -8565,9 +8566,9 @@ ${taskLines||"(ninguna)"}`;
                   onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); handleSend(); } }}
                   placeholder={hector?"Pregunta a Héctor (Enter para enviar)…":"No hay agente Héctor disponible"}
                   disabled={!hector||chatLoading}
-                  style={{flex:1,padding:"8px 10px",borderRadius:8,border:"1px solid #d1d5db",fontSize:12.5,fontFamily:"inherit",outline:"none",background:"#fff"}}
+                  style={{flex:1,padding:"8px 14px",borderRadius:20,border:"0.5px solid #E5E0D5",fontSize:12.5,fontFamily:"inherit",outline:"none",background:"#FFFFFF"}}
                 />
-                <button onClick={()=>handleSend()} disabled={!hector||chatLoading||!chatInput.trim()} style={{padding:"8px 14px",borderRadius:8,background:hector&&!chatLoading&&chatInput.trim()?"#1D9E75":"#E5E7EB",color:hector&&!chatLoading&&chatInput.trim()?"#fff":"#9CA3AF",border:"none",fontSize:12,cursor:hector&&!chatLoading&&chatInput.trim()?"pointer":"not-allowed",fontWeight:600,flexShrink:0,fontFamily:"inherit"}}>Enviar</button>
+                <button onClick={()=>handleSend()} disabled={!hector||chatLoading||!chatInput.trim()} title="Enviar" style={{width:36,height:36,borderRadius:"50%",background:hector&&!chatLoading&&chatInput.trim()?"#C9A84C":"#E5E7EB",color:hector&&!chatLoading&&chatInput.trim()?"#1A1A1A":"#9CA3AF",border:"none",fontSize:14,cursor:hector&&!chatLoading&&chatInput.trim()?"pointer":"not-allowed",fontWeight:700,flexShrink:0,fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>→</button>
               </div>
             </div>
           );
