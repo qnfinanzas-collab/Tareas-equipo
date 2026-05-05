@@ -25,10 +25,14 @@ export default function AgentAvatar({ agent, size = 32, style }) {
   const [failed, setFailed] = useState(false);
   const key = (agent || "").toLowerCase();
   const emoji = AGENT_EMOJI[key] || "🤖";
+  // El SVG ya tiene un <circle r=45> que ocupa todo el viewBox, así
+  // que ya es circular sin que el CSS le aplique border-radius. Aplicar
+  // border-radius:50% encima recortaba la badge "H" (esquina sup-der).
+  // El fallback emoji sí necesita el border-radius porque su <div> es
+  // cuadrado por defecto.
   const baseStyle = {
     width: size,
     height: size,
-    borderRadius: "50%",
     flexShrink: 0,
     display: "block",
     ...(style || {}),
@@ -38,6 +42,7 @@ export default function AgentAvatar({ agent, size = 32, style }) {
     return (
       <div style={{
         ...baseStyle,
+        borderRadius: "50%",
         background: "#F0EDE5",
         color: "#1A1A1A",
         display: "flex",
