@@ -7787,7 +7787,20 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
       <style>{`
         [data-mobile-tabs] { display: none; }
         @media (max-width: 900px) {
-          [data-mobile-tabs] { display: flex !important; }
+          /* Reducir padding del outer en mobile para que la tab bar
+             pueda pegarse a top:0 sin un hueco arriba. tf-main-pad ya
+             reduce los laterales globalmente; aquí también top/bottom
+             y solo en NegotiationDetailView vía [data-active-tab]. */
+          [data-active-tab] {
+            padding-top: 12px !important;
+            padding-bottom: 0 !important;
+          }
+          [data-mobile-tabs] {
+            display: flex !important;
+            position: sticky !important;
+            top: 0 !important;
+            z-index: 10 !important;
+          }
           [data-mobile-section] { display: none !important; }
           [data-active-tab="hector"]      [data-mobile-section="hector"]      { display: flex !important; }
           [data-active-tab="negociacion"] [data-mobile-section="negociacion"] { display: block !important; }
@@ -7795,7 +7808,8 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           [data-active-tab="sesiones"]    [data-mobile-section="sesiones"]    { display: block !important; }
           [data-neg="hector-card"] {
             position: static !important;
-            max-height: calc(100dvh - 200px) !important;
+            height: calc(100dvh - 160px) !important;
+            max-height: calc(100dvh - 160px) !important;
             top: auto !important;
           }
           [data-neg="title"] { font-size: 18px !important; }
