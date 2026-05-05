@@ -2059,14 +2059,15 @@ Reglas para block_task:
   };
 
   return (
-    <div style={{
+    <div data-hp="root" style={{
       backgroundColor: "white",
-      border: "2px solid #3498DB",
-      borderRadius: 12,
-      boxShadow: "0 4px 16px rgba(52,152,219,0.15)",
+      border: "none",
+      borderRadius: 0,
+      boxShadow: "none",
       fontFamily: "inherit",
       display: "flex",
       flexDirection: "column",
+      width: "100%",
       height: "100%",
       minHeight: 560,
       maxWidth: "100%",
@@ -2129,6 +2130,15 @@ Reglas para block_task:
             align-items: center;
             justify-content: center;
             font-size: 18px !important;
+          }
+        }
+        /* Commit 38: pantalla completa en móvil. Negamos el padding del
+           CommandRoomView padre (20px arriba/abajo, 22px lados; wrapper
+           con marginBottom 16) para que el panel llegue borde-a-borde
+           estilo WhatsApp. En desktop se respeta el flujo natural. */
+        @media (max-width: 768px) {
+          [data-hp="root"] {
+            margin: -20px -22px -16px -22px !important;
           }
         }
         /* Commit 30: input fijo al pie estilo WhatsApp. El form
@@ -2439,7 +2449,7 @@ Reglas para block_task:
       </div>
 
       {/* Contenido (flex: 1, scroll único) */}
-      <div key={activeTab} data-hp="chat-content" onScroll={handleChatScroll} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 14, animation: "hp-fade-tab .2s ease", minHeight: 0, maxWidth: "100%", boxSizing: "border-box" }}>
+      <div key={activeTab} data-hp="chat-content" onScroll={handleChatScroll} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "12px 16px", animation: "hp-fade-tab .2s ease", minHeight: 0, maxWidth: "100%", boxSizing: "border-box" }}>
         {activeTab === "analysis" ? (
           <>
             {/* Pensamiento actual — variantes según estado:
