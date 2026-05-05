@@ -585,13 +585,13 @@ export default function HectorPanel({
       try { el.scrollIntoView({ behavior: "smooth", block: "end" }); } catch {}
     });
   }, [activeTab, chatHistory.length, chatLoading]);
-  // Commit 32: auto-scroll robusto al fondo cuando cambia chatHistory.
-  // Funciona en cualquier tab (no solo chat) porque setTimeout deja
-  // tiempo al DOM a renderizar la nueva burbuja antes de scrollear.
+  // Commit 33: auto-scroll definitivo. scrollIntoView sobre el sentinel
+  // chatEndRef navega la cadena de overflow automáticamente — funciona
+  // sea quien sea el verdadero contenedor scrolleable (div interno,
+  // main-content o window).
   useEffect(() => {
     const id = setTimeout(() => {
-      const el = document.querySelector('[data-hp="chat-content"]');
-      if (el) el.scrollTop = el.scrollHeight;
+      chatEndRef.current?.scrollIntoView({ behavior: "instant", block: "end" });
     }, 50);
     return () => clearTimeout(id);
   }, [chatHistory]);
