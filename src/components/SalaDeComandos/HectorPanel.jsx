@@ -585,23 +585,14 @@ export default function HectorPanel({
       try { el.scrollIntoView({ behavior: "smooth", block: "end" }); } catch {}
     });
   }, [activeTab, chatHistory.length, chatLoading]);
-  // Commit 35: auto-scroll multi-target con +500 de extra para que el
-  // último mensaje quede holgadamente visible por encima del input
-  // fijo y el bottom nav (en iPhone, el chrome del navegador puede
-  // tapar las últimas líneas si scrolleamos solo a body.scrollHeight).
+  // Commit 36: auto-scroll definitivo. Con el form sticky DENTRO del
+  // mismo scroll context que los mensajes, scrollIntoView del sentinel
+  // chatEndRef llega justo encima del form sin necesidad de padding ni
+  // window.scrollTo. Funciona idéntico en iPhone y desktop.
   useEffect(() => {
     const id = setTimeout(() => {
-      try { chatEndRef.current?.scrollIntoView({ behavior: "instant", block: "end" }); } catch(e) {}
-      try { window.scrollTo({ top: document.body.scrollHeight + 500, behavior: "instant" }); } catch(e) {}
-      try {
-        const main = document.querySelector('[data-tf="main-content"]');
-        if (main) main.scrollTop = main.scrollHeight + 500;
-      } catch(e) {}
-      try {
-        const chat = document.querySelector('[data-hp="chat-content"]');
-        if (chat) chat.scrollTop = chat.scrollHeight + 500;
-      } catch(e) {}
-    }, 150);
+      chatEndRef.current?.scrollIntoView({ behavior: "instant", block: "end" });
+    }, 50);
     return () => clearTimeout(id);
   }, [chatHistory]);
 
@@ -2087,64 +2078,27 @@ Reglas para block_task:
            visualmente queda como header del chat, no como pie. */
         @media (max-width: 768px) {
           [data-hp="header"]        { order: 1; }
-          [data-hp="chat-form"]     { order: 2; border-top: none !important; border-bottom: 1px solid #E5E7EB !important; }
-          [data-hp="tabs-bar"]      { order: 3; }
-          [data-hp="skills-bar"]    { order: 3; }
-          [data-hp="chat-content"]       { order: 4; min-height: 50vh; }
-          [data-hp="urgent-banner"] { order: 5; flex-shrink: 0; }
+          [data-hp="tabs-bar"]      { order: 2; }
+          [data-hp="skills-bar"]    { order: 2; }
+          [data-hp="chat-content"]       { order: 3; min-height: 50vh; }
+          [data-hp="urgent-banner"] { order: 4; flex-shrink: 0; }
           [data-hp="thought"]       { display: none !important; }
         }
         /* Mobile (≤768px): tamaños táctiles. Solo overrides — los estilos
            inline sirven de base. fontSize:16px en input evita zoom auto
            en iOS al enfocar. Botones 48px alto cumplen guideline táctil. */
+        /* Mobile (≤768px): tamaño táctil del input. fontSize:16px evita
+           zoom auto en iOS al enfocar. El form ya no necesita overrides
+           de altura/padding aquí porque vive sticky dentro del chat. */
         @media (max-width: 768px) {
-          [data-hp="chat-form"] {
-            height: auto !important;
-            min-height: 80px;
-            padding: 10px 12px !important;
-            gap: 8px !important;
-          }
           [data-hp="chat-input"] {
-            min-height: 56px;
             font-size: 16px !important;
-            padding: 12px 16px !important;
-            border-radius: 28px !important;
-          }
-          [data-hp="chat-send"], [data-hp="chat-mic"] {
-            min-width: 48px;
-            min-height: 48px;
-            width: 48px !important;
-            height: 48px !important;
-            border-radius: 50% !important;
-            padding: 0 !important;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px !important;
           }
         }
-        /* Commit 30: input fijo al pie estilo WhatsApp. El form
-           [data-hp="chat-form"] sale del flujo flex y queda anclado al
-           viewport, encima del bottom nav (z-index 1000). En desktop
-           se restaura al flujo normal con la regla de min-width:769px. */
-        [data-hp="chat-form"] {
-          position: fixed !important;
-          bottom: calc(56px + env(safe-area-inset-bottom)) !important;
-          left: 0 !important;
-          right: 0 !important;
-          z-index: 999 !important;
-          background: #FAFAF7 !important;
-          box-shadow: 0 -2px 8px rgba(0,0,0,0.04);
-          border-top: 0.5px solid #E5E0D5 !important;
-          padding: 8px 16px !important;
-          border-radius: 0 !important;
-          order: unset !important;
-          height: auto !important;
-          min-height: unset !important;
-        }
-        /* Commit 31: input + botones compactos Kluxor (40px alto, sin
-           redondeo). Override de los estilos mobile del commit anterior
-           que hinchaban a 56/48px y aplicaban borderRadius 28/50%. */
+        /* Commit 36: input + botones compactos Kluxor. El form ahora
+           está DENTRO de chat-content como sticky bottom — sus estilos
+           inline (position:sticky, bottom:0, etc.) viven en el JSX. Aquí
+           solo refinamos input y botones para alto 40px y borderRadius 0. */
         [data-hp="chat-input"] {
           height: 40px !important;
           min-height: 40px !important;
@@ -2162,20 +2116,6 @@ Reglas para block_task:
           border-radius: 0 !important;
           padding: 0 !important;
           font-size: 16px !important;
-        }
-        [data-hp="chat-content"] {
-          padding-bottom: 140px;
-        }
-        @media (min-width: 769px) {
-          [data-hp="chat-form"] {
-            position: static !important;
-            bottom: unset !important;
-            box-shadow: none;
-            border-top: 0.5px solid #E5E0D5 !important;
-          }
-          [data-hp="chat-content"] {
-            padding-bottom: 0;
-          }
         }
       `}</style>
 
@@ -3133,40 +3073,39 @@ Reglas para block_task:
             <div ref={chatEndRef} style={{ height: 1 }} />
           </div>
         )}
-      </div>
-
-      {/* Input fijo (60px) */}
-      <form onSubmit={handleSubmit} data-hp="chat-form" style={{ height: 60, padding: "0 12px", display: "flex", gap: 6, alignItems: "center", borderTop: "0.5px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
-        <input
-          type="text"
-          data-hp="chat-input"
-          value={inputMessage}
-          onChange={(e) => setInputMessage(e.target.value)}
-          placeholder="Escribe una orden a Héctor..."
-          disabled={chatLoading}
-          style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 12.5, fontFamily: "inherit", outline: "none", background: chatLoading ? "#F9FAFB" : "#fff" }}
-        />
-        {/* Commit 32: toggle mic↔send según haya texto. UX WhatsApp:
-            input vacío → solo 🎤; con texto → solo flecha enviar. Sin
-            animación, switch instantáneo. Estilo Kluxor sin caja. */}
-        {inputMessage.trim() ? (
-          <button
-            type="submit"
-            data-hp="chat-send"
+        {/* Commit 36: input sticky DENTRO de chat-content. Como el form
+            comparte scroll context con los mensajes, scrollIntoView del
+            sentinel chatEndRef llega justo encima del form sin necesidad
+            de padding artificial. */}
+        <form onSubmit={handleSubmit} data-hp="chat-form" style={{ position: "sticky", bottom: 0, padding: "8px 12px", display: "flex", gap: 6, alignItems: "center", borderTop: "0.5px solid #E5E0D5", background: "#FAFAF7", boxShadow: "0 -2px 8px rgba(0,0,0,0.04)", zIndex: 10 }}>
+          <input
+            type="text"
+            data-hp="chat-input"
+            value={inputMessage}
+            onChange={(e) => setInputMessage(e.target.value)}
+            placeholder="Escribe una orden a Héctor..."
             disabled={chatLoading}
-            title="Enviar"
-            style={{ background: "transparent", border: "none", color: "#C9A84C", fontSize: 20, cursor: chatLoading ? "not-allowed" : "pointer", padding: 8, fontFamily: "inherit", opacity: chatLoading ? 0.5 : 1 }}
-          >→</button>
-        ) : (
-          <button
-            type="button"
-            data-hp="chat-mic"
-            onClick={startListening}
-            title={isListening ? "Detener dictado" : "Dictar por voz"}
-            style={{ background: "transparent", border: "none", color: isListening ? "#B91C1C" : "#C9A84C", fontSize: 20, cursor: "pointer", padding: 8, fontFamily: "inherit", animation: isListening ? "hp-mic-pulse 1.2s infinite" : "none" }}
-          >🎤</button>
-        )}
-      </form>
+            style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 12.5, fontFamily: "inherit", outline: "none", background: chatLoading ? "#F9FAFB" : "#fff" }}
+          />
+          {inputMessage.trim() ? (
+            <button
+              type="submit"
+              data-hp="chat-send"
+              disabled={chatLoading}
+              title="Enviar"
+              style={{ background: "transparent", border: "none", color: "#C9A84C", fontSize: 20, cursor: chatLoading ? "not-allowed" : "pointer", padding: 8, fontFamily: "inherit", opacity: chatLoading ? 0.5 : 1 }}
+            >→</button>
+          ) : (
+            <button
+              type="button"
+              data-hp="chat-mic"
+              onClick={startListening}
+              title={isListening ? "Detener dictado" : "Dictar por voz"}
+              style={{ background: "transparent", border: "none", color: isListening ? "#B91C1C" : "#C9A84C", fontSize: 20, cursor: "pointer", padding: 8, fontFamily: "inherit", animation: isListening ? "hp-mic-pulse 1.2s infinite" : "none" }}
+            >🎤</button>
+          )}
+        </form>
+      </div>
       {/* Preview del dictado: lo que el reconocedor está oyendo en tiempo
           real, antes de marcar como final. En cursiva gris para que el
           usuario vea cómo se está interpretando su voz. */}
