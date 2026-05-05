@@ -1,6 +1,5 @@
 {
   "rewrites": [
-    { "source": "/avatars/(.*)", "destination": "/avatars/$1" },
     { "source": "/landing.html", "destination": "/landing.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
