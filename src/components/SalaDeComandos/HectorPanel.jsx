@@ -2164,7 +2164,7 @@ Reglas para block_task:
           font-size: 16px !important;
         }
         [data-hp="chat-content"] {
-          padding-bottom: 96px;
+          padding-bottom: 140px;
         }
         @media (min-width: 769px) {
           [data-hp="chat-form"] {
