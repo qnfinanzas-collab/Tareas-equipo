@@ -1767,7 +1767,7 @@ Reglas para block_task:
     const endTxt   = formatDate(t.dueDate);
     const cardDisabled = actionInFlight ? { opacity: 0.5, pointerEvents: "none" } : null;
     return (
-      <div key={key} style={{ background: "#FFFFFF", border: "0.5px solid #E5E0D5", borderLeft: `4px solid ${refColor || "#E5E0D5"}`, borderRadius: 0, padding: "10px 12px", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden", ...cardDisabled }}>
+      <div key={key} style={{ background: "#FFFFFF", border: "0.5px solid #E5E0D5", borderLeft: `4px solid ${refColor || "#E5E0D5"}`, borderRadius: 8, padding: "10px 12px", maxWidth: "100%", boxSizing: "border-box", overflow: "hidden", ...cardDisabled }}>
         {/* Línea 1: ref + título + badge proyecto (board) */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
           {t.ref && (
@@ -1777,8 +1777,8 @@ Reglas para block_task:
               style={{
                 background: "transparent",
                 color: refColor || "#9B9B9B",
-                borderRadius: 0,
-                padding: "2px 0",
+                borderRadius: 4,
+                padding: "2px 4px",
                 fontSize: 13,
                 fontWeight: 700,
                 marginRight: 2,
@@ -1792,7 +1792,7 @@ Reglas para block_task:
           )}
           <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, color: "#1A1A1A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
           {t.board && (
-            <span title={t.board} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 0, background: "#F0EDE5", color: "#6B6B6B", border: "0.5px solid #E5E0D5", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.board}</span>
+            <span title={t.board} style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: "#F0EDE5", color: "#6B6B6B", border: "0.5px solid #E5E0D5", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.board}</span>
           )}
         </div>
         {/* Línea 2: urgencia */}
@@ -1809,9 +1809,9 @@ Reglas para block_task:
             distingue jerarquía: Hecho (700) > Posponer (500) > Ver
             tarea (400 subrayado). Sin caja, sin borde. */}
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-          <button onClick={() => onComplete(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.5px" }}>Hecho</button>
-          <button onClick={() => onPostpone(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>Posponer</button>
-          <button onClick={() => onView(t.taskId, t.title)}     style={{ padding: "6px 12px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 400, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Ver tarea</button>
+          <button onClick={() => onComplete(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.5px" }}>Hecho</button>
+          <button onClick={() => onPostpone(t.taskId, t.title)} style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>Posponer</button>
+          <button onClick={() => onView(t.taskId, t.title)}     style={{ padding: "6px 12px", borderRadius: 6, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 400, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>Ver tarea</button>
           <button
             onClick={() => {
               if (orderApplying) return;
@@ -1826,7 +1826,7 @@ Reglas para block_task:
               setOrderDraft("");
               setOrderError(null);
             }}
-            style={{ padding: "6px 8px", borderRadius: 0, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 400, cursor: "pointer", fontFamily: "inherit" }}
+            style={{ padding: "6px 8px", borderRadius: 6, background: "transparent", color: "#C9A84C", border: "none", fontSize: 13, fontWeight: 400, cursor: "pointer", fontFamily: "inherit" }}
           >Ordenar a Héctor →</button>
         </div>
         {/* Bloque expandido (commit 19): textarea + Enviar/Cancelar.
@@ -1855,7 +1855,7 @@ Reglas para block_task:
               <button
                 onClick={() => submitTaskOrder(t)}
                 disabled={orderApplying || !orderDraft.trim()}
-                style={{ padding: "6px 16px", borderRadius: 0, background: "#C9A84C", color: "#1A1A1A", border: "none", fontSize: 12, fontWeight: 600, cursor: (orderApplying || !orderDraft.trim()) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (orderApplying || !orderDraft.trim()) ? 0.5 : 1 }}
+                style={{ padding: "6px 16px", borderRadius: 6, background: "#C9A84C", color: "#1A1A1A", border: "none", fontSize: 12, fontWeight: 600, cursor: (orderApplying || !orderDraft.trim()) ? "not-allowed" : "pointer", fontFamily: "inherit", opacity: (orderApplying || !orderDraft.trim()) ? 0.5 : 1 }}
               >{orderApplying ? "Aplicando…" : "Enviar a Héctor"}</button>
               <button
                 onClick={() => {
@@ -1920,9 +1920,9 @@ Reglas para block_task:
               </div>
               {/* d. Estado: prioridad + urgencia + esfuerzo */}
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-                <span style={{ fontSize: 11, padding: "2px 8px", background: "#F0EDE5", color: "#6B6B6B", borderRadius: 0, border: "0.5px solid #E5E0D5" }}>Prioridad: {PRIO_LABEL(real.priority)}</span>
-                {t.urgency && <span style={{ fontSize: 11, padding: "2px 8px", background: "#F0EDE5", color: "#6B6B6B", borderRadius: 0, border: "0.5px solid #E5E0D5" }}>{t.urgency}</span>}
-                {estH > 0 && <span style={{ fontSize: 11, padding: "2px 8px", background: "#F0EDE5", color: "#6B6B6B", borderRadius: 0, border: "0.5px solid #E5E0D5" }}>Estimado: {estH}h{loggedH > 0 ? ` · Reg.: ${loggedH.toFixed(1)}h` : ""}</span>}
+                <span style={{ fontSize: 11, padding: "2px 8px", background: "#F0EDE5", color: "#6B6B6B", borderRadius: 4, border: "0.5px solid #E5E0D5" }}>Prioridad: {PRIO_LABEL(real.priority)}</span>
+                {t.urgency && <span style={{ fontSize: 11, padding: "2px 8px", background: "#F0EDE5", color: "#6B6B6B", borderRadius: 4, border: "0.5px solid #E5E0D5" }}>{t.urgency}</span>}
+                {estH > 0 && <span style={{ fontSize: 11, padding: "2px 8px", background: "#F0EDE5", color: "#6B6B6B", borderRadius: 4, border: "0.5px solid #E5E0D5" }}>Estimado: {estH}h{loggedH > 0 ? ` · Reg.: ${loggedH.toFixed(1)}h` : ""}</span>}
               </div>
               {/* e. Asignados */}
               {assigneeNames.length > 0 && (
@@ -1955,7 +1955,7 @@ Reglas para block_task:
               {tags.length > 0 && (
                 <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
                   {tags.map((tag, i) => (
-                    <span key={i} style={{ background: "#F0EDE5", color: "#6B6B6B", fontSize: 10, padding: "2px 8px", borderRadius: 0, border: "0.5px solid #E5E0D5" }}>{tag?.l || tag?.label || tag}</span>
+                    <span key={i} style={{ background: "#F0EDE5", color: "#6B6B6B", fontSize: 10, padding: "2px 8px", borderRadius: 4, border: "0.5px solid #E5E0D5" }}>{tag?.l || tag?.label || tag}</span>
                   ))}
                 </div>
               )}
@@ -2166,10 +2166,10 @@ Reglas para block_task:
         [data-hp="chat-input"] {
           height: 40px !important;
           min-height: 40px !important;
-          border-radius: 0 !important;
+          border-radius: 20px !important;
           border: 0.5px solid #E5E0D5 !important;
           font-size: 13px !important;
-          padding: 8px 12px !important;
+          padding: 8px 14px !important;
           background: #FFFFFF !important;
         }
         [data-hp="chat-send"], [data-hp="chat-mic"] {
@@ -2177,7 +2177,7 @@ Reglas para block_task:
           height: 40px !important;
           min-width: 40px !important;
           min-height: 40px !important;
-          border-radius: 0 !important;
+          border-radius: 50% !important;
           padding: 0 !important;
           font-size: 16px !important;
         }
@@ -2205,10 +2205,12 @@ Reglas para block_task:
         if (urgentItems.length === 0) return null;
         return (
           <div data-hp="urgent-banner" style={{
-            background: "#FEE2E2",
-            borderBottom: "1px solid #FCA5A5",
+            background: "#F0EDE5",
+            borderBottom: "0.5px solid #E5E0D5",
+            borderRadius: 8,
             overflow: "hidden",
             flexShrink: 0,
+            margin: "8px 12px 0",
           }}>
             <button
               type="button"
@@ -2301,6 +2303,7 @@ Reglas para block_task:
           style={{
             background: "transparent",
             border: "1px solid #C9A84C",
+            borderRadius: 6,
             color: refreshLoading || isThinking ? "#A07830" : "#C9A84C",
             fontSize: 11,
             fontWeight: 600,
@@ -2355,19 +2358,19 @@ Reglas para block_task:
                   type="button"
                   onClick={() => onGoMytasks?.("overdue")}
                   title="Tareas vencidas sin actividad reciente"
-                  style={{ padding: "3px 10px", background: "#FFF0F0", color: "#E74C3C", border: "1px solid #E74C3C", fontSize: 11, fontWeight: 600, cursor: onGoMytasks ? "pointer" : "default", fontFamily: "inherit", borderRadius: 0 }}
+                  style={{ padding: "3px 10px", background: "#FFF0F0", color: "#E74C3C", border: "1px solid #E74C3C", fontSize: 11, fontWeight: 600, cursor: onGoMytasks ? "pointer" : "default", fontFamily: "inherit", borderRadius: 20 }}
                 >🔴 Vencidas: {overdueColdCount}</button>
                 <button
                   type="button"
                   onClick={() => onGoDealRoom?.("cold")}
                   title="Negociaciones sin actividad >5 días"
-                  style={{ padding: "3px 10px", background: "#F0F7FF", color: "#3498DB", border: "1px solid #3498DB", fontSize: 11, fontWeight: 600, cursor: onGoDealRoom ? "pointer" : "default", fontFamily: "inherit", borderRadius: 0 }}
+                  style={{ padding: "3px 10px", background: "#F0F7FF", color: "#3498DB", border: "1px solid #3498DB", fontSize: 11, fontWeight: 600, cursor: onGoDealRoom ? "pointer" : "default", fontFamily: "inherit", borderRadius: 20 }}
                 >🔵 Frías: {coldNegsCount}</button>
                 <button
                   type="button"
                   onClick={() => onGoMytasks?.("waiting")}
                   title="Tareas esperando respuesta de alguien"
-                  style={{ padding: "3px 10px", background: "#FFF8E7", color: "#F39C12", border: "1px solid #F39C12", fontSize: 11, fontWeight: 600, cursor: onGoMytasks ? "pointer" : "default", fontFamily: "inherit", borderRadius: 0 }}
+                  style={{ padding: "3px 10px", background: "#FFF8E7", color: "#F39C12", border: "1px solid #F39C12", fontSize: 11, fontWeight: 600, cursor: onGoMytasks ? "pointer" : "default", fontFamily: "inherit", borderRadius: 20 }}
                 >🟡 Esperan: {waitingCount}</button>
               </div>
             </>
@@ -2516,7 +2519,7 @@ Reglas para block_task:
                       <div style={{ fontSize: 11, color: "#6B6B6B", marginBottom: 6 }}>Sin créditos API o error de conexión.</div>
                       <button
                         onClick={() => { lastCallTime.current = 0; generateHectorThought(); }}
-                        style={{ padding: "4px 10px", background: "#fff", color: "#1A1A1A", border: "1px solid #C9A84C", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", borderRadius: 0 }}
+                        style={{ padding: "4px 10px", background: "#fff", color: "#1A1A1A", border: "1px solid #C9A84C", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", borderRadius: 6 }}
                       >↺ Reintentar</button>
                     </div>
                   </div>
@@ -2541,7 +2544,7 @@ Reglas para block_task:
                         color: "#1A1A1A",
                         padding: "6px 8px",
                         border: "1px solid #C9A84C",
-                        borderRadius: 0,
+                        borderRadius: 6,
                         outline: "none",
                         fontFamily: "inherit",
                         background: "#FAFAF7",
@@ -2549,7 +2552,7 @@ Reglas para block_task:
                     />
                     <button
                       onClick={handleSaveFoco}
-                      style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", border: "none", background: "#C9A84C", color: "#fff", cursor: "pointer", fontFamily: "inherit", borderRadius: 0, letterSpacing: "0.04em" }}
+                      style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", border: "none", background: "#C9A84C", color: "#fff", cursor: "pointer", fontFamily: "inherit", borderRadius: 6, letterSpacing: "0.04em" }}
                     >Fijar</button>
                     <button
                       onClick={handleCancelEditFoco}
@@ -2634,7 +2637,7 @@ Reglas para block_task:
                               disabled={actionInFlight}
                               onClick={() => guardedAction(() => onOpenTask?.(focusTask.id, focusTask.projId))}
                               title="Abrir la tarea en su tablero"
-                              style={{ background: "#1A1A1A", color: "#fff", border: "none", padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: actionInFlight ? "wait" : "pointer", fontFamily: "inherit", borderRadius: 0 }}
+                              style={{ background: "#1A1A1A", color: "#fff", border: "none", padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: actionInFlight ? "wait" : "pointer", fontFamily: "inherit", borderRadius: 6 }}
                             >▶ Empezar</button>
                           )}
                           {onPostponeTask && (
@@ -2643,7 +2646,7 @@ Reglas para block_task:
                               disabled={actionInFlight}
                               onClick={() => guardedAction(() => onPostponeTask?.(focusTask))}
                               title="Posponer la tarea +1 día"
-                              style={{ background: "transparent", color: "#6B6B6B", border: "0.5px solid #E5E0D5", padding: "8px 16px", fontSize: 12, fontWeight: 500, cursor: actionInFlight ? "wait" : "pointer", fontFamily: "inherit", borderRadius: 0 }}
+                              style={{ background: "transparent", color: "#6B6B6B", border: "0.5px solid #E5E0D5", padding: "8px 16px", fontSize: 12, fontWeight: 500, cursor: actionInFlight ? "wait" : "pointer", fontFamily: "inherit", borderRadius: 6 }}
                             >⏸ Posponer</button>
                           )}
                           {onCompleteTask && (
@@ -2652,7 +2655,7 @@ Reglas para block_task:
                               disabled={actionInFlight}
                               onClick={() => guardedAction(() => onCompleteTask?.(focusTask.id, focusTask.projId, focusTask.colId))}
                               title="Marcar la tarea como hecha"
-                              style={{ background: "#C9A84C", color: "#fff", border: "none", padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: actionInFlight ? "wait" : "pointer", fontFamily: "inherit", borderRadius: 0 }}
+                              style={{ background: "#C9A84C", color: "#fff", border: "none", padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: actionInFlight ? "wait" : "pointer", fontFamily: "inherit", borderRadius: 6 }}
                             >✓ Hecho</button>
                           )}
                         </div>
@@ -2675,6 +2678,7 @@ Reglas para block_task:
                     <div style={{
                       background: "#fff",
                       border: "0.5px solid #E5E0D5",
+                      borderRadius: 8,
                       padding: 14,
                       display: "flex",
                       flexDirection: "column",
@@ -2737,6 +2741,7 @@ Reglas para block_task:
                   <div style={{
                     background: "#fff",
                     border: "0.5px solid #E5E0D5",
+                    borderRadius: 8,
                     padding: 14,
                   }}>
                     <div style={{
@@ -2776,6 +2781,7 @@ Reglas para block_task:
                                 padding: "2px 7px",
                                 background: badgeBg,
                                 color: badgeColor,
+                                borderRadius: 4,
                                 flexShrink: 0,
                                 letterSpacing: "0.05em",
                                 textTransform: "uppercase",
@@ -2839,7 +2845,7 @@ Reglas para block_task:
                                 background: "#FDFAF5",
                                 border: "0.5px solid #E8D5A3",
                                 borderLeft: "3px solid #C9A84C",
-                                borderRadius: 0,
+                                borderRadius: 8,
                                 padding: "12px 16px",
                                 display: "flex",
                                 alignItems: "center",
@@ -2899,7 +2905,7 @@ Reglas para block_task:
                             style={{
                               background: "#FDFAF5",
                               border: "0.5px solid #E8D5A3",
-                              borderRadius: 6,
+                              borderRadius: 8,
                               padding: "16px 20px",
                               marginBottom: 4,
                               display: "flex",
@@ -3057,8 +3063,8 @@ Reglas para block_task:
                         <div style={{ fontSize: 9.5, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>⏰ Seguimiento</div>
                         <div style={{ marginBottom: 8 }}>{m.text}</div>
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                          <button onClick={closeAndComplete} style={{ padding: "3px 9px", borderRadius: 5, background: "#fff", color: "#065F46", border: "1px solid #86EFAC", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>✓ Cerrado</button>
-                          <button onClick={reactivate}      style={{ padding: "3px 9px", borderRadius: 5, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>↩ Necesita acción</button>
+                          <button onClick={closeAndComplete} style={{ padding: "3px 9px", borderRadius: 6, background: "#fff", color: "#065F46", border: "1px solid #86EFAC", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>✓ Cerrado</button>
+                          <button onClick={reactivate}      style={{ padding: "3px 9px", borderRadius: 6, background: "#fff", color: "#92400E", border: "1px solid #FCD34D", fontSize: 10.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>↩ Necesita acción</button>
                         </div>
                       </div>
                       <div style={{ fontSize: 9.5, color: "#9CA3AF", marginTop: 3, paddingLeft: 4 }}>{fmtTs(m.ts)}</div>
@@ -3120,7 +3126,7 @@ Reglas para block_task:
           onChange={(e) => setInputMessage(e.target.value)}
           placeholder="Escribe una orden a Héctor..."
           disabled={chatLoading}
-          style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 12.5, fontFamily: "inherit", outline: "none", background: chatLoading ? "#F9FAFB" : "#fff" }}
+          style={{ flex: 1, padding: "9px 14px", borderRadius: 20, border: "1px solid #D1D5DB", fontSize: 12.5, fontFamily: "inherit", outline: "none", background: chatLoading ? "#F9FAFB" : "#fff" }}
         />
         {/* Commit 32: toggle mic↔send según haya texto. UX WhatsApp:
             input vacío → solo 🎤; con texto → solo flecha enviar. Sin
