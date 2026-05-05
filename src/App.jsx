@@ -2262,7 +2262,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
                       onClick={()=>setAgentMenuDocId(v=>v===doc.id?null:doc.id)}
                       disabled={isAnalyzing}
                       title="Analizar con un agente IA"
-                      style={{padding:"4px 12px",borderRadius:6,background:isAnalyzing?"#A7F3D0":"#1D9E75",color:"#fff",border:"none",cursor:isAnalyzing?"wait":"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}
+                      style={{padding:"4px 12px",borderRadius:6,background:isAnalyzing?"#E8DFC4":"#F0EDE5",color:"#1A1A1A",border:"0.5px solid #E5E0D5",cursor:isAnalyzing?"wait":"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}
                     >{isAnalyzing?"⋯ Analizando…":"Analizar"}</button>
                   )}
                   {doc.report && (
@@ -2270,7 +2270,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
                       <button
                         onClick={()=>setExpanded(e=>e===doc.id?null:doc.id)}
                         title={isExpanded?"Ocultar informe":"Ver informe"}
-                        style={{padding:"4px 12px",borderRadius:6,background:"#378ADD",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit"}}
+                        style={{padding:"4px 12px",borderRadius:6,background:"#1A1A1A",color:"#FFFFFF",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit"}}
                       >{isExpanded?"Ocultar":"Ver informe"}</button>
                       {hasAgents && canAnalyze(doc) && (
                         <button
@@ -2576,7 +2576,7 @@ function ExportPDFButton({title, filename, render, plainText, size="sm", label="
   const pad = size==="sm" ? "5px 10px" : "7px 14px";
   const fs  = size==="sm" ? 11 : 12.5;
   return(
-    <button onClick={run} disabled={busy} title="Descargar como PDF" style={{padding:pad,borderRadius:6,background:busy?"#FEF3C7":"transparent",color:"#6B6B6B",border:"0.5px solid #E5E0D5",fontSize:fs,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}>
+    <button onClick={run} disabled={busy} data-neg="pdf-btn" title="Descargar como PDF" style={{padding:pad,borderRadius:6,background:busy?"#FEF3C7":"transparent",color:"#6B6B6B",border:"0.5px solid #E5E0D5",fontSize:fs,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}>
       {busy?"⋯":"📄"} {busy?"Generando":label}
     </button>
   );
@@ -7758,23 +7758,38 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   };
 
   return(
-    <div style={{maxWidth:1200,margin:"0 auto",padding:"30px 20px"}}>
-      <button onClick={onBack} style={{background:"none",border:"none",color:"#3B82F6",fontSize:13,cursor:"pointer",marginBottom:14,padding:0,fontFamily:"inherit"}}>← Deal Room</button>
+    <div className="tf-main-pad" style={{maxWidth:1200,margin:"0 auto",padding:"30px 20px"}}>
+      {/* Commit 40: responsive móvil — card Héctor estática (no sticky)
+          en ≤900px, padding lateral reducido, título más pequeño, botones
+          táctiles ≥44px alto. Desktop intacto. */}
+      <style>{`
+        @media (max-width: 900px) {
+          [data-neg="hector-card"] {
+            position: static !important;
+            max-height: none !important;
+            top: auto !important;
+          }
+          [data-neg="title"] { font-size: 18px !important; }
+          [data-neg="header-btn"] { min-height: 44px; padding: 10px 16px !important; }
+          [data-neg="pdf-btn"] { padding: 7px 14px !important; font-size: 12px !important; }
+        }
+      `}</style>
+      <button onClick={onBack} data-neg="header-btn" style={{background:"none",border:"none",color:"#3B82F6",fontSize:13,cursor:"pointer",marginBottom:14,padding:0,fontFamily:"inherit"}}>← Deal Room</button>
 
       {/* Header */}
       <div style={{marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
           <RefBadge code={negotiation.code}/>
           {negotiation.emoji && <span style={{fontSize:24,lineHeight:1,flexShrink:0}}>{negotiation.emoji}</span>}
-          <div style={{fontSize:22,fontWeight:700,color:"#111827"}}>{negotiation.title}</div>
+          <div data-neg="title" style={{fontSize:22,fontWeight:700,color:"#111827"}}>{negotiation.title}</div>
           <span style={{fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:14,background:st.color+"18",color:st.color}}>{st.label}</span>
         </div>
         <div style={{fontSize:13,color:"#6b7280"}}>Contraparte: <b style={{color:"#374151"}}>{negotiation.counterparty}</b>{negotiation.value!=null&&<> · <b style={{color:"#059669"}}>{Number(negotiation.value).toLocaleString("es-ES")} {negotiation.currency||"EUR"}</b></>}{owner&&<> · Responsable: <b style={{color:"#374151"}}>{owner.name}</b></>}</div>
       </div>
       {negotiation.description&&<div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13,color:"#4B5563",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{negotiation.description}</div>}
       <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
-        <button onClick={onCreateSession} style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva sesión</button>
-        <button onClick={()=>onEditNeg(negotiation)} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
+        <button onClick={onCreateSession} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva sesión</button>
+        <button onClick={()=>onEditNeg(negotiation)} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
       </div>
 
       {/* Dashboard grid 50/50 — stack en móvil vía .tf-dashboard-grid-2 */}
@@ -8370,7 +8385,7 @@ ${taskLines||"(ninguna)"}`;
           };
           const chatMsgs = negotiation.hectorChat||[];
           return(
-            <div style={{position:"sticky",top:20,background:"#fff",border:"0.5px solid #E5E0D5",borderRadius:8,minWidth:0,display:"flex",flexDirection:"column",minHeight:380,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
+            <div data-neg="hector-card" style={{position:"sticky",top:20,background:"#fff",border:"0.5px solid #E5E0D5",borderRadius:8,minWidth:0,display:"flex",flexDirection:"column",minHeight:380,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
               {/* Header */}
               <div style={{padding:"12px 16px",borderBottom:"0.5px solid #E5E0D5",display:"flex",alignItems:"center",gap:10}}>
                 <div style={{width:38,height:38,borderRadius:"50%",background:"#1A1A1A",color:"#C9A84C",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,fontFamily:"Georgia, 'Times New Roman', serif",flexShrink:0}}>H</div>
