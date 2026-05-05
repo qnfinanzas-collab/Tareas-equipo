@@ -585,6 +585,16 @@ export default function HectorPanel({
       try { el.scrollIntoView({ behavior: "smooth", block: "end" }); } catch {}
     });
   }, [activeTab, chatHistory.length, chatLoading]);
+  // Commit 32: auto-scroll robusto al fondo cuando cambia chatHistory.
+  // Funciona en cualquier tab (no solo chat) porque setTimeout deja
+  // tiempo al DOM a renderizar la nueva burbuja antes de scrollear.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      const el = document.querySelector('[data-hp="chat-content"]');
+      if (el) el.scrollTop = el.scrollHeight;
+    }, 50);
+    return () => clearTimeout(id);
+  }, [chatHistory]);
 
   // Handler de scroll del contenedor del chat — controla si mostramos el
   // botón flotante "Ir al final". Solo activo cuando el usuario está a
@@ -1364,13 +1374,6 @@ Reglas para block_task:
       const promisedAction = parsedReply && parsedReply.action && parsedReply.action !== "none";
       const fakeSuccess = promisedAction ? detectFalseSuccessClaim(cleanReply, proposal) : false;
       setChatHistory((prev) => [...prev, { role: "hector", text: cleanReply || "(sin respuesta)", proposal, fakeSuccess, ts: Date.now() }].slice(-CHAT_MAX));
-      // Commit 31: auto-scroll al fondo tras la respuesta. El useEffect
-      // global con chatEndRef solo dispara si activeTab==="chat"; este
-      // setTimeout funciona en cualquier tab y es belt-and-suspenders.
-      setTimeout(() => {
-        const chatContainer = document.querySelector('[data-hp="content"]');
-        if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
-      }, 100);
       executeAction(parsedReply);
       if (cleanReply) speakRecommendation(cleanReply);
     } catch (e) {
@@ -1383,10 +1386,6 @@ Reglas para block_task:
         ? `⚠️ ${e.message}`
         : "⚠ Héctor no pudo procesar la orden. Inténtalo de nuevo.";
       setChatHistory((prev) => [...prev, { role: "hector", text: friendly, ts: Date.now() }].slice(-CHAT_MAX));
-      setTimeout(() => {
-        const chatContainer = document.querySelector('[data-hp="content"]');
-        if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
-      }, 100);
     } finally {
       setChatLoading(false);
     }
@@ -2082,7 +2081,7 @@ Reglas para block_task:
           [data-hp="chat-form"]     { order: 2; border-top: none !important; border-bottom: 1px solid #E5E7EB !important; }
           [data-hp="tabs-bar"]      { order: 3; }
           [data-hp="skills-bar"]    { order: 3; }
-          [data-hp="content"]       { order: 4; min-height: 50vh; }
+          [data-hp="chat-content"]       { order: 4; min-height: 50vh; }
           [data-hp="urgent-banner"] { order: 5; flex-shrink: 0; }
           [data-hp="thought"]       { display: none !important; }
         }
@@ -2155,7 +2154,7 @@ Reglas para block_task:
           padding: 0 !important;
           font-size: 16px !important;
         }
-        [data-hp="content"] {
+        [data-hp="chat-content"] {
           padding-bottom: 96px;
         }
         @media (min-width: 769px) {
@@ -2165,7 +2164,7 @@ Reglas para block_task:
             box-shadow: none;
             border-top: 0.5px solid #E5E0D5 !important;
           }
-          [data-hp="content"] {
+          [data-hp="chat-content"] {
             padding-bottom: 0;
           }
         }
@@ -2423,7 +2422,7 @@ Reglas para block_task:
       </div>
 
       {/* Contenido (flex: 1, scroll único) */}
-      <div key={activeTab} data-hp="content" onScroll={handleChatScroll} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 14, animation: "hp-fade-tab .2s ease", minHeight: 0, maxWidth: "100%", boxSizing: "border-box" }}>
+      <div key={activeTab} data-hp="chat-content" onScroll={handleChatScroll} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 14, animation: "hp-fade-tab .2s ease", minHeight: 0, maxWidth: "100%", boxSizing: "border-box" }}>
         {activeTab === "analysis" ? (
           <>
             {/* Pensamiento actual — variantes según estado:
@@ -3138,19 +3137,26 @@ Reglas para block_task:
           disabled={chatLoading}
           style={{ flex: 1, padding: "9px 11px", borderRadius: 8, border: "1px solid #D1D5DB", fontSize: 12.5, fontFamily: "inherit", outline: "none", background: chatLoading ? "#F9FAFB" : "#fff" }}
         />
-        <button
-          type="button"
-          data-hp="chat-mic"
-          onClick={startListening}
-          title={isListening ? "Detener dictado" : "Dictar por voz"}
-          style={{ width: 36, height: 36, borderRadius: 8, background: isListening ? "#FEE2E2" : "#fff", color: isListening ? "#B91C1C" : "#6B7280", border: `1px solid ${isListening ? "#FCA5A5" : "#D1D5DB"}`, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, fontFamily: "inherit", animation: isListening ? "hp-mic-pulse 1.2s infinite" : "none" }}
-        >🎤</button>
-        <button
-          type="submit"
-          data-hp="chat-send"
-          disabled={chatLoading || !inputMessage.trim()}
-          style={{ padding: "9px 14px", borderRadius: 8, background: chatLoading || !inputMessage.trim() ? "#E5E7EB" : "#1D9E75", color: chatLoading || !inputMessage.trim() ? "#9CA3AF" : "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: chatLoading || !inputMessage.trim() ? "not-allowed" : "pointer", fontFamily: "inherit" }}
-        >Enviar</button>
+        {/* Commit 32: toggle mic↔send según haya texto. UX WhatsApp:
+            input vacío → solo 🎤; con texto → solo flecha enviar. Sin
+            animación, switch instantáneo. Estilo Kluxor sin caja. */}
+        {inputMessage.trim() ? (
+          <button
+            type="submit"
+            data-hp="chat-send"
+            disabled={chatLoading}
+            title="Enviar"
+            style={{ background: "transparent", border: "none", color: "#C9A84C", fontSize: 20, cursor: chatLoading ? "not-allowed" : "pointer", padding: 8, fontFamily: "inherit", opacity: chatLoading ? 0.5 : 1 }}
+          >→</button>
+        ) : (
+          <button
+            type="button"
+            data-hp="chat-mic"
+            onClick={startListening}
+            title={isListening ? "Detener dictado" : "Dictar por voz"}
+            style={{ background: "transparent", border: "none", color: isListening ? "#B91C1C" : "#C9A84C", fontSize: 20, cursor: "pointer", padding: 8, fontFamily: "inherit", animation: isListening ? "hp-mic-pulse 1.2s infinite" : "none" }}
+          >🎤</button>
+        )}
       </form>
       {/* Preview del dictado: lo que el reconocedor está oyendo en tiempo
           real, antes de marcar como final. En cursiva gris para que el
