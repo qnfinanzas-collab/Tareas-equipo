@@ -7901,12 +7901,6 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           <div data-neg="title" style={{fontSize:22,fontWeight:700,color:"#111827"}}>{negotiation.title}</div>
           <span style={{fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:14,background:st.color+"18",color:st.color}}>{st.label}</span>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
-          <RefBadge code={negotiation.code}/>
-          {negotiation.emoji && <span style={{fontSize:24,lineHeight:1,flexShrink:0}}>{negotiation.emoji}</span>}
-          <div style={{fontSize:22,fontWeight:700,color:"#111827"}}>{negotiation.title}</div>
-          <span style={{fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:14,background:st.color+"18",color:st.color}}>{st.label}</span>
-        </div>
         <div style={{fontSize:13,color:"#6b7280"}}>Contraparte: <b style={{color:"#374151"}}>{negotiation.counterparty}</b>{negotiation.value!=null&&<> · <b style={{color:"#059669"}}>{Number(negotiation.value).toLocaleString("es-ES")} {negotiation.currency||"EUR"}</b></>}{owner&&<> · Responsable: <b style={{color:"#374151"}}>{owner.name}</b></>}</div>
       </div>
       {negotiation.description&&<div data-mobile-section="negociacion" style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13,color:"#4B5563",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{negotiation.description}</div>}
@@ -8728,7 +8722,7 @@ ${taskLines||"(ninguna)"}`;
                 }
               `}</style>
               <div data-spec-row style={{padding:"6px 12px",borderTop:"1px solid #F3F4F6",background:"#FCFCFD",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                <span style={{fontSize:10,fontWeight:600,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.06em"}}>Especialistas</span>
+                <span style={{fontSize:10,fontWeight:600,color:"#9CA3AF",textTransform:"uppercase",letterSpacing:"0.06em"}}>Tu equipo</span>
                 {canUseAgent(currentMember,"mario",permissions) && <button data-spec-chip onClick={()=>handleManualSpecialist("mario")} disabled={chatLoading} title="Pedir intervención de Mario Legal" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#1E40AF",border:"1px solid #BFDBFE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>⚖️ Mario</button>}
                 {canUseAgent(currentMember,"jorge",permissions) && <button data-spec-chip onClick={()=>handleManualSpecialist("jorge")} disabled={chatLoading} title="Pedir intervención de Jorge Finanzas" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#0E7C5A",border:"1px solid #86EFAC",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>📊 Jorge</button>}
                 {canUseAgent(currentMember,"alvaro",permissions) && <button data-spec-chip onClick={()=>handleManualSpecialist("alvaro")} disabled={chatLoading} title="Pedir intervención de Álvaro Inmobiliario" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#92400E",border:"1px solid #FCD34D",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏠 Álvaro</button>}
