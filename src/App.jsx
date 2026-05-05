@@ -7851,6 +7851,11 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           [data-neg="title"] { font-size: 18px !important; }
           [data-neg="header-btn"] { min-height: 44px; padding: 10px 16px !important; }
           [data-neg="pdf-btn"] { padding: 7px 14px !important; font-size: 12px !important; }
+          /* Back button en móvil: oculto (las tabs ya dan navegación
+             principal; volver a Deal Room queda accesible vía sidebar). */
+          [data-active-tab] > button[data-neg="header-btn"]:first-of-type {
+            display: none !important;
+          }
         }
       `}</style>
       <button onClick={onBack} data-neg="header-btn" style={{background:"none",border:"none",color:"#3B82F6",fontSize:13,cursor:"pointer",marginBottom:14,padding:0,fontFamily:"inherit"}}>← Deal Room</button>
@@ -8536,8 +8541,11 @@ ${taskLines||"(ninguna)"}`;
                   </div>
                 )}
               </div>
-              {/* Mensajes */}
-              <div ref={chatScrollRef} style={{flex:1,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+              {/* Mensajes — minHeight:0 es CRÍTICO para que flex:1
+                  haga shrink y permita scroll interno. Sin esto, el div
+                  crece con el contenido y empuja al input fuera del
+                  card (que es overflow:hidden), recortándolo. */}
+              <div ref={chatScrollRef} data-neg="chat-msgs" style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10,minHeight:0}}>
                 {chatMsgs.length===0
                   ? <div style={{textAlign:"center",padding:"26px 10px",color:"#9CA3AF",fontSize:12,fontStyle:"italic"}}>
                       Aún no has consultado a Héctor sobre esta negociación.<br/>
