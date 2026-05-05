@@ -8561,6 +8561,23 @@ ${taskLines||"(ninguna)"}`;
                       const proposalParsed = (!isUser && !m.kind)
                         ? parseAgentActions(m.content || "")
                         : null;
+                      // Diagnóstico temporal (commit 43): log del primer
+                      // render de cada mensaje assistant para ver qué llega.
+                      // Quitar tras confirmar el origen del problema.
+                      if (!isUser && !m.kind) {
+                        const c = String(m.content || "");
+                        const hasOpen = c.includes("[ACTIONS]");
+                        const hasClose = c.includes("[/ACTIONS]");
+                        console.log("[NegDV msg]", {
+                          ts: m.timestamp,
+                          len: c.length,
+                          hasOpen,
+                          hasClose,
+                          parsed: proposalParsed,
+                          first200: c.slice(0, 200),
+                          last200: c.slice(-200),
+                        });
+                      }
                       if (proposalParsed && Array.isArray(proposalParsed.actions)) {
                         try { correctActionsDates(proposalParsed); } catch {}
                       }
