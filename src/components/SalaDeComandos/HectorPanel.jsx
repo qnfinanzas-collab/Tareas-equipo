@@ -585,23 +585,23 @@ export default function HectorPanel({
       try { el.scrollIntoView({ behavior: "smooth", block: "end" }); } catch {}
     });
   }, [activeTab, chatHistory.length, chatLoading]);
-  // Commit 34: auto-scroll multi-target para iPhone Safari, donde el
-  // scroll real puede vivir en window/body en vez de en un contenedor
-  // interno. Disparamos los 4 métodos en orden — el que aplique gana,
-  // los demás son no-ops sobre elementos que no scrollean.
+  // Commit 35: auto-scroll multi-target con +500 de extra para que el
+  // último mensaje quede holgadamente visible por encima del input
+  // fijo y el bottom nav (en iPhone, el chrome del navegador puede
+  // tapar las últimas líneas si scrolleamos solo a body.scrollHeight).
   useEffect(() => {
     const id = setTimeout(() => {
       try { chatEndRef.current?.scrollIntoView({ behavior: "instant", block: "end" }); } catch(e) {}
-      try { window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" }); } catch(e) {}
+      try { window.scrollTo({ top: document.body.scrollHeight + 500, behavior: "instant" }); } catch(e) {}
       try {
         const main = document.querySelector('[data-tf="main-content"]');
-        if (main) main.scrollTop = main.scrollHeight;
+        if (main) main.scrollTop = main.scrollHeight + 500;
       } catch(e) {}
       try {
         const chat = document.querySelector('[data-hp="chat-content"]');
-        if (chat) chat.scrollTop = chat.scrollHeight;
+        if (chat) chat.scrollTop = chat.scrollHeight + 500;
       } catch(e) {}
-    }, 100);
+    }, 150);
     return () => clearTimeout(id);
   }, [chatHistory]);
 
