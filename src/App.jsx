@@ -8063,6 +8063,13 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               + "\n\n" + coherenceRule
               + "\n\n" + PLAIN_TEXT_RULE
               + (opts.extraSystem?("\n\n"+opts.extraSystem):"");
+            // Inyección de fecha actual (commit 39) — mismo patrón que
+            // HectorDirect. Va en el USER prompt para no contaminar el
+            // system y evitar la regresión de [ACTIONS] (anti-patrón
+            // commit 54a360b documentado en CLAUDE.md).
+            const today = new Date();
+            const fechaContext = `[Hoy es ${today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} — ${today.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}]`;
+            const datedUserMessage = fechaContext + "\n" + userMessage;
             // Ventana de contexto: ≤30 mensajes se envían enteros. Por encima,
             // primeros 5 (semilla del hilo) + últimos 25 (continuidad reciente).
             // Mensajes "specialist" se inyectan como assistant con prefijo
@@ -8076,8 +8083,8 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                 if(m.role==="specialist") return {role:"assistant", content:`(${m.specialistName||"Especialista"} dijo: ${m.content||""})`};
                 return {role:m.role==="user"?"user":"assistant", content:m.content};
               });
-            history.push({role:"user",content:userMessage});
-            return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:userMessage}]:history,max_tokens:opts.maxTokens||900},{timeoutMs:opts.timeoutMs||45000});
+            history.push({role:"user",content:datedUserMessage});
+            return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:datedUserMessage}]:history,max_tokens:opts.maxTokens||900},{timeoutMs:opts.timeoutMs||45000});
           };
           // Parser de invocación EXPLÍCITA: lee la respuesta de Héctor,
           // busca etiquetas [INVOCAR:mario|jorge:tarea] y devuelve:

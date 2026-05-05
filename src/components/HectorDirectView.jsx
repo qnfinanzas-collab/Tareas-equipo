@@ -320,7 +320,7 @@ Jurisdicción: Juzgados de Marbella.
 Cuando el CEO te pida LISTAR, MOSTRAR, CONSULTAR o VER tareas (es decir, recuperar información de tareas que YA existen, NO crear nuevas), responde primero con un bloque [TASKS_LIST] y DESPUÉS añade tu prosa breve. Formato exacto:
 
 [TASKS_LIST]
-{"vencidas":[{"code":"MAR","title":"Documento sesión Rafael","priority":"alta","due":"2026-05-02"}],"proximas":[{"code":"BSF","title":"Formación app","priority":"media","due":"2026-05-07"}]}
+{"vencidas":[{"code":"MAR","title":"Documento sesión Rafael","priority":"alta","due":"YYYY-MM-DD"}],"proximas":[{"code":"BSF","title":"Formación app","priority":"media","due":"YYYY-MM-DD"}]}
 [/TASKS_LIST]
 
 Reglas:
@@ -337,9 +337,19 @@ Reglas:
         + membersBlock + urgentBlock + projBlock + negBlock + finBlock + govBlock + tasksListBlock;
       // Convertimos el historial a la forma que espera la API.
       // Los mensajes "assistant" llevan el texto limpio (sin proposal).
-      const messages = next.map(m => ({
+      // Inyección de fecha actual en el USER prompt (commit 39): el system
+      // prompt no la lleva por anti-patrón histórico (commit 54a360b roto
+      // [ACTIONS]). Prefijamos el último mensaje del CEO con un meta-bloque
+      // [Hoy es ...] para que Héctor razone con la fecha real, no con su
+      // cutoff. No afecta a [ACTIONS] porque viene en user, no system.
+      const today = new Date();
+      const fechaContext = `[Hoy es ${today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} — ${today.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}]`;
+      const lastIdx = next.length - 1;
+      const messages = next.map((m, idx) => ({
         role: m.role === "user" ? "user" : "assistant",
-        content: m.text || "",
+        content: (idx === lastIdx && m.role === "user")
+          ? fechaContext + "\n" + (m.text || "")
+          : (m.text || ""),
       }));
       const reply = await callAgentSafe(
         { system: baseSystem, messages, max_tokens: 2048 },
