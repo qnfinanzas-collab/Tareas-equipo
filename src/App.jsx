@@ -7788,36 +7788,39 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
       <style>{`
         [data-mobile-tabs] { display: none; }
         @media (max-width: 900px) {
-          /* Outer: padding-top 44px para compensar la tab bar fija. */
+          /* Outer: padding mínimo. Las tabs son STICKY (no fixed) para
+             no cubrir el topbar de la app — se quedan en el flujo del
+             scroll wrapper de App.jsx. */
           [data-active-tab] {
-            padding-top: 44px !important;
+            padding-top: 8px !important;
             padding-bottom: 0 !important;
           }
-          /* Tabs FIXED en mobile (commit 44): sticky no sobrevive el
-             overflow:hidden de [data-tf="main-content"] en algunos
-             navegadores iOS. Fijar al viewport garantiza que se vean
-             siempre y elimina la dependencia de la cadena de scroll. */
+          /* Tabs STICKY (commit 45): vuelta a sticky tras descubrir que
+             fixed:top:0 cubría el topbar de la app y rompía la sensación
+             de "una sola pantalla". Sticky se ancla al scroll wrapper
+             (flex:1, overflow:auto de App.jsx:12365) y queda visible
+             debajo del topbar mientras se scrollea el contenido. */
           [data-neg="tabs-bar"] {
             display: flex !important;
-            position: fixed !important;
+            position: sticky !important;
             top: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            z-index: 100 !important;
+            z-index: 50 !important;
             background: #FAFAF7 !important;
             border-bottom: 0.5px solid #E5E0D5 !important;
-            margin-bottom: 0 !important;
+            margin: 0 -8px 12px !important;
           }
           [data-mobile-section] { display: none !important; }
           [data-active-tab="hector"]      [data-mobile-section="hector"]      { display: flex !important; }
           [data-active-tab="negociacion"] [data-mobile-section="negociacion"] { display: block !important; }
           [data-active-tab="docs"]        [data-mobile-section="docs"]        { display: block !important; }
           [data-active-tab="sesiones"]    [data-mobile-section="sesiones"]    { display: block !important; }
-          /* Card Héctor — altura completa y libera flex children. */
+          /* Card Héctor — altura ajustada al viewport disponible:
+             topbar app (~50) + tabs (~44) + bottom nav (~64) + safe-area
+             ≈ 180px de chrome. 100dvh - 180 deja toda la pantalla útil. */
           [data-neg="hector-card"] {
             position: static !important;
-            height: calc(100dvh - 160px) !important;
-            max-height: calc(100dvh - 160px) !important;
+            height: calc(100dvh - 180px) !important;
+            max-height: calc(100dvh - 180px) !important;
             min-height: 0 !important;
             top: auto !important;
           }
