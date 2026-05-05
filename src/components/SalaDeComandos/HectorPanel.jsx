@@ -1364,6 +1364,13 @@ Reglas para block_task:
       const promisedAction = parsedReply && parsedReply.action && parsedReply.action !== "none";
       const fakeSuccess = promisedAction ? detectFalseSuccessClaim(cleanReply, proposal) : false;
       setChatHistory((prev) => [...prev, { role: "hector", text: cleanReply || "(sin respuesta)", proposal, fakeSuccess, ts: Date.now() }].slice(-CHAT_MAX));
+      // Commit 31: auto-scroll al fondo tras la respuesta. El useEffect
+      // global con chatEndRef solo dispara si activeTab==="chat"; este
+      // setTimeout funciona en cualquier tab y es belt-and-suspenders.
+      setTimeout(() => {
+        const chatContainer = document.querySelector('[data-hp="content"]');
+        if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
+      }, 100);
       executeAction(parsedReply);
       if (cleanReply) speakRecommendation(cleanReply);
     } catch (e) {
@@ -1376,6 +1383,10 @@ Reglas para block_task:
         ? `⚠️ ${e.message}`
         : "⚠ Héctor no pudo procesar la orden. Inténtalo de nuevo.";
       setChatHistory((prev) => [...prev, { role: "hector", text: friendly, ts: Date.now() }].slice(-CHAT_MAX));
+      setTimeout(() => {
+        const chatContainer = document.querySelector('[data-hp="content"]');
+        if (chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
+      }, 100);
     } finally {
       setChatLoading(false);
     }
@@ -2117,9 +2128,32 @@ Reglas para block_task:
           background: #FAFAF7 !important;
           box-shadow: 0 -2px 8px rgba(0,0,0,0.04);
           border-top: 0.5px solid #E5E0D5 !important;
-          padding: 10px 16px !important;
+          padding: 8px 16px !important;
           border-radius: 0 !important;
           order: unset !important;
+          height: auto !important;
+          min-height: unset !important;
+        }
+        /* Commit 31: input + botones compactos Kluxor (40px alto, sin
+           redondeo). Override de los estilos mobile del commit anterior
+           que hinchaban a 56/48px y aplicaban borderRadius 28/50%. */
+        [data-hp="chat-input"] {
+          height: 40px !important;
+          min-height: 40px !important;
+          border-radius: 0 !important;
+          border: 0.5px solid #E5E0D5 !important;
+          font-size: 13px !important;
+          padding: 8px 12px !important;
+          background: #FFFFFF !important;
+        }
+        [data-hp="chat-send"], [data-hp="chat-mic"] {
+          width: 40px !important;
+          height: 40px !important;
+          min-width: 40px !important;
+          min-height: 40px !important;
+          border-radius: 0 !important;
+          padding: 0 !important;
+          font-size: 16px !important;
         }
         [data-hp="content"] {
           padding-bottom: 96px;
