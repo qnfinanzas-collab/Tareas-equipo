@@ -2104,6 +2104,37 @@ Reglas para block_task:
             font-size: 18px !important;
           }
         }
+        /* Commit 30: input fijo al pie estilo WhatsApp. El form
+           [data-hp="chat-form"] sale del flujo flex y queda anclado al
+           viewport, encima del bottom nav (z-index 1000). En desktop
+           se restaura al flujo normal con la regla de min-width:769px. */
+        [data-hp="chat-form"] {
+          position: fixed !important;
+          bottom: calc(56px + env(safe-area-inset-bottom)) !important;
+          left: 0 !important;
+          right: 0 !important;
+          z-index: 999 !important;
+          background: #FAFAF7 !important;
+          box-shadow: 0 -2px 8px rgba(0,0,0,0.04);
+          border-top: 0.5px solid #E5E0D5 !important;
+          padding: 10px 16px !important;
+          border-radius: 0 !important;
+          order: unset !important;
+        }
+        [data-hp="content"] {
+          padding-bottom: 96px;
+        }
+        @media (min-width: 769px) {
+          [data-hp="chat-form"] {
+            position: static !important;
+            bottom: unset !important;
+            box-shadow: none;
+            border-top: 0.5px solid #E5E0D5 !important;
+          }
+          [data-hp="content"] {
+            padding-bottom: 0;
+          }
+        }
       `}</style>
 
       {/* Banner urgente colapsable (solo móvil ≤768px). Lee `riesgos`
