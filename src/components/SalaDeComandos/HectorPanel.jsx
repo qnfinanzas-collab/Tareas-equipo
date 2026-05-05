@@ -585,14 +585,23 @@ export default function HectorPanel({
       try { el.scrollIntoView({ behavior: "smooth", block: "end" }); } catch {}
     });
   }, [activeTab, chatHistory.length, chatLoading]);
-  // Commit 33: auto-scroll definitivo. scrollIntoView sobre el sentinel
-  // chatEndRef navega la cadena de overflow automáticamente — funciona
-  // sea quien sea el verdadero contenedor scrolleable (div interno,
-  // main-content o window).
+  // Commit 34: auto-scroll multi-target para iPhone Safari, donde el
+  // scroll real puede vivir en window/body en vez de en un contenedor
+  // interno. Disparamos los 4 métodos en orden — el que aplique gana,
+  // los demás son no-ops sobre elementos que no scrollean.
   useEffect(() => {
     const id = setTimeout(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: "instant", block: "end" });
-    }, 50);
+      try { chatEndRef.current?.scrollIntoView({ behavior: "instant", block: "end" }); } catch(e) {}
+      try { window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" }); } catch(e) {}
+      try {
+        const main = document.querySelector('[data-tf="main-content"]');
+        if (main) main.scrollTop = main.scrollHeight;
+      } catch(e) {}
+      try {
+        const chat = document.querySelector('[data-hp="chat-content"]');
+        if (chat) chat.scrollTop = chat.scrollHeight;
+      } catch(e) {}
+    }, 100);
     return () => clearTimeout(id);
   }, [chatHistory]);
 
