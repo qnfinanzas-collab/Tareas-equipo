@@ -585,16 +585,23 @@ export default function HectorPanel({
       try { el.scrollIntoView({ behavior: "smooth", block: "end" }); } catch {}
     });
   }, [activeTab, chatHistory.length, chatLoading]);
-  // Commit 36: scroll interno básico — el max-height del CSS asegura
-  // que el contenedor sí scrollee. Sin trucos sobre window/body que
-  // ya no son necesarios.
+  // Commit 35: auto-scroll multi-target con +500 de extra para que el
+  // último mensaje quede holgadamente visible por encima del input
+  // fijo y el bottom nav (en iPhone, el chrome del navegador puede
+  // tapar las últimas líneas si scrolleamos solo a body.scrollHeight).
   useEffect(() => {
     const id = setTimeout(() => {
-      const chat = document.querySelector('[data-hp="chat-content"]');
-      if (chat) {
-        chat.scrollTop = chat.scrollHeight;
-      }
-    }, 100);
+      try { chatEndRef.current?.scrollIntoView({ behavior: "instant", block: "end" }); } catch(e) {}
+      try { window.scrollTo({ top: document.body.scrollHeight + 500, behavior: "instant" }); } catch(e) {}
+      try {
+        const main = document.querySelector('[data-tf="main-content"]');
+        if (main) main.scrollTop = main.scrollHeight + 500;
+      } catch(e) {}
+      try {
+        const chat = document.querySelector('[data-hp="chat-content"]');
+        if (chat) chat.scrollTop = chat.scrollHeight + 500;
+      } catch(e) {}
+    }, 150);
     return () => clearTimeout(id);
   }, [chatHistory]);
 
@@ -2158,14 +2165,6 @@ Reglas para block_task:
         }
         [data-hp="chat-content"] {
           padding-bottom: 140px;
-          /* Commit 36: forzar altura al contenedor para que overflow-y
-             tenga algo que recortar. Sin esto, flex:1 con padre sin
-             altura constrained colapsaba a auto y el scroll real lo
-             hacía window/body, no este div. -webkit-overflow-scrolling
-             activa el momentum scroll en iOS Safari. */
-          max-height: calc(100vh - 280px);
-          overflow-y: auto;
-          -webkit-overflow-scrolling: touch;
         }
         @media (min-width: 769px) {
           [data-hp="chat-form"] {
@@ -2176,7 +2175,6 @@ Reglas para block_task:
           }
           [data-hp="chat-content"] {
             padding-bottom: 0;
-            max-height: calc(100vh - 200px);
           }
         }
       `}</style>
