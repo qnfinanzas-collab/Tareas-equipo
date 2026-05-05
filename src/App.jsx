@@ -7594,6 +7594,20 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   const [negMemOpen,setNegMemOpen] = useState(null); // qué sección de memoria de la negociación está abierta
   const [banner20Ignored,setBanner20Ignored] = useState(false); // el aviso amarillo (20-29 msgs) solo se ignora hasta el rojo (30+)
   const [speakingMsgTs,setSpeakingMsgTs] = useState(null);
+  // Commit 41: tabs móvil ≤900px. mobileTab decide qué sección se ve en
+  // mobile via CSS media query — desktop renderiza todo a la vez. Default
+  // "hector" porque el motivo principal de entrar es chatear sobre la deal.
+  const [mobileTab,setMobileTab] = useState("hector");
+  // lastSeenChatLength: para el badge unread de la tab Héctor. Marca
+  // los mensajes vistos cuando el CEO está en esa tab; al cambiar a otra,
+  // los mensajes nuevos cuentan como unread.
+  const [lastSeenChatLength,setLastSeenChatLength] = useState(0);
+  useEffect(() => {
+    if (mobileTab === "hector") {
+      setLastSeenChatLength((negotiation.hectorChat||[]).length);
+    }
+  }, [mobileTab, (negotiation.hectorChat||[]).length]);
+  const unreadHector = Math.max(0, (negotiation.hectorChat||[]).length - lastSeenChatLength);
   // Multi-agente: si está ON, tras la respuesta de Héctor disparamos una
   // mini-llamada de clasificación que decide si conviene invocar a Mario o
   // Jorge. Persistido en localStorage por dispositivo (no en data).
@@ -7758,11 +7772,82 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   };
 
   return(
-    <div style={{maxWidth:1200,margin:"0 auto",padding:"30px 20px"}}>
-      <button onClick={onBack} style={{background:"none",border:"none",color:"#3B82F6",fontSize:13,cursor:"pointer",marginBottom:14,padding:0,fontFamily:"inherit"}}>← Deal Room</button>
+    <div className="tf-main-pad" data-active-tab={mobileTab} style={{maxWidth:1200,margin:"0 auto",padding:"30px 20px"}}>
+      {/* Commit 41: tabs móvil ≤900px (Héctor / Negociación / Docs /
+          Sesiones). En desktop tab bar oculta y todas las secciones a
+          la vez. En mobile solo se ve la sección del tab activo. La
+          card Héctor pierde sticky en mobile y usa 100dvh para evitar
+          saltos por la URL bar de iOS Safari. */}
+      <style>{`
+        [data-mobile-tabs] { display: none; }
+        @media (max-width: 900px) {
+          [data-mobile-tabs] { display: flex !important; }
+          [data-mobile-section] { display: none !important; }
+          [data-active-tab="hector"]      [data-mobile-section="hector"]      { display: flex !important; }
+          [data-active-tab="negociacion"] [data-mobile-section="negociacion"] { display: block !important; }
+          [data-active-tab="docs"]        [data-mobile-section="docs"]        { display: block !important; }
+          [data-active-tab="sesiones"]    [data-mobile-section="sesiones"]    { display: block !important; }
+          [data-neg="hector-card"] {
+            position: static !important;
+            max-height: calc(100dvh - 200px) !important;
+            top: auto !important;
+          }
+          [data-neg="title"] { font-size: 18px !important; }
+          [data-neg="header-btn"] { min-height: 44px; padding: 10px 16px !important; }
+          [data-neg="pdf-btn"] { padding: 7px 14px !important; font-size: 12px !important; }
+        }
+      `}</style>
+      <button onClick={onBack} data-neg="header-btn" style={{background:"none",border:"none",color:"#3B82F6",fontSize:13,cursor:"pointer",marginBottom:14,padding:0,fontFamily:"inherit"}}>← Deal Room</button>
+      {/* Tab bar mobile (commit 41) — solo visible ≤900px. Default
+          "hector" para que el CEO entre directo al chat. Badge unread
+          en Héctor cuando hay mensajes nuevos no vistos. */}
+      <div data-mobile-tabs style={{borderBottom:"0.5px solid #E5E0D5",background:"#FAFAF7",marginBottom:14}}>
+        {[
+          { key: "hector",      label: "🧙 Héctor",      badge: unreadHector },
+          { key: "negociacion", label: "📋 Negociación", badge: 0 },
+          { key: "docs",        label: "📎 Docs",        badge: 0 },
+          { key: "sesiones",    label: "📅 Sesiones",    badge: 0 },
+        ].map(tab => {
+          const isActive = mobileTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={()=>setMobileTab(tab.key)}
+              style={{
+                flex:1,
+                padding:"10px 8px",
+                background:"transparent",
+                border:"none",
+                borderRadius:0,
+                borderBottom: isActive ? "2px solid #C9A84C" : "2px solid transparent",
+                color: isActive ? "#1A1A1A" : "#6B6B6B",
+                fontSize:12,
+                fontWeight: isActive ? 600 : 400,
+                cursor:"pointer",
+                fontFamily:"inherit",
+                display:"inline-flex",
+                alignItems:"center",
+                justifyContent:"center",
+                gap:5,
+              }}
+            >
+              <span>{tab.label}</span>
+              {tab.badge > 0 && (
+                <span style={{minWidth:16,height:16,padding:"0 5px",borderRadius:8,background:"#C9A84C",color:"#1A1A1A",fontSize:9,fontWeight:700,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>{tab.badge}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Header */}
-      <div style={{marginBottom:14}}>
+      <div data-mobile-section="negociacion" style={{marginBottom:14}}>
+        <div data-neg="title-row" style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
+          <RefBadge code={negotiation.code}/>
+          {negotiation.emoji && <span style={{fontSize:24,lineHeight:1,flexShrink:0}}>{negotiation.emoji}</span>}
+          <div data-neg="title" style={{fontSize:22,fontWeight:700,color:"#111827"}}>{negotiation.title}</div>
+          <span style={{fontSize:11,fontWeight:600,padding:"3px 10px",borderRadius:14,background:st.color+"18",color:st.color}}>{st.label}</span>
+        </div>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,flexWrap:"wrap"}}>
           <RefBadge code={negotiation.code}/>
           {negotiation.emoji && <span style={{fontSize:24,lineHeight:1,flexShrink:0}}>{negotiation.emoji}</span>}
@@ -7771,10 +7856,10 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
         </div>
         <div style={{fontSize:13,color:"#6b7280"}}>Contraparte: <b style={{color:"#374151"}}>{negotiation.counterparty}</b>{negotiation.value!=null&&<> · <b style={{color:"#059669"}}>{Number(negotiation.value).toLocaleString("es-ES")} {negotiation.currency||"EUR"}</b></>}{owner&&<> · Responsable: <b style={{color:"#374151"}}>{owner.name}</b></>}</div>
       </div>
-      {negotiation.description&&<div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13,color:"#4B5563",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{negotiation.description}</div>}
-      <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
-        <button onClick={onCreateSession} style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva sesión</button>
-        <button onClick={()=>onEditNeg(negotiation)} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
+      {negotiation.description&&<div data-mobile-section="negociacion" style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13,color:"#4B5563",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{negotiation.description}</div>}
+      <div data-mobile-section="negociacion" style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
+        <button onClick={onCreateSession} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva sesión</button>
+        <button onClick={()=>onEditNeg(negotiation)} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
       </div>
 
       {/* Dashboard grid 50/50 — stack en móvil vía .tf-dashboard-grid-2 */}
@@ -7784,7 +7869,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
         <div style={{display:"flex",flexDirection:"column",gap:18,minWidth:0}}>
 
           {/* Proyectos relacionados */}
-          <section>
+          <section data-mobile-section="negociacion">
             <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>📊 Proyectos relacionados</span><span style={{fontSize:10,color:"#9CA3AF"}}>{relProjs.length}</span></div>
             {relProjs.length===0
               ? <div style={{fontSize:12,color:"#9CA3AF",fontStyle:"italic",padding:"10px 12px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:8}}>Sin proyectos vinculados. Edita la negociación para añadirlos.</div>
@@ -7827,7 +7912,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           </section>
 
           {/* Tareas críticas cross-project */}
-          <section>
+          <section data-mobile-section="negociacion">
             <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>🔥 Tareas críticas</span><span style={{fontSize:10,color:"#9CA3AF"}}>{criticalTasks.length}</span></div>
             {criticalTasks.length===0
               ? <div style={{fontSize:12,color:"#9CA3AF",fontStyle:"italic",padding:"10px 12px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:8}}>Sin tareas activas en los proyectos vinculados.</div>
@@ -7863,7 +7948,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           </section>
 
           {/* Sesiones */}
-          <section>
+          <section data-mobile-section="sesiones">
             <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>📅 Sesiones</span><span style={{fontSize:10,color:"#9CA3AF"}}>{sessionsDesc.length}</span></div>
             {sessionsDesc.length===0
               ? <div style={{fontSize:12,color:"#9CA3AF",fontStyle:"italic",padding:"10px 12px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:8}}>Sin sesiones aún.</div>
@@ -7888,7 +7973,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           </section>
 
           {/* Documentos */}
-          <section>
+          <section data-mobile-section="docs">
             <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>📎 Documentos</span><span style={{fontSize:10,color:"#9CA3AF"}}>{(negotiation.documents||[]).length}</span></div>
             <DocumentUploader
               ownerKey={`neg-${negotiation.id}`}
@@ -7902,7 +7987,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           </section>
 
           {/* Memoria de la negociación */}
-          <section>
+          <section data-mobile-section="docs">
             <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span>🧠 Memoria de esta negociación</span>
               <span style={{fontSize:10,color:"#9CA3AF"}}>{(negotiation.memory?.keyFacts?.length||0)+(negotiation.memory?.agreements?.length||0)+(negotiation.memory?.redFlags?.length||0)}</span>
@@ -8370,7 +8455,7 @@ ${taskLines||"(ninguna)"}`;
           };
           const chatMsgs = negotiation.hectorChat||[];
           return(
-            <div style={{position:"sticky",top:20,background:"#fff",border:"0.5px solid #E5E0D5",borderRadius:8,minWidth:0,display:"flex",flexDirection:"column",minHeight:380,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
+            <div data-neg="hector-card" data-mobile-section="hector" style={{position:"sticky",top:20,background:"#fff",border:"0.5px solid #E5E0D5",borderRadius:8,minWidth:0,display:"flex",flexDirection:"column",minHeight:380,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
               {/* Header */}
               <div style={{padding:"12px 16px",borderBottom:"0.5px solid #E5E0D5",display:"flex",alignItems:"center",gap:10}}>
                 <div style={{width:38,height:38,borderRadius:"50%",background:"#1A1A1A",color:"#C9A84C",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,fontFamily:"Georgia, 'Times New Roman', serif",flexShrink:0}}>H</div>
@@ -8584,7 +8669,7 @@ ${taskLines||"(ninguna)"}`;
 
       {/* Stakeholders + Relaciones (datos secundarios, full-width bajo el grid) */}
       {((negotiation.stakeholders||[]).length>0)&&(
-        <section style={{marginBottom:18}}>
+        <section data-mobile-section="negociacion" style={{marginBottom:18}}>
           <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>👥 Stakeholders ({negotiation.stakeholders.length})</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
             {negotiation.stakeholders.map(s=>(
@@ -8600,7 +8685,7 @@ ${taskLines||"(ninguna)"}`;
       )}
 
       {((negotiation.relationships||[]).length>0)&&(
-        <section style={{marginBottom:18}}>
+        <section data-mobile-section="negociacion" style={{marginBottom:18}}>
           <div style={{fontSize:11,fontWeight:700,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>🔗 Relaciones con otras negociaciones ({negotiation.relationships.length})</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:10}}>
             {negotiation.relationships.map(r=>{
