@@ -23,7 +23,6 @@ import { PLAIN_TEXT_RULE, getEnergyLevel, buildSkillsBlock, detectSkills } from 
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, rewriteToPropositive, validateTasksAgainstDatabase, validateAndCorrectDueDate, buildOrderInterpreterSystemPrompt, parseOrderInterpreterJson } from "../../lib/agentActions.js";
 import { callAgentSafe as callAgentSafeShared } from "../../lib/agent.js";
 import { supa } from "../../lib/sync.js";
-import { CHAT_MAX, flushChatToSupabase, mergeRemoteWithLocalAnalyses, lastChatTimestamp } from "../../lib/chatSync.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
 import ChatBubble from "../Shared/ChatBubble.jsx";
 import { formatCeoMemoryForPrompt } from "../../lib/memory.js";
@@ -37,6 +36,7 @@ const STATE_LABEL = {
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const HECTOR_VOICE = { gender: "male", rate: 1.1, pitch: 0.9 };
+const CHAT_MAX = 50;
 
 // Mapas de presentación para los chips de skills detectados. Los keys
 // coinciden 1:1 con SKILL_TRIGGERS de lib/agent.js.
@@ -475,113 +475,15 @@ export default function HectorPanel({
     } catch {}
   }, [recommendations, STORAGE_KEY]);
 
-  // Refs para sync Supabase. Mismo patrón que HectorDirectView:
-  //  - lastFlushedLengthRef inicializa con chatHistory.length (no 0)
-  //    para evitar flush espurio en mount con localStorage stale.
-  //  - hydratedAuthUidRef impide re-fetch en cada render; solo recarga
-  //    cuando authUid cambia (login/logout).
-  // chatHistoryRef ya existe arriba (línea ~435) para otros usos.
-  const lastFlushedLengthRef = useRef(chatHistory.length);
-  const hydratedAuthUidRef = useRef(null);
-
-  // Carga inicial desde Supabase (tabla hector_chat). Resolución de
-  // conflicto por timestamp del último mensaje sincronizable. Tres
-  // caminos:
-  //  - remote vacío → si local tiene contenido, bootstrap (propaga ya)
-  //  - remote_ts >= local_ts → remote gana; mergea con análisis locales
-  //  - local_ts > remote_ts → local gana; propaga local YA a Supabase
-  //    (Fix iPhone Safari kill-tab + cierra el gap sin esperar 5 msgs).
-  useEffect(() => {
-    if (!authUid || !supa || hydratedAuthUidRef.current === authUid) return;
-    hydratedAuthUidRef.current = authUid;
-    (async () => {
-      try {
-        const { data: row, error } = await supa
-          .from("hector_chat")
-          .select("messages")
-          .eq("user_id", authUid)
-          .maybeSingle();
-        if (error) {
-          console.warn(`[Kluxor] HectorPanel chat load Supabase error: ${error.message}`);
-          return;
-        }
-        const remote = Array.isArray(row?.messages) ? row.messages : [];
-        const local = chatHistoryRef.current || [];
-        if (remote.length === 0) {
-          if (local.length > 0) {
-            flushChatToSupabase(authUid, local);
-            lastFlushedLengthRef.current = local.length;
-            console.log(`[Kluxor] HectorPanel chat Supabase vacío, propagando local: ${local.length} mensajes`);
-          } else {
-            console.log("[Kluxor] HectorPanel chat Supabase vacío, usando localStorage");
-          }
-          return;
-        }
-        const remoteLastTs = lastChatTimestamp(remote);
-        const localLastTs  = lastChatTimestamp(local);
-        if (remoteLastTs >= localLastTs) {
-          const merged = mergeRemoteWithLocalAnalyses(remote, local);
-          setChatHistory(merged);
-          lastFlushedLengthRef.current = remote.length;
-          console.log(`[Kluxor] HectorPanel chat cargado desde Supabase: ${remote.length} mensajes (más reciente)`);
-        } else {
-          flushChatToSupabase(authUid, local);
-          lastFlushedLengthRef.current = local.length;
-          console.log(`[Kluxor] HectorPanel chat local más reciente, propagando: ${local.length} mensajes`);
-        }
-      } catch (e) {
-        console.warn(`[Kluxor] HectorPanel chat load threw: ${e?.message || e}`);
-      }
-    })();
-  }, [authUid]);
-
   // Persistencia: chat (últimos CHAT_MAX). Guard contra userId indefinido
   // — sin él la clave colapsa a "kluxor.hector.chat.anon" y pisaríamos
   // chats de sesiones futuras o perderíamos el state real al recargar.
-  // Además flush a Supabase cada 5 mensajes nuevos (medido por diff de
-  // longitud, no por contenido — updates in-place no cuentan).
   useEffect(() => {
     if (!userId) return;
     try {
       localStorage.setItem(CHAT_KEY, JSON.stringify(chatHistory.slice(-CHAT_MAX)));
     } catch {}
-    if (authUid && chatHistory.length - lastFlushedLengthRef.current >= 5) {
-      lastFlushedLengthRef.current = chatHistory.length;
-      flushChatToSupabase(authUid, chatHistory);
-    }
-  }, [chatHistory, CHAT_KEY, userId, authUid]);
-
-  // Flush final al desmontar (sin umbral). Dependencia estable [authUid]
-  // para que el cleanup solo dispare en unmount, no en cada cambio de
-  // chatHistory (eso es lo que hace el useEffect anterior con throttle).
-  useEffect(() => {
-    return () => {
-      if (!authUid) return;
-      const finalMsgs = chatHistoryRef.current;
-      if (Array.isArray(finalMsgs) && finalMsgs.length !== lastFlushedLengthRef.current) {
-        flushChatToSupabase(authUid, finalMsgs);
-      }
-    };
-  }, [authUid]);
-
-  // Flush al backgroundear la pestaña (visibilitychange → "hidden").
-  // Crítico en iPhone Safari: el unmount cleanup NO es fiable cuando
-  // el sistema swappea o mata el tab. Este evento sí dispara antes
-  // del freeze. Sin umbral: cualquier diff con lo último flusheado
-  // se propaga.
-  useEffect(() => {
-    if (!authUid) return;
-    const onVisibilityChange = () => {
-      if (document.visibilityState !== "hidden") return;
-      const msgs = chatHistoryRef.current;
-      if (Array.isArray(msgs) && msgs.length !== lastFlushedLengthRef.current) {
-        flushChatToSupabase(authUid, msgs);
-        lastFlushedLengthRef.current = msgs.length;
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, [authUid]);
+  }, [chatHistory, CHAT_KEY, userId]);
 
   // Re-hidratación cuando userId pasa de undefined → definido. Esto cubre
   // el caso del primer mount con auth todavía cargando: el useState
