@@ -14,11 +14,10 @@ import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive } from "../lib/agentActions.js";
 import { supa } from "../lib/sync.js";
+import { CHAT_MAX, flushChatToSupabase, mergeRemoteWithLocalAnalyses, lastChatTimestamp } from "../lib/chatSync.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
 import ChatBubble, { CHAT_PALETTE, ceoAvatarStyle, hectorAvatarSmall } from "./Shared/ChatBubble.jsx";
 import AgentAvatar from "./Shared/AgentAvatar.jsx";
-
-const CHAT_MAX = 50;
 
 // Metadatos de especialistas invocables. Las claves coinciden con el
 // regex INVOCAR; agentName mapea al campo `name` del agente en
@@ -87,30 +86,6 @@ function getAperturaFrase() {
   return "El día casi termina. ¿Qué queda sin cerrar?";
 }
 
-// Sync del chat a Supabase. Upsert por user_id (la tabla hector_chat
-// tiene UNIQUE en user_id → una fila por CEO, columna messages jsonb).
-// Silencioso: si Supabase falla, localStorage sigue funcionando como
-// fuente local. Sin reintentos — el siguiente flush (cada 5 mensajes
-// o al desmontar) cubrirá la pérdida.
-async function flushChatToSupabase(authUid, messages) {
-  if (!authUid || !supa) return;
-  try {
-    const safe = Array.isArray(messages) ? messages.slice(-CHAT_MAX) : [];
-    const { error } = await supa.from("hector_chat").upsert({
-      user_id: authUid,
-      messages: safe,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id" });
-    if (error) {
-      console.warn(`[Kluxor] Chat flush Supabase error: ${error.message}`);
-    } else {
-      console.log(`[Kluxor] Chat sincronizado a Supabase: ${safe.length} mensajes`);
-    }
-  } catch (e) {
-    console.warn(`[Kluxor] Chat flush threw: ${e?.message || e}`);
-  }
-}
-
 export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, financeContext }) {
   const userKey = userId != null ? userId : "anon";
   // Misma clave que usa HectorPanel.jsx → conversación compartida.
@@ -174,18 +149,34 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
         const remote = Array.isArray(row?.messages) ? row.messages : [];
         const local = chatHistoryRef.current || [];
         if (remote.length === 0) {
-          console.log("[Kluxor] Chat Supabase vacío, usando localStorage");
+          // Supabase vacío pero local tiene contenido → bootstrap: propaga
+          // local YA (no esperes a que el CEO escriba 5 más). lastFlushed
+          // se ajusta para que el throttle posterior cuente bien.
+          if (local.length > 0) {
+            flushChatToSupabase(authUid, local);
+            lastFlushedLengthRef.current = local.length;
+            console.log(`[Kluxor] Chat Supabase vacío, propagando local: ${local.length} mensajes`);
+          } else {
+            console.log("[Kluxor] Chat Supabase vacío, usando localStorage");
+          }
           return;
         }
-        const remoteLastTs = remote[remote.length - 1]?.ts || 0;
-        const localLastTs  = local[local.length - 1]?.ts || 0;
+        const remoteLastTs = lastChatTimestamp(remote);
+        const localLastTs  = lastChatTimestamp(local);
         if (remoteLastTs >= localLastTs) {
-          setChatHistory(remote.slice(-CHAT_MAX));
+          // Remote gana. Mergea con análisis locales (hector_analysis no
+          // se sincroniza a hector_chat — vive en hector_panel_state).
+          const merged = mergeRemoteWithLocalAnalyses(remote, local);
+          setChatHistory(merged);
           lastFlushedLengthRef.current = remote.length;
           console.log(`[Kluxor] Chat cargado desde Supabase: ${remote.length} mensajes (más reciente)`);
         } else {
-          lastFlushedLengthRef.current = remote.length;
-          console.log("[Kluxor] Chat local más reciente, manteniendo localStorage");
+          // Local gana. Propaga YA a Supabase para no dejar gap esperando
+          // a que el CEO escriba 5 mensajes más, y para cubrir el caso
+          // iPhone Safari que puede matar el tab sin disparar el cleanup.
+          flushChatToSupabase(authUid, local);
+          lastFlushedLengthRef.current = local.length;
+          console.log(`[Kluxor] Chat local más reciente, propagando a Supabase: ${local.length} mensajes`);
         }
       } catch (e) {
         console.warn(`[Kluxor] Chat load threw: ${e?.message || e}`);
