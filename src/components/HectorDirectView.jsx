@@ -135,20 +135,28 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
 
   // Refs para sync Supabase. lastFlushedLengthRef rastrea cuántos
   // mensajes ya se enviaron a Supabase (para el umbral cada-5).
+  // Init = chatHistory.length (no 0) para evitar que el persist
+  // useEffect haga flush inmediato al montar — pisaría datos de
+  // otro dispositivo en Supabase con localStorage stale antes de
+  // que la carga async resuelva. Solo flusheamos cambios reales.
   // chatHistoryRef contiene la copia viva para que el cleanup del
   // unmount pueda hacer flush final sin closure stale.
   // hydratedAuthUidRef garantiza que la carga desde Supabase solo
   // corre una vez por authUid (no re-fetch en cada render).
-  const lastFlushedLengthRef = useRef(0);
+  const lastFlushedLengthRef = useRef(chatHistory.length);
   const chatHistoryRef = useRef(chatHistory);
   useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
   const hydratedAuthUidRef = useRef(null);
 
-  // Carga inicial desde Supabase. localStorage ya pobló el estado
-  // inicial (cache local), pero si otro dispositivo tiene una
-  // conversación más larga, la sustituimos. Conservador: solo
-  // override si remote.length >= local.length — protege contra
-  // perder mensajes que el CEO escriba antes de que llegue el fetch.
+  // Carga inicial desde Supabase. Resolución de conflicto por
+  // timestamp del último mensaje: el dispositivo con la actividad
+  // más reciente gana, independientemente del número de mensajes.
+  // Tres caminos:
+  //  - remote vacío → mantener localStorage
+  //  - remote_last_ts >= local_last_ts → Supabase gana (override)
+  //  - local_last_ts > remote_last_ts → local gana (mantener prev);
+  //    lastFlushedLengthRef = remote.length para que la próxima
+  //    diff con local cuente correctamente y dispare flush.
   useEffect(() => {
     if (!authUid || !supa || hydratedAuthUidRef.current === authUid) return;
     hydratedAuthUidRef.current = authUid;
@@ -164,13 +172,21 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
           return;
         }
         const remote = Array.isArray(row?.messages) ? row.messages : [];
+        const local = chatHistoryRef.current || [];
         if (remote.length === 0) {
-          console.log("[Kluxor] Chat Supabase vacío, manteniendo localStorage");
+          console.log("[Kluxor] Chat Supabase vacío, usando localStorage");
           return;
         }
-        setChatHistory(prev => remote.length >= prev.length ? remote.slice(-CHAT_MAX) : prev);
-        lastFlushedLengthRef.current = remote.length;
-        console.log(`[Kluxor] Chat cargado desde Supabase: ${remote.length} mensajes`);
+        const remoteLastTs = remote[remote.length - 1]?.ts || 0;
+        const localLastTs  = local[local.length - 1]?.ts || 0;
+        if (remoteLastTs >= localLastTs) {
+          setChatHistory(remote.slice(-CHAT_MAX));
+          lastFlushedLengthRef.current = remote.length;
+          console.log(`[Kluxor] Chat cargado desde Supabase: ${remote.length} mensajes (más reciente)`);
+        } else {
+          lastFlushedLengthRef.current = remote.length;
+          console.log("[Kluxor] Chat local más reciente, manteniendo localStorage");
+        }
       } catch (e) {
         console.warn(`[Kluxor] Chat load threw: ${e?.message || e}`);
       }
