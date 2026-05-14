@@ -87,7 +87,31 @@ function getAperturaFrase() {
   return "El día casi termina. ¿Qué queda sin cerrar?";
 }
 
-export default function HectorDirectView({ data, userId, onRunAgentActions, onNavigate, financeContext }) {
+// Sync del chat a Supabase. Upsert por user_id (la tabla hector_chat
+// tiene UNIQUE en user_id → una fila por CEO, columna messages jsonb).
+// Silencioso: si Supabase falla, localStorage sigue funcionando como
+// fuente local. Sin reintentos — el siguiente flush (cada 5 mensajes
+// o al desmontar) cubrirá la pérdida.
+async function flushChatToSupabase(authUid, messages) {
+  if (!authUid || !supa) return;
+  try {
+    const safe = Array.isArray(messages) ? messages.slice(-CHAT_MAX) : [];
+    const { error } = await supa.from("hector_chat").upsert({
+      user_id: authUid,
+      messages: safe,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "user_id" });
+    if (error) {
+      console.warn(`[Kluxor] Chat flush Supabase error: ${error.message}`);
+    } else {
+      console.log(`[Kluxor] Chat sincronizado a Supabase: ${safe.length} mensajes`);
+    }
+  } catch (e) {
+    console.warn(`[Kluxor] Chat flush threw: ${e?.message || e}`);
+  }
+}
+
+export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, financeContext }) {
   const userKey = userId != null ? userId : "anon";
   // Misma clave que usa HectorPanel.jsx → conversación compartida.
   const CHAT_KEY = `kluxor.hector.chat.${userKey}`;
@@ -109,11 +133,76 @@ export default function HectorDirectView({ data, userId, onRunAgentActions, onNa
   const endRef       = useRef(null);
   const textareaRef  = useRef(null);
 
+  // Refs para sync Supabase. lastFlushedLengthRef rastrea cuántos
+  // mensajes ya se enviaron a Supabase (para el umbral cada-5).
+  // chatHistoryRef contiene la copia viva para que el cleanup del
+  // unmount pueda hacer flush final sin closure stale.
+  // hydratedAuthUidRef garantiza que la carga desde Supabase solo
+  // corre una vez por authUid (no re-fetch en cada render).
+  const lastFlushedLengthRef = useRef(0);
+  const chatHistoryRef = useRef(chatHistory);
+  useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
+  const hydratedAuthUidRef = useRef(null);
+
+  // Carga inicial desde Supabase. localStorage ya pobló el estado
+  // inicial (cache local), pero si otro dispositivo tiene una
+  // conversación más larga, la sustituimos. Conservador: solo
+  // override si remote.length >= local.length — protege contra
+  // perder mensajes que el CEO escriba antes de que llegue el fetch.
+  useEffect(() => {
+    if (!authUid || !supa || hydratedAuthUidRef.current === authUid) return;
+    hydratedAuthUidRef.current = authUid;
+    (async () => {
+      try {
+        const { data: row, error } = await supa
+          .from("hector_chat")
+          .select("messages")
+          .eq("user_id", authUid)
+          .maybeSingle();
+        if (error) {
+          console.warn(`[Kluxor] Chat load Supabase error: ${error.message}`);
+          return;
+        }
+        const remote = Array.isArray(row?.messages) ? row.messages : [];
+        if (remote.length === 0) {
+          console.log("[Kluxor] Chat Supabase vacío, manteniendo localStorage");
+          return;
+        }
+        setChatHistory(prev => remote.length >= prev.length ? remote.slice(-CHAT_MAX) : prev);
+        lastFlushedLengthRef.current = remote.length;
+        console.log(`[Kluxor] Chat cargado desde Supabase: ${remote.length} mensajes`);
+      } catch (e) {
+        console.warn(`[Kluxor] Chat load threw: ${e?.message || e}`);
+      }
+    })();
+  }, [authUid]);
+
   // Persistencia con guard userId (mismo patrón que HectorPanel).
+  // localStorage siempre; Supabase cada 5 mensajes nuevos medido por
+  // diferencia de longitud — un update in-place (p.ej. especialista
+  // loading→done) NO cuenta como mensaje nuevo.
   useEffect(() => {
     if (!userId) return;
     try { localStorage.setItem(CHAT_KEY, JSON.stringify(chatHistory.slice(-CHAT_MAX))); } catch {}
-  }, [chatHistory, CHAT_KEY, userId]);
+    if (authUid && chatHistory.length - lastFlushedLengthRef.current >= 5) {
+      lastFlushedLengthRef.current = chatHistory.length;
+      flushChatToSupabase(authUid, chatHistory);
+    }
+  }, [chatHistory, CHAT_KEY, userId, authUid]);
+
+  // Flush final al desmontar para no dejar mensajes huérfanos entre
+  // umbrales de 5. Separado del useEffect anterior porque ahí el
+  // cleanup dispararía en cada cambio de chatHistory; aquí solo
+  // dispara una vez al desmontar (dependencia estable [authUid]).
+  useEffect(() => {
+    return () => {
+      if (!authUid) return;
+      const finalMsgs = chatHistoryRef.current;
+      if (Array.isArray(finalMsgs) && finalMsgs.length !== lastFlushedLengthRef.current) {
+        flushChatToSupabase(authUid, finalMsgs);
+      }
+    };
+  }, [authUid]);
 
   // Re-hidratación cross-tab: cuando otro tab (o HectorPanel en otra
   // ruta del mismo origen) escribe en localStorage, el evento `storage`
