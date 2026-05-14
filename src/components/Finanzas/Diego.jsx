@@ -15,6 +15,7 @@ import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import { parseAgentActions, cleanAgentResponse, classifyReply } from "../../lib/agentActions.js";
 import { blobToBase64 } from "../../lib/storage.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
+import { ProposalExecutedBanner } from "../Shared/ChatBubble.jsx";
 
 const DIEGO_VOICE = { gender: "male", rate: 1.05, pitch: 0.95 };
 const CHAT_MAX = 50;
@@ -398,10 +399,18 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
                       const opts = (selectedCompanyId && selectedCompanyId !== "all")
                         ? { defaultCompanyId: selectedCompanyId } : {};
                       await onRunAgentActions(selected, opts);
+                      setHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalExecuted: true, executedAt: Date.now(), executedActions: selected } : x));
                     }}
                     onCancel={() => setHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
                   />
                 </div>
+              )}
+              {!isUser && m.proposalExecuted && (
+                <ProposalExecutedBanner
+                  executedAt={m.executedAt}
+                  executedActions={m.executedActions}
+                  paddingLeft={36}
+                />
               )}
               {!isUser && m.proposal && !canEdit && (
                 <div style={{ alignSelf: "stretch", paddingLeft: 36, fontSize: 11, color: "#92400E", fontStyle: "italic" }}>

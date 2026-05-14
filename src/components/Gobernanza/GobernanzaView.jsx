@@ -11,6 +11,7 @@ import DocumentacionTab from "./DocumentacionTab.jsx";
 import { generateDocumentsForCompany } from "./documentTemplates.js";
 import { parseAgentActions, cleanAgentResponse, classifyReply } from "../../lib/agentActions.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
+import { ProposalExecutedBanner } from "../Shared/ChatBubble.jsx";
 
 const TAB_DEFS = [
   { key: "dashboard", label: "🏛️ Dashboard" },
@@ -683,10 +684,20 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
                     agentName="Gonzalo"
                     agentEmoji="🏛️"
                     color="#8E44AD"
-                    onConfirm={async (selected) => { await onRunAgentActions(selected); }}
+                    onConfirm={async (selected) => {
+                      await onRunAgentActions(selected);
+                      setHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalExecuted: true, executedAt: Date.now(), executedActions: selected } : x));
+                    }}
                     onCancel={() => setHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
                   />
                 </div>
+              )}
+              {!isUser && m.proposalExecuted && (
+                <ProposalExecutedBanner
+                  executedAt={m.executedAt}
+                  executedActions={m.executedActions}
+                  paddingLeft={36}
+                />
               )}
             </div>
           );

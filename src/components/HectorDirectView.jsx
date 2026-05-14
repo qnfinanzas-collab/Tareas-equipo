@@ -848,6 +848,7 @@ Reglas:
                   userInitials={userInitials}
                   onRunAgentActions={onRunAgentActions}
                   onDiscardProposal={() => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
+                  onConfirmProposal={(executedActions) => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalExecuted: true, executedAt: Date.now(), executedActions } : x))}
                   renderTaskList={(tasksList) => <TaskListCard tasksList={tasksList} />}
                 />
           ))}

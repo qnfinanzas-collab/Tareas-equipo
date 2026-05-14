@@ -79,11 +79,74 @@ function formatTs(ts) {
   return d.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
 }
 
+function formatExecutedAt(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+// Resumen compacto del conjunto de acciones ejecutadas para el banner
+// verde. Cuenta proyectos, tareas, negociaciones y "otras" (movs,
+// bancarios, asientos, facturas — el CEO ve "3 acciones más" sin
+// abrir cada tipo). Función pura — sin side effects.
+function summarizeExecuted(actions) {
+  if (!Array.isArray(actions) || actions.length === 0) return "";
+  let projects = 0, tasks = 0, negs = 0, others = 0;
+  for (const a of actions) {
+    if (!a) continue;
+    if (a.type === "create_project") {
+      projects++;
+      tasks += Array.isArray(a.tasks) ? a.tasks.length : 0;
+    } else if (a.type === "create_tasks") {
+      tasks += Array.isArray(a.tasks) ? a.tasks.length : 0;
+    } else if (a.type === "create_negotiation") {
+      negs++;
+    } else {
+      others++;
+    }
+  }
+  const parts = [];
+  if (projects) parts.push(`${projects} proyecto${projects !== 1 ? "s" : ""}`);
+  if (tasks)    parts.push(`${tasks} tarea${tasks !== 1 ? "s" : ""}`);
+  if (negs)     parts.push(`${negs} negociaci${negs !== 1 ? "ones" : "ón"}`);
+  if (others)   parts.push(`${others} otra acci${others !== 1 ? "ones" : "ón"}`);
+  return parts.join(" · ");
+}
+
+// Banner verde que reemplaza la card ActionProposal después de que el
+// CEO confirma "Crear todo". Persistente — sobrevive a refresh, cambio
+// de tab, y sync cross-device, porque vive en el mensaje serializable.
+// Visualmente distinto al banner amarillo de fakeSuccess (verde vs
+// ámbar, ✅ vs ⚠).
+export function ProposalExecutedBanner({ executedAt, executedActions, paddingLeft = 42 }) {
+  const dateStr = formatExecutedAt(executedAt);
+  const summary = summarizeExecuted(executedActions);
+  return (
+    <div style={{
+      alignSelf: "stretch",
+      marginLeft: paddingLeft,
+      marginTop: 4,
+      padding: "10px 14px",
+      background: "#F0FDF4",
+      border: "1.5px solid #86EFAC",
+      borderRadius: 8,
+      fontSize: 13,
+      color: "#065F46",
+      lineHeight: 1.5,
+    }}>
+      ✅ Acciones ejecutadas{dateStr ? ` el ${dateStr}` : ""}
+      {summary && <span style={{ color: "#047857" }}> · {summary}</span>}
+    </div>
+  );
+}
+
 export default function ChatBubble({
   message,
   userInitials,
   onRunAgentActions,
   onDiscardProposal,
+  onConfirmProposal,
   showTimestamp = false,
   // Render-prop opcional para insertar TaskListCard cuando el mensaje
   // trae message.tasksList. HectorDirect lo pasa con su TaskListCard
@@ -133,10 +196,19 @@ export default function ChatBubble({
             agentName="Héctor"
             agentEmoji="🧙"
             color={C.brand}
-            onConfirm={async (selected) => { await onRunAgentActions(selected); }}
+            onConfirm={async (selected) => {
+              await onRunAgentActions(selected);
+              onConfirmProposal?.(selected);
+            }}
             onCancel={onDiscardProposal}
           />
         </div>
+      )}
+      {!isUser && message.proposalExecuted && (
+        <ProposalExecutedBanner
+          executedAt={message.executedAt}
+          executedActions={message.executedActions}
+        />
       )}
       {!isUser && message.tasksList && typeof renderTaskList === "function" && (
         <div style={{ alignSelf: "stretch", paddingLeft: 42 }}>

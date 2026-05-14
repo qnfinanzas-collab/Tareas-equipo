@@ -3100,6 +3100,9 @@ Reglas para block_task:
                     onDiscardProposal={() => {
                       setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x));
                     }}
+                    onConfirmProposal={(executedActions) => {
+                      setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalExecuted: true, executedAt: Date.now(), executedActions } : x));
+                    }}
                     showTimestamp={true}
                   />
                 </React.Fragment>
