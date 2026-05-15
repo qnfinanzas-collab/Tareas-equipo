@@ -148,6 +148,11 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
   const chatHistoryRef = useRef(chatHistory);
   useEffect(() => { chatHistoryRef.current = chatHistory; }, [chatHistory]);
   const hydratedAuthUidRef = useRef(null);
+  // Timer pendiente del debounce de flush a Supabase. Reemplaza el
+  // throttle anterior de cada-5-msgs porque el realtime requiere que
+  // los flushes ocurran tras cada mensaje (sin UPDATE en Supabase no
+  // hay evento postgres_changes que el otro dispositivo reciba).
+  const flushDebounceRef = useRef(null);
 
   // Carga inicial desde Supabase. Resolución de conflicto por
   // timestamp del último mensaje: el dispositivo con la actividad
@@ -235,21 +240,41 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
         });
         console.log(`[Kluxor] Chat sync realtime: ${remote.length} mensajes`);
       })
-      .subscribe();
+      .subscribe((status) => {
+        // Log del status para debugging: SUBSCRIBED = canal vivo;
+        // CHANNEL_ERROR = RLS bloqueando o tabla no en publication;
+        // TIMED_OUT = server no respondió; CLOSED = desconectado.
+        console.log(`[Kluxor] Chat realtime status: ${status}`);
+      });
     return () => { try { supa.removeChannel(ch); } catch {} };
   }, [authUid]);
 
   // Persistencia con guard userId (mismo patrón que HectorPanel).
-  // localStorage siempre; Supabase cada 5 mensajes nuevos medido por
-  // diferencia de longitud — un update in-place (p.ej. especialista
-  // loading→done) NO cuenta como mensaje nuevo.
+  // localStorage siempre, síncrono. Supabase con debounce 500ms para
+  // que el realtime del otro dispositivo reciba el UPDATE en tiempo
+  // razonable. Antes era throttle cada-5-msgs y dejaba 4 mensajes
+  // sin flushear hasta que la conversación acumulaba — incompatible
+  // con realtime. El debounce naturalmente batchea updates rápidos
+  // (eco de specialist loading→done dentro de 500ms se condensa en
+  // un único flush). El check de length evita flushes inútiles en
+  // updates in-place que no cambian la longitud.
   useEffect(() => {
     if (!userId) return;
     try { localStorage.setItem(CHAT_KEY, JSON.stringify(chatHistory.slice(-CHAT_MAX))); } catch {}
-    if (authUid && chatHistory.length - lastFlushedLengthRef.current >= 5) {
-      lastFlushedLengthRef.current = chatHistory.length;
-      flushChatToSupabase(authUid, chatHistory);
-    }
+    if (!authUid) return;
+    if (chatHistory.length === lastFlushedLengthRef.current) return;
+    flushDebounceRef.current = setTimeout(() => {
+      const msgs = chatHistoryRef.current;
+      lastFlushedLengthRef.current = msgs.length;
+      flushChatToSupabase(authUid, msgs);
+      flushDebounceRef.current = null;
+    }, 500);
+    return () => {
+      if (flushDebounceRef.current) {
+        clearTimeout(flushDebounceRef.current);
+        flushDebounceRef.current = null;
+      }
+    };
   }, [chatHistory, CHAT_KEY, userId, authUid]);
 
   // Flush final al desmontar para no dejar mensajes huérfanos entre
