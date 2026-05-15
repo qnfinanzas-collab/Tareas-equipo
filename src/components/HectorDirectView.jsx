@@ -174,7 +174,16 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
         const remote = Array.isArray(row?.messages) ? row.messages : [];
         const local = chatHistoryRef.current || [];
         if (remote.length === 0) {
-          console.log("[Kluxor] Chat Supabase vacío, usando localStorage");
+          // Supabase vacío + local con contenido → bootstrap inmediato.
+          // Sin esto, el primer dispositivo nunca propagaba sus msgs
+          // hasta acumular 5 nuevos sobre los ya existentes.
+          if (local.length > 0) {
+            flushChatToSupabase(authUid, local);
+            lastFlushedLengthRef.current = local.length;
+            console.log(`[Kluxor] Chat Supabase vacío, propagando local: ${local.length} mensajes`);
+          } else {
+            console.log("[Kluxor] Chat Supabase vacío, usando localStorage");
+          }
           return;
         }
         const remoteLastTs = remote[remote.length - 1]?.ts || 0;
@@ -184,8 +193,12 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
           lastFlushedLengthRef.current = remote.length;
           console.log(`[Kluxor] Chat cargado desde Supabase: ${remote.length} mensajes (más reciente)`);
         } else {
-          lastFlushedLengthRef.current = remote.length;
-          console.log("[Kluxor] Chat local más reciente, manteniendo localStorage");
+          // Local más reciente → propaga YA a Supabase sin esperar a
+          // que el CEO escriba 5 mensajes más. Cierra el gap entre el
+          // dispositivo con cambios offline y la copia central.
+          flushChatToSupabase(authUid, local);
+          lastFlushedLengthRef.current = local.length;
+          console.log(`[Kluxor] Chat local más reciente, propagando a Supabase: ${local.length} mensajes`);
         }
       } catch (e) {
         console.warn(`[Kluxor] Chat load threw: ${e?.message || e}`);
