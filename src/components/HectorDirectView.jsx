@@ -207,38 +207,6 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
     })();
   }, [authUid]);
 
-  // Realtime: suscripción a UPDATE en hector_chat filtrado por user_id.
-  // Cuando otro dispositivo flushea sus mensajes a Supabase, este canal
-  // dispara y aplicamos remote a chatHistory. Guard de eco: si los ts
-  // del remote son <= ts local, ignoramos (eco de nuestro propio flush
-  // o cambio más antiguo). Filtro server-side por user_id evita recibir
-  // eventos de otros usuarios. Requiere que la tabla esté en la
-  // publication supabase_realtime (ya habilitado en Supabase).
-  useEffect(() => {
-    if (!authUid || !supa) return;
-    const ch = supa
-      .channel("hector-chat-" + authUid)
-      .on("postgres_changes", {
-        event: "UPDATE",
-        schema: "public",
-        table: "hector_chat",
-        filter: "user_id=eq." + authUid,
-      }, (payload) => {
-        const remote = payload.new?.messages;
-        if (!Array.isArray(remote)) return;
-        setChatHistory(prev => {
-          const remoteLastTs = remote[remote.length - 1]?.ts || 0;
-          const localLastTs  = prev[prev.length - 1]?.ts || 0;
-          if (remoteLastTs <= localLastTs) return prev;
-          lastFlushedLengthRef.current = remote.length;
-          return remote.slice(-CHAT_MAX);
-        });
-        console.log(`[Kluxor] Chat sync realtime: ${remote.length} mensajes`);
-      })
-      .subscribe();
-    return () => { try { supa.removeChannel(ch); } catch {} };
-  }, [authUid]);
-
   // Persistencia con guard userId (mismo patrón que HectorPanel).
   // localStorage siempre; Supabase cada 5 mensajes nuevos medido por
   // diferencia de longitud — un update in-place (p.ej. especialista
