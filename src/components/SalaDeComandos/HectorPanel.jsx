@@ -1686,6 +1686,19 @@ Reglas para block_task:
   };
   const handleCompleteFromCard = (taskId, title) => {
     guardedAction(() => {
+      // Guard de tarea obsoleta: si el análisis quedó persistido en
+      // chatHistory con tareas que ya no existen (completadas en otro
+      // flujo, archivadas, o reasignadas), findTask devuelve null. Sin
+      // este check, completeFromCard hacía return silencioso y aun así
+      // se marcaba como dismissed + se pintaba "✓ Marcada como hecha"
+      // en el chat, generando la falsa sensación de "no hace nada".
+      const task = findTask(taskId, title);
+      if (!task) {
+        console.warn(`[HectorPanel] handleCompleteFromCard: tarea no encontrada · taskId=${taskId} title=${title}`);
+        setDismissedTaskIds((prev) => { const n = new Set(prev); n.add(String(taskId)); return n; });
+        switchToChatWithMessage(`⚠ "${title}" ya no está disponible — el análisis está obsoleto. Pulsa Actualizar para regenerarlo.`);
+        return;
+      }
       completeFromCard(taskId, title);
       setDismissedTaskIds((prev) => { const n = new Set(prev); n.add(String(taskId)); return n; });
       switchToChatWithMessage(`✓ Marcada como hecha: "${title}".`);
@@ -1694,6 +1707,14 @@ Reglas para block_task:
   };
   const handlePostponeFromCard = (taskId, title) => {
     guardedAction(() => {
+      // Mismo guard que handleCompleteFromCard — coherencia entre acciones.
+      const task = findTask(taskId, title);
+      if (!task) {
+        console.warn(`[HectorPanel] handlePostponeFromCard: tarea no encontrada · taskId=${taskId} title=${title}`);
+        setDismissedTaskIds((prev) => { const n = new Set(prev); n.add(String(taskId)); return n; });
+        switchToChatWithMessage(`⚠ "${title}" ya no está disponible — el análisis está obsoleto. Pulsa Actualizar para regenerarlo.`);
+        return;
+      }
       postponeFromCard(taskId, title);
       setDismissedTaskIds((prev) => { const n = new Set(prev); n.add(String(taskId)); return n; });
       switchToChatWithMessage(`⏸ Pospuesta +1d: "${title}".`);
@@ -1719,9 +1740,15 @@ Reglas para block_task:
   // original sigue intacto en chatHistory (fuente de verdad para
   // sincronización Supabase); aquí solo escondemos las que el CEO ya
   // resolvió en esta sesión hasta que llegue un análisis nuevo.
+  // Stale-guard: además filtramos tareas que ya no existen en
+  // tasksRef.current (= active = asignadas al CEO y no en Hecho). Sin
+  // esto, el análisis viejo podía mostrar tareas zombi cuyo botón
+  // Hecho fallaba silenciosamente (taskId inexistente → findTask null).
   const visibleAnalysis = latestAnalysis ? {
     ...latestAnalysis,
-    tasks: (latestAnalysis.tasks || []).filter(t => !dismissedTaskIds.has(String(t.taskId))),
+    tasks: (latestAnalysis.tasks || [])
+      .filter(t => !dismissedTaskIds.has(String(t.taskId)))
+      .filter(t => (tasksRef.current || []).some(x => String(x.id) === String(t.taskId))),
   } : null;
   const unreadCount = Math.max(0, chatHistory.length - lastSeenChatLength);
 
