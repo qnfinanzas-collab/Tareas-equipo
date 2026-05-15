@@ -10214,25 +10214,31 @@ export default function TaskFlow(){
   },[proj.id,addToast, ensureCanEditProj]);
   // Acciones cross-project para el Dashboard (Top 5 críticas puede venir de cualquier proyecto).
   const completeTaskAnywhere = useCallback((taskId,projId,fromColId)=>{
-    // Telemetría: rastrea cuál de los 5 guards aborta la mutación, si
-    // alguno. Antes el setData devolvía prev silenciosamente en 3 casos
-    // distintos (sin board, sin columnas/destino o tarea/columna stale)
-    // y el toast "✓ Tarea completada" se disparaba igual, mintiendo al
-    // CEO. Ahora: si reason !== "ok", consola con args + toast warn.
+    // fromColId pasa de "requisito" a "hint". Si está stale (sync
+    // cross-device, drag-and-drop concurrente, etc), buscamos la
+    // tarea en TODAS las columnas del proyecto antes de rendirnos.
+    // Telemetría se mantiene para casos donde realmente no existe la
+    // tarea o no hay board.
     let reason = "ok";
     setData(prev=>{
       const cols=prev.boards[projId];
       if(!cols){ reason="no-board-for-project"; return prev; }
       const done=cols.find(c=>c.name==="Hecho")||cols[cols.length-1];
       if(!done){ reason="no-columns-at-all"; return prev; }
-      if(done.id===fromColId){ reason="already-in-target-col"; return prev; }
-      const src=cols.find(c=>c.id===fromColId);
-      if(!src){ reason="src-col-not-found-stale-colId"; return prev; }
-      const task=src.tasks.find(t=>t.id===taskId);
-      if(!task){ reason="task-not-in-src-col"; return prev; }
+      // Hint primero, fallback a búsqueda exhaustiva si fromColId stale.
+      let srcColId = fromColId;
+      let task = cols.find(c=>c.id===fromColId)?.tasks.find(t=>t.id===taskId);
+      if(!task){
+        for(const c of cols){
+          const found = c.tasks.find(t=>t.id===taskId);
+          if(found){ srcColId = c.id; task = found; break; }
+        }
+      }
+      if(!task){ reason="task-not-in-project"; return prev; }
+      if(srcColId===done.id){ reason="already-in-done"; return prev; }
       const nc=cols.map(col=>{
-        if(col.id===fromColId) return{...col,tasks:col.tasks.filter(t=>t.id!==taskId)};
-        if(col.id===done.id)   return{...col,tasks:[...col.tasks,task]};
+        if(col.id===srcColId) return{...col,tasks:col.tasks.filter(t=>t.id!==taskId)};
+        if(col.id===done.id)  return{...col,tasks:[...col.tasks,task]};
         return col;
       });
       return{...prev,boards:{...prev.boards,[projId]:nc}};

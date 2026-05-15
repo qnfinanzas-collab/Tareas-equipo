@@ -1130,12 +1130,20 @@ Reglas:
     }
   };
 
+  // Normaliza ids para comparación tolerante. La LLM puede emitir
+  // taskId con espacios, comillas alrededor o whitespace invisible que
+  // rompe la igualdad estricta. Trim + strip de comillas simples/dobles.
+  const normId = (v) => String(v ?? "").trim().replace(/^["']|["']$/g, "");
+
   // Helper: localizar tarea por id o por título normalizado.
   const findTask = (id, title) => {
     const list = tasksRef.current || [];
-    if (id) {
-      const byId = list.find((t) => String(t.id) === String(id));
-      if (byId) return byId;
+    if (id != null) {
+      const targetId = normId(id);
+      if (targetId) {
+        const byId = list.find((t) => normId(t.id) === targetId);
+        if (byId) return byId;
+      }
     }
     if (title) {
       const norm = title.trim().toLowerCase();
@@ -1748,7 +1756,14 @@ Reglas para block_task:
     ...latestAnalysis,
     tasks: (latestAnalysis.tasks || [])
       .filter(t => !dismissedTaskIds.has(String(t.taskId)))
-      .filter(t => (tasksRef.current || []).some(x => String(x.id) === String(t.taskId))),
+      .filter(t => {
+        // Misma normalización que findTask para que el filtro y el
+        // lookup en el click sean coherentes — si una tarea se muestra
+        // en la card, garantizamos que findTask la encontrará.
+        const targetId = normId(t.taskId);
+        if (!targetId) return false;
+        return (tasksRef.current || []).some(x => normId(x.id) === targetId);
+      }),
   } : null;
   const unreadCount = Math.max(0, chatHistory.length - lastSeenChatLength);
 
