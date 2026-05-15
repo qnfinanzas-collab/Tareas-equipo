@@ -219,8 +219,46 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
   // o cambio más antiguo). Filtro server-side por user_id evita recibir
   // eventos de otros usuarios. Requiere que la tabla esté en la
   // publication supabase_realtime (ya habilitado en Supabase).
+  // isFirstSubscribeRef distingue la primera suscripción (al montar)
+  // de las reconexiones posteriores. iPhone Safari mata el WebSocket
+  // cuando el tab pasa a background — al volver, la cadena de status
+  // típica es CLOSED → CHANNEL_ERROR → SUBSCRIBED. Durante el corte
+  // los eventos UPDATE del otro dispositivo se pierden. Al recuperar
+  // SUBSCRIBED (post-primera), refetch puntual a Supabase para
+  // alinear el state con lo que haya pasado mientras estábamos fuera.
+  const isFirstSubscribeRef = useRef(true);
+
   useEffect(() => {
     if (!authUid || !supa) return;
+    // Refetch one-shot tras reconexión. Misma lógica que el load
+    // useEffect pero sin merge de análisis (HectorDirect no genera
+    // hector_analysis). Actualiza lastFlushedLengthRef para evitar
+    // que el debounce dispare un flush eco hacia Supabase con datos
+    // que acabamos de recibir.
+    const refetchFromSupabase = async () => {
+      try {
+        const { data: row, error } = await supa
+          .from("hector_chat")
+          .select("messages")
+          .eq("user_id", authUid)
+          .maybeSingle();
+        if (error) {
+          console.warn(`[Kluxor] Chat refetch error: ${error.message}`);
+          return;
+        }
+        const remote = Array.isArray(row?.messages) ? row.messages : [];
+        if (remote.length === 0) return;
+        const local = chatHistoryRef.current || [];
+        const remoteLastTs = remote[remote.length - 1]?.ts || 0;
+        const localLastTs  = local[local.length - 1]?.ts || 0;
+        if (remoteLastTs <= localLastTs) return;
+        setChatHistory(remote.slice(-CHAT_MAX));
+        lastFlushedLengthRef.current = remote.length;
+        console.log(`[Kluxor] Chat resync tras reconexión: ${remote.length} mensajes`);
+      } catch (e) {
+        console.warn(`[Kluxor] Chat refetch threw: ${e?.message || e}`);
+      }
+    };
     const ch = supa
       .channel("hector-chat-" + authUid)
       .on("postgres_changes", {
@@ -245,6 +283,17 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
         // CHANNEL_ERROR = RLS bloqueando o tabla no en publication;
         // TIMED_OUT = server no respondió; CLOSED = desconectado.
         console.log(`[Kluxor] Chat realtime status: ${status}`);
+        if (status === "SUBSCRIBED") {
+          if (isFirstSubscribeRef.current) {
+            // Primera suscripción al montar: el useEffect de carga
+            // inicial ya hizo su fetch. Solo marcamos y salimos.
+            isFirstSubscribeRef.current = false;
+            return;
+          }
+          // Reconexión (Safari volvió del background, red estable):
+          // recupera mensajes que pudieron llegar durante el corte.
+          refetchFromSupabase();
+        }
       });
     return () => { try { supa.removeChannel(ch); } catch {} };
   }, [authUid]);
