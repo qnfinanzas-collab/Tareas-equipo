@@ -10214,12 +10214,22 @@ export default function TaskFlow(){
   },[proj.id,addToast, ensureCanEditProj]);
   // Acciones cross-project para el Dashboard (Top 5 críticas puede venir de cualquier proyecto).
   const completeTaskAnywhere = useCallback((taskId,projId,fromColId)=>{
+    // Telemetría: rastrea cuál de los 5 guards aborta la mutación, si
+    // alguno. Antes el setData devolvía prev silenciosamente en 3 casos
+    // distintos (sin board, sin columnas/destino o tarea/columna stale)
+    // y el toast "✓ Tarea completada" se disparaba igual, mintiendo al
+    // CEO. Ahora: si reason !== "ok", consola con args + toast warn.
+    let reason = "ok";
     setData(prev=>{
-      const cols=prev.boards[projId]; if(!cols) return prev;
+      const cols=prev.boards[projId];
+      if(!cols){ reason="no-board-for-project"; return prev; }
       const done=cols.find(c=>c.name==="Hecho")||cols[cols.length-1];
-      if(!done||done.id===fromColId) return prev;
+      if(!done){ reason="no-columns-at-all"; return prev; }
+      if(done.id===fromColId){ reason="already-in-target-col"; return prev; }
       const src=cols.find(c=>c.id===fromColId);
-      const task=src?.tasks.find(t=>t.id===taskId); if(!task) return prev;
+      if(!src){ reason="src-col-not-found-stale-colId"; return prev; }
+      const task=src.tasks.find(t=>t.id===taskId);
+      if(!task){ reason="task-not-in-src-col"; return prev; }
       const nc=cols.map(col=>{
         if(col.id===fromColId) return{...col,tasks:col.tasks.filter(t=>t.id!==taskId)};
         if(col.id===done.id)   return{...col,tasks:[...col.tasks,task]};
@@ -10227,7 +10237,12 @@ export default function TaskFlow(){
       });
       return{...prev,boards:{...prev.boards,[projId]:nc}};
     });
-    addToast("✓ Tarea completada");
+    if(reason === "ok"){
+      addToast("✓ Tarea completada");
+    } else {
+      console.warn(`[completeTaskAnywhere] no-op · reason=${reason} · args:`, { taskId, projId, fromColId });
+      addToast(`⚠ No se completó (${reason}). Mira consola.`, "warn");
+    }
   },[addToast]);
   // Traspaso de proyecto principal: extrae la tarea del board de su proyecto
   // actual (sea cual sea), la inserta en el board del nuevo proyecto en una
