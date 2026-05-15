@@ -10214,18 +10214,31 @@ export default function TaskFlow(){
   },[proj.id,addToast, ensureCanEditProj]);
   // Acciones cross-project para el Dashboard (Top 5 críticas puede venir de cualquier proyecto).
   const completeTaskAnywhere = useCallback((taskId,projId,fromColId)=>{
-    // fromColId pasa de "requisito" a "hint". Si está stale (sync
-    // cross-device, drag-and-drop concurrente, etc), buscamos la
-    // tarea en TODAS las columnas del proyecto antes de rendirnos.
-    // Telemetría se mantiene para casos donde realmente no existe la
-    // tarea o no hay board.
+    // projId y fromColId pasan de "requisitos" a "hints". El projId
+    // llega NaN cuando proviene de Number(pid) sobre un pid string no
+    // numérico (proyectos con código como "REG"). El fromColId puede
+    // estar stale por sync cross-device. Si los hints fallan, buscamos
+    // la tarea por id en TODOS los boards y resolvemos el proyecto y
+    // la columna desde ahí. Solo nos rendimos si el taskId no existe
+    // en absoluto o el board del proyecto no tiene columnas.
     let reason = "ok";
     setData(prev=>{
-      const cols=prev.boards[projId];
+      // Resolución de cols+projId: hint primero, exhaustivo si falla.
+      let resolvedProjId = projId;
+      let cols = (projId != null && !Number.isNaN(projId)) ? prev.boards[projId] : null;
+      if(!cols || !cols.some(c=>c.tasks.some(t=>t.id===taskId))){
+        for(const [pid, pcols] of Object.entries(prev.boards || {})){
+          if(pcols.some(c=>c.tasks.some(t=>t.id===taskId))){
+            cols = pcols;
+            resolvedProjId = pid;
+            break;
+          }
+        }
+      }
       if(!cols){ reason="no-board-for-project"; return prev; }
       const done=cols.find(c=>c.name==="Hecho")||cols[cols.length-1];
       if(!done){ reason="no-columns-at-all"; return prev; }
-      // Hint primero, fallback a búsqueda exhaustiva si fromColId stale.
+      // fromColId como hint, fallback exhaustivo por taskId.
       let srcColId = fromColId;
       let task = cols.find(c=>c.id===fromColId)?.tasks.find(t=>t.id===taskId);
       if(!task){
@@ -10241,7 +10254,7 @@ export default function TaskFlow(){
         if(col.id===done.id)  return{...col,tasks:[...col.tasks,task]};
         return col;
       });
-      return{...prev,boards:{...prev.boards,[projId]:nc}};
+      return{...prev,boards:{...prev.boards,[resolvedProjId]:nc}};
     });
     if(reason === "ok"){
       addToast("✓ Tarea completada");
