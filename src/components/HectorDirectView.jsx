@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive } from "../lib/agentActions.js";
+import { formatCeoMemoryForPrompt } from "../lib/memory.js";
 import { supa } from "../lib/sync.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
 import ChatBubble, { CHAT_PALETTE, ceoAvatarStyle, hectorAvatarSmall } from "./Shared/ChatBubble.jsx";
@@ -450,9 +451,19 @@ Reglas:
 - Si no hay tareas relevantes que listar, NO emitas el bloque — responde solo con prosa.
 - Este formato es SOLO para consultas de lectura. Para crear, modificar, asignar o eliminar tareas sigue siendo [ACTIONS] como hasta ahora.`;
 
+      // Memoria permanente del CEO (preferences/keyFacts/decisions/lessons).
+      // Misma fuente y formato que HectorPanel — propaga decisiones y
+      // preferencias entre sesiones para que Héctor no empiece a ciegas.
+      // Si data.ceoMemory no existe, memBlock = "" → comportamiento idéntico
+      // al previo. Va ANTES de membersBlock porque es contexto identitario
+      // semipermanente, no snapshot del momento.
+      const memBlock = formatCeoMemoryForPrompt(data?.ceoMemory);
+      const memBlockFormatted = memBlock ? "\n\n----\n" + memBlock : "";
+
       const baseSystem = ceoBlock + (hector?.promptBase
         ? hector.promptBase + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE)
+        + memBlockFormatted
         + membersBlock + urgentBlock + projBlock + negBlock + finBlock + govBlock + tasksListBlock;
       // Convertimos el historial a la forma que espera la API.
       // Los mensajes "assistant" llevan el texto limpio (sin proposal).
@@ -707,7 +718,10 @@ Reglas:
           // redacte contratos con Antonio Díaz como parte principal,
           // Jorge prepare informes para él, etc. Sin esto cada agente
           // podía coger al primer miembro como "parte" del documento.
-          const sys = ceoBlock + (ag.promptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE;
+          // memBlockFormatted del scope superior — el especialista también
+          // conoce preferencias/decisiones/lecciones del CEO para
+          // alinearse con criterios ya establecidos (mismo bloque que Héctor).
+          const sys = ceoBlock + (ag.promptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE + memBlockFormatted;
           const taskLow = inv.task.toLowerCase();
           const isRedaccion = inv.key === "mario" && REDACCION_KEYS.some(k => taskLow.includes(k));
           const timeoutMs = isRedaccion ? 90000 : 45000;
