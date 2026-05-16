@@ -12,7 +12,7 @@
 // Responsive: maxWidth 680px en desktop, 600px en tablet, 100% en móvil.
 import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures } from "../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive } from "../lib/agentActions.js";
 import { formatCeoMemoryForPrompt } from "../lib/memory.js";
 import { supa } from "../lib/sync.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
@@ -599,23 +599,6 @@ Reglas:
       // logea en consola cada corrección y marca task._dateFixed=true
       // para que ActionProposal pueda mostrar un indicador sutil.
       correctActionsDates(proposal);
-      // Recopilación de incidencias para hector_tickets (Fase 1). Las
-      // cuatro variables se van llenando a medida que cada detector
-      // corre. Al final del turno collectHectorFailures las estructura
-      // en el array que se inserta en Supabase. dateFixedCount se
-      // calcula AHORA porque correctActionsDates ya marcó _dateFixed.
-      let propositiveSummaryFix = false;
-      let propositiveProseFix = false;
-      let removedFabricatedTasks = [];
-      let dateFixedCount = 0;
-      if (proposal && Array.isArray(proposal.actions)) {
-        for (const action of proposal.actions) {
-          if (!Array.isArray(action?.tasks)) continue;
-          for (const task of action.tasks) {
-            if (task?._dateFixed) dateFixedCount++;
-          }
-        }
-      }
       // Reescritura propositiva del summary (propositive-summary-v1).
       // Cuando Héctor emite "Tarea X creada en Y" en proposal.summary,
       // el CEO puede leer "creada" como confirmación de ejecución
@@ -628,7 +611,6 @@ Reglas:
         if (r.wasFixed) {
           console.log(`✏️ [agentActions] Resumen reescrito a propositivo: '${r.original}' → '${r.rewritten}'`);
           proposal.summary = r.rewritten;
-          propositiveSummaryFix = true;
         }
       }
       // Extracción de invocaciones [INVOCAR:agente:tarea]. Antes Héctor
@@ -706,7 +688,6 @@ Reglas:
           const proR = validateTasksAgainstDatabase(tasksList.proximas, allRealTasks, null);
           const totalRemoved = venR.removedCount + proR.removedCount;
           if (totalRemoved > 0) {
-            removedFabricatedTasks = [...venR.removed, ...proR.removed];
             console.warn(`🔍 [agentActions] Filtradas ${totalRemoved} tareas inventadas por Héctor (no existen en BD)`);
             [...venR.removed, ...proR.removed].forEach(r =>
               console.warn(`  - removed: '${r?.title || "(sin título)"}'`)
@@ -749,7 +730,6 @@ Reglas:
         if (r.wasFixed) {
           console.log(`✏️ [agentActions] Prosa reescrita (precede ActionProposal): '${r.original}' → '${r.rewritten}'`);
           cleanText = r.rewritten;
-          propositiveProseFix = true;
         }
       }
       // Detección anti-alucinación (Capa 2 del blindaje anti-fake-success):
@@ -759,45 +739,6 @@ Reglas:
       // afirmación de éxito aunque la prosa contenga verbos como
       // "actualizado" — es lectura, no ejecución.
       const fakeSuccess = !tasksList && detectFalseSuccessClaim(cleanText, proposal);
-
-      // hector_tickets — autorreparación Fase 1.
-      // Recoge incidencias de los detectores deterministas y las
-      // persiste en Supabase. Fire-and-forget, mismo patrón que
-      // ceo_memory: try/catch exterior + IIFE async interior. Nunca
-      // interrumpe el flujo principal del chat.
-      try {
-        const incidents = collectHectorFailures({
-          propositiveSummaryFix,
-          propositiveProseFix,
-          removedFabricatedTasks,
-          dateFixedCount,
-          fakeSuccess,
-        });
-        if (incidents.length === 0) {
-          console.log('[hector_tickets] sin incidencias');
-        } else {
-          console.log(`[hector_tickets] ${incidents.length} incidencias — insert enviado`);
-          (async () => {
-            try {
-              if (!supa || !authUid) return;
-              const { error } = await supa.from("hector_tickets").insert({
-                user_id: authUid,
-                kind: 'incident',
-                agent: 'hector_direct',
-                user_message: txt,
-                agent_response: (reply || '').slice(0, 2000),
-                incidents,
-              });
-              if (error) console.warn('[hector_tickets] error al insertar:', error);
-            } catch (e) {
-              console.warn('[hector_tickets] error al insertar:', e?.message || e);
-            }
-          })();
-        }
-      } catch (e) {
-        console.warn('[hector_tickets] error en collect:', e?.message || e);
-      }
-
       setChatHistory(prev => [...prev, {
         role: "assistant",
         text: cleanText || "(sin texto)",

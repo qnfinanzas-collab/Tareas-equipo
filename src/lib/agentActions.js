@@ -1136,35 +1136,3 @@ export function suggestNegotiationEmoji(title, description) {
   }
   return "🤝";
 }
-
-// ─────────────────────────────────────────────────────────────────────────
-// hector_tickets — Fase 1
-// Función pura que recoge los fallos detectados por los detectores
-// deterministas de Kluxor y los devuelve estructurados para insertar en
-// la tabla hector_tickets de Supabase. El caller (HectorDirectView por
-// ahora; HectorPanel en Fase 2) le pasa las variables YA calculadas en
-// su pipeline — esta función NO repite detección, solo estructura.
-// Sin side effects, sin Supabase, sin React. Testeable como pura.
-// ─────────────────────────────────────────────────────────────────────────
-export function collectHectorFailures({
-  propositiveSummaryFix = false,
-  propositiveProseFix = false,
-  removedFabricatedTasks = [],
-  dateFixedCount = 0,
-  fakeSuccess = false,
-} = {}) {
-  const incidents = [];
-  if (fakeSuccess) {
-    incidents.push({ type: "false-success", payload: {} });
-  }
-  if (typeof dateFixedCount === "number" && dateFixedCount > 0) {
-    incidents.push({ type: "stale-date-fix", payload: { count: dateFixedCount } });
-  }
-  if (Array.isArray(removedFabricatedTasks) && removedFabricatedTasks.length > 0) {
-    incidents.push({ type: "fabricated-tasks", payload: { count: removedFabricatedTasks.length } });
-  }
-  if (propositiveSummaryFix || propositiveProseFix) {
-    incidents.push({ type: "non-propositive-summary", payload: {} });
-  }
-  return incidents;
-}
