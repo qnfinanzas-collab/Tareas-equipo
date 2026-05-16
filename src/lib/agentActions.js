@@ -1142,11 +1142,21 @@ export function suggestNegotiationEmoji(title, description) {
 // fabricated-tasks, non-propositive-summary). Fire-and-forget: errores
 // se logean y se descartan para no interrumpir el chat.
 export async function collectHectorFailures({
-  supabase, userId, agent, userMessage, agentResponse, incidents,
+  supabase,
+  agent,
+  userMessage,
+  agentResponse,
+  incidents,
 }) {
   if (!incidents || incidents.length === 0) return;
   try {
-    await supabase.from('hector_tickets').insert({
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData?.session?.user?.id;
+    if (!userId) {
+      console.warn('[collectHectorFailures] Sin sesión activa, ticket no guardado.');
+      return;
+    }
+    const { error } = await supabase.from('hector_tickets').insert({
       user_id: userId,
       kind: 'incident',
       agent,
@@ -1155,6 +1165,10 @@ export async function collectHectorFailures({
       incidents,
       status: 'open',
     });
+    if (error) {
+      console.error('[collectHectorFailures] Supabase error:', error);
+      return;
+    }
     console.log('[collectHectorFailures] Ticket insertado:', incidents.map(i => i.type));
   } catch (err) {
     console.error('[collectHectorFailures] Error (ignorado):', err);

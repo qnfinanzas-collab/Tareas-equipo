@@ -777,10 +777,9 @@ Reglas:
         if (fabricatedRemoved.length > 0) {
           incidents.push({ type: "fabricated-tasks", removed: fabricatedRemoved });
         }
-        if (incidents.length > 0 && supa && authUid) {
+        if (incidents.length > 0 && supa) {
           collectHectorFailures({
             supabase: supa,
-            userId: authUid,
             agent: "hector",
             userMessage: (txt || "").slice(0, 2000),
             agentResponse: (reply || "").slice(0, 4000),
