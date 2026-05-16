@@ -45,19 +45,6 @@ export function parseAgentActions(responseText) {
     let raw = m[1].trim();
     // Tolerancia: si el modelo envuelve en ```json...``` lo limpiamos.
     raw = raw.replace(/^```json\s*|\s*```$/g, "").replace(/^```\s*|\s*```$/g, "");
-    // Sanitización string-only de control chars literales (\n \r \t).
-    // Sonnet 4.5 emite \n REALES dentro de string values con texto
-    // multilínea (descripciones con bullets, pasos numerados). JSON
-    // spec los prohíbe sin escapar → JSON.parse lanza SyntaxError.
-    // El regex captura cada string JSON respetando escapes ya válidos
-    // (\\.) y reemplaza control chars SOLO dentro del contenido. Los
-    // newlines entre tokens (whitespace insignificante para JSON)
-    // quedan intactos. Fix C v1 reemplazaba globalmente y rompía JSON
-    // multi-línea válido al convertir whitespace en backslash literal.
-    raw = raw.replace(/"((?:[^"\\]|\\.)*)"/g, (match, content) => {
-      const fixed = content.replace(/[\n\r\t]/g, c => ({ "\n":"\\n", "\r":"\\r", "\t":"\\t" })[c]);
-      return `"${fixed}"`;
-    });
     const parsed = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed.actions)) return null;
     return {
