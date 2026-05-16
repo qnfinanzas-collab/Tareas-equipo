@@ -780,7 +780,7 @@ Reglas:
         if (incidents.length > 0 && supa) {
           collectHectorFailures({
             supabase: supa,
-            agent: "hector",
+            agent: "hector_direct",
             userMessage: (txt || "").slice(0, 2000),
             agentResponse: (reply || "").slice(0, 4000),
             incidents,
