@@ -590,7 +590,10 @@ Reglas:
         { system: baseSystem, messages, max_tokens: 2048 },
         { timeoutMs: 60000 }
       );
-      const proposal = parseAgentActions(reply);
+      const sanitizedReply = reply.replace(/"(?:[^"\\]|\\.)*"/g, m =>
+        m.replace(/[\n\r\t]/g, c => ({ "\n":"\\n", "\r":"\\r", "\t":"\\t" }[c]))
+      );
+      const proposal = parseAgentActions(sanitizedReply);
       // Validación post-LLM de fechas (date-validation-postllm-v1).
       // Sonnet 4.5 con cutoff enero 2025 emite años pasados al razonar
       // fechas relativas. correctActionsDates muta proposal in-place
