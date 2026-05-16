@@ -45,6 +45,13 @@ export function parseAgentActions(responseText) {
     let raw = m[1].trim();
     // Tolerancia: si el modelo envuelve en ```json...``` lo limpiamos.
     raw = raw.replace(/^```json\s*|\s*```$/g, "").replace(/^```\s*|\s*```$/g, "");
+    // Sanitización de control chars literales (\n \r \t) que Sonnet 4.5
+    // emite sin escapar dentro de string values largos (descripciones
+    // multilínea con bullets). JSON spec los prohíbe sin escapar y
+    // JSON.parse lanza SyntaxError. Reemplazamos globalmente: dentro de
+    // strings quedan correctamente escapados; fuera de strings los
+    // control chars son whitespace insignificante según el spec.
+    raw = raw.replace(/[\n\r\t]/g, m => ({ "\n":"\\n", "\r":"\\r", "\t":"\\t" }[m]));
     const parsed = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed.actions)) return null;
     return {
