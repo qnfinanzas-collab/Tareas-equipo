@@ -12,7 +12,7 @@
 // Responsive: maxWidth 680px en desktop, 600px en tablet, 100% en móvil.
 import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive } from "../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures } from "../lib/agentActions.js";
 import { formatCeoMemoryForPrompt } from "../lib/memory.js";
 import { supa } from "../lib/sync.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
@@ -609,11 +609,14 @@ Reglas:
       // invisible para la UI: el wording final queda natural y
       // propositivo ("a crear"). Sin afectar títulos individuales de
       // tareas (van en proposal.actions[].tasks[].title) ni prosa libre.
+      let propositiveIncident = null;
+      let fabricatedRemoved = [];
       if (proposal && proposal.summary) {
         const r = rewriteToPropositive(proposal.summary);
         if (r.wasFixed) {
           console.log(`✏️ [agentActions] Resumen reescrito a propositivo: '${r.original}' → '${r.rewritten}'`);
           proposal.summary = r.rewritten;
+          propositiveIncident = { where: "summary", original: r.original, rewritten: r.rewritten };
         }
       }
       // Extracción de invocaciones [INVOCAR:agente:tarea]. Antes Héctor
@@ -695,6 +698,10 @@ Reglas:
             [...venR.removed, ...proR.removed].forEach(r =>
               console.warn(`  - removed: '${r?.title || "(sin título)"}'`)
             );
+            fabricatedRemoved = [...venR.removed, ...proR.removed].map(r => ({
+              title: r?.title || "(sin título)",
+              code: r?.code || null,
+            }));
           }
           const totalValid = venR.validated.length + proR.validated.length;
           if (totalValid === 0) {
@@ -733,6 +740,9 @@ Reglas:
         if (r.wasFixed) {
           console.log(`✏️ [agentActions] Prosa reescrita (precede ActionProposal): '${r.original}' → '${r.rewritten}'`);
           cleanText = r.rewritten;
+          if (!propositiveIncident) {
+            propositiveIncident = { where: "prose", original: r.original, rewritten: r.rewritten };
+          }
         }
       }
       // Detección anti-alucinación (Capa 2 del blindaje anti-fake-success):
@@ -742,6 +752,44 @@ Reglas:
       // afirmación de éxito aunque la prosa contenga verbos como
       // "actualizado" — es lectura, no ejecución.
       const fakeSuccess = !tasksList && detectFalseSuccessClaim(cleanText, proposal);
+      // Fase 1 mantenimiento — fire-and-forget de incidentes a hector_tickets.
+      // Agrega los 4 tipos cazados por los detectores post-LLM y los inserta
+      // en Supabase. Sin await: no debe bloquear la UI ni el flujo de chat.
+      try {
+        const incidents = [];
+        if (fakeSuccess) {
+          incidents.push({ type: "false-success", text: (cleanText || "").slice(0, 500) });
+        }
+        if (proposal && Array.isArray(proposal.actions)) {
+          const fixedTasks = [];
+          proposal.actions.forEach(a => {
+            if (Array.isArray(a?.tasks)) {
+              a.tasks.forEach(t => {
+                if (t && t._dateFixed) fixedTasks.push({ title: t.title || null, dueDate: t.dueDate || null });
+              });
+            }
+          });
+          if (fixedTasks.length > 0) incidents.push({ type: "stale-date-fix", tasks: fixedTasks });
+        }
+        if (propositiveIncident) {
+          incidents.push({ type: "non-propositive-summary", ...propositiveIncident });
+        }
+        if (fabricatedRemoved.length > 0) {
+          incidents.push({ type: "fabricated-tasks", removed: fabricatedRemoved });
+        }
+        if (incidents.length > 0 && supa && authUid) {
+          collectHectorFailures({
+            supabase: supa,
+            userId: authUid,
+            agent: "hector",
+            userMessage: (txt || "").slice(0, 2000),
+            agentResponse: (reply || "").slice(0, 4000),
+            incidents,
+          });
+        }
+      } catch (e) {
+        console.warn("[collectHectorFailures] gather error:", e?.message);
+      }
       setChatHistory(prev => [...prev, {
         role: "assistant",
         text: cleanText || "(sin texto)",

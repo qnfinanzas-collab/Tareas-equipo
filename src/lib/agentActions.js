@@ -1136,3 +1136,27 @@ export function suggestNegotiationEmoji(title, description) {
   }
   return "🤝";
 }
+
+// Fase 1 mantenimiento — insert no-bloqueante a hector_tickets cuando un
+// detector post-LLM caza una incidencia (false-success, stale-date-fix,
+// fabricated-tasks, non-propositive-summary). Fire-and-forget: errores
+// se logean y se descartan para no interrumpir el chat.
+export async function collectHectorFailures({
+  supabase, userId, agent, userMessage, agentResponse, incidents,
+}) {
+  if (!incidents || incidents.length === 0) return;
+  try {
+    await supabase.from('hector_tickets').insert({
+      user_id: userId,
+      kind: 'incident',
+      agent,
+      user_message: userMessage,
+      agent_response: agentResponse,
+      incidents,
+      status: 'open',
+    });
+    console.log('[collectHectorFailures] Ticket insertado:', incidents.map(i => i.type));
+  } catch (err) {
+    console.error('[collectHectorFailures] Error (ignorado):', err);
+  }
+}
