@@ -311,7 +311,6 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
     if (!userId) return;
     try { localStorage.setItem(CHAT_KEY, JSON.stringify(chatHistory.slice(-CHAT_MAX))); } catch {}
     if (!authUid) return;
-    if (chatHistory.length === lastFlushedLengthRef.current) return;
     flushDebounceRef.current = setTimeout(() => {
       const msgs = chatHistoryRef.current;
       lastFlushedLengthRef.current = msgs.length;
