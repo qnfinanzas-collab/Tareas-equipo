@@ -1156,7 +1156,7 @@ export async function collectHectorFailures({
       console.warn('[collectHectorFailures] Sin sesión activa, ticket no guardado.');
       return;
     }
-    const { data, error } = await supabase.from('hector_tickets').insert({
+    const { error } = await supabase.from('hector_tickets').insert({
       user_id: userId,
       kind: 'incident',
       agent,
@@ -1164,10 +1164,7 @@ export async function collectHectorFailures({
       agent_response: agentResponse,
       incidents,
       status: 'open',
-    }).select();
-    console.error('[collectHectorFailures] error completo:', JSON.stringify(error));
-    console.log('[collectHectorFailures] data:', data);
-    console.log('[collectHectorFailures] userId usado:', userId);
+    });
     if (error) {
       console.error('[collectHectorFailures] Supabase error:', error);
       return;
