@@ -4059,13 +4059,30 @@ function BoardView({board,project,members,projectMemberIds,activeMemberId,aiSche
       </div>
       <div style={{display:"flex",gap:14,alignItems:"flex-start",padding:"12px 20px 20px",overflowX:"auto"}}>
         {board.map(col=>(
-          <div key={col.id} className="tf-board-col" onDragOver={e=>e.preventDefault()} onDrop={e=>handleDrop(e,col.id)} style={{width:268,flexShrink:0,background:"#FAFAF7",borderRadius:0,padding:10,border:"1px solid #E5E0D5"}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"0 2px"}}><span style={{fontSize:13,fontWeight:600,color:"#1A1A1A",textTransform:"uppercase",letterSpacing:"0.04em"}}>{col.name}</span><span style={{fontSize:11,background:"#fff",border:"0.5px solid #D8D3C5",borderRadius:0,padding:"1px 7px",color:"#6B6B6B",fontWeight:600}}>{col.tasks.length}</span></div>
-            {col.tasks.map(task=><TaskCard key={`${task._linkedFromAnotherProject?"L-":""}${task.id}`} task={task} members={members} aiSchedule={aiSchedule} projects={projects} projectColor={project?.color} onColorChange={c=>onUpdate(task.id,col.id,{...task,color:c})} onOpen={()=>setOpenTaskId(task.id)} onDragStart={()=>setDragging({taskId:task.id,colId:col.id})}/>)}
-            {newCard===col.id
-              ?<div style={{background:"#fff",border:"0.5px solid #7F77DD",borderRadius:10,padding:8}}><input autoFocus value={newCardTitle} onChange={e=>setNewCardTitle(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveNew(col.id);if(e.key==="Escape")setNewCard(null);}} placeholder="Titulo de la tarea..." style={{width:"100%",border:"none",outline:"none",fontSize:13,background:"transparent",fontFamily:"inherit"}}/><div style={{display:"flex",gap:6,marginTop:8}}><button onClick={()=>saveNew(col.id)} style={{padding:"4px 10px",borderRadius:6,background:"#7F77DD",color:"#fff",border:"none",fontSize:12,cursor:"pointer"}}>Añadir</button><button onClick={()=>setNewCard(null)} style={{padding:"4px 10px",borderRadius:6,background:"transparent",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>Cancelar</button></div></div>
-              :<button onClick={()=>{setNewCard(col.id);setNewCardTitle("");}} style={{width:"100%",textAlign:"left",padding:"7px 8px",borderRadius:8,fontSize:13,color:"#6b7280",background:"transparent",border:"none",cursor:"pointer"}}>+ Añadir tarea</button>
-            }
+          <div key={col.id} className="tf-board-col" onDragOver={e=>e.preventDefault()} onDrop={e=>handleDrop(e,col.id)} style={{
+            width:268,flexShrink:0,background:"#FAFAF7",borderRadius:0,padding:0,border:"1px solid #E5E0D5",
+            // Altura fija viewport menos chrome (topbar + project header +
+            // tabs + filter row ≈ 220px). Estilo Trello: el scroll vive
+            // dentro de la columna, no en la página entera. Header y
+            // footer "+ Añadir tarea" siempre visibles.
+            height:"calc(100vh - 220px)",minHeight:300,display:"flex",flexDirection:"column"
+          }}>
+            {/* Header de columna — fijo arriba */}
+            <div style={{flexShrink:0,padding:"10px 12px 8px",borderBottom:"1px solid #E5E0D5",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span style={{fontSize:13,fontWeight:600,color:"#1A1A1A",textTransform:"uppercase",letterSpacing:"0.04em"}}>{col.name}</span>
+              <span style={{fontSize:11,background:"#fff",border:"0.5px solid #D8D3C5",borderRadius:0,padding:"1px 7px",color:"#6B6B6B",fontWeight:600}}>{col.tasks.length}</span>
+            </div>
+            {/* Lista de tareas — scroll interno propio */}
+            <div style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"8px",minHeight:0}}>
+              {col.tasks.map(task=><TaskCard key={`${task._linkedFromAnotherProject?"L-":""}${task.id}`} task={task} members={members} aiSchedule={aiSchedule} projects={projects} projectColor={project?.color} onColorChange={c=>onUpdate(task.id,col.id,{...task,color:c})} onOpen={()=>setOpenTaskId(task.id)} onDragStart={()=>setDragging({taskId:task.id,colId:col.id})}/>)}
+            </div>
+            {/* Footer "+ Añadir tarea" — fijo abajo */}
+            <div style={{flexShrink:0,padding:8,borderTop:"1px solid #E5E0D5",background:"#FAFAF7"}}>
+              {newCard===col.id
+                ?<div style={{background:"#fff",border:"0.5px solid #C9A84C",borderRadius:0,padding:8}}><input autoFocus value={newCardTitle} onChange={e=>setNewCardTitle(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveNew(col.id);if(e.key==="Escape")setNewCard(null);}} placeholder="Titulo de la tarea..." style={{width:"100%",border:"none",outline:"none",fontSize:13,background:"transparent",fontFamily:"inherit"}}/><div style={{display:"flex",gap:6,marginTop:8}}><button onClick={()=>saveNew(col.id)} style={{padding:"4px 10px",borderRadius:0,background:"#1A1A1A",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Añadir</button><button onClick={()=>setNewCard(null)} style={{padding:"4px 10px",borderRadius:0,background:"transparent",border:"0.5px solid #D8D3C5",fontSize:12,cursor:"pointer",fontFamily:"inherit",color:"#6B6B6B"}}>Cancelar</button></div></div>
+                :<button onClick={()=>{setNewCard(col.id);setNewCardTitle("");}} style={{width:"100%",textAlign:"left",padding:"8px 10px",borderRadius:0,fontSize:13,color:"#6B6B6B",background:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit"}}>+ Añadir tarea</button>
+              }
+            </div>
           </div>
         ))}
       </div>
