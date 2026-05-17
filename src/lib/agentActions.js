@@ -701,6 +701,8 @@ export function executeAgentActions(actions, helpers) {
 
         case AGENT_ACTION_TYPES.CREATE_NEGOTIATION: {
           const memberIds = resolveAssignees(action.assignees || ["admin"], allMembers, adminMemberId);
+          console.log('[ASOC] action.linkedProjectCodes:', action.linkedProjectCodes);
+          console.log('[ASOC] action.linkedProjectCode:', action.linkedProjectCode);
           // Soporte multi-proyecto: linkedProjectCodes (array, nuevo) +
           // linkedProjectCode (string, legacy). Dedup vía Set, orden
           // preservado: el primer code resuelto es "principal", el resto
@@ -710,6 +712,7 @@ export function executeAgentActions(actions, helpers) {
             ...(action.linkedProjectCode ? [action.linkedProjectCode] : []),
           ].filter(Boolean);
           const uniqueCodes = [...new Set(requestedCodes)];
+          console.log('[ASOC] codes a resolver:', uniqueCodes);
           const linkedProjs = [];
           for (const code of uniqueCodes) {
             const proj = findProjectByCode?.(code);
@@ -720,7 +723,14 @@ export function executeAgentActions(actions, helpers) {
               addToast?.(`⚠ Proyecto "${code}" no encontrado — negociación creada sin ese vínculo`, "warn");
             }
           }
+          console.log('[ASOC] linkedProjs resueltos:', linkedProjs);
           const primaryProj = linkedProjs[0] || null;
+          const relatedProjects = linkedProjs.map((p, i) => ({
+            projectId: p.id,
+            role: i === 0 ? "principal" : "relacionado",
+            priority: i === 0 ? "high" : "medium",
+          }));
+          console.log('[ASOC] relatedProjects final:', relatedProjects);
           const nowIso = new Date().toISOString();
           const factToItem = (text) => ({ id: cryptoRandomId("kf"), text, source: "agent", addedAt: nowIso });
           createNegotiation?.({
@@ -734,11 +744,7 @@ export function executeAgentActions(actions, helpers) {
             members: memberIds,
             projectId: primaryProj?.id || null,
             agentId: null,
-            relatedProjects: linkedProjs.map((p, i) => ({
-              projectId: p.id,
-              role: i === 0 ? "principal" : "relacionado",
-              priority: i === 0 ? "high" : "medium",
-            })),
+            relatedProjects,
             relationships: [],
             stakeholders: (action.stakeholders || []).map(s => ({
               id: cryptoRandomId("stk"),

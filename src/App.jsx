@@ -12158,11 +12158,15 @@ export default function TaskFlow(){
         newProjectMap.set(r.code, { id: r.id, code: r.code });
       }
     }
+    console.log('[ASOC] Map proyectos creados:', JSON.stringify([...newProjectMap.entries()]));
     const helpers2 = {
       ...helpers,
       findProjectByCode: (code) => {
-        if (newProjectMap.has(code)) return newProjectMap.get(code);
-        return (dataRef.current?.projects || []).find(p => p.code === code);
+        const fromMap = newProjectMap.has(code) ? newProjectMap.get(code) : null;
+        const fromData = !fromMap ? (dataRef.current?.projects || []).find(p => p.code === code) : null;
+        const resultado = fromMap || fromData || null;
+        console.log('[ASOC] findProjectByCode busca:', code, '→ encontrado:', resultado);
+        return resultado;
       },
     };
     const results2 = executeAgentActions(otherActions, helpers2);
