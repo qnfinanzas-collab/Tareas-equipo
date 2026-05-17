@@ -3923,7 +3923,19 @@ function ScopeAvatarModal({scope,data,activeProjectId,activeMemberId,onClose,onM
 }
 
 // ── Task Card ─────────────────────────────────────────────────────────────────
-function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
+// Paleta Kluxor para el borde lateral de tarea. 5 colores operativos:
+// oro, negro, perla, gris, gris azulado. Si task.color está en esta
+// paleta (o es cualquier otro hex válido) se respeta; si no hay
+// task.color se usa el color del proyecto; fallback final oro.
+const KLUXOR_TASK_COLORS = [
+  { key: "oro",          hex: "#C9A84C", label: "Oro" },
+  { key: "negro",        hex: "#0A0A0A", label: "Negro" },
+  { key: "perla",        hex: "#F5F0E8", label: "Perla" },
+  { key: "gris",         hex: "#6B6B6B", label: "Gris" },
+  { key: "gris-azulado", hex: "#3B5573", label: "Gris azulado" },
+];
+
+function TaskCard({task,members,aiSchedule,projects,projectColor,onColorChange,onOpen,onDragStart}){
   const p2=palOf(task.assignees);
   const isOver=daysUntil(task.dueDate)<0;
   const isToday=daysUntil(task.dueDate)===0;
@@ -3954,15 +3966,17 @@ function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
   // ellipsis). Aprovecha el espacio vertical de la card cuando la tarea
   // no tiene tags/fechas/progress, dando contexto sin abrir el detalle.
   const descSnippet = String(task.desc || "").replace(/\s+/g, " ").trim().slice(0, 100);
-  // Conditional para colapsar la fila combinada QBadge+fechas si no hay
-  // nada que mostrar (Q calculado siempre existe, pero QBadge puede
-  // renderizar gap mínimo si no aplica — comportamiento aceptable).
-  const showMetaRow = true; // QBadge siempre presente; mantenemos la fila.
+  const showMetaRow = true;
+  // Color del borde lateral: task.color > projectColor > oro Kluxor.
+  // Permite override per-tarea via color picker (guardado en task.color
+  // → sync.js → Supabase a través de setData → realtime a otros clientes).
+  const sideColor = task.color || projectColor || "#C9A84C";
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
   return(
-    <div draggable={!isLinkedHere} onDragStart={isLinkedHere?undefined:onDragStart} onClick={onOpen} style={{background:isLinkedHere?"#FAFAF5":(p2?p2.cardBg:"#fff"),border:`0.5px solid ${p2?p2.cardBorder+"55":"#e5e7eb"}`,borderLeft:`4px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:0,padding:"8px 12px",marginBottom:8,cursor:"pointer"}}>
-      {/* Fila título + presencia + linked + ref */}
+    <div draggable={!isLinkedHere} onDragStart={isLinkedHere?undefined:onDragStart} onClick={(e)=>{ if(colorPickerOpen){ setColorPickerOpen(false); return; } onOpen(); }} style={{background:isLinkedHere?"#F5F0E8":"#FFFFFF",border:"0.5px solid #E5E0D5",borderLeft:`3px solid ${sideColor}`,borderRadius:0,padding:"8px 12px",marginBottom:8,cursor:"pointer",position:"relative"}}>
+      {/* Fila título + presencia + linked + ref + color picker */}
       <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
-        <div style={{flex:1,minWidth:0,fontSize:14,fontWeight:600,lineHeight:1.35}}>{task.title}</div>
+        <div style={{flex:1,minWidth:0,fontSize:14,fontWeight:600,lineHeight:1.35,color:"#1A1A1A"}}>{task.title}</div>
         {presentHere.length>0 && (
           <div style={{display:"flex",flexShrink:0}} title={`${presentHere.map(u=>u.userName).join(", ")} ${presentHere.length===1?"está":"están"} viendo esta tarea`}>
             {presentHere.slice(0,3).map((u,i)=>{
@@ -3973,9 +3987,32 @@ function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
             })}
           </div>
         )}
-        {(isLinkedHere || (task.linkedProjects||[]).length>0) && <span title={sharedTooltip} style={{fontSize:10,padding:"1px 6px",borderRadius:0,background:"#F3F4F6",color:"#6B7280",border:"0.5px solid #E5E7EB",fontWeight:600,flexShrink:0}}>🔗</span>}
+        {(isLinkedHere || (task.linkedProjects||[]).length>0) && <span title={sharedTooltip} style={{fontSize:10,padding:"1px 6px",borderRadius:0,background:"#F0EDE5",color:"#6B6B6B",border:"0.5px solid #D8D3C5",fontWeight:600,flexShrink:0}}>🔗</span>}
         <RefBadge code={task.ref}/>
+        {/* Icono de color — visible si onColorChange está disponible. */}
+        {onColorChange && (
+          <button
+            type="button"
+            title="Cambiar color de la tarea"
+            onClick={(e)=>{ e.stopPropagation(); setColorPickerOpen(o=>!o); }}
+            style={{flexShrink:0,width:14,height:14,borderRadius:0,background:sideColor,border:"1px solid #1A1A1A33",cursor:"pointer",padding:0,fontFamily:"inherit"}}
+          />
+        )}
       </div>
+      {/* Popover del color picker — paleta Kluxor estricta */}
+      {colorPickerOpen && onColorChange && (
+        <div onClick={(e)=>e.stopPropagation()} style={{position:"absolute",top:32,right:8,zIndex:50,background:"#FFFFFF",border:"1px solid #D8D3C5",borderRadius:0,padding:6,display:"flex",gap:5,boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
+          {KLUXOR_TASK_COLORS.map(c=>(
+            <button
+              key={c.key}
+              type="button"
+              title={c.label}
+              onClick={(e)=>{ e.stopPropagation(); onColorChange(c.hex); setColorPickerOpen(false); }}
+              style={{width:20,height:20,borderRadius:0,background:c.hex,border:sideColor.toLowerCase()===c.hex.toLowerCase()?"2px solid #1A1A1A":"1px solid #D8D3C5",cursor:"pointer",padding:0,fontFamily:"inherit"}}
+            />
+          ))}
+        </div>
+      )}
       {/* Descripción inline (1 línea con ellipsis) */}
       {descSnippet && <div style={{fontSize:11.5,color:"#6B7280",lineHeight:1.4,marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{descSnippet}</div>}
       {/* Tags */}
@@ -4000,7 +4037,7 @@ function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
 }
 
 // ── Board View ────────────────────────────────────────────────────────────────
-function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,onTransferProject,onAddTimelineEntry,onToggleMilestone,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask,onDeleteTask}){
+function BoardView({board,project,members,projectMemberIds,activeMemberId,aiSchedule,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,onTransferProject,onAddTimelineEntry,onToggleMilestone,externalOpenTaskId,onExternalTaskConsumed,onUpdate,onMove,onAddTask,onDeleteTask}){
   const [openTaskId,setOpenTaskId]=useState(null);
   useEffect(()=>{
     if(externalOpenTaskId){
@@ -4022,9 +4059,9 @@ function BoardView({board,members,projectMemberIds,activeMemberId,aiSchedule,wor
       </div>
       <div style={{display:"flex",gap:14,alignItems:"flex-start",padding:"12px 20px 20px",overflowX:"auto"}}>
         {board.map(col=>(
-          <div key={col.id} className="tf-board-col" onDragOver={e=>e.preventDefault()} onDrop={e=>handleDrop(e,col.id)} style={{width:268,flexShrink:0,background:"#f3f4f6",borderRadius:14,padding:10}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"0 2px"}}><span style={{fontSize:13,fontWeight:500}}>{col.name}</span><span style={{fontSize:11,background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:20,padding:"1px 7px",color:"#6b7280"}}>{col.tasks.length}</span></div>
-            {col.tasks.map(task=><TaskCard key={`${task._linkedFromAnotherProject?"L-":""}${task.id}`} task={task} members={members} aiSchedule={aiSchedule} projects={projects} onOpen={()=>setOpenTaskId(task.id)} onDragStart={()=>setDragging({taskId:task.id,colId:col.id})}/>)}
+          <div key={col.id} className="tf-board-col" onDragOver={e=>e.preventDefault()} onDrop={e=>handleDrop(e,col.id)} style={{width:268,flexShrink:0,background:"#FAFAF7",borderRadius:0,padding:10,border:"1px solid #E5E0D5"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,padding:"0 2px"}}><span style={{fontSize:13,fontWeight:600,color:"#1A1A1A",textTransform:"uppercase",letterSpacing:"0.04em"}}>{col.name}</span><span style={{fontSize:11,background:"#fff",border:"0.5px solid #D8D3C5",borderRadius:0,padding:"1px 7px",color:"#6B6B6B",fontWeight:600}}>{col.tasks.length}</span></div>
+            {col.tasks.map(task=><TaskCard key={`${task._linkedFromAnotherProject?"L-":""}${task.id}`} task={task} members={members} aiSchedule={aiSchedule} projects={projects} projectColor={project?.color} onColorChange={c=>onUpdate(task.id,col.id,{color:c})} onOpen={()=>setOpenTaskId(task.id)} onDragStart={()=>setDragging({taskId:task.id,colId:col.id})}/>)}
             {newCard===col.id
               ?<div style={{background:"#fff",border:"0.5px solid #7F77DD",borderRadius:10,padding:8}}><input autoFocus value={newCardTitle} onChange={e=>setNewCardTitle(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveNew(col.id);if(e.key==="Escape")setNewCard(null);}} placeholder="Titulo de la tarea..." style={{width:"100%",border:"none",outline:"none",fontSize:13,background:"transparent",fontFamily:"inherit"}}/><div style={{display:"flex",gap:6,marginTop:8}}><button onClick={()=>saveNew(col.id)} style={{padding:"4px 10px",borderRadius:6,background:"#7F77DD",color:"#fff",border:"none",fontSize:12,cursor:"pointer"}}>Añadir</button><button onClick={()=>setNewCard(null)} style={{padding:"4px 10px",borderRadius:6,background:"transparent",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>Cancelar</button></div></div>
               :<button onClick={()=>{setNewCard(col.id);setNewCardTitle("");}} style={{width:"100%",textAlign:"left",padding:"7px 8px",borderRadius:8,fontSize:13,color:"#6b7280",background:"transparent",border:"none",cursor:"pointer"}}>+ Añadir tarea</button>
@@ -6025,7 +6062,7 @@ function DailyDigest({boards,members,activeMemberId}){
   const q1=allT.filter(t=>getQ(t)==="Q1"); const todayT=allT.filter(t=>daysUntil(t.dueDate)===0);
   const m=members.find(x=>x.id===activeMemberId); const mp2=MP[activeMemberId]||MP[0];
   return(
-    <div style={{margin:"12px 20px 0",background:"#FAFAF7",border:"1px solid #E5E0D5",borderLeft:"3px solid #C9A84C",borderRadius:0,padding:"12px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+    <div style={{margin:"12px 20px 0",background:"#F0EDE5",border:"1px solid #D8D3C5",borderLeft:"3px solid #C9A84C",borderRadius:0,padding:"12px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
       <div style={{width:40,height:40,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,flexShrink:0}}>{m?.initials}</div>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:13,fontWeight:600,color:"#1A1A1A"}}>Hola, {m?.name.split(" ")[0]} · {m?.avail?.hoursPerDay||7}h disponibles hoy</div>
@@ -12909,7 +12946,7 @@ export default function TaskFlow(){
             return <VaultView data={data} currentMember={myMember} onUpdateVault={updateVault}/>;
           })()}
           {activeTab==="agents"    &&<AgentsView agents={data.agents||[]} onCreate={()=>setAgentModal("create")} onEdit={a=>setAgentModal(a)}/>}
-          {activeTab==="board"     &&<BoardView board={board} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} onTransferProject={transferTaskToProject} onAddTimelineEntry={(taskId,entry)=>addTimelineEntry(taskId,{...entry,authorId:entry.authorId??activeMember,author:entry.author||(data.members.find(m=>m.id===activeMember)?.name)})} onToggleMilestone={toggleTimelineMilestone} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={(id,cid,upd)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) updateTask(id,cid,upd); else updateTaskAnywhere(id,upd); }} onMove={moveTask} onAddTask={addTask} onDeleteTask={(id,cid)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) deleteTask(id,cid); else deleteTaskAnywhere(id); }}/>}
+          {activeTab==="board"     &&<BoardView board={board} project={proj} members={data.members} projectMemberIds={proj.members} activeMemberId={activeMember} aiSchedule={data.aiSchedule} workspaceLinks={(data.workspaces||[]).find(w=>w.id===proj.workspaceId)?.links||[]} agents={data.agents||[]} ceoMemory={data.ceoMemory} canDelete={isAdmin} projects={data.projects} onNavigateProject={pid=>{const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}} onTransferProject={transferTaskToProject} onAddTimelineEntry={(taskId,entry)=>addTimelineEntry(taskId,{...entry,authorId:entry.authorId??activeMember,author:entry.author||(data.members.find(m=>m.id===activeMember)?.name)})} onToggleMilestone={toggleTimelineMilestone} externalOpenTaskId={pendingOpenTaskId} onExternalTaskConsumed={()=>setPendingOpenTaskId(null)} onUpdate={(id,cid,upd)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) updateTask(id,cid,upd); else updateTaskAnywhere(id,upd); }} onMove={moveTask} onAddTask={addTask} onDeleteTask={(id,cid)=>{ const isOwn=(data.boards[proj.id]||[]).some(c=>c.tasks.some(t=>t.id===id)); if(isOwn) deleteTask(id,cid); else deleteTaskAnywhere(id); }}/>}
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
           {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile} onUpdateTask={updateTaskAnywhere}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
