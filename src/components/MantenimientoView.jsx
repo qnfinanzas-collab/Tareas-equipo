@@ -414,9 +414,21 @@ function BrunoChat({ onImprovementCreated }) {
                 ? { ...m, improvementSavedId: saved.id }
                 : m
             ));
+          } else {
+            setHistory(prev => prev.map(m =>
+              m.improvementTempId === tempId
+                ? { ...m, improvementError: "Insert sin id devuelto" }
+                : m
+            ));
           }
         } catch (e) {
           console.warn("[Bruno] save improvement failed:", e?.message);
+          const msg = e?.message || "Error guardando mejora";
+          setHistory(prev => prev.map(m =>
+            m.improvementTempId === tempId
+              ? { ...m, improvementError: msg }
+              : m
+          ));
         } finally {
           setSavingId(null);
         }
@@ -555,22 +567,34 @@ function BrunoBubble({ message, saving }) {
         wordBreak: "break-word",
       }}>
         {message.text}
-        {message.improvement && (
-          <div style={{
-            marginTop: 8,
-            padding: "6px 8px",
-            background: PALETTE.bgDone,
-            border: `1px solid ${PALETTE.success}`,
-            fontSize: 11.5,
-            color: PALETTE.success,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            borderRadius: 0,
-          }}>
-            {saving ? "Guardando mejora…" : (message.improvementSavedId ? "✅ Mejora registrada en el panel" : "✅ Mejora detectada")}
-          </div>
-        )}
+        {message.improvement && (() => {
+          const hasError = !!message.improvementError;
+          const isSaved = !!message.improvementSavedId;
+          const isSaving = !!saving;
+          const isDetectedOnly = !isSaved && !isSaving && !hasError;
+          const bg = hasError ? PALETTE.bgIncident : PALETTE.bgDone;
+          const color = hasError ? PALETTE.danger : PALETTE.success;
+          let label;
+          if (hasError)         label = `⚠ Error guardando: ${message.improvementError}`;
+          else if (isSaving)    label = "Guardando mejora…";
+          else if (isSaved)     label = "✅ Mejora registrada en el panel";
+          else                  label = "✅ Mejora detectada (no persistida)";
+          return (
+            <div style={{
+              marginTop: 8,
+              padding: "6px 8px",
+              background: bg,
+              border: `1px solid ${color}`,
+              fontSize: 11.5,
+              color,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              borderRadius: 0,
+              opacity: isDetectedOnly ? 0.85 : 1,
+            }}>{label}</div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -657,9 +681,17 @@ export default function MantenimientoView({ authUid }) {
     if (error) console.warn(`[Mantenimiento] update status error: ${error.message}`);
   };
 
-  // Inserta una mejora propuesta por Bruno en hector_tickets y
-  // actualiza el listado local. Devuelve la fila insertada para que
-  // BrunoChat pueda marcar el mensaje como guardado.
+  // Inserta una mejora propuesta por Bruno en hector_tickets y actualiza
+  // el listado local. Devuelve la fila insertada para que BrunoChat pueda
+  // marcar el mensaje como guardado.
+  //
+  // Nota sobre `agent`: la tabla tiene un check constraint
+  // (hector_tickets_agent_check) que solo admite 'hector_direct' o
+  // 'hector_panel'. Aunque la mejora viene de Bruno, usamos
+  // 'hector_direct' para satisfacer el constraint — la procedencia real
+  // queda implícita por kind='improvement' (las incidencias del detector
+  // post-LLM usan kind='incident'). Si en el futuro se amplía el
+  // constraint con 'bruno', cambiar aquí.
   const createImprovement = async (text) => {
     if (!supa) throw new Error("Supabase no disponible");
     const { data: sessionData } = await supa.auth.getSession();
@@ -668,7 +700,7 @@ export default function MantenimientoView({ authUid }) {
     const payload = {
       user_id: userId,
       kind: "improvement",
-      agent: "bruno",
+      agent: "hector_direct",
       improvement_text: text,
       status: "pending",
     };
@@ -679,9 +711,10 @@ export default function MantenimientoView({ authUid }) {
       .single();
     if (error) {
       console.error("[Mantenimiento] createImprovement error:", error);
-      throw new Error(error.message);
+      throw new Error(error.message || "Error insertando mejora");
     }
-    if (inserted) setTickets(prev => [inserted, ...prev]);
+    if (!inserted) throw new Error("Insert sin fila devuelta (¿RLS bloquea select?)");
+    setTickets(prev => [inserted, ...prev]);
     return inserted;
   };
 
