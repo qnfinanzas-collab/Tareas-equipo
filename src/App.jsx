@@ -4083,8 +4083,10 @@ function BoardView({board,project,members,projectMemberIds,activeMemberId,aiSche
               <span style={{fontSize:13,fontWeight:600,color:"#1A1A1A",textTransform:"uppercase",letterSpacing:"0.04em"}}>{col.name}</span>
               <span style={{fontSize:11,background:"#fff",border:"0.5px solid #D8D3C5",borderRadius:0,padding:"1px 7px",color:"#6B6B6B",fontWeight:600}}>{col.tasks.length}</span>
             </div>
-            {/* Lista de tareas — scroll interno propio */}
-            <div style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"8px",minHeight:0}}>
+            {/* Lista de tareas — scroll interno propio. Clase tf-task-list
+                añade -webkit-overflow-scrolling:touch (iOS antiguo) +
+                overscroll-behavior:contain (evita rebote al padre). */}
+            <div className="tf-task-list" style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"8px",minHeight:0}}>
               {col.tasks.map(task=><TaskCard key={`${task._linkedFromAnotherProject?"L-":""}${task.id}`} task={task} members={members} aiSchedule={aiSchedule} projects={projects} projectColor={project?.color} onColorChange={c=>onUpdate(task.id,col.id,{...task,color:c})} onOpen={()=>setOpenTaskId(task.id)} onDragStart={()=>setDragging({taskId:task.id,colId:col.id})}/>)}
             </div>
             {/* Footer "+ Añadir tarea" — fijo abajo. Sin borderTop, igual
@@ -6092,27 +6094,23 @@ function DailyDigest({boards,members,activeMemberId,projectMemberIds}){
   const m=members.find(x=>x.id===activeMemberId); const mp2=MP[activeMemberId]||MP[0];
   const memberChips = Array.isArray(projectMemberIds) ? projectMemberIds : [];
   return(
-    <div style={{margin:"12px 20px 0",background:"#F0EDE5",border:"1px solid #D8D3C5",borderLeft:"3px solid #C9A84C",borderRadius:0,padding:"12px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-      <div style={{width:40,height:40,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,flexShrink:0}}>{m?.initials}</div>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:13,fontWeight:600,color:"#1A1A1A"}}>Hola, {m?.name.split(" ")[0]} · {m?.avail?.hoursPerDay||7}h disponibles hoy</div>
-        <div style={{fontSize:12,color:"#6B6B6B",marginTop:2}}>
+    <div data-tf-banner="daily-digest" style={{margin:"12px 20px 0",background:"#F0EDE5",border:"1px solid #D8D3C5",borderLeft:"3px solid #C9A84C",borderRadius:0,padding:"12px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+      <div data-dd="avatar" style={{width:40,height:40,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,flexShrink:0}}>{m?.initials}</div>
+      <div data-dd="text-block" style={{flex:1,minWidth:0}}>
+        <div data-dd="greeting" style={{fontSize:13,fontWeight:600,color:"#1A1A1A"}}>Hola, {m?.name.split(" ")[0]} · {m?.avail?.hoursPerDay||7}h disponibles hoy</div>
+        <div data-dd="subtitle" style={{fontSize:12,color:"#6B6B6B",marginTop:2}}>
           {q1.length>0?`${q1.length} tarea${q1.length>1?"s":""} critica${q1.length>1?"s":""}.`:""}{" "}
           {todayT.length>0?`${todayT.length} vence${todayT.length>1?"n":""} hoy.`:""}{" "}
           {q1.length===0&&todayT.length===0?"Sin urgencias. Buen dia para avanzar en Q2.":""}
         </div>
-        {/* Fila Persona — chips de miembros del proyecto. Antes vivía
-            arriba del board y desaparecía al scrollear; ahora va dentro
-            del banner para aprovechar el espacio y mantenerla siempre
-            visible junto al saludo. */}
         {memberChips.length>0 && (
-          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:8}}>
-            <span style={{fontSize:11,color:"#6B6B6B"}}>Persona:</span>
+          <div data-dd="persona-row" style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:8}}>
+            <span data-dd="persona-label" style={{fontSize:11,color:"#6B6B6B"}}>Persona:</span>
             {memberChips.map(mid=>{
               const mm = members.find(x=>x.id===mid);
               const mpc = MP[mid]||MP[0];
               return(
-                <div key={mid} style={{display:"flex",alignItems:"center",gap:5,background:mpc.light,border:`1px solid ${mpc.solid}`,borderRadius:20,padding:"2px 9px 2px 5px"}}>
+                <div key={mid} data-dd="persona-chip" style={{display:"flex",alignItems:"center",gap:5,background:mpc.light,border:`1px solid ${mpc.solid}`,borderRadius:20,padding:"2px 9px 2px 5px"}}>
                   <div style={{width:8,height:8,borderRadius:"50%",background:mpc.solid}}/>
                   <span style={{fontSize:11,fontWeight:600,color:mpc.solid}}>{mm?.name?.split(" ")[0] || "?"}</span>
                 </div>
@@ -6121,10 +6119,10 @@ function DailyDigest({boards,members,activeMemberId,projectMemberIds}){
           </div>
         )}
       </div>
-      <div style={{display:"flex",gap:8,flexShrink:0,flexWrap:"wrap"}}>
+      <div data-dd="critical-chips" style={{display:"flex",gap:8,flexShrink:0,flexWrap:"wrap"}}>
         {q1.slice(0,2).map(t=><div key={t.id} style={{fontSize:11,background:"#FCEBEB",color:"#A32D2D",border:"1px solid #E24B4A",borderRadius:0,padding:"3px 8px",fontWeight:500}}>{t.title.slice(0,22)}{t.title.length>22?"...":""}</div>)}
       </div>
-      <button onClick={()=>setOpen(false)} style={{background:"none",border:"none",fontSize:16,cursor:"pointer",color:"#9ca3af",flexShrink:0}}>x</button>
+      <button data-dd="close" onClick={()=>setOpen(false)} style={{background:"none",border:"none",fontSize:16,cursor:"pointer",color:"#9ca3af",flexShrink:0}}>x</button>
     </div>
   );
 }
@@ -12607,7 +12605,7 @@ export default function TaskFlow(){
   const me = (data.members||[]).find(m=>m.id===activeMember);
   return(
     <PresenceProvider currentUser={me}>
-    <div style={{display:"flex",height:"100vh",fontFamily:"'Segoe UI',system-ui,sans-serif",background:"#f9fafb",color:"#111827"}}>
+    <div className="tf-app-root" style={{display:"flex",fontFamily:"'Segoe UI',system-ui,sans-serif",background:"#f9fafb",color:"#111827"}}>
       {showUserModal&&!authSession&&<UserSelectionModal members={data.members} onSelectUser={selectUser}/>}
       {showShortcuts&&<ShortcutsModal onClose={()=>setShowShortcuts(false)}/>}
       {overlayTaskId&&(()=>{

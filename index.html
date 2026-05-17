@@ -40,6 +40,62 @@
       .tf-task-card { transition: box-shadow .18s ease; }
       .tf-task-card:hover { box-shadow: 0 2px 6px rgba(26,26,26,0.07); }
 
+      /* Kanban scroll interno de columnas — momentum scroll iOS Safari
+         antiguo (≤15). Modernos ya lo hacen por defecto pero esta
+         declaración no hace daño y blinda compatibilidad. La clase se
+         aplica al div interior de tareas dentro de cada columna. */
+      .tf-task-list {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+      }
+
+      /* App root height — usa 100dvh (dynamic viewport, excluye URL bar
+         en iOS Safari 15.4+) con fallback a 100vh para navegadores
+         antiguos. Sin esto, en iOS el contenido se ocultaba detrás de
+         la URL bar y el scroll interno de columnas no llegaba al final. */
+      .tf-app-root {
+        height: 100vh;
+        height: 100dvh;
+      }
+
+      /* Móvil ≤768px — DailyDigest banner ultra-compacto: una sola línea
+         con saludo y filtro Persona. Oculta subtítulo, chips críticos y
+         botón cerrar para liberar espacio vertical (el board en móvil
+         necesita cada píxel). El avatar se hace más pequeño. */
+      @media (max-width: 768px) {
+        [data-tf-banner="daily-digest"] {
+          padding: 6px 10px !important;
+          gap: 8px !important;
+          margin: 6px 10px 0 !important;
+        }
+        [data-tf-banner="daily-digest"] [data-dd="avatar"] {
+          width: 26px !important;
+          height: 26px !important;
+          font-size: 10px !important;
+        }
+        [data-tf-banner="daily-digest"] [data-dd="subtitle"],
+        [data-tf-banner="daily-digest"] [data-dd="critical-chips"],
+        [data-tf-banner="daily-digest"] [data-dd="close"] {
+          display: none !important;
+        }
+        [data-tf-banner="daily-digest"] [data-dd="text-block"] {
+          display: flex !important;
+          flex-direction: row !important;
+          align-items: center !important;
+          gap: 8px !important;
+          flex-wrap: wrap !important;
+        }
+        [data-tf-banner="daily-digest"] [data-dd="greeting"] {
+          font-size: 12px !important;
+        }
+        [data-tf-banner="daily-digest"] [data-dd="persona-row"] {
+          margin-top: 0 !important;
+        }
+        [data-tf-banner="daily-digest"] [data-dd="persona-label"] {
+          display: none;
+        }
+      }
+
       /* Command Palette trigger button */
       .tf-search-btn { display: flex; }
       .tf-search-label, .tf-search-kbd { display: inline; }
