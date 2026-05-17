@@ -287,7 +287,7 @@ const taskDescription = (t) => {
 
 // Construye el prompt que se copia desde el botón Copiar de TaskCard.
 // Formato pegable directamente en Claude Code o en el chat con Bruno.
-const buildTaskPrompt = (t) => {
+const buildTaskPrompt = (t, code) => {
   const isIncident = t?.kind === "incident";
   const headerTitle = isIncident
     ? "TAREA · MANTENIMIENTO KLUXOR (incidencia detectada)"
@@ -304,7 +304,8 @@ const buildTaskPrompt = (t) => {
   const lines = [
     headerTitle,
     sep,
-    `Ticket: #${String(t.id).slice(0, 8)}`,
+    `Código: ${code || "(sin código)"}`,
+    `Ticket interno: #${String(t.id).slice(0, 8)}`,
     `Origen: ${isIncident ? "Incidencia" : "Mejora"}`,
     `Prioridad: ${priority}`,
     `Estado: ${stateLabel}`,
@@ -950,7 +951,7 @@ function FilterChip({ label, active, onClick }) {
   );
 }
 
-function TaskCard({ ticket, assigneeName, onSetStatus, onSetPriority }) {
+function TaskCard({ ticket, taskCode, assigneeName, onSetStatus, onSetPriority }) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const isIncident = ticket.kind === "incident";
@@ -964,7 +965,7 @@ function TaskCard({ ticket, assigneeName, onSetStatus, onSetPriority }) {
 
   const copyTaskPrompt = async () => {
     try {
-      await navigator.clipboard.writeText(buildTaskPrompt(ticket));
+      await navigator.clipboard.writeText(buildTaskPrompt(ticket, taskCode));
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch (e) {
@@ -984,9 +985,22 @@ function TaskCard({ ticket, assigneeName, onSetStatus, onSetPriority }) {
       padding: "12px 14px",
       marginBottom: 8,
     }}>
-      {/* Cabecera: chips + Copiar */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      {/* Cabecera: código MNT + chip origen + Copiar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {taskCode && (
+            <span style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: PALETTE.text,
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              padding: "2px 8px",
+              background: "#F3F4F6",
+              border: `1px solid ${PALETTE.border}`,
+              borderRadius: 0,
+              letterSpacing: 0.3,
+            }}>{taskCode}</span>
+          )}
           <span style={chipStyle(origenColor, origenBg)}>{origenLabel}</span>
         </div>
         <button type="button" onClick={copyTaskPrompt} style={btnStyle("default")}>
@@ -1119,6 +1133,11 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
   const clearFilterGroup = (group) => {
     setTaskFilters(prev => ({ ...prev, [group]: new Set() }));
   };
+  // Buscador en tiempo real por título / descripción de las tareas.
+  // Match case-insensitive con substring sobre el resultado de
+  // taskTitle(t) y taskDescription(t). Aplica antes de los filtros
+  // por origen/estado/prioridad para reducir el set primero.
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -1177,17 +1196,39 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
     if (error) console.warn(`[Mantenimiento] update priority error: ${error.message}`);
   };
 
-  // Conjunto de tareas tras aplicar filtros (origen / estado / prioridad).
-  // Si un Set de filtros está vacío, ese grupo no filtra (equivale a "Todos").
+  // Mapa de códigos MNT-001, MNT-002, ... derivado del orden ASC de
+  // created_at. Deterministic y estable entre clientes sin schema change.
+  // Tickets más antiguos = números menores. Nuevos tickets = al final.
+  const ticketCodes = useMemo(() => {
+    const sorted = [...tickets].sort((a, b) => {
+      const ta = new Date(a.created_at || 0).getTime();
+      const tb = new Date(b.created_at || 0).getTime();
+      return ta - tb;
+    });
+    const map = new Map();
+    sorted.forEach((t, idx) => {
+      map.set(t.id, `MNT-${String(idx + 1).padStart(3, "0")}`);
+    });
+    return map;
+  }, [tickets]);
+
+  // Conjunto de tareas tras aplicar buscador + filtros origen/estado/prioridad.
+  // Si un Set de filtros está vacío, ese grupo no filtra. searchQuery vacío
+  // tampoco filtra. Match case-insensitive sobre título y descripción.
   const filteredTasks = useMemo(() => {
     const { origen, estado, prioridad } = taskFilters;
+    const q = searchQuery.trim().toLowerCase();
     return tickets.filter(t => {
       if (origen.size > 0 && !origen.has(t.kind)) return false;
       if (estado.size > 0 && !estado.has(normalizeTicketStatus(t))) return false;
       if (prioridad.size > 0 && !prioridad.has(derivePriority(t))) return false;
+      if (q) {
+        const hay = `${taskTitle(t)} ${taskDescription(t)}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       return true;
     });
-  }, [tickets, taskFilters]);
+  }, [tickets, taskFilters, searchQuery]);
 
   // Contadores del header de la pestaña Tareas (sobre filtered).
   const taskCounts = useMemo(() => {
@@ -1359,6 +1400,49 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
 
       {!loading && !error && tab === "task" && (
         <>
+          {/* Buscador en tiempo real */}
+          <div style={{ marginBottom: 10, position: "relative" }}>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar por título o descripción..."
+              style={{
+                width: "100%",
+                padding: "9px 36px 9px 12px",
+                fontSize: 13,
+                fontFamily: "inherit",
+                border: `1px solid ${PALETTE.border}`,
+                borderRadius: 0,
+                color: PALETTE.text,
+                background: PALETTE.panel,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                title="Limpiar"
+                style={{
+                  position: "absolute",
+                  right: 6,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  background: "transparent",
+                  border: "none",
+                  color: PALETTE.textMuted,
+                  cursor: "pointer",
+                  fontSize: 16,
+                  padding: "0 8px",
+                  fontFamily: "inherit",
+                  lineHeight: 1,
+                }}
+              >×</button>
+            )}
+          </div>
+
           {/* Barra de filtros */}
           <div style={{
             background: PALETTE.panel,
@@ -1409,7 +1493,7 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
                     🔥 Prioritarias ({sectionedTasks.priorit.length})
                   </div>
                   {sectionedTasks.priorit.map(t => (
-                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
+                    <TaskCard key={t.id} ticket={t} taskCode={ticketCodes.get(t.id)} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
                   ))}
                 </div>
               )}
@@ -1419,7 +1503,7 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
                     En curso ({sectionedTasks.enCurso.length})
                   </div>
                   {sectionedTasks.enCurso.map(t => (
-                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
+                    <TaskCard key={t.id} ticket={t} taskCode={ticketCodes.get(t.id)} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
                   ))}
                 </div>
               )}
@@ -1429,7 +1513,7 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
                     Pendientes ({sectionedTasks.pend.length})
                   </div>
                   {sectionedTasks.pend.map(t => (
-                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
+                    <TaskCard key={t.id} ticket={t} taskCode={ticketCodes.get(t.id)} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
                   ))}
                 </div>
               )}
@@ -1439,7 +1523,7 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
                     Resueltas ({sectionedTasks.resu.length})
                   </div>
                   {sectionedTasks.resu.map(t => (
-                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
+                    <TaskCard key={t.id} ticket={t} taskCode={ticketCodes.get(t.id)} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
                   ))}
                 </div>
               )}
