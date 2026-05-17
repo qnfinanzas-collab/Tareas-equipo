@@ -12144,8 +12144,28 @@ export default function TaskFlow(){
         }
       }
     }
-    // Pasada 2: resto de acciones (negotiation, create_tasks sobre code existente, movement)
-    const results2 = executeAgentActions(otherActions, helpers);
+    // Pasada 2: resto de acciones (negotiation, create_tasks sobre code existente, movement).
+    // Construimos un mapa <code, {id, code}> con los proyectos recién
+    // creados (results1) para que findProjectByCode los resuelva sin
+    // depender del flush de dataRef. Si un code no está en el mapa,
+    // caemos al lookup original sobre dataRef (proyectos preexistentes).
+    // Esto elimina la dependencia de timing del useEffect que sincroniza
+    // dataRef, que en producción con renders pesados puede dejar pass-2
+    // viendo dataRef stale aunque el retry haya cumplido.
+    const newProjectMap = new Map();
+    for (const r of results1) {
+      if (r && r.type === "project" && r.code && r.id != null) {
+        newProjectMap.set(r.code, { id: r.id, code: r.code });
+      }
+    }
+    const helpers2 = {
+      ...helpers,
+      findProjectByCode: (code) => {
+        if (newProjectMap.has(code)) return newProjectMap.get(code);
+        return (dataRef.current?.projects || []).find(p => p.code === code);
+      },
+    };
+    const results2 = executeAgentActions(otherActions, helpers2);
     return { results: [...results1, ...results2] };
   },[createProject, addTaskToProject, createNegotiation, addFinanceMovement, addBankMovement, updateBankMovement, addAccountingEntry, addInvoice, updateInvoice, addToast, activeMember, data]);
   const editProject = useCallback((idx,{name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility})=>{
