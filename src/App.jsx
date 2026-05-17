@@ -5188,7 +5188,14 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
           ...waiting.map(t=>({title:t.title, level:"medium", category:"esperando"})),
         ];
         return(
-          <div style={{marginBottom:16}}>
+          // Wrapper sticky: el panel se ancla al top del viewport mientras
+          // el resto de CommandRoomView (Pulso, Kanban, etc) desplaza por
+          // debajo. Esto garantiza que la tab bar interna (Análisis/Chat)
+          // permanece visible aunque el contenido del tab activo sea corto
+          // y no active el scroll interno del propio panel (caso Análisis
+          // con pocas cards). En Chat con muchos mensajes el scroll vive
+          // dentro de chat-content; en ambos casos la tab bar queda fija.
+          <div style={{marginBottom:16, position:"sticky", top:0, zIndex:5}}>
             <HectorPanel
               tasks={active}
               currentFocus={currentFocus || focusTask}
