@@ -3973,7 +3973,7 @@ function TaskCard({task,members,aiSchedule,projects,projectColor,onColorChange,o
   const sideColor = task.color || projectColor || "#C9A84C";
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   return(
-    <div className="tf-task-card" draggable={!isLinkedHere} onDragStart={isLinkedHere?undefined:onDragStart} onClick={(e)=>{ if(colorPickerOpen){ setColorPickerOpen(false); return; } onOpen(); }} style={{background:isLinkedHere?"#F5F0E8":"#FFFFFF",border:"0.5px solid #E5E0D5",borderLeft:`3px solid ${sideColor}`,borderRadius:0,padding:"8px 12px",marginBottom:8,cursor:"pointer",position:"relative"}}>
+    <div className="tf-task-card" draggable={!isLinkedHere} onDragStart={isLinkedHere?undefined:onDragStart} onClick={(e)=>{ if(colorPickerOpen){ setColorPickerOpen(false); return; } onOpen(); }} style={{background:isLinkedHere?"#F5F0E8":"#FFFFFF",border:"0.5px solid #E5E0D5",borderLeft:`3px solid ${sideColor}`,borderRadius:8,padding:"8px 12px",marginBottom:8,cursor:"pointer",position:"relative"}}>
       {/* Fila título + presencia + linked + ref + color picker */}
       <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
         <div style={{flex:1,minWidth:0,fontSize:14,fontWeight:600,lineHeight:1.35,color:"#1A1A1A"}}>{task.title}</div>
