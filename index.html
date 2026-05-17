@@ -34,6 +34,11 @@
       .tf-press:active { transform: scale(0.95); }
       .tf-lift { transition: transform .15s ease, box-shadow .15s ease; }
       .tf-lift:hover { transform: translateY(-2px); }
+      /* Kanban task cards — hover sutil solo con sombra, sin transform.
+         Estilo Trello/Kluxor: cambio leve de elevación al pasar el ratón
+         para indicar interacción sin saltos bruscos. */
+      .tf-task-card { transition: box-shadow .18s ease; }
+      .tf-task-card:hover { box-shadow: 0 2px 6px rgba(26,26,26,0.07); }
 
       /* Command Palette trigger button */
       .tf-search-btn { display: flex; }
