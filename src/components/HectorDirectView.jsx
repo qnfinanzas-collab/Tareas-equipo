@@ -580,12 +580,23 @@ Reglas:
       const today = new Date();
       const fechaContext = `[Hoy es ${today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} — ${today.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}]`;
       const lastIdx = next.length - 1;
-      const messages = next.map((m, idx) => ({
-        role: m.role === "user" ? "user" : "assistant",
-        content: (idx === lastIdx && m.role === "user")
-          ? fechaContext + "\n" + (m.text || "")
-          : (m.text || ""),
-      }));
+      const messages = next.map((m, idx) => {
+        // Para turns ASSISTANT preferimos m.replyRaw (con [ACTIONS] incluido)
+        // sobre m.text. Si la prosa quedó vacía tras strippear el bloque
+        // (cleanText empty → "(sin texto)"), mandar "(sin texto)" a Claude
+        // pierde contexto. Con replyRaw Claude ve lo que efectivamente
+        // respondió en el turn anterior. Caemos a m.text si no hay replyRaw
+        // (mensajes antiguos antes del fix o mensajes de error).
+        const assistantContent = m.replyRaw || m.text || "";
+        const userContent = m.text || "";
+        const isLastUser = (idx === lastIdx && m.role === "user");
+        return {
+          role: m.role === "user" ? "user" : "assistant",
+          content: isLastUser
+            ? fechaContext + "\n" + userContent
+            : (m.role === "assistant" ? assistantContent : userContent),
+        };
+      });
       const reply = await callAgentSafe(
         { system: baseSystem, messages, max_tokens: 2048 },
         { timeoutMs: 60000 }
@@ -795,6 +806,14 @@ Reglas:
       setChatHistory(prev => [...prev, {
         role: "assistant",
         text: cleanText || "(sin texto)",
+        // Reply raw (con [ACTIONS] incluido si lo había) — se conserva
+        // para que cuando se reenvíe el historial a Claude en el siguiente
+        // turn, Claude vea su propia respuesta original con todo el contexto
+        // (no solo cleanText, que puede haber quedado vacío tras strippear
+        // [ACTIONS]/[TASKS_LIST]/[INVOCAR:]). Sin esto, varios turns con
+        // cleanText vacío → Claude pierde contexto, deja de emitir
+        // [ACTIONS] y se entra en un bucle de "(sin texto)".
+        replyRaw: reply,
         proposal: proposal || null,
         tasksList: tasksList || null,
         fakeSuccess,
