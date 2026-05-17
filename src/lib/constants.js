@@ -27,7 +27,10 @@ export const QM = {
   Q4:{ label:"Elimínalo",   sub:"Ni urgente ni importante",bg:"#f9fafb",border:"#9ca3af",icon:"⚪" },
 };
 
-export const PROJECT_COLORS = ["#7F77DD","#E24B4A","#1D9E75","#EF9F27","#378ADD","#D85A30","#993556","#3B6D11"];
+// Color por defecto al crear un proyecto. Oro Kluxor (#C9A84C). Va el
+// primero en PROJECT_COLORS para que aparezca destacado en el selector.
+export const DEFAULT_PROJECT_COLOR = "#C9A84C";
+export const PROJECT_COLORS = ["#C9A84C","#7F77DD","#E24B4A","#1D9E75","#EF9F27","#378ADD","#D85A30","#993556","#3B6D11"];
 export const PROJECT_EMOJIS = ["🚀","📱","🌐","⚙️","🎯","💡","📊","🔧","✨","🏗️"];
 export const DOW = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
 export const TRANSPORT_KW = ["clase","inglés","ingles","curs","curso","class","jocs","training","entreno","gimnàs","gimnasio","gym","academia","formació","formacion"];

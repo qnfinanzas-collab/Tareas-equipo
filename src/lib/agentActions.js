@@ -13,6 +13,8 @@
 //   - executeAgentActions recibe los mutators de App.jsx vía `helpers` y
 //     ejecuta todas las acciones; devuelve resultados para feedback (toasts).
 
+import { DEFAULT_PROJECT_COLOR } from "./constants.js";
+
 export const AGENT_ACTION_TYPES = {
   CREATE_PROJECT:       "create_project",
   CREATE_TASKS:         "create_tasks",
@@ -653,7 +655,7 @@ export function executeAgentActions(actions, helpers) {
             name: action.name || "Proyecto sin nombre",
             code,
             desc: action.description || "",
-            color: action.color || "#3498DB",
+            color: action.color || DEFAULT_PROJECT_COLOR,
             emoji: action.emoji || "📁",
             members: memberIds,
             columns: ["Por hacer", "En progreso", "Hecho"],

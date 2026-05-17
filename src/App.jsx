@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
-  MP, TAG_COLORS, QM, PROJECT_COLORS, PROJECT_EMOJIS, DOW, palOf,
+  MP, TAG_COLORS, QM, PROJECT_COLORS, DEFAULT_PROJECT_COLOR, PROJECT_EMOJIS, DOW, palOf,
 } from "./lib/constants.js";
 import { TODAY, fmt, D, dayName, daysUntil, toH, fromH } from "./lib/date.js";
 import { fmtSecs, fmtH } from "./lib/time.js";
@@ -3950,10 +3950,19 @@ function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
   const sharedTooltip = isLinkedHere
     ? `Compartida desde otro proyecto`
     : (linkedNames.length>0 ? `También en: ${linkedNames.join(", ")}` : "");
+  // Snippet de descripción (primera línea, una sola, ~100 chars con
+  // ellipsis). Aprovecha el espacio vertical de la card cuando la tarea
+  // no tiene tags/fechas/progress, dando contexto sin abrir el detalle.
+  const descSnippet = String(task.desc || "").replace(/\s+/g, " ").trim().slice(0, 100);
+  // Conditional para colapsar la fila combinada QBadge+fechas si no hay
+  // nada que mostrar (Q calculado siempre existe, pero QBadge puede
+  // renderizar gap mínimo si no aplica — comportamiento aceptable).
+  const showMetaRow = true; // QBadge siempre presente; mantenemos la fila.
   return(
-    <div draggable={!isLinkedHere} onDragStart={isLinkedHere?undefined:onDragStart} onClick={onOpen} style={{background:isLinkedHere?"#FAFAF5":(p2?p2.cardBg:"#fff"),border:`0.5px solid ${p2?p2.cardBorder+"55":"#e5e7eb"}`,borderLeft:`4px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:10,padding:"10px 12px",marginBottom:8,cursor:"pointer"}}>
-      <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:6}}>
-        <div style={{flex:1,minWidth:0,fontSize:13,fontWeight:500,lineHeight:1.4}}>{task.title}</div>
+    <div draggable={!isLinkedHere} onDragStart={isLinkedHere?undefined:onDragStart} onClick={onOpen} style={{background:isLinkedHere?"#FAFAF5":(p2?p2.cardBg:"#fff"),border:`0.5px solid ${p2?p2.cardBorder+"55":"#e5e7eb"}`,borderLeft:`4px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:10,padding:"8px 12px",marginBottom:8,cursor:"pointer"}}>
+      {/* Fila título + presencia + linked + ref */}
+      <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
+        <div style={{flex:1,minWidth:0,fontSize:14,fontWeight:600,lineHeight:1.35}}>{task.title}</div>
         {presentHere.length>0 && (
           <div style={{display:"flex",flexShrink:0}} title={`${presentHere.map(u=>u.userName).join(", ")} ${presentHere.length===1?"está":"están"} viendo esta tarea`}>
             {presentHere.slice(0,3).map((u,i)=>{
@@ -3967,14 +3976,21 @@ function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
         {(isLinkedHere || (task.linkedProjects||[]).length>0) && <span title={sharedTooltip} style={{fontSize:10,padding:"1px 6px",borderRadius:4,background:"#F3F4F6",color:"#6B7280",border:"0.5px solid #E5E7EB",fontWeight:600,flexShrink:0}}>🔗</span>}
         <RefBadge code={task.ref}/>
       </div>
-      {task.tags.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:6}}>{task.tags.map((tg,i)=><Tag key={i} tag={tg}/>)}</div>}
-      <div style={{marginBottom:6}}><QBadge q={q}/></div>
-      <div style={{display:"flex",gap:6,marginBottom:6,flexWrap:"wrap"}}>
-        {task.startDate&&<span style={{fontSize:10,color:"#6b7280"}}>Inicio: {task.startDate}</span>}
-        {task.dueDate&&<span style={{fontSize:10,color:isOver?"#A32D2D":isToday?"#854F0B":"#9ca3af",fontWeight:isOver||isToday?600:400}}>{isOver?"Vencida":isToday?"Hoy":"Fin"}: {task.dueDate}{task.dueTime?` · ${task.dueTime}`:""}</span>}
-        {sched.length>0&&<span style={{fontSize:10,color:"#7F77DD",fontWeight:600}}>Planificado</span>}
-      </div>
-      {est>0&&totalLogged>0&&<div style={{marginBottom:6}}><div style={{height:4,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(Math.round(totalLogged/est*100),100)}%`,background:totalLogged>est?"#E24B4A":totalLogged/est>0.8?"#EF9F27":"#1D9E75",borderRadius:20}}/></div></div>}
+      {/* Descripción inline (1 línea con ellipsis) */}
+      {descSnippet && <div style={{fontSize:11.5,color:"#6B7280",lineHeight:1.4,marginBottom:4,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{descSnippet}</div>}
+      {/* Tags */}
+      {task.tags.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:4}}>{task.tags.map((tg,i)=><Tag key={i} tag={tg}/>)}</div>}
+      {/* Meta combinada: QBadge + fechas + planificado en una sola fila */}
+      {showMetaRow && (
+        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap",marginBottom:4}}>
+          <QBadge q={q}/>
+          {task.startDate&&<span style={{fontSize:10,color:"#6b7280"}}>Inicio: {task.startDate}</span>}
+          {task.dueDate&&<span style={{fontSize:10,color:isOver?"#A32D2D":isToday?"#854F0B":"#9ca3af",fontWeight:isOver||isToday?600:400}}>{isOver?"Vencida":isToday?"Hoy":"Fin"}: {task.dueDate}{task.dueTime?` · ${task.dueTime}`:""}</span>}
+          {sched.length>0&&<span style={{fontSize:10,color:"#7F77DD",fontWeight:600}}>Planificado</span>}
+        </div>
+      )}
+      {est>0&&totalLogged>0&&<div style={{marginBottom:4}}><div style={{height:4,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(Math.round(totalLogged/est*100),100)}%`,background:totalLogged>est?"#E24B4A":totalLogged/est>0.8?"#EF9F27":"#1D9E75",borderRadius:20}}/></div></div>}
+      {/* Footer: asignados + prioridad + badges secundarios */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex"}}>{task.assignees.map((mid,i)=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} title={m?.name} style={{marginLeft:i>0?-7:0,zIndex:task.assignees.length-i,position:"relative",width:24,height:24,borderRadius:"50%",background:mp2.solid,color:"#fff",border:"2px solid #fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{m?.initials||"?"}</div>; })}</div>
         <div style={{display:"flex",alignItems:"center",gap:5}}><PriBadge p={task.priority}/>{subs.length>0&&<span title={`${subDone}/${subs.length} subtareas`} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:subAllDone?"#E1F5EE":"#f3f4f6",color:subAllDone?"#085041":"#6b7280",fontWeight:600,border:`0.5px solid ${subAllDone?"#1D9E75":"#e5e7eb"}`}}>☑ {subDone}/{subs.length}</span>}{(task.links||[]).length>0&&<span title={`${task.links.length} enlace${task.links.length>1?"s":""}`} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:"#EEEDFE",color:"#3C3489",fontWeight:600,border:"0.5px solid #AFA9EC"}}>🔗 {task.links.length}</span>}{(task.timeline||[]).length>0&&<span title={`${task.timeline.length} actualizacion${task.timeline.length>1?"es":""}`} style={{fontSize:11,color:"#9ca3af"}}>💬 {task.timeline.length}</span>}</div>
@@ -4739,7 +4755,7 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
   const isEdit=!!project;
   const [name,setName]=useState(project?.name||"");
   const [desc,setDesc]=useState(project?.desc||"");
-  const [color,setColor]=useState(project?.color||PROJECT_COLORS[0]);
+  const [color,setColor]=useState(project?.color||DEFAULT_PROJECT_COLOR);
   const [emoji,setEmoji]=useState(project?.emoji||"🚀");
   const [code,setCode]=useState(project?.code||"");
   const [sel,setSel]=useState(project?.members||[]);
@@ -4759,7 +4775,7 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
   const [deleteCode,setDeleteCode]=useState("");
   const [initialSnap]=useState(()=>JSON.stringify({
     name:project?.name||"", desc:project?.desc||"",
-    color:project?.color||PROJECT_COLORS[0], emoji:project?.emoji||"🚀",
+    color:project?.color||DEFAULT_PROJECT_COLOR, emoji:project?.emoji||"🚀",
     code:project?.code||"",
     sel:project?.members||[], workspaceId:project?.workspaceId??null,
     visibility: project?.visibility || "private",
@@ -6034,7 +6050,7 @@ function WorkspaceModal({workspace,onClose,onSave,onDelete}){
   const isEdit = !!workspace;
   const [name,setName]         = useState(workspace?.name||"");
   const [description,setDesc]  = useState(workspace?.description||"");
-  const [color,setColor]       = useState(workspace?.color||PROJECT_COLORS[4]);
+  const [color,setColor]       = useState(workspace?.color||"#378ADD");
   const [emoji,setEmoji]       = useState(workspace?.emoji||"🏢");
   const [links,setLinks]       = useState(workspace?.links||[]);
   const [contacts,setContacts] = useState(workspace?.contacts||[]);
@@ -6042,7 +6058,7 @@ function WorkspaceModal({workspace,onClose,onSave,onDelete}){
   const [pendingClose,setPendingClose] = useState(false);
   const [initialSnap] = useState(()=>JSON.stringify({
     name:workspace?.name||"", description:workspace?.description||"",
-    color:workspace?.color||PROJECT_COLORS[4], emoji:workspace?.emoji||"🏢",
+    color:workspace?.color||"#378ADD", emoji:workspace?.emoji||"🏢",
     links:workspace?.links||[], contacts:workspace?.contacts||[],
   }));
   const isDirty = JSON.stringify({name,description,color,emoji,links,contacts})!==initialSnap;
