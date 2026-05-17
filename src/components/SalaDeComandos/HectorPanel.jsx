@@ -2113,6 +2113,14 @@ Reglas para block_task:
       width: "100%",
       height: "100%",
       minHeight: 560,
+      // maxHeight constrain a 100vh-10px: sin esto el wrapper padre (en
+      // CommandRoomView) no acota altura, height:100% no surte efecto y
+      // el panel crecía a su contenido. Como consecuencia el flex:1+
+      // overflow:auto de chat-content nunca activaba scroll interno y el
+      // usuario scrollaba la página entera — perdiendo la tab bar. Con
+      // este max-height el scroll vuelve a vivir DENTRO del panel y la
+      // tab bar (40px fijo, primer hijo flex) permanece visible.
+      maxHeight: "calc(100vh - 10px)",
       maxWidth: "100%",
       overflow: "hidden",
       boxSizing: "border-box",
