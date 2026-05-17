@@ -12058,9 +12058,10 @@ export default function TaskFlow(){
   // Devuelve { projectId, projectCode, taskTitle } para que la UI pueda
   // mostrar feedback. Síncrono — la única async-implícita es setData,
   // pero createProject devuelve {id,code} de forma inmediata.
-  const registerImprovementAsTask = useCallback((improvementText, ticketId) => {
+  const registerImprovementAsTask = useCallback((improvementText, ticketId, priority) => {
     const text = String(improvementText || "").trim();
     if (!text) return null;
+    const safePriority = ["alta","media","baja"].includes(priority) ? priority : "media";
     // 1) Buscar proyecto KMJ existente. Lee de dataRef para evitar
     //    cierres con data stale si se llama varias veces seguidas.
     let proj = (dataRef.current?.projects || []).find(p => p.code === "KMJ");
@@ -12087,7 +12088,7 @@ export default function TaskFlow(){
     addTaskToProject(proj.id, {
       title: firstLine,
       desc,
-      priority: "media",
+      priority: safePriority,
       dueDate: null,
       assignees: [activeMember],
       tags: [{ l: "mejora-kluxor", c: "purple" }],

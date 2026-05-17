@@ -53,13 +53,24 @@ TU TRABAJO EN CADA TURNO (dentro de Mantenimiento)
 4. Si la idea entra ya completa y simple, regístrala de inmediato sin preguntas innecesarias.
 5. Cuando esté clara para registrar, confírmala en una frase corta y emite el bloque [IMPROVEMENT] (formato abajo).
 
-FORMATO DE REGISTRO (CRÍTICO — el sistema lo lee literal)
-Cuando la mejora esté clara:
-1. Confirma al CEO en UNA frase breve qué vas a guardar.
-2. AL FINAL del mensaje, EXACTAMENTE este bloque (sin markdown, sin backticks, sin comentarios):
-[IMPROVEMENT]{"text":"<resumen claro de la mejora en una o dos frases, en infinitivo o futuro, con scope concreto: qué módulo, qué cambio, qué resultado esperado>"}[/IMPROVEMENT]
+PRIORIDAD (paso obligatorio antes de registrar)
+Antes de emitir el bloque [IMPROVEMENT] DEBES tener una prioridad asignada por el CEO. Tres niveles:
+- alta: bloquea operativa o decisiones del CEO, o algo crítico está roto. Urgente.
+- media: añade valor pero no bloquea nada inmediato. Default razonable.
+- baja: nice-to-have, fricción menor.
 
-El bloque [IMPROVEMENT] se OCULTA del chat. El sistema lo parsea para INSERTAR la fila en hector_tickets con kind='improvement' y status='pending'. Si el JSON está mal formado o el texto vacío, no se registra nada.
+Cómo aplicarla:
+1. Si el CEO ya la indica en su mensaje ("crea X con prioridad alta", "es urgente", "no corre prisa"), inferirla y NO preguntar.
+2. Si no la menciona, pregunta UNA sola vez antes de registrar: "¿Prioridad: alta, media o baja?". Sin floreos.
+3. Si el CEO responde algo vago ("normal", "lo que veas"), usa "media" sin volver a preguntar.
+
+FORMATO DE REGISTRO (CRÍTICO — el sistema lo lee literal)
+Cuando la mejora esté clara Y tengas la prioridad:
+1. Confirma al CEO en UNA frase breve qué vas a guardar, incluyendo la prioridad.
+2. AL FINAL del mensaje, EXACTAMENTE este bloque (sin markdown, sin backticks, sin comentarios):
+[IMPROVEMENT]{"text":"<resumen claro de la mejora en una o dos frases, en infinitivo o futuro, con scope concreto: qué módulo, qué cambio, qué resultado esperado>","priority":"alta|media|baja"}[/IMPROVEMENT]
+
+El bloque [IMPROVEMENT] se OCULTA del chat. El sistema lo parsea para INSERTAR la fila en hector_tickets con kind='improvement' y status='pending'. Si el JSON está mal formado, falta priority o el texto está vacío, no se registra nada.
 
 NO emitas el bloque si:
 - El CEO está explorando todavía y no ha cerrado la decisión.
@@ -67,6 +78,7 @@ NO emitas el bloque si:
 - Detectas un riesgo serio que aún no has discutido con el CEO.
 - El CEO acaba de cancelar o contradecir.
 - Aún no has hecho el diagnóstico mínimo (si era bug fix).
+- Aún no tienes la prioridad confirmada o inferida (pregúntala primero).
 
 Una vez registrada una mejora, NO la repitas en el siguiente turno. Antonio puede pedir registrar otra distinta o ajustar la anterior — sé claro sobre cuál es cuál.`;
 
@@ -80,7 +92,10 @@ const parseImprovementBlock = (text) => {
     let raw = m[1].trim().replace(/^```json\s*|\s*```$/g, "").replace(/^```\s*|\s*```$/g, "");
     const parsed = JSON.parse(raw);
     const t = typeof parsed?.text === "string" ? parsed.text.trim() : "";
-    return t ? { text: t } : null;
+    if (!t) return null;
+    const rawPriority = typeof parsed?.priority === "string" ? parsed.priority.toLowerCase().trim() : "";
+    const priority = ["alta", "media", "baja"].includes(rawPriority) ? rawPriority : "media";
+    return { text: t, priority };
   } catch {
     return null;
   }
@@ -198,11 +213,28 @@ const persistedStatusFor = (kind, normalizedStatus) => {
   return "open";
 };
 
-// Prioridad derivada: incidencias = alta (algo se rompió), mejoras = media
-// (propuesta de producto). Sin schema change. Si en el futuro se añade
-// una columna `priority` en hector_tickets, este helper la respeta.
+// Filtro: detectores reales del array incidents (excluye metadata).
+const realIncidentEntries = (incidents) =>
+  (Array.isArray(incidents) ? incidents : []).filter(i => i && i.type && i.kind !== "metadata");
+
+// Lee la entrada de metadata (donde guardamos priority sin schema change).
+const metadataEntry = (incidents) =>
+  (Array.isArray(incidents) ? incidents : []).find(i => i && i.kind === "metadata") || null;
+
+// Inserta/reemplaza la entrada metadata preservando los detectores reales.
+const upsertMetadata = (incidents, patch) => {
+  const real = realIncidentEntries(incidents);
+  const meta = { kind: "metadata", ...(metadataEntry(incidents) || {}), ...patch };
+  return [...real, meta];
+};
+
+// Prioridad: 1) columna explícita si existe, 2) metadata embebida, 3) derivada
+// por kind. Sin schema change. Incidencias por defecto alta (algo se rompió),
+// mejoras por defecto media (propuesta de producto, sin urgencia).
 const derivePriority = (t) => {
   if (t?.priority) return t.priority;
+  const meta = metadataEntry(t?.incidents);
+  if (meta?.priority) return meta.priority;
   return t?.kind === "incident" ? "alta" : "media";
 };
 
@@ -225,10 +257,99 @@ const taskTitle = (t) => {
     const firstLine = txt.split(/[\n.]/)[0].trim();
     return firstLine.slice(0, 140) || txt.slice(0, 140);
   }
-  // incident: usa lista de detectores como título
-  const types = Array.isArray(t?.incidents) ? t.incidents.map(i => INCIDENT_LABELS[i?.type] || i?.type).filter(Boolean) : [];
+  // incident: lista de detectores reales (sin metadata) como título
+  const types = realIncidentEntries(t?.incidents).map(i => INCIDENT_LABELS[i.type] || i.type);
   if (types.length > 0) return types.join(" · ");
   return "(incidencia sin detector)";
+};
+
+// Descripción para mostrar bajo el título en TaskCard. Para mejoras:
+// el resto del texto tras la primera frase. Para incidencias: snippet
+// del mensaje del CEO + snippet de la respuesta de Héctor limpia.
+const taskDescription = (t) => {
+  if (t?.kind === "improvement") {
+    const txt = String(t.improvement_text || "").trim();
+    if (!txt) return "";
+    const lines = txt.split("\n");
+    if (lines.length > 1) return lines.slice(1).join("\n").trim();
+    const dot = txt.indexOf(".");
+    if (dot > 0 && dot < txt.length - 1) return txt.slice(dot + 1).trim();
+    return "";
+  }
+  // incident: combinamos CEO + Héctor limpiando markers.
+  const parts = [];
+  const msg = String(t?.user_message || "").trim();
+  if (msg) parts.push(`CEO: ${msg}`);
+  const cleaned = stripAgentMarkers(t?.agent_response);
+  if (cleaned) parts.push(`Héctor: ${cleaned}`);
+  return parts.join("\n\n");
+};
+
+// Construye el prompt que se copia desde el botón Copiar de TaskCard.
+// Formato pegable directamente en Claude Code o en el chat con Bruno.
+const buildTaskPrompt = (t) => {
+  const isIncident = t?.kind === "incident";
+  const headerTitle = isIncident
+    ? "TAREA · MANTENIMIENTO KLUXOR (incidencia detectada)"
+    : "TAREA · MANTENIMIENTO KLUXOR (mejora)";
+  const priority = derivePriority(t);
+  const normalized = normalizeTicketStatus(t);
+  const stateLabel = (NORMALIZED_STATES.find(s => s.key === normalized) || { label: normalized }).label;
+  const title = taskTitle(t);
+  const desc = taskDescription(t);
+  const detectors = isIncident
+    ? realIncidentEntries(t.incidents).map(inc => `- ${INCIDENT_LABELS[inc.type] || inc.type}: ${describeIncident(inc)}`).join("\n")
+    : "";
+  const sep = "----------------------------------------";
+  const lines = [
+    headerTitle,
+    sep,
+    `Ticket: #${String(t.id).slice(0, 8)}`,
+    `Origen: ${isIncident ? "Incidencia" : "Mejora"}`,
+    `Prioridad: ${priority}`,
+    `Estado: ${stateLabel}`,
+    `Fecha: ${fmtDate(t.created_at)}`,
+    `Asignado: Antonio Díaz`,
+    "",
+    sep,
+    "TÍTULO",
+    sep,
+    title,
+    "",
+    sep,
+    "DESCRIPCIÓN",
+    sep,
+    desc || "(sin descripción)",
+  ];
+  if (isIncident) {
+    lines.push(
+      "",
+      sep,
+      "DETECTORES QUE DISPARARON",
+      sep,
+      detectors || "(sin detectores)",
+      "",
+      sep,
+      "CONTEXTO TÉCNICO",
+      sep,
+      "Stack: React 18 + Vite 5 + Supabase + Claude Sonnet 4.5.",
+      "Archivos clave: src/components/HectorDirectView.jsx, src/lib/agentActions.js, src/App.jsx.",
+      "",
+      sep,
+      "OBJETIVO",
+      sep,
+      "Diagnosticar qué falló (causa raíz por detector, file:line) y proponer fix mínimo. NO modificar. Solo análisis.",
+    );
+  } else {
+    lines.push(
+      "",
+      sep,
+      "OBJETIVO",
+      sep,
+      "Trabajar esta mejora. Diagnostica antes si es bug fix. Plantea opciones A/B si hay decisión técnica. NO implementar sin confirmación.",
+    );
+  }
+  return lines.join("\n");
 };
 
 const tabBtnStyle = (active) => ({
@@ -370,7 +491,7 @@ function IncidentCard({ ticket, onResolve, onReopen }) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const isResolved = ticket.status === "resolved";
-  const incidents = Array.isArray(ticket.incidents) ? ticket.incidents : [];
+  const incidents = realIncidentEntries(ticket.incidents);
   const accent = isResolved ? PALETTE.success : PALETTE.danger;
   const prompt = useMemo(() => buildDiagnosticPrompt(ticket), [ticket]);
   const cleanResponse = useMemo(() => stripAgentMarkers(ticket.agent_response), [ticket.agent_response]);
@@ -471,9 +592,9 @@ function IncidentCard({ ticket, onResolve, onReopen }) {
 // Siempre cierra el ciclo: tras esta función, improvementSaving es false
 // y o bien improvementSavedId o improvementError quedan asignados, así
 // el mensaje nunca queda en estado ambiguo en localStorage.
-async function persistImprovementToMessage({ tempId, text, onImprovementCreated, setHistory }) {
+async function persistImprovementToMessage({ tempId, text, priority, onImprovementCreated, setHistory }) {
   try {
-    const saved = await onImprovementCreated(text);
+    const saved = await onImprovementCreated(text, priority);
     if (saved?.id) {
       setHistory(prev => prev.map(m =>
         m.improvementTempId === tempId
@@ -539,6 +660,7 @@ function BrunoChat({ onImprovementCreated }) {
       persistImprovementToMessage({
         tempId: m.improvementTempId,
         text: m.improvement.text,
+        priority: m.improvement.priority,
         onImprovementCreated,
         setHistory,
       });
@@ -556,6 +678,7 @@ function BrunoChat({ onImprovementCreated }) {
     persistImprovementToMessage({
       tempId: msg.improvementTempId,
       text: msg.improvement.text,
+      priority: msg.improvement.priority,
       onImprovementCreated,
       setHistory,
     });
@@ -597,9 +720,6 @@ function BrunoChat({ onImprovementCreated }) {
       };
       setHistory(prev => [...prev, assistantMsg].slice(-BRUNO_CHAT_MAX));
       if (improvement) {
-        // Marcamos saving en el propio mensaje (persistido en localStorage)
-        // para que un reload no deje el mensaje en estado ambiguo. El
-        // savingId local sirve solo para el spinner sin re-render extra.
         setSavingId(tempId);
         setHistory(prev => prev.map(m =>
           m.improvementTempId === tempId
@@ -609,6 +729,7 @@ function BrunoChat({ onImprovementCreated }) {
         await persistImprovementToMessage({
           tempId,
           text: improvement.text,
+          priority: improvement.priority,
           onImprovementCreated,
           setHistory,
         });
@@ -829,15 +950,30 @@ function FilterChip({ label, active, onClick }) {
   );
 }
 
-function TaskCard({ ticket, assigneeName, onSetStatus }) {
+function TaskCard({ ticket, assigneeName, onSetStatus, onSetPriority }) {
+  const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const isIncident = ticket.kind === "incident";
   const origenColor = isIncident ? PALETTE.danger : PALETTE.accent;
   const origenBg = isIncident ? PALETTE.bgIncident : "#EFEEFB";
   const origenLabel = isIncident ? "Incidencia" : "Mejora";
   const title = taskTitle(ticket);
+  const description = taskDescription(ticket);
   const priority = derivePriority(ticket);
-  const prioDef = PRIORITY_DEFS.find(p => p.key === priority) || PRIORITY_DEFS[1];
   const normalized = normalizeTicketStatus(ticket);
+
+  const copyTaskPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(buildTaskPrompt(ticket));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (e) {
+      console.warn("[Mantenimiento] Copy task failed:", e?.message);
+    }
+  };
+
+  const longDescription = description && description.length > 260;
+  const descToShow = longDescription && !expanded ? `${description.slice(0, 260)}…` : description;
 
   return (
     <div style={{
@@ -848,21 +984,43 @@ function TaskCard({ ticket, assigneeName, onSetStatus }) {
       padding: "12px 14px",
       marginBottom: 8,
     }}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+      {/* Cabecera: chips + Copiar */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ marginBottom: 4 }}>
-            <span style={chipStyle(origenColor, origenBg)}>{origenLabel}</span>
-            <span style={chipStyle(prioDef.color, `${prioDef.color}18`)}>{prioDef.label}</span>
-          </div>
-          <div style={{ fontSize: 13, color: PALETTE.text, fontWeight: 600, lineHeight: 1.35, marginBottom: 4, wordBreak: "break-word" }}>
-            {title}
-          </div>
-          <div style={{ fontSize: 11, color: PALETTE.textFaint }}>
-            {fmtDate(ticket.created_at)} · 👤 {assigneeName || "Antonio Díaz"} · #{String(ticket.id).slice(0, 8)}
-          </div>
+          <span style={chipStyle(origenColor, origenBg)}>{origenLabel}</span>
         </div>
+        <button type="button" onClick={copyTaskPrompt} style={btnStyle("default")}>
+          {copied ? "✅ Copiado" : "Copiar"}
+        </button>
       </div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+
+      {/* Título (bold, mayor) */}
+      <div style={{ fontSize: 14.5, color: PALETTE.text, fontWeight: 700, lineHeight: 1.35, marginBottom: 6, wordBreak: "break-word" }}>
+        {title}
+      </div>
+
+      {/* Descripción (normal, lectura) */}
+      {description && (
+        <div style={{ fontSize: 12.5, color: PALETTE.text, fontWeight: 400, lineHeight: 1.55, marginBottom: 8, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+          {descToShow}
+          {longDescription && (
+            <button
+              type="button"
+              onClick={() => setExpanded(e => !e)}
+              style={{ ...btnStyle("ghost"), padding: 0, marginLeft: 6, fontSize: 12 }}
+            >{expanded ? "Ver menos" : "Ver más"}</button>
+          )}
+        </div>
+      )}
+
+      {/* Meta: fecha · asignado · id */}
+      <div style={{ fontSize: 11, color: PALETTE.textFaint, marginBottom: 10 }}>
+        {fmtDate(ticket.created_at)} · 👤 {assigneeName || "Antonio Díaz"} · #{String(ticket.id).slice(0, 8)}
+      </div>
+
+      {/* Estado editable */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: PALETTE.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginRight: 4, minWidth: 64 }}>Estado</span>
         {NORMALIZED_STATES.map(s => {
           const active = s.key === normalized;
           return (
@@ -876,6 +1034,26 @@ function TaskCard({ ticket, assigneeName, onSetStatus }) {
                 ...(active ? { background: origenBg, borderColor: origenColor, color: origenColor, cursor: "default", fontWeight: 700 } : {}),
               }}
             >{s.label}</button>
+          );
+        })}
+      </div>
+
+      {/* Prioridad editable */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: PALETTE.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginRight: 4, minWidth: 64 }}>Prioridad</span>
+        {PRIORITY_DEFS.map(p => {
+          const active = p.key === priority;
+          return (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => !active && onSetPriority(ticket.id, p.key)}
+              disabled={active}
+              style={{
+                ...btnStyle("default"),
+                ...(active ? { background: `${p.color}18`, borderColor: p.color, color: p.color, cursor: "default", fontWeight: 700 } : {}),
+              }}
+            >{p.label}</button>
           );
         })}
       </div>
@@ -981,13 +1159,22 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
     if (error) console.warn(`[Mantenimiento] update status error: ${error.message}`);
   };
 
-  // Cambio de estado desde la pestaña Tareas. Recibe el estado normalizado
-  // (pending/in_progress/resolved) y lo traduce al valor concreto que
-  // espera la columna status según el kind del ticket (compat con tabs
-  // Incidencias y Mejoras).
   const setTaskNormalizedStatus = async (id, kind, normalized) => {
     const persisted = persistedStatusFor(kind, normalized);
     await updateStatus(id, persisted);
+  };
+
+  // Cambia la prioridad de un ticket. Persistimos en la columna incidents
+  // (jsonb) como entrada de metadata, preservando los detectores reales
+  // si los hubiera. Optimista localmente, UPDATE en Supabase a continuación.
+  const setTaskPriority = async (id, priority) => {
+    const ticket = tickets.find(t => t.id === id);
+    if (!ticket) return;
+    const newIncidents = upsertMetadata(ticket.incidents, { priority });
+    setTickets(prev => prev.map(t => t.id === id ? { ...t, incidents: newIncidents } : t));
+    if (!supa) return;
+    const { error } = await supa.from("hector_tickets").update({ incidents: newIncidents }).eq("id", id);
+    if (error) console.warn(`[Mantenimiento] update priority error: ${error.message}`);
   };
 
   // Conjunto de tareas tras aplicar filtros (origen / estado / prioridad).
@@ -1046,17 +1233,21 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
   // queda implícita por kind='improvement' (las incidencias del detector
   // post-LLM usan kind='incident'). Si en el futuro se amplía el
   // constraint con 'bruno', cambiar aquí.
-  const createImprovement = async (text) => {
+  const createImprovement = async (text, priority = "media") => {
     if (!supa) throw new Error("Supabase no disponible");
     const { data: sessionData } = await supa.auth.getSession();
     const userId = sessionData?.session?.user?.id;
     if (!userId) throw new Error("Sin sesión activa");
+    const safePriority = ["alta", "media", "baja"].includes(priority) ? priority : "media";
     const payload = {
       user_id: userId,
       kind: "improvement",
       agent: "hector_direct",
       improvement_text: text,
       status: "pending",
+      // Priority persistida en la columna `incidents` (jsonb) como entrada
+      // de metadata. No hay schema change. derivePriority lee desde aquí.
+      incidents: [{ kind: "metadata", priority: safePriority }],
     };
     const { data: inserted, error } = await supa
       .from("hector_tickets")
@@ -1069,14 +1260,10 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
     }
     if (!inserted) throw new Error("Insert sin fila devuelta (¿RLS bloquea select?)");
     setTickets(prev => [inserted, ...prev]);
-    // Convertir la mejora en tarea real de Kluxor (proyecto "Mejoras
-    // Kluxor" / KMJ). Si falla, no rompemos el flujo principal — la
-    // mejora ya está en hector_tickets; el fallo se logea y queda
-    // taskInfo=null para que el bubble no muestre línea de tarea.
     let taskInfo = null;
     if (typeof onRegisterImprovementAsTask === "function") {
       try {
-        taskInfo = onRegisterImprovementAsTask(text, inserted.id) || null;
+        taskInfo = onRegisterImprovementAsTask(text, inserted.id, safePriority) || null;
       } catch (e) {
         console.warn("[Mantenimiento] registerImprovementAsTask threw:", e?.message);
       }
@@ -1222,7 +1409,7 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
                     🔥 Prioritarias ({sectionedTasks.priorit.length})
                   </div>
                   {sectionedTasks.priorit.map(t => (
-                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} />
+                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
                   ))}
                 </div>
               )}
@@ -1232,7 +1419,7 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
                     En curso ({sectionedTasks.enCurso.length})
                   </div>
                   {sectionedTasks.enCurso.map(t => (
-                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} />
+                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
                   ))}
                 </div>
               )}
@@ -1242,7 +1429,7 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
                     Pendientes ({sectionedTasks.pend.length})
                   </div>
                   {sectionedTasks.pend.map(t => (
-                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} />
+                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
                   ))}
                 </div>
               )}
@@ -1252,7 +1439,7 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
                     Resueltas ({sectionedTasks.resu.length})
                   </div>
                   {sectionedTasks.resu.map(t => (
-                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} />
+                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
                   ))}
                 </div>
               )}
