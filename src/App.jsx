@@ -12,6 +12,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
+import { tabFromPath, pathFromTab } from "./lib/routing.js";
 import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents, updateUserPassword } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME, migrateBase64DocsInData } from "./lib/storage.js";
 import jsPDF from "jspdf";
@@ -9686,7 +9687,14 @@ export default function TaskFlow(){
   const [syncReady,setSyncReady]   = useState(!syncEnabled);
   const [syncStatus,setSyncStatus] = useState(syncEnabled?"connecting":"off");
   const [activeProject,setAP]      = useState(0);
-  const [activeTab,setActiveTab]   = useState("hector-direct");
+  // URL routing — Fase 1 (MNT-009). Lee la URL al montar y deriva el tab.
+  // Si la URL no matchea ningún slug (caso "/" inicial), defaulta a
+  // "hector-direct". Excepción: el guest del Vault (/vault/<token>) se
+  // captura ANTES vía parseVaultGuestPath y short-circuita la app.
+  const [activeTab,setActiveTab]   = useState(() => {
+    try { return tabFromPath(window.location.pathname) || "hector-direct"; }
+    catch { return "hector-direct"; }
+  });
   const [activeMember,setAM]       = useState(()=>{ const u=readStoredUser(); return typeof u?.id==="number"?u.id:5; });
   // Briefing matinal automático: aparece la primera apertura del día
   // (>4h desde el último uso) si todavía no se mostró hoy. La marca
@@ -9832,9 +9840,60 @@ export default function TaskFlow(){
     if(!postLoginAppliedRef.current){
       postLoginAppliedRef.current = true;
       const isAdminNow = authMemberInfo.member.accountRole === "admin";
-      setActiveTab("hector-direct");
+      // Post-login: respetar la URL si trae un tab válido; solo redirigir
+      // a hector-direct cuando la URL es "/" o no matchea ningún slug
+      // conocido. Así un F5 en /mantenimiento queda en /mantenimiento.
+      const tabFromUrl = (() => {
+        try { return tabFromPath(window.location.pathname); }
+        catch { return null; }
+      })();
+      if (!tabFromUrl) setActiveTab("hector-direct");
     }
   },[authMemberInfo?.member?.id, authMemberInfo?.member?.accountRole]);
+
+  // URL routing — Fase 1: sincroniza URL ← activeTab. Cuando el usuario
+  // cambia de tab (sidebar, mobile bottom nav, atajos, redirects por
+  // permisos), pusheamos el path canónico. Skip si la URL ya coincide,
+  // para no apilar entradas duplicadas en el history. Tabs sin slug
+  // propio (board/eisenhower/reports/team) no actualizan la URL —
+  // quedan en /projects.
+  useEffect(() => {
+    const desired = pathFromTab(activeTab);
+    if (!desired || desired === "/") return;
+    try {
+      if (window.location.pathname !== desired) {
+        window.history.pushState({ activeTab }, "", desired);
+      }
+    } catch {}
+  }, [activeTab]);
+
+  // URL routing — Fase 1: sincroniza activeTab ← URL. Listener de popstate
+  // para que botones atrás/adelante del navegador naveguen entre tabs.
+  // Solo dispara setActiveTab si la URL apunta a un slug conocido y es
+  // distinto del actual.
+  useEffect(() => {
+    const onPop = () => {
+      try {
+        const next = tabFromPath(window.location.pathname);
+        if (next && next !== activeTab) setActiveTab(next);
+      } catch {}
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [activeTab]);
+
+  // URL routing — Fase 1: si el usuario aterriza en "/" tras montar, lo
+  // redirigimos a /hector con replaceState (no añade entrada al history).
+  // El initializer de activeTab ya defaulta a "hector-direct"; este
+  // efecto solo alinea la barra de direcciones.
+  useEffect(() => {
+    try {
+      if (window.location.pathname === "/" || window.location.pathname === "") {
+        window.history.replaceState({ activeTab: "hector-direct" }, "", "/hector");
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const handleSignOut = async ()=>{
     await signOut();
     setAuthSession(null);
