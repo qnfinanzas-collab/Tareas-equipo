@@ -4052,27 +4052,26 @@ function BoardView({board,project,members,projectMemberIds,activeMemberId,aiSche
   const saveNew=(colId)=>{ const t=newCardTitle.trim(); if(!t){setNewCard(null);return;} onAddTask(colId,t); setNewCard(null); setNewCardTitle(""); };
   const openModal=openTaskId?board.flatMap(c=>c.tasks.map(t=>({t,colId:c.id}))).find(x=>x.t.id===openTaskId):null;
   return(
-    <>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:"10px 20px 0",alignItems:"center"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 180px)",minHeight:400,overflow:"hidden"}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:"10px 20px 0",alignItems:"center",flexShrink:0}}>
         <span style={{fontSize:11,color:"#9ca3af"}}>Persona:</span>
         {projectMemberIds.map(mid=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} style={{display:"flex",alignItems:"center",gap:5,background:mp2.light,border:`1px solid ${mp2.solid}`,borderRadius:20,padding:"3px 10px 3px 6px"}}><div style={{width:9,height:9,borderRadius:"50%",background:mp2.solid}}/><span style={{fontSize:11,fontWeight:600,color:mp2.solid}}>{m?.name.split(" ")[0]}</span></div>; })}
       </div>
-      <div style={{display:"flex",gap:14,alignItems:"flex-start",padding:"12px 20px 20px",overflowX:"auto"}}>
+      <div style={{flex:1,display:"flex",gap:14,alignItems:"stretch",padding:"12px 20px 20px",overflowX:"auto",overflowY:"hidden",minHeight:0}}>
         {board.map(col=>(
           <div key={col.id} className="tf-board-col" onDragOver={e=>e.preventDefault()} onDrop={e=>handleDrop(e,col.id)} style={{
             width:268,flexShrink:0,background:"#FAFAF7",borderRadius:0,padding:0,border:"1px solid #E5E0D5",
-            // Altura fija viewport menos chrome (topbar + project header +
-            // tabs + filter row ≈ 220px). Estilo Trello: el scroll vive
-            // dentro de la columna, no en la página entera. Header y
-            // footer "+ Añadir tarea" siempre visibles.
-            height:"calc(100vh - 220px)",minHeight:300,display:"flex",flexDirection:"column"
+            // Altura 100% del contenedor padre (el board view ya está
+            // height-bounded a calc(100vh - 180px) con overflow:hidden).
+            // Estilo Trello: la página NO scrollea — solo scrollea la
+            // lista interna de cada columna. Header y footer siempre fijos
+            // por el layout flex column.
+            height:"100%",display:"flex",flexDirection:"column"
           }}>
-            {/* Header de columna — sticky al top del viewport. Cuando la
-                página hace scroll, el header se ancla arriba mientras la
-                columna sigue en pantalla. El zIndex 5 lo mantiene por
-                encima de las cards al desplazarse. Background opaco
-                (#FAFAF7) para que tape el contenido por debajo al stick. */}
-            <div style={{flexShrink:0,position:"sticky",top:0,zIndex:5,background:"#FAFAF7",padding:"10px 12px 8px",borderBottom:"1px solid #E5E0D5",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            {/* Header de columna — fijo arriba por flexShrink:0. Como la
+                columna NO scrollea (solo su sección de tareas lo hace),
+                el header siempre queda visible en la parte superior. */}
+            <div style={{flexShrink:0,background:"#FAFAF7",padding:"10px 12px 8px",borderBottom:"1px solid #E5E0D5",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <span style={{fontSize:13,fontWeight:600,color:"#1A1A1A",textTransform:"uppercase",letterSpacing:"0.04em"}}>{col.name}</span>
               <span style={{fontSize:11,background:"#fff",border:"0.5px solid #D8D3C5",borderRadius:0,padding:"1px 7px",color:"#6B6B6B",fontWeight:600}}>{col.tasks.length}</span>
             </div>
@@ -4091,7 +4090,7 @@ function BoardView({board,project,members,projectMemberIds,activeMemberId,aiSche
         ))}
       </div>
       {openModal&&<TaskModal task={openModal.t} colId={openModal.colId} cols={board} members={members} activeMemberId={activeMemberId} workspaceLinks={workspaceLinks} agents={agents||[]} ceoMemory={ceoMemory} canDelete={canDelete || (openModal.t.assignees||[]).length===0} projects={projects} onNavigateProject={onNavigateProject} onTransferProject={onTransferProject?(newPid)=>{ onTransferProject(openModal.t.id, newPid); setOpenTaskId(null); }:undefined} onAddTimelineEntry={onAddTimelineEntry} onToggleMilestone={onToggleMilestone} onClose={()=>setOpenTaskId(null)} onUpdate={(id,cid,upd)=>onUpdate(id,cid,upd)} onMove={(id,from,to)=>{onMove(id,from,to);setOpenTaskId(null);}} onDelete={onDeleteTask}/>}
-    </>
+    </div>
   );
 }
 
