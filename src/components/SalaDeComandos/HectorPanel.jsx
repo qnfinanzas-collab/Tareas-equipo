@@ -2409,19 +2409,19 @@ Reglas para block_task:
                   type="button"
                   onClick={() => onGoMytasks?.("overdue")}
                   title="Tareas vencidas sin actividad reciente"
-                  style={{ padding: "3px 10px", background: "#FFF0F0", color: "#E74C3C", border: "1px solid #E74C3C", fontSize: 11, fontWeight: 600, cursor: onGoMytasks ? "pointer" : "default", fontFamily: "inherit", borderRadius: 20 }}
+                  style={{ padding: "3px 10px", background: "#FFF0F0", color: "#E74C3C", border: "1px solid #E74C3C", fontSize: 11, fontWeight: 600, cursor: onGoMytasks ? "pointer" : "default", fontFamily: "inherit", borderRadius: 0 }}
                 >🔴 Vencidas: {overdueColdCount}</button>
                 <button
                   type="button"
                   onClick={() => onGoDealRoom?.("cold")}
                   title="Negociaciones sin actividad >5 días"
-                  style={{ padding: "3px 10px", background: "#F0F7FF", color: "#3498DB", border: "1px solid #3498DB", fontSize: 11, fontWeight: 600, cursor: onGoDealRoom ? "pointer" : "default", fontFamily: "inherit", borderRadius: 20 }}
+                  style={{ padding: "3px 10px", background: "#F0F7FF", color: "#3498DB", border: "1px solid #3498DB", fontSize: 11, fontWeight: 600, cursor: onGoDealRoom ? "pointer" : "default", fontFamily: "inherit", borderRadius: 0 }}
                 >🔵 Frías: {coldNegsCount}</button>
                 <button
                   type="button"
                   onClick={() => onGoMytasks?.("waiting")}
                   title="Tareas esperando respuesta de alguien"
-                  style={{ padding: "3px 10px", background: "#FFF8E7", color: "#F39C12", border: "1px solid #F39C12", fontSize: 11, fontWeight: 600, cursor: onGoMytasks ? "pointer" : "default", fontFamily: "inherit", borderRadius: 20 }}
+                  style={{ padding: "3px 10px", background: "#FFF8E7", color: "#F39C12", border: "1px solid #F39C12", fontSize: 11, fontWeight: 600, cursor: onGoMytasks ? "pointer" : "default", fontFamily: "inherit", borderRadius: 0 }}
                 >🟡 Esperan: {waitingCount}</button>
               </div>
             </>

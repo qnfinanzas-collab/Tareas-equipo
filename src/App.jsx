@@ -266,7 +266,7 @@ function RefBadge({code, title}){
       color:"#888",
       background:"#f0f0f0",
       padding:"1px 6px",
-      borderRadius:4,
+      borderRadius:0,
       letterSpacing:"0.5px",
       flexShrink:0,
       fontWeight:600,
@@ -1734,9 +1734,9 @@ function _syncCounters(d){
 const _uid=(p)=>`${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}`;
 
 // ── Small components ──────────────────────────────────────────────────────────
-const Tag=({tag})=>{ const c=TAG_COLORS[tag.c]||TAG_COLORS.blue; return <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:500,background:c.bg,color:c.text,border:`0.5px solid ${c.border}`}}>{tag.l}</span>; };
-const PriBadge=({p})=>{ const m={alta:{bg:"#FCEBEB",text:"#A32D2D",l:"Alta"},media:{bg:"#FAEEDA",text:"#633806",l:"Media"},baja:{bg:"#EAF3DE",text:"#27500A",l:"Baja"}}[p]||{bg:"#FAEEDA",text:"#633806",l:"Media"}; return <span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:m.bg,color:m.text,fontWeight:500}}>{m.l}</span>; };
-const QBadge=({q})=>{ const qm=QM[q]; if(!qm)return null; return <span style={{fontSize:10,padding:"2px 7px",borderRadius:20,background:qm.bg,color:qm.border,border:`1px solid ${qm.border}`,fontWeight:600}}>{qm.icon} {qm.label}</span>; };
+const Tag=({tag})=>{ const c=TAG_COLORS[tag.c]||TAG_COLORS.blue; return <span style={{fontSize:11,padding:"2px 8px",borderRadius:0,fontWeight:500,background:c.bg,color:c.text,border:`0.5px solid ${c.border}`}}>{tag.l}</span>; };
+const PriBadge=({p})=>{ const m={alta:{bg:"#FCEBEB",text:"#A32D2D",l:"Alta"},media:{bg:"#FAEEDA",text:"#633806",l:"Media"},baja:{bg:"#EAF3DE",text:"#27500A",l:"Baja"}}[p]||{bg:"#FAEEDA",text:"#633806",l:"Media"}; return <span style={{fontSize:10,padding:"2px 7px",borderRadius:0,background:m.bg,color:m.text,fontWeight:500}}>{m.l}</span>; };
+const QBadge=({q})=>{ const qm=QM[q]; if(!qm)return null; return <span style={{fontSize:10,padding:"2px 7px",borderRadius:0,background:qm.bg,color:qm.border,border:`1px solid ${qm.border}`,fontWeight:600}}>{qm.icon} {qm.label}</span>; };
 const FL=({c})=><div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:5,marginTop:14}}>{c}</div>;
 const FI=({value,onChange,type="text",placeholder=""})=><input type={type} value={value||""} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit",background:"#fff",boxSizing:"border-box"}}/>;
 
@@ -3959,7 +3959,7 @@ function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
   // renderizar gap mínimo si no aplica — comportamiento aceptable).
   const showMetaRow = true; // QBadge siempre presente; mantenemos la fila.
   return(
-    <div draggable={!isLinkedHere} onDragStart={isLinkedHere?undefined:onDragStart} onClick={onOpen} style={{background:isLinkedHere?"#FAFAF5":(p2?p2.cardBg:"#fff"),border:`0.5px solid ${p2?p2.cardBorder+"55":"#e5e7eb"}`,borderLeft:`4px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:10,padding:"8px 12px",marginBottom:8,cursor:"pointer"}}>
+    <div draggable={!isLinkedHere} onDragStart={isLinkedHere?undefined:onDragStart} onClick={onOpen} style={{background:isLinkedHere?"#FAFAF5":(p2?p2.cardBg:"#fff"),border:`0.5px solid ${p2?p2.cardBorder+"55":"#e5e7eb"}`,borderLeft:`4px solid ${p2?p2.cardBorder:"#e5e7eb"}`,borderRadius:0,padding:"8px 12px",marginBottom:8,cursor:"pointer"}}>
       {/* Fila título + presencia + linked + ref */}
       <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
         <div style={{flex:1,minWidth:0,fontSize:14,fontWeight:600,lineHeight:1.35}}>{task.title}</div>
@@ -3973,7 +3973,7 @@ function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
             })}
           </div>
         )}
-        {(isLinkedHere || (task.linkedProjects||[]).length>0) && <span title={sharedTooltip} style={{fontSize:10,padding:"1px 6px",borderRadius:4,background:"#F3F4F6",color:"#6B7280",border:"0.5px solid #E5E7EB",fontWeight:600,flexShrink:0}}>🔗</span>}
+        {(isLinkedHere || (task.linkedProjects||[]).length>0) && <span title={sharedTooltip} style={{fontSize:10,padding:"1px 6px",borderRadius:0,background:"#F3F4F6",color:"#6B7280",border:"0.5px solid #E5E7EB",fontWeight:600,flexShrink:0}}>🔗</span>}
         <RefBadge code={task.ref}/>
       </div>
       {/* Descripción inline (1 línea con ellipsis) */}
@@ -3989,11 +3989,11 @@ function TaskCard({task,members,aiSchedule,projects,onOpen,onDragStart}){
           {sched.length>0&&<span style={{fontSize:10,color:"#7F77DD",fontWeight:600}}>Planificado</span>}
         </div>
       )}
-      {est>0&&totalLogged>0&&<div style={{marginBottom:4}}><div style={{height:4,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(Math.round(totalLogged/est*100),100)}%`,background:totalLogged>est?"#E24B4A":totalLogged/est>0.8?"#EF9F27":"#1D9E75",borderRadius:20}}/></div></div>}
+      {est>0&&totalLogged>0&&<div style={{marginBottom:4}}><div style={{height:4,background:"#e5e7eb",borderRadius:0,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(Math.round(totalLogged/est*100),100)}%`,background:totalLogged>est?"#E24B4A":totalLogged/est>0.8?"#EF9F27":"#1D9E75",borderRadius:0}}/></div></div>}
       {/* Footer: asignados + prioridad + badges secundarios */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex"}}>{task.assignees.map((mid,i)=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} title={m?.name} style={{marginLeft:i>0?-7:0,zIndex:task.assignees.length-i,position:"relative",width:24,height:24,borderRadius:"50%",background:mp2.solid,color:"#fff",border:"2px solid #fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{m?.initials||"?"}</div>; })}</div>
-        <div style={{display:"flex",alignItems:"center",gap:5}}><PriBadge p={task.priority}/>{subs.length>0&&<span title={`${subDone}/${subs.length} subtareas`} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:subAllDone?"#E1F5EE":"#f3f4f6",color:subAllDone?"#085041":"#6b7280",fontWeight:600,border:`0.5px solid ${subAllDone?"#1D9E75":"#e5e7eb"}`}}>☑ {subDone}/{subs.length}</span>}{(task.links||[]).length>0&&<span title={`${task.links.length} enlace${task.links.length>1?"s":""}`} style={{fontSize:10,padding:"1px 6px",borderRadius:10,background:"#EEEDFE",color:"#3C3489",fontWeight:600,border:"0.5px solid #AFA9EC"}}>🔗 {task.links.length}</span>}{(task.timeline||[]).length>0&&<span title={`${task.timeline.length} actualizacion${task.timeline.length>1?"es":""}`} style={{fontSize:11,color:"#9ca3af"}}>💬 {task.timeline.length}</span>}</div>
+        <div style={{display:"flex",alignItems:"center",gap:5}}><PriBadge p={task.priority}/>{subs.length>0&&<span title={`${subDone}/${subs.length} subtareas`} style={{fontSize:10,padding:"1px 6px",borderRadius:0,background:subAllDone?"#E1F5EE":"#f3f4f6",color:subAllDone?"#085041":"#6b7280",fontWeight:600,border:`0.5px solid ${subAllDone?"#1D9E75":"#e5e7eb"}`}}>☑ {subDone}/{subs.length}</span>}{(task.links||[]).length>0&&<span title={`${task.links.length} enlace${task.links.length>1?"s":""}`} style={{fontSize:10,padding:"1px 6px",borderRadius:0,background:"#EEEDFE",color:"#3C3489",fontWeight:600,border:"0.5px solid #AFA9EC"}}>🔗 {task.links.length}</span>}{(task.timeline||[]).length>0&&<span title={`${task.timeline.length} actualizacion${task.timeline.length>1?"es":""}`} style={{fontSize:11,color:"#9ca3af"}}>💬 {task.timeline.length}</span>}</div>
       </div>
     </div>
   );
@@ -6025,18 +6025,18 @@ function DailyDigest({boards,members,activeMemberId}){
   const q1=allT.filter(t=>getQ(t)==="Q1"); const todayT=allT.filter(t=>daysUntil(t.dueDate)===0);
   const m=members.find(x=>x.id===activeMemberId); const mp2=MP[activeMemberId]||MP[0];
   return(
-    <div style={{margin:"12px 20px 0",background:mp2.light,border:`1.5px solid ${mp2.solid}`,borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+    <div style={{margin:"12px 20px 0",background:"#FAFAF7",border:"1px solid #E5E0D5",borderLeft:"3px solid #C9A84C",borderRadius:0,padding:"12px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
       <div style={{width:40,height:40,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,flexShrink:0}}>{m?.initials}</div>
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:13,fontWeight:600,color:mp2.solid}}>Hola, {m?.name.split(" ")[0]} · {m?.avail?.hoursPerDay||7}h disponibles hoy</div>
-        <div style={{fontSize:12,color:"#4b5563",marginTop:2}}>
+        <div style={{fontSize:13,fontWeight:600,color:"#1A1A1A"}}>Hola, {m?.name.split(" ")[0]} · {m?.avail?.hoursPerDay||7}h disponibles hoy</div>
+        <div style={{fontSize:12,color:"#6B6B6B",marginTop:2}}>
           {q1.length>0?`${q1.length} tarea${q1.length>1?"s":""} critica${q1.length>1?"s":""}.`:""}{" "}
           {todayT.length>0?`${todayT.length} vence${todayT.length>1?"n":""} hoy.`:""}{" "}
           {q1.length===0&&todayT.length===0?"Sin urgencias. Buen dia para avanzar en Q2.":""}
         </div>
       </div>
       <div style={{display:"flex",gap:8,flexShrink:0,flexWrap:"wrap"}}>
-        {q1.slice(0,2).map(t=><div key={t.id} style={{fontSize:11,background:"#FCEBEB",color:"#A32D2D",border:"1px solid #E24B4A",borderRadius:8,padding:"3px 8px",fontWeight:500}}>{t.title.slice(0,22)}{t.title.length>22?"...":""}</div>)}
+        {q1.slice(0,2).map(t=><div key={t.id} style={{fontSize:11,background:"#FCEBEB",color:"#A32D2D",border:"1px solid #E24B4A",borderRadius:0,padding:"3px 8px",fontWeight:500}}>{t.title.slice(0,22)}{t.title.length>22?"...":""}</div>)}
       </div>
       <button onClick={()=>setOpen(false)} style={{background:"none",border:"none",fontSize:16,cursor:"pointer",color:"#9ca3af",flexShrink:0}}>x</button>
     </div>
@@ -12153,7 +12153,7 @@ export default function TaskFlow(){
         name: "Mejoras Kluxor",
         code: "KMJ",
         desc: "Mejoras del producto registradas por Bruno desde Mantenimiento.",
-        color: "#7F77DD",
+        color: DEFAULT_PROJECT_COLOR,
         emoji: "🏗️",
         members: [activeMember],
         columns: ["Por hacer","En progreso","Hecho"],
