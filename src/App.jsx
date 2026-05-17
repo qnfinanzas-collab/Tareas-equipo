@@ -4053,25 +4053,24 @@ function BoardView({board,project,members,projectMemberIds,activeMemberId,aiSche
   const openModal=openTaskId?board.flatMap(c=>c.tasks.map(t=>({t,colId:c.id}))).find(x=>x.t.id===openTaskId):null;
   return(
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 180px)",minHeight:400,overflow:"hidden"}}>
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:"10px 20px 0",alignItems:"center",flexShrink:0}}>
-        <span style={{fontSize:11,color:"#9ca3af"}}>Persona:</span>
-        {projectMemberIds.map(mid=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} style={{display:"flex",alignItems:"center",gap:5,background:mp2.light,border:`1px solid ${mp2.solid}`,borderRadius:20,padding:"3px 10px 3px 6px"}}><div style={{width:9,height:9,borderRadius:"50%",background:mp2.solid}}/><span style={{fontSize:11,fontWeight:600,color:mp2.solid}}>{m?.name.split(" ")[0]}</span></div>; })}
-      </div>
+      {/* Fila Persona — movida al banner DailyDigest (rendered en App.jsx)
+          para que no desaparezca al scrollear y aproveche el espacio
+          libre del banner de bienvenida. */}
       <div style={{flex:1,display:"flex",gap:14,alignItems:"stretch",padding:"12px 20px 20px",overflowX:"auto",overflowY:"hidden",minHeight:0}}>
         {board.map(col=>(
           <div key={col.id} className="tf-board-col" onDragOver={e=>e.preventDefault()} onDrop={e=>handleDrop(e,col.id)} style={{
-            width:268,flexShrink:0,background:"#FAFAF7",borderRadius:0,padding:0,border:"1px solid #E5E0D5",
+            width:268,flexShrink:0,background:"#FAFAF7",borderRadius:0,padding:0,border:"none",
             // Altura 100% del contenedor padre (el board view ya está
             // height-bounded a calc(100vh - 180px) con overflow:hidden).
-            // Estilo Trello: la página NO scrollea — solo scrollea la
-            // lista interna de cada columna. Header y footer siempre fijos
-            // por el layout flex column.
+            // Sin border outer — las columnas se diferencian solo por el
+            // gap del flex parent (14px) + background distinto al de la
+            // página. Header y footer siempre fijos por el layout flex.
             height:"100%",display:"flex",flexDirection:"column"
           }}>
-            {/* Header de columna — fijo arriba por flexShrink:0. Como la
-                columna NO scrollea (solo su sección de tareas lo hace),
-                el header siempre queda visible en la parte superior. */}
-            <div style={{flexShrink:0,background:"#FAFAF7",padding:"10px 12px 8px",borderBottom:"1px solid #E5E0D5",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            {/* Header de columna — fijo arriba por flexShrink:0. Sin
+                borderBottom: la separación visual la dan el espacio y
+                la jerarquía tipográfica (uppercase + bold). */}
+            <div style={{flexShrink:0,background:"#FAFAF7",padding:"10px 12px 8px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <span style={{fontSize:13,fontWeight:600,color:"#1A1A1A",textTransform:"uppercase",letterSpacing:"0.04em"}}>{col.name}</span>
               <span style={{fontSize:11,background:"#fff",border:"0.5px solid #D8D3C5",borderRadius:0,padding:"1px 7px",color:"#6B6B6B",fontWeight:600}}>{col.tasks.length}</span>
             </div>
@@ -4079,8 +4078,9 @@ function BoardView({board,project,members,projectMemberIds,activeMemberId,aiSche
             <div style={{flex:1,overflowY:"auto",overflowX:"hidden",padding:"8px",minHeight:0}}>
               {col.tasks.map(task=><TaskCard key={`${task._linkedFromAnotherProject?"L-":""}${task.id}`} task={task} members={members} aiSchedule={aiSchedule} projects={projects} projectColor={project?.color} onColorChange={c=>onUpdate(task.id,col.id,{...task,color:c})} onOpen={()=>setOpenTaskId(task.id)} onDragStart={()=>setDragging({taskId:task.id,colId:col.id})}/>)}
             </div>
-            {/* Footer "+ Añadir tarea" — fijo abajo */}
-            <div style={{flexShrink:0,padding:8,borderTop:"1px solid #E5E0D5",background:"#FAFAF7"}}>
+            {/* Footer "+ Añadir tarea" — fijo abajo. Sin borderTop, igual
+                que el header: la separación viene del padding y el espacio. */}
+            <div style={{flexShrink:0,padding:8,background:"#FAFAF7"}}>
               {newCard===col.id
                 ?<div style={{background:"#fff",border:"0.5px solid #C9A84C",borderRadius:0,padding:8}}><input autoFocus value={newCardTitle} onChange={e=>setNewCardTitle(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")saveNew(col.id);if(e.key==="Escape")setNewCard(null);}} placeholder="Titulo de la tarea..." style={{width:"100%",border:"none",outline:"none",fontSize:13,background:"transparent",fontFamily:"inherit"}}/><div style={{display:"flex",gap:6,marginTop:8}}><button onClick={()=>saveNew(col.id)} style={{padding:"4px 10px",borderRadius:0,background:"#1A1A1A",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Añadir</button><button onClick={()=>setNewCard(null)} style={{padding:"4px 10px",borderRadius:0,background:"transparent",border:"0.5px solid #D8D3C5",fontSize:12,cursor:"pointer",fontFamily:"inherit",color:"#6B6B6B"}}>Cancelar</button></div></div>
                 :<button onClick={()=>{setNewCard(col.id);setNewCardTitle("");}} style={{width:"100%",textAlign:"left",padding:"8px 10px",borderRadius:0,fontSize:13,color:"#6B6B6B",background:"transparent",border:"none",cursor:"pointer",fontFamily:"inherit"}}>+ Añadir tarea</button>
@@ -6076,11 +6076,12 @@ function Toast({toasts}){
   );
 }
 
-function DailyDigest({boards,members,activeMemberId}){
+function DailyDigest({boards,members,activeMemberId,projectMemberIds}){
   const [open,setOpen]=useState(true); if(!open)return null;
   const allT=Object.values(boards).flatMap(cols=>cols.flatMap(c=>c.tasks.map(t=>({...t,colName:c.name})))).filter(t=>t.colName!=="Hecho"&&t.assignees.includes(activeMemberId));
   const q1=allT.filter(t=>getQ(t)==="Q1"); const todayT=allT.filter(t=>daysUntil(t.dueDate)===0);
   const m=members.find(x=>x.id===activeMemberId); const mp2=MP[activeMemberId]||MP[0];
+  const memberChips = Array.isArray(projectMemberIds) ? projectMemberIds : [];
   return(
     <div style={{margin:"12px 20px 0",background:"#F0EDE5",border:"1px solid #D8D3C5",borderLeft:"3px solid #C9A84C",borderRadius:0,padding:"12px 16px",display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
       <div style={{width:40,height:40,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:700,flexShrink:0}}>{m?.initials}</div>
@@ -6091,6 +6092,25 @@ function DailyDigest({boards,members,activeMemberId}){
           {todayT.length>0?`${todayT.length} vence${todayT.length>1?"n":""} hoy.`:""}{" "}
           {q1.length===0&&todayT.length===0?"Sin urgencias. Buen dia para avanzar en Q2.":""}
         </div>
+        {/* Fila Persona — chips de miembros del proyecto. Antes vivía
+            arriba del board y desaparecía al scrollear; ahora va dentro
+            del banner para aprovechar el espacio y mantenerla siempre
+            visible junto al saludo. */}
+        {memberChips.length>0 && (
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginTop:8}}>
+            <span style={{fontSize:11,color:"#6B6B6B"}}>Persona:</span>
+            {memberChips.map(mid=>{
+              const mm = members.find(x=>x.id===mid);
+              const mpc = MP[mid]||MP[0];
+              return(
+                <div key={mid} style={{display:"flex",alignItems:"center",gap:5,background:mpc.light,border:`1px solid ${mpc.solid}`,borderRadius:20,padding:"2px 9px 2px 5px"}}>
+                  <div style={{width:8,height:8,borderRadius:"50%",background:mpc.solid}}/>
+                  <span style={{fontSize:11,fontWeight:600,color:mpc.solid}}>{mm?.name?.split(" ")[0] || "?"}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
       <div style={{display:"flex",gap:8,flexShrink:0,flexWrap:"wrap"}}>
         {q1.slice(0,2).map(t=><div key={t.id} style={{fontSize:11,background:"#FCEBEB",color:"#A32D2D",border:"1px solid #E24B4A",borderRadius:0,padding:"3px 8px",fontWeight:500}}>{t.title.slice(0,22)}{t.title.length>22?"...":""}</div>)}
@@ -12852,7 +12872,7 @@ export default function TaskFlow(){
             {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #7F77DD":"2px solid transparent",color:activeTab===tab.key?"#7F77DD":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
           </div>
         )}
-        {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember}/>}
+        {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember} projectMemberIds={proj?.members||[]}/>}
         <div style={{flex:1,overflow:"auto"}}>
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onToast={addToast} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)} onUnarchiveTask={unarchiveTaskAnywhere}/>}
