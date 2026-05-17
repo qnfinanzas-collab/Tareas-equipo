@@ -1637,11 +1637,12 @@ Reglas para block_task:
   }, [expandedTaskId]);
 
   // Wrappers de acciones para el tab Análisis: ejecutan + dejan rastro en
-  // el chat + cambian al tab Chat para que el CEO vea la confirmación.
-  // También publican en el timeline de la tarea — el CEO ve más adelante
-  // el rastro de la decisión sin entrar al chat.
+  // el chat SIN cambiar de tab. El dismiss óptico (setDismissedTaskIds en
+  // los callers) ya retira la card del análisis al instante — feedback
+  // visual claro sin sacar al CEO de la vista donde está trabajando.
+  // El mensaje queda en chatHistory para cuando el CEO abra el tab Chat.
+  // También publican en el timeline de la tarea.
   const switchToChatWithMessage = (text) => {
-    setActiveTab("chat");
     if (text) setChatHistory((prev) => {
       // BUG 3 commit 11: dedupe acks. Antes de añadir la nueva burbuja,
       // borramos las anteriores del mismo tipo (Marcada / Pospuesta /
