@@ -1,5 +1,55 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { supa } from "../lib/sync.js";
+import { callAgentSafe } from "../lib/agent.js";
+
+// Bruno — arquitecto de Kluxor. Modelo fijado (Sonnet 4 base, no 4.5)
+// porque el CEO así lo ha pedido para mantener una voz distinta a la
+// del resto del sistema y poder iterar el prompt sin tocar Héctor.
+const BRUNO_MODEL = "claude-sonnet-4-20250514";
+const BRUNO_CHAT_KEY = "kluxor.bruno.chat";
+const BRUNO_CHAT_MAX = 60;
+
+const BRUNO_SYSTEM = `Eres Bruno, arquitecto de Kluxor. Tu trabajo es entender las ideas de mejora del CEO y registrarlas formalmente. Habla en español. Sé directo. Haz solo las preguntas necesarias. Cuando la idea esté clara, confírmala y guárdala en el sistema.
+
+CEO: Antonio Díaz. Trabajas para él. Tono directo, sin floreos ni preámbulos. No te presentes en cada turno.
+
+FORMATO DE REGISTRO:
+Cuando entiendas la mejora con claridad suficiente para registrarla:
+1. Confirma al CEO en una frase breve qué vas a guardar.
+2. AL FINAL de tu mensaje, añade un bloque EXACTAMENTE así (sin markdown, sin backticks):
+[IMPROVEMENT]{"text":"<resumen claro de la mejora, una o dos frases en infinitivo o futuro>"}[/IMPROVEMENT]
+
+El bloque [IMPROVEMENT] se OCULTA del chat — solo lo lee el sistema para insertar el ticket en la tabla hector_tickets con kind='improvement' y status='pending'.
+
+NO emitas el bloque si:
+- El CEO solo está explorando y no hay decisión clara.
+- Te faltan detalles críticos para que un futuro implementador entienda qué hay que hacer.
+- El CEO contradice o cancela.
+
+Haz solo las preguntas estrictamente necesarias. No interrogues. Si una idea entra completa y simple, regístrala de inmediato sin preguntar.
+
+Una vez registrada una mejora, NO la repitas en el siguiente turno. El CEO puede pedir registrar otra distinta o ajustar la anterior — sé claro sobre cuál es cuál.`;
+
+const IMPROVEMENT_RE = /\[IMPROVEMENT\]([\s\S]*?)\[\/IMPROVEMENT\]/;
+
+const parseImprovementBlock = (text) => {
+  if (!text || typeof text !== "string") return null;
+  const m = text.match(IMPROVEMENT_RE);
+  if (!m) return null;
+  try {
+    let raw = m[1].trim().replace(/^```json\s*|\s*```$/g, "").replace(/^```\s*|\s*```$/g, "");
+    const parsed = JSON.parse(raw);
+    const t = typeof parsed?.text === "string" ? parsed.text.trim() : "";
+    return t ? { text: t } : null;
+  } catch {
+    return null;
+  }
+};
+
+const stripImprovementBlock = (text) => String(text || "")
+  .replace(IMPROVEMENT_RE, "")
+  .replace(/\n{3,}/g, "\n\n")
+  .trim();
 
 const PALETTE = {
   bg:           "#FAFAFA",
@@ -301,6 +351,231 @@ function IncidentCard({ ticket, onResolve, onReopen }) {
   );
 }
 
+function BrunoChat({ onImprovementCreated }) {
+  const [history, setHistory] = useState(() => {
+    try {
+      const raw = localStorage.getItem(BRUNO_CHAT_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.slice(-BRUNO_CHAT_MAX) : [];
+    } catch { return []; }
+  });
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [savingId, setSavingId] = useState(null);
+  const endRef = useRef(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(BRUNO_CHAT_KEY, JSON.stringify(history.slice(-BRUNO_CHAT_MAX))); } catch {}
+    if (endRef.current) endRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [history]);
+
+  const clearChat = () => {
+    if (!window.confirm("¿Empezar conversación nueva con Bruno? Se borra el historial actual.")) return;
+    setHistory([]);
+    try { localStorage.removeItem(BRUNO_CHAT_KEY); } catch {}
+  };
+
+  const send = async () => {
+    const txt = input.trim();
+    if (!txt || loading) return;
+    const userMsg = { role: "user", text: txt, ts: Date.now() };
+    const next = [...history, userMsg].slice(-BRUNO_CHAT_MAX);
+    setHistory(next);
+    setInput("");
+    setLoading(true);
+    try {
+      const messages = next.map(m => ({
+        role: m.role === "user" ? "user" : "assistant",
+        content: m.text || "",
+      }));
+      const reply = await callAgentSafe(
+        { system: BRUNO_SYSTEM, messages, max_tokens: 900, model: BRUNO_MODEL },
+        { timeoutMs: 60000 }
+      );
+      const improvement = parseImprovementBlock(reply);
+      const cleanText = stripImprovementBlock(reply);
+      const tempId = `tmp_${Date.now()}`;
+      const assistantMsg = {
+        role: "assistant",
+        text: cleanText || "(sin texto)",
+        improvement: improvement || null,
+        improvementSavedId: null,
+        improvementTempId: improvement ? tempId : null,
+        ts: Date.now(),
+      };
+      setHistory(prev => [...prev, assistantMsg].slice(-BRUNO_CHAT_MAX));
+      if (improvement) {
+        setSavingId(tempId);
+        try {
+          const saved = await onImprovementCreated(improvement.text);
+          if (saved?.id) {
+            setHistory(prev => prev.map(m =>
+              m.improvementTempId === tempId
+                ? { ...m, improvementSavedId: saved.id }
+                : m
+            ));
+          }
+        } catch (e) {
+          console.warn("[Bruno] save improvement failed:", e?.message);
+        } finally {
+          setSavingId(null);
+        }
+      }
+    } catch (e) {
+      setHistory(prev => [...prev, {
+        role: "assistant",
+        text: `⚠ ${e?.message || "Error consultando a Bruno"}`,
+        error: true,
+        ts: Date.now(),
+      }].slice(-BRUNO_CHAT_MAX));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKey = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  return (
+    <div style={{
+      background: PALETTE.panel,
+      border: `1px solid ${PALETTE.border}`,
+      borderLeft: `3px solid ${PALETTE.accent}`,
+      padding: 14,
+      marginBottom: 16,
+      borderRadius: 0,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: PALETTE.text }}>🏗️ Bruno — arquitecto de Kluxor</div>
+          <div style={{ fontSize: 11, color: PALETTE.textMuted, marginTop: 2 }}>
+            Cuéntale tu idea de mejora. Cuando esté clara, la registra en este panel.
+          </div>
+        </div>
+        {history.length > 0 && (
+          <button type="button" onClick={clearChat} style={btnStyle("ghost")}>Nueva conversación</button>
+        )}
+      </div>
+
+      <div style={{
+        maxHeight: 340,
+        overflowY: "auto",
+        padding: history.length > 0 ? "8px 0" : 0,
+        background: history.length > 0 ? "#F9FAFB" : "transparent",
+        border: history.length > 0 ? `1px solid ${PALETTE.border}` : "none",
+        borderRadius: 0,
+        marginBottom: 10,
+      }}>
+        {history.length === 0 && !loading && (
+          <div style={{ padding: "16px 12px", fontSize: 12.5, color: PALETTE.textMuted, fontStyle: "italic" }}>
+            Empieza describiendo la mejora. Bruno hará las preguntas necesarias y la registrará cuando esté clara.
+          </div>
+        )}
+        {history.map((m, i) => (
+          <BrunoBubble
+            key={i}
+            message={m}
+            saving={savingId && m.improvementTempId === savingId}
+          />
+        ))}
+        {loading && (
+          <div style={{ padding: "8px 12px", fontSize: 12, color: PALETTE.textMuted, fontStyle: "italic" }}>
+            Bruno está pensando…
+          </div>
+        )}
+        <div ref={endRef} style={{ height: 1 }} />
+      </div>
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKey}
+          placeholder="Cuéntale a Bruno qué mejora propones..."
+          rows={2}
+          style={{
+            flex: 1,
+            padding: "8px 10px",
+            fontSize: 13,
+            fontFamily: "inherit",
+            border: `1px solid ${PALETTE.border}`,
+            borderRadius: 0,
+            resize: "vertical",
+            color: PALETTE.text,
+            background: "#fff",
+            outline: "none",
+          }}
+        />
+        <button
+          type="button"
+          onClick={send}
+          disabled={loading || !input.trim()}
+          style={{
+            ...btnStyle("primary"),
+            padding: "8px 16px",
+            opacity: (loading || !input.trim()) ? 0.5 : 1,
+            cursor: (loading || !input.trim()) ? "default" : "pointer",
+          }}
+        >
+          {loading ? "…" : "Enviar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function BrunoBubble({ message, saving }) {
+  const isUser = message.role === "user";
+  const isError = !!message.error;
+  return (
+    <div style={{
+      padding: "6px 12px",
+      display: "flex",
+      flexDirection: isUser ? "row-reverse" : "row",
+      alignItems: "flex-start",
+      gap: 8,
+      marginBottom: 4,
+    }}>
+      <div style={{
+        maxWidth: "80%",
+        background: isUser ? PALETTE.text : (isError ? PALETTE.bgIncident : "#fff"),
+        color: isUser ? "#fff" : (isError ? PALETTE.danger : PALETTE.text),
+        border: isUser
+          ? `1px solid ${PALETTE.text}`
+          : (isError ? `1px solid ${PALETTE.danger}` : `1px solid ${PALETTE.border}`),
+        padding: "8px 12px",
+        fontSize: 12.5,
+        lineHeight: 1.5,
+        borderRadius: 0,
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+      }}>
+        {message.text}
+        {message.improvement && (
+          <div style={{
+            marginTop: 8,
+            padding: "6px 8px",
+            background: PALETTE.bgDone,
+            border: `1px solid ${PALETTE.success}`,
+            fontSize: 11.5,
+            color: PALETTE.success,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            borderRadius: 0,
+          }}>
+            {saving ? "Guardando mejora…" : (message.improvementSavedId ? "✅ Mejora registrada en el panel" : "✅ Mejora detectada")}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ImprovementCard({ ticket, onSetState }) {
   const stateDef = IMPROVEMENT_STATES.find(s => s.key === ticket.status) || IMPROVEMENT_STATES[0];
   return (
@@ -382,6 +657,34 @@ export default function MantenimientoView({ authUid }) {
     if (error) console.warn(`[Mantenimiento] update status error: ${error.message}`);
   };
 
+  // Inserta una mejora propuesta por Bruno en hector_tickets y
+  // actualiza el listado local. Devuelve la fila insertada para que
+  // BrunoChat pueda marcar el mensaje como guardado.
+  const createImprovement = async (text) => {
+    if (!supa) throw new Error("Supabase no disponible");
+    const { data: sessionData } = await supa.auth.getSession();
+    const userId = sessionData?.session?.user?.id;
+    if (!userId) throw new Error("Sin sesión activa");
+    const payload = {
+      user_id: userId,
+      kind: "improvement",
+      agent: "bruno",
+      improvement_text: text,
+      status: "pending",
+    };
+    const { data: inserted, error } = await supa
+      .from("hector_tickets")
+      .insert(payload)
+      .select()
+      .single();
+    if (error) {
+      console.error("[Mantenimiento] createImprovement error:", error);
+      throw new Error(error.message);
+    }
+    if (inserted) setTickets(prev => [inserted, ...prev]);
+    return inserted;
+  };
+
   return (
     <div style={{ padding: "20px 24px", background: PALETTE.bg, minHeight: "100vh", fontFamily: "inherit", color: PALETTE.text }}>
       <div style={{ marginBottom: 20 }}>
@@ -445,6 +748,7 @@ export default function MantenimientoView({ authUid }) {
 
       {!loading && !error && tab === "improvement" && (
         <>
+          <BrunoChat onImprovementCreated={createImprovement} />
           <div style={{ fontSize: 12, color: PALETTE.textMuted, marginBottom: 10 }}>
             {improvements.length} {improvements.length === 1 ? "mejora" : "mejoras"} · {pendingImprovements.length} sin completar
           </div>
