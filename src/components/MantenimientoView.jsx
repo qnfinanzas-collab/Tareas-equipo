@@ -391,6 +391,45 @@ function IncidentCard({ ticket, onResolve, onReopen }) {
   );
 }
 
+// Helper compartido para guardar una mejora en hector_tickets y actualizar
+// el mensaje del chat con el resultado. Encapsula los 3 caminos posibles:
+// éxito (savedId + taskInfo opcional), fila sin id (error), o exception.
+// Siempre cierra el ciclo: tras esta función, improvementSaving es false
+// y o bien improvementSavedId o improvementError quedan asignados, así
+// el mensaje nunca queda en estado ambiguo en localStorage.
+async function persistImprovementToMessage({ tempId, text, onImprovementCreated, setHistory }) {
+  try {
+    const saved = await onImprovementCreated(text);
+    if (saved?.id) {
+      setHistory(prev => prev.map(m =>
+        m.improvementTempId === tempId
+          ? {
+              ...m,
+              improvementSavedId: saved.id,
+              improvementSaving: false,
+              improvementError: null,
+              improvementTaskInfo: saved.taskInfo || null,
+            }
+          : m
+      ));
+    } else {
+      setHistory(prev => prev.map(m =>
+        m.improvementTempId === tempId
+          ? { ...m, improvementError: "Insert sin id devuelto", improvementSaving: false }
+          : m
+      ));
+    }
+  } catch (e) {
+    console.warn("[Bruno] save improvement failed:", e?.message);
+    const msg = e?.message || "Error guardando mejora";
+    setHistory(prev => prev.map(m =>
+      m.improvementTempId === tempId
+        ? { ...m, improvementError: msg, improvementSaving: false }
+        : m
+    ));
+  }
+}
+
 function BrunoChat({ onImprovementCreated }) {
   const [history, setHistory] = useState(() => {
     try {
@@ -408,6 +447,45 @@ function BrunoChat({ onImprovementCreated }) {
     try { localStorage.setItem(BRUNO_CHAT_KEY, JSON.stringify(history.slice(-BRUNO_CHAT_MAX))); } catch {}
     if (endRef.current) endRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [history]);
+
+  // Auto-retry on mount: si un mensaje quedó marcado improvementSaving
+  // (reload interrumpió el insert) o sin savedId/error (entrada vieja
+  // pre-fix), intentamos guardarlo. Sólo arranca una vez por sesión.
+  const autoRetriedRef = useRef(false);
+  useEffect(() => {
+    if (autoRetriedRef.current) return;
+    autoRetriedRef.current = true;
+    const stale = history.filter(m =>
+      m.role === "assistant" &&
+      m.improvement?.text &&
+      !m.improvementSavedId &&
+      !m.improvementError
+    );
+    stale.forEach(m => {
+      persistImprovementToMessage({
+        tempId: m.improvementTempId,
+        text: m.improvement.text,
+        onImprovementCreated,
+        setHistory,
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const retryImprovement = (msg) => {
+    if (!msg?.improvement?.text || !msg.improvementTempId) return;
+    setHistory(prev => prev.map(m =>
+      m.improvementTempId === msg.improvementTempId
+        ? { ...m, improvementSaving: true, improvementError: null }
+        : m
+    ));
+    persistImprovementToMessage({
+      tempId: msg.improvementTempId,
+      text: msg.improvement.text,
+      onImprovementCreated,
+      setHistory,
+    });
+  };
 
   const clearChat = () => {
     if (!window.confirm("¿Empezar conversación nueva con Bruno? Se borra el historial actual.")) return;
@@ -445,33 +523,22 @@ function BrunoChat({ onImprovementCreated }) {
       };
       setHistory(prev => [...prev, assistantMsg].slice(-BRUNO_CHAT_MAX));
       if (improvement) {
+        // Marcamos saving en el propio mensaje (persistido en localStorage)
+        // para que un reload no deje el mensaje en estado ambiguo. El
+        // savingId local sirve solo para el spinner sin re-render extra.
         setSavingId(tempId);
-        try {
-          const saved = await onImprovementCreated(improvement.text);
-          if (saved?.id) {
-            setHistory(prev => prev.map(m =>
-              m.improvementTempId === tempId
-                ? { ...m, improvementSavedId: saved.id }
-                : m
-            ));
-          } else {
-            setHistory(prev => prev.map(m =>
-              m.improvementTempId === tempId
-                ? { ...m, improvementError: "Insert sin id devuelto" }
-                : m
-            ));
-          }
-        } catch (e) {
-          console.warn("[Bruno] save improvement failed:", e?.message);
-          const msg = e?.message || "Error guardando mejora";
-          setHistory(prev => prev.map(m =>
-            m.improvementTempId === tempId
-              ? { ...m, improvementError: msg }
-              : m
-          ));
-        } finally {
-          setSavingId(null);
-        }
+        setHistory(prev => prev.map(m =>
+          m.improvementTempId === tempId
+            ? { ...m, improvementSaving: true, improvementError: null }
+            : m
+        ));
+        await persistImprovementToMessage({
+          tempId,
+          text: improvement.text,
+          onImprovementCreated,
+          setHistory,
+        });
+        setSavingId(null);
       }
     } catch (e) {
       setHistory(prev => [...prev, {
@@ -531,7 +598,8 @@ function BrunoChat({ onImprovementCreated }) {
           <BrunoBubble
             key={i}
             message={m}
-            saving={savingId && m.improvementTempId === savingId}
+            saving={(savingId && m.improvementTempId === savingId) || !!m.improvementSaving}
+            onRetry={() => retryImprovement(m)}
           />
         ))}
         {loading && (
@@ -580,7 +648,7 @@ function BrunoChat({ onImprovementCreated }) {
   );
 }
 
-function BrunoBubble({ message, saving }) {
+function BrunoBubble({ message, saving, onRetry }) {
   const isUser = message.role === "user";
   const isError = !!message.error;
   return (
@@ -611,28 +679,51 @@ function BrunoBubble({ message, saving }) {
           const hasError = !!message.improvementError;
           const isSaved = !!message.improvementSavedId;
           const isSaving = !!saving;
-          const isDetectedOnly = !isSaved && !isSaving && !hasError;
-          const bg = hasError ? PALETTE.bgIncident : PALETTE.bgDone;
-          const color = hasError ? PALETTE.danger : PALETTE.success;
+          const isAmbiguous = !isSaved && !isSaving && !hasError;
+          const bg = hasError || isAmbiguous ? PALETTE.bgIncident : PALETTE.bgDone;
+          const color = hasError || isAmbiguous ? PALETTE.danger : PALETTE.success;
           let label;
           if (hasError)         label = `⚠ Error guardando: ${message.improvementError}`;
           else if (isSaving)    label = "Guardando mejora…";
           else if (isSaved)     label = "✅ Mejora registrada en el panel";
-          else                  label = "✅ Mejora detectada (no persistida)";
+          else                  label = "⚠ Mejora detectada pero no persistida (estado inconsistente)";
+          const showRetry = (hasError || isAmbiguous) && typeof onRetry === "function";
           return (
-            <div style={{
-              marginTop: 8,
-              padding: "6px 8px",
-              background: bg,
-              border: `1px solid ${color}`,
-              fontSize: 11.5,
-              color,
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              borderRadius: 0,
-              opacity: isDetectedOnly ? 0.85 : 1,
-            }}>{label}</div>
+            <div style={{ marginTop: 8 }}>
+              <div style={{
+                padding: "6px 8px",
+                background: bg,
+                border: `1px solid ${color}`,
+                fontSize: 11.5,
+                color,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                borderRadius: 0,
+              }}>{label}</div>
+              {isSaved && message.improvementTaskInfo && (
+                <div style={{
+                  marginTop: 4,
+                  padding: "6px 8px",
+                  background: "#F0F7FF",
+                  border: `1px solid ${PALETTE.accent}`,
+                  fontSize: 11,
+                  color: PALETTE.accent,
+                  borderRadius: 0,
+                }}>
+                  🏗️ Tarea creada en proyecto <strong>{message.improvementTaskInfo.projectCode}</strong> — “{message.improvementTaskInfo.taskTitle}”
+                </div>
+              )}
+              {showRetry && (
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  style={{ ...btnStyle("default"), marginTop: 6 }}
+                >
+                  Reintentar guardado
+                </button>
+              )}
+            </div>
           );
         })()}
       </div>
@@ -675,7 +766,7 @@ function ImprovementCard({ ticket, onSetState }) {
   );
 }
 
-export default function MantenimientoView({ authUid }) {
+export default function MantenimientoView({ authUid, onRegisterImprovementAsTask }) {
   const [tab, setTab] = useState("incident");
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -755,7 +846,19 @@ export default function MantenimientoView({ authUid }) {
     }
     if (!inserted) throw new Error("Insert sin fila devuelta (¿RLS bloquea select?)");
     setTickets(prev => [inserted, ...prev]);
-    return inserted;
+    // Convertir la mejora en tarea real de Kluxor (proyecto "Mejoras
+    // Kluxor" / KMJ). Si falla, no rompemos el flujo principal — la
+    // mejora ya está en hector_tickets; el fallo se logea y queda
+    // taskInfo=null para que el bubble no muestre línea de tarea.
+    let taskInfo = null;
+    if (typeof onRegisterImprovementAsTask === "function") {
+      try {
+        taskInfo = onRegisterImprovementAsTask(text, inserted.id) || null;
+      } catch (e) {
+        console.warn("[Mantenimiento] registerImprovementAsTask threw:", e?.message);
+      }
+    }
+    return { ...inserted, taskInfo };
   };
 
   return (

@@ -12053,6 +12053,58 @@ export default function TaskFlow(){
     });
   },[]);
 
+  // Registra una mejora de Bruno como tarea real de Kluxor.
+  // Busca el proyecto "Mejoras Kluxor" (code KMJ); si no existe lo crea.
+  // Devuelve { projectId, projectCode, taskTitle } para que la UI pueda
+  // mostrar feedback. Síncrono — la única async-implícita es setData,
+  // pero createProject devuelve {id,code} de forma inmediata.
+  const registerImprovementAsTask = useCallback((improvementText, ticketId) => {
+    const text = String(improvementText || "").trim();
+    if (!text) return null;
+    // 1) Buscar proyecto KMJ existente. Lee de dataRef para evitar
+    //    cierres con data stale si se llama varias veces seguidas.
+    let proj = (dataRef.current?.projects || []).find(p => p.code === "KMJ");
+    // 2) Si no existe, crear. createProject devuelve {id, code} sync.
+    if (!proj) {
+      const res = createProject({
+        name: "Mejoras Kluxor",
+        code: "KMJ",
+        desc: "Mejoras del producto registradas por Bruno desde Mantenimiento.",
+        color: "#7F77DD",
+        emoji: "🏗️",
+        members: [activeMember],
+        columns: ["Por hacer","En progreso","Hecho"],
+        workspaceId: null,
+        visibility: "private",
+      });
+      proj = { id: res.id, code: res.code };
+    }
+    // 3) Título = primera línea/frase (máx 120 chars). Desc = texto completo
+    //    con referencia al ticket de hector_tickets para trazabilidad.
+    const firstLine = text.split(/[\n.]/)[0].trim().slice(0, 120) || text.slice(0, 120);
+    const ticketRef = ticketId ? `#${String(ticketId).slice(0, 8)}` : "(sin id)";
+    const desc = `Registrada por Bruno desde Mantenimiento — ticket ${ticketRef}\n\n${text}`;
+    addTaskToProject(proj.id, {
+      title: firstLine,
+      desc,
+      priority: "media",
+      dueDate: null,
+      assignees: [activeMember],
+      tags: [{ l: "mejora-kluxor", c: "purple" }],
+      timeline: [{
+        id: `tl_bruno_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+        type: "ai",
+        author: "Bruno",
+        authorId: null,
+        authorAvatar: "🏗️",
+        text: "Mejora registrada automáticamente desde el módulo Mantenimiento.",
+        timestamp: new Date().toISOString(),
+        isMilestone: false,
+      }],
+    });
+    return { projectId: proj.id, projectCode: proj.code, taskTitle: firstLine };
+  }, [createProject, addTaskToProject, activeMember]);
+
   // Orchestrator de acciones propuestas por agentes. Se pasa como prop al
   // chat (HectorPanel, GobernanzaView, etc) y delega en agentActions.js
   // que mapea cada acción a la función de mutación adecuada.
@@ -12750,7 +12802,7 @@ export default function TaskFlow(){
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} favoriteProjectIds={data.favoriteProjectIds||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject} onToggleFavorite={toggleFavoriteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission} onSetAgentPermission={setMemberAgentPermission}/>}
-          {activeTab==="mantenimiento" && <MantenimientoView authUid={authSession?.user?.id || null}/>}
+          {activeTab==="mantenimiento" && <MantenimientoView authUid={authSession?.user?.id || null} onRegisterImprovementAsTask={registerImprovementAsTask}/>}
           {activeTab==="finance"   &&(()=>{
             const myMember = (data.members||[]).find(x=>x.id===activeMember);
             const canView = hasPermission(myMember, "finance", "view", data.permissions);
