@@ -701,16 +701,26 @@ export function executeAgentActions(actions, helpers) {
 
         case AGENT_ACTION_TYPES.CREATE_NEGOTIATION: {
           const memberIds = resolveAssignees(action.assignees || ["admin"], allMembers, adminMemberId);
-          const linkedProj = action.linkedProjectCode ? findProjectByCode?.(action.linkedProjectCode) : null;
-          // Si el agente pidió linkedProjectCode pero el lookup falló, la
-          // negociación se crea sin link (comportamiento histórico). Antes
-          // era silencioso: la UI mostraba "✅ ejecutadas correctamente"
-          // aunque la negociación quedaba huérfana del proyecto. Ahora
-          // logueamos y avisamos al CEO con toast.
-          if (action.linkedProjectCode && !linkedProj) {
-            console.error("[Executor] Proyecto no encontrado para code:", action.linkedProjectCode, "— acción omitida:", "negotiation.linkedProjectCode (negociación se creará sin link)");
-            addToast?.(`⚠ Proyecto "${action.linkedProjectCode}" no encontrado — negociación creada sin link`, "warn");
+          // Soporte multi-proyecto: linkedProjectCodes (array, nuevo) +
+          // linkedProjectCode (string, legacy). Dedup vía Set, orden
+          // preservado: el primer code resuelto es "principal", el resto
+          // "relacionado". Codes que no resuelven se reportan vía toast.
+          const requestedCodes = [
+            ...(Array.isArray(action.linkedProjectCodes) ? action.linkedProjectCodes : []),
+            ...(action.linkedProjectCode ? [action.linkedProjectCode] : []),
+          ].filter(Boolean);
+          const uniqueCodes = [...new Set(requestedCodes)];
+          const linkedProjs = [];
+          for (const code of uniqueCodes) {
+            const proj = findProjectByCode?.(code);
+            if (proj) {
+              linkedProjs.push(proj);
+            } else {
+              console.error("[Executor] Proyecto no encontrado para code:", code, "— negociación creada sin link a ese proyecto");
+              addToast?.(`⚠ Proyecto "${code}" no encontrado — negociación creada sin ese vínculo`, "warn");
+            }
           }
+          const primaryProj = linkedProjs[0] || null;
           const nowIso = new Date().toISOString();
           const factToItem = (text) => ({ id: cryptoRandomId("kf"), text, source: "agent", addedAt: nowIso });
           createNegotiation?.({
@@ -722,9 +732,13 @@ export function executeAgentActions(actions, helpers) {
             ownerId: adminMemberId,
             visibility: action.visibility || "team",
             members: memberIds,
-            projectId: linkedProj?.id || null,
+            projectId: primaryProj?.id || null,
             agentId: null,
-            relatedProjects: linkedProj ? [{ projectId: linkedProj.id, role: "principal", priority: "high" }] : [],
+            relatedProjects: linkedProjs.map((p, i) => ({
+              projectId: p.id,
+              role: i === 0 ? "principal" : "relacionado",
+              priority: i === 0 ? "high" : "medium",
+            })),
             relationships: [],
             stakeholders: (action.stakeholders || []).map(s => ({
               id: cryptoRandomId("stk"),
@@ -992,7 +1006,7 @@ CAPACIDAD DE EJECUCIÓN (ACTIONS_v10):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
-Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),dueDate("+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode}; "create_tasks" {projectCode,tasks:[...]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario).
+Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),dueDate("+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode (string, un solo proyecto, formato viejo),linkedProjectCodes (array de codes, para vincular varios proyectos; el primer code del array se considera "principal" y los demás "relacionado". Usar este campo cuando el CEO pida vincular más de un proyecto a la negociación)}; "create_tasks" {projectCode,tasks:[...]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario).
 
 Reglas: solo cuando lo pidan explícitamente, NUNCA en análisis ni consultas. El bloque se OCULTA del CEO. Tu prosa va ANTES del bloque.
 
