@@ -12171,13 +12171,28 @@ export default function TaskFlow(){
     // Esto elimina la dependencia de timing del useEffect que sincroniza
     // dataRef, que en producción con renders pesados puede dejar pass-2
     // viendo dataRef stale aunque el retry haya cumplido.
+    // Dos estructuras separadas:
+    //   - newProjectMap (Map keyed by code) → para findProjectByCode lookup.
+    //     Si dos proyectos colisionan en code (createProject regenera codes
+    //     porque PR5/PR6 fallan isValidProjectCode al tener dígitos), el
+    //     último gana — aceptable para findProjectByCode porque buscamos
+    //     "algún" proyecto con ese code.
+    //   - newlyCreatedList (Array) → preserva TODAS las entradas de results1
+    //     incluso si los codes colisionan. Es lo que el executor usa para
+    //     auto-link por co-presencia (CREATE_NEGOTIATION fallback). Sin
+    //     este array separado, el Map colapsa N proyectos a 1 entrada y el
+    //     auto-link solo asocia el último.
     const newProjectMap = new Map();
+    const newlyCreatedList = [];
     for (const r of results1) {
       if (r && r.type === "project" && r.code && r.id != null) {
-        newProjectMap.set(r.code, { id: r.id, code: r.code });
+        const entry = { id: r.id, code: r.code };
+        newProjectMap.set(r.code, entry);
+        newlyCreatedList.push(entry);
       }
     }
     console.log('[ASOC] Map proyectos creados:', JSON.stringify([...newProjectMap.entries()]));
+    console.log('[ASOC] newlyCreatedList (todos los creados):', JSON.stringify(newlyCreatedList));
     const helpers2 = {
       ...helpers,
       findProjectByCode: (code) => {
@@ -12191,8 +12206,10 @@ export default function TaskFlow(){
       // El executor la usa como fallback en CREATE_NEGOTIATION cuando
       // Héctor no provee linkedProjectCode/linkedProjectCodes (auto-link
       // por co-presencia: los proyectos del mismo bloque se asocian
-      // automáticamente a la negociación del mismo bloque).
-      newlyCreatedProjects: [...newProjectMap.values()],
+      // automáticamente a la negociación del mismo bloque). Usa la lista
+      // (no el Map) para que todos los proyectos del bloque se asocien
+      // aunque sus codes hayan colisionado tras la regeneración.
+      newlyCreatedProjects: newlyCreatedList,
     };
     const results2 = executeAgentActions(otherActions, helpers2);
     return { results: [...results1, ...results2] };
