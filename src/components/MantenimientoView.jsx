@@ -1214,7 +1214,9 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
 
   // Conjunto de tareas tras aplicar buscador + filtros origen/estado/prioridad.
   // Si un Set de filtros está vacío, ese grupo no filtra. searchQuery vacío
-  // tampoco filtra. Match case-insensitive sobre título y descripción.
+  // tampoco filtra. Match case-insensitive sobre código MNT, título y
+  // descripción (la búsqueda por código permite localizar al vuelo una
+  // tarea concreta cuando la referencia el CEO u otro miembro como "MNT-007").
   const filteredTasks = useMemo(() => {
     const { origen, estado, prioridad } = taskFilters;
     const q = searchQuery.trim().toLowerCase();
@@ -1223,12 +1225,13 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
       if (estado.size > 0 && !estado.has(normalizeTicketStatus(t))) return false;
       if (prioridad.size > 0 && !prioridad.has(derivePriority(t))) return false;
       if (q) {
-        const hay = `${taskTitle(t)} ${taskDescription(t)}`.toLowerCase();
+        const code = ticketCodes.get(t.id) || "";
+        const hay = `${code} ${taskTitle(t)} ${taskDescription(t)}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [tickets, taskFilters, searchQuery]);
+  }, [tickets, taskFilters, searchQuery, ticketCodes]);
 
   // Contadores del header de la pestaña Tareas (sobre filtered).
   const taskCounts = useMemo(() => {
