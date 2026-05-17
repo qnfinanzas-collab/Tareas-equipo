@@ -4052,10 +4052,19 @@ function BoardView({board,project,members,projectMemberIds,activeMemberId,aiSche
   const saveNew=(colId)=>{ const t=newCardTitle.trim(); if(!t){setNewCard(null);return;} onAddTask(colId,t); setNewCard(null); setNewCardTitle(""); };
   const openModal=openTaskId?board.flatMap(c=>c.tasks.map(t=>({t,colId:c.id}))).find(x=>x.t.id===openTaskId):null;
   return(
-    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 180px)",minHeight:400,overflow:"hidden"}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100%",minHeight:0,overflow:"hidden"}}>
       {/* Fila Persona — movida al banner DailyDigest (rendered en App.jsx)
           para que no desaparezca al scrollear y aproveche el espacio
-          libre del banner de bienvenida. */}
+          libre del banner de bienvenida.
+
+          Altura del wrapper: 100% del padre (App.jsx:12876 — el div
+          flex:1, overflow:auto del main-content). Como BoardView coincide
+          en altura con su padre Y declara overflow:hidden, el padre nunca
+          activa scroll → el único scroll vive en la lista interna de
+          cada columna. Antes usábamos calc(100vh - 180px), un offset
+          fijo que casi siempre desfasaba con el chrome real (topbar +
+          project header + tabs + DailyDigest), provocando que el padre
+          scrollease y los headers/footers de columna salieran de vista. */}
       <div style={{flex:1,display:"flex",gap:14,alignItems:"stretch",padding:"12px 20px 20px",overflowX:"auto",overflowY:"hidden",minHeight:0}}>
         {board.map(col=>(
           <div key={col.id} className="tf-board-col" onDragOver={e=>e.preventDefault()} onDrop={e=>handleDrop(e,col.id)} style={{
