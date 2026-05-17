@@ -4067,8 +4067,12 @@ function BoardView({board,project,members,projectMemberIds,activeMemberId,aiSche
             // footer "+ Añadir tarea" siempre visibles.
             height:"calc(100vh - 220px)",minHeight:300,display:"flex",flexDirection:"column"
           }}>
-            {/* Header de columna — fijo arriba */}
-            <div style={{flexShrink:0,padding:"10px 12px 8px",borderBottom:"1px solid #E5E0D5",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            {/* Header de columna — sticky al top del viewport. Cuando la
+                página hace scroll, el header se ancla arriba mientras la
+                columna sigue en pantalla. El zIndex 5 lo mantiene por
+                encima de las cards al desplazarse. Background opaco
+                (#FAFAF7) para que tape el contenido por debajo al stick. */}
+            <div style={{flexShrink:0,position:"sticky",top:0,zIndex:5,background:"#FAFAF7",padding:"10px 12px 8px",borderBottom:"1px solid #E5E0D5",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <span style={{fontSize:13,fontWeight:600,color:"#1A1A1A",textTransform:"uppercase",letterSpacing:"0.04em"}}>{col.name}</span>
               <span style={{fontSize:11,background:"#fff",border:"0.5px solid #D8D3C5",borderRadius:0,padding:"1px 7px",color:"#6B6B6B",fontWeight:600}}>{col.tasks.length}</span>
             </div>
