@@ -580,22 +580,35 @@ Reglas:
       const today = new Date();
       const fechaContext = `[Hoy es ${today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} — ${today.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}]`;
       const lastIdx = next.length - 1;
+      // Sintético: cuando un turn assistant terminó con content que iría
+      // a la API como "(sin texto)" o cadena vacía, mandar eso a Claude
+      // pierde contexto y, con varios turns así, induce un bucle (Claude
+      // deja de emitir [ACTIONS], emite solo [INVOCAR:], etc.). Sustituimos
+      // por contexto derivado del estado del mensaje (proposal/executed/
+      // discarded) para que Claude entienda qué pasó en el turn anterior.
+      const synthAssistantContent = (m) => {
+        if (m.proposal?.summary) return `(Propuesta enviada al CEO: ${m.proposal.summary})`;
+        if (m.proposalExecuted)  return `(Acciones ejecutadas en turno anterior)`;
+        if (m.proposalDiscarded) return `(Propuesta descartada por el CEO)`;
+        if (m.error)             return `(Turno anterior con error)`;
+        return `(Respuesta sin contenido textual en turno anterior)`;
+      };
       const messages = next.map((m, idx) => {
-        // Para turns ASSISTANT preferimos m.replyRaw (con [ACTIONS] incluido)
-        // sobre m.text. Si la prosa quedó vacía tras strippear el bloque
-        // (cleanText empty → "(sin texto)"), mandar "(sin texto)" a Claude
-        // pierde contexto. Con replyRaw Claude ve lo que efectivamente
-        // respondió en el turn anterior. Caemos a m.text si no hay replyRaw
-        // (mensajes antiguos antes del fix o mensajes de error).
-        const assistantContent = m.replyRaw || m.text || "";
-        const userContent = m.text || "";
         const isLastUser = (idx === lastIdx && m.role === "user");
-        return {
-          role: m.role === "user" ? "user" : "assistant",
-          content: isLastUser
-            ? fechaContext + "\n" + userContent
-            : (m.role === "assistant" ? assistantContent : userContent),
-        };
+        if (m.role === "user") {
+          const c = m.text || "";
+          return { role: "user", content: isLastUser ? fechaContext + "\n" + c : c };
+        }
+        // Turn ASSISTANT: preferimos replyRaw (con [ACTIONS] incluido) sobre
+        // text. Si ambos están vacíos o son "(sin texto)" literal (entradas
+        // viejas antes del fix replyRaw, o casos edge), sustituimos por
+        // contexto sintético derivado del estado del mensaje.
+        let content = m.replyRaw || m.text || "";
+        const stripped = (content || "").trim();
+        if (!stripped || stripped === "(sin texto)") {
+          content = synthAssistantContent(m);
+        }
+        return { role: "assistant", content };
       });
       const reply = await callAgentSafe(
         { system: baseSystem, messages, max_tokens: 2048 },
