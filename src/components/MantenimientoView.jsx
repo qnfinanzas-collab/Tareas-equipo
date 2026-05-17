@@ -157,6 +157,80 @@ const IMPROVEMENT_STATES = [
   { key: "done",      label: "Hecha",      color: PALETTE.success, bg: PALETTE.bgDone },
 ];
 
+// Color oro usado para chips de filtro activos en la pestaña Tareas.
+const GOLD = "#C9A84C";
+const GOLD_BG = "#FBF6E6";
+
+// Estados unificados de la pestaña Tareas. Mapeamos los estados nativos
+// de cada kind (incidencias usan open/in_progress/resolved; mejoras usan
+// pending/in_design/done) a un set común para que el UI sea consistente.
+const NORMALIZED_STATES = [
+  { key: "pending",     label: "Pendiente" },
+  { key: "in_progress", label: "En curso" },
+  { key: "resolved",    label: "Resuelto" },
+];
+
+const normalizeTicketStatus = (t) => {
+  const s = t?.status || "";
+  if (t?.kind === "improvement") {
+    if (s === "done") return "resolved";
+    if (s === "in_design") return "in_progress";
+    return "pending";
+  }
+  // incident
+  if (s === "resolved") return "resolved";
+  if (s === "in_progress") return "in_progress";
+  return "pending";
+};
+
+// Traduce un estado normalizado al valor concreto que se guarda en la
+// columna status de hector_tickets según el kind del ticket. Mantiene
+// compatibilidad con las pestañas Incidencias y Mejoras que ya leen
+// los estados antiguos.
+const persistedStatusFor = (kind, normalizedStatus) => {
+  if (kind === "improvement") {
+    if (normalizedStatus === "resolved") return "done";
+    if (normalizedStatus === "in_progress") return "in_design";
+    return "pending";
+  }
+  if (normalizedStatus === "resolved") return "resolved";
+  if (normalizedStatus === "in_progress") return "in_progress";
+  return "open";
+};
+
+// Prioridad derivada: incidencias = alta (algo se rompió), mejoras = media
+// (propuesta de producto). Sin schema change. Si en el futuro se añade
+// una columna `priority` en hector_tickets, este helper la respeta.
+const derivePriority = (t) => {
+  if (t?.priority) return t.priority;
+  return t?.kind === "incident" ? "alta" : "media";
+};
+
+const PRIORITY_DEFS = [
+  { key: "alta",  label: "Alta",  color: PALETTE.danger },
+  { key: "media", label: "Media", color: PALETTE.warn },
+  { key: "baja",  label: "Baja",  color: PALETTE.textMuted },
+];
+
+const ORIGEN_DEFS = [
+  { key: "incident",    label: "Incidencias" },
+  { key: "improvement", label: "Mejoras" },
+];
+
+// Título legible para una tarea — distinto según el origen.
+const taskTitle = (t) => {
+  if (t?.kind === "improvement") {
+    const txt = String(t.improvement_text || "").trim();
+    if (!txt) return "(mejora sin texto)";
+    const firstLine = txt.split(/[\n.]/)[0].trim();
+    return firstLine.slice(0, 140) || txt.slice(0, 140);
+  }
+  // incident: usa lista de detectores como título
+  const types = Array.isArray(t?.incidents) ? t.incidents.map(i => INCIDENT_LABELS[i?.type] || i?.type).filter(Boolean) : [];
+  if (types.length > 0) return types.join(" · ");
+  return "(incidencia sin detector)";
+};
+
 const tabBtnStyle = (active) => ({
   padding: "10px 18px",
   background: "transparent",
@@ -731,6 +805,84 @@ function BrunoBubble({ message, saving, onRetry }) {
   );
 }
 
+// Chip toggleable usado en la barra de filtros de la pestaña Tareas.
+// Activo = oro #C9A84C, inactivo = neutro. Click toggles selección
+// dentro de su grupo (origen/estado/prioridad).
+function FilterChip({ label, active, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: "5px 11px",
+        fontSize: 11.5,
+        fontWeight: active ? 700 : 500,
+        cursor: "pointer",
+        fontFamily: "inherit",
+        borderRadius: 0,
+        border: active ? `1px solid ${GOLD}` : `1px solid ${PALETTE.border}`,
+        background: active ? GOLD_BG : PALETTE.panel,
+        color: active ? GOLD : PALETTE.textMuted,
+        marginRight: 6,
+      }}
+    >{label}</button>
+  );
+}
+
+function TaskCard({ ticket, assigneeName, onSetStatus }) {
+  const isIncident = ticket.kind === "incident";
+  const origenColor = isIncident ? PALETTE.danger : PALETTE.accent;
+  const origenBg = isIncident ? PALETTE.bgIncident : "#EFEEFB";
+  const origenLabel = isIncident ? "Incidencia" : "Mejora";
+  const title = taskTitle(ticket);
+  const priority = derivePriority(ticket);
+  const prioDef = PRIORITY_DEFS.find(p => p.key === priority) || PRIORITY_DEFS[1];
+  const normalized = normalizeTicketStatus(ticket);
+
+  return (
+    <div style={{
+      background: PALETTE.panel,
+      border: `1px solid ${PALETTE.border}`,
+      borderLeft: `3px solid ${origenColor}`,
+      borderRadius: 0,
+      padding: "12px 14px",
+      marginBottom: 8,
+    }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ marginBottom: 4 }}>
+            <span style={chipStyle(origenColor, origenBg)}>{origenLabel}</span>
+            <span style={chipStyle(prioDef.color, `${prioDef.color}18`)}>{prioDef.label}</span>
+          </div>
+          <div style={{ fontSize: 13, color: PALETTE.text, fontWeight: 600, lineHeight: 1.35, marginBottom: 4, wordBreak: "break-word" }}>
+            {title}
+          </div>
+          <div style={{ fontSize: 11, color: PALETTE.textFaint }}>
+            {fmtDate(ticket.created_at)} · 👤 {assigneeName || "Antonio Díaz"} · #{String(ticket.id).slice(0, 8)}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {NORMALIZED_STATES.map(s => {
+          const active = s.key === normalized;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => !active && onSetStatus(ticket.id, ticket.kind, s.key)}
+              disabled={active}
+              style={{
+                ...btnStyle("default"),
+                ...(active ? { background: origenBg, borderColor: origenColor, color: origenColor, cursor: "default", fontWeight: 700 } : {}),
+              }}
+            >{s.label}</button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ImprovementCard({ ticket, onSetState }) {
   const stateDef = IMPROVEMENT_STATES.find(s => s.key === ticket.status) || IMPROVEMENT_STATES[0];
   return (
@@ -772,6 +924,23 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showResolved, setShowResolved] = useState(false);
+  // Filtros de la pestaña Tareas. Cada uno es un Set para permitir
+  // multi-toggle dentro de su grupo. Set vacío = "Todos" (sin filtro).
+  const [taskFilters, setTaskFilters] = useState({
+    origen:    new Set(),
+    estado:    new Set(),
+    prioridad: new Set(),
+  });
+  const toggleFilter = (group, key) => {
+    setTaskFilters(prev => {
+      const cur = new Set(prev[group]);
+      if (cur.has(key)) cur.delete(key); else cur.add(key);
+      return { ...prev, [group]: cur };
+    });
+  };
+  const clearFilterGroup = (group) => {
+    setTaskFilters(prev => ({ ...prev, [group]: new Set() }));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -811,6 +980,60 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
     const { error } = await supa.from("hector_tickets").update({ status }).eq("id", id);
     if (error) console.warn(`[Mantenimiento] update status error: ${error.message}`);
   };
+
+  // Cambio de estado desde la pestaña Tareas. Recibe el estado normalizado
+  // (pending/in_progress/resolved) y lo traduce al valor concreto que
+  // espera la columna status según el kind del ticket (compat con tabs
+  // Incidencias y Mejoras).
+  const setTaskNormalizedStatus = async (id, kind, normalized) => {
+    const persisted = persistedStatusFor(kind, normalized);
+    await updateStatus(id, persisted);
+  };
+
+  // Conjunto de tareas tras aplicar filtros (origen / estado / prioridad).
+  // Si un Set de filtros está vacío, ese grupo no filtra (equivale a "Todos").
+  const filteredTasks = useMemo(() => {
+    const { origen, estado, prioridad } = taskFilters;
+    return tickets.filter(t => {
+      if (origen.size > 0 && !origen.has(t.kind)) return false;
+      if (estado.size > 0 && !estado.has(normalizeTicketStatus(t))) return false;
+      if (prioridad.size > 0 && !prioridad.has(derivePriority(t))) return false;
+      return true;
+    });
+  }, [tickets, taskFilters]);
+
+  // Contadores del header de la pestaña Tareas (sobre filtered).
+  const taskCounts = useMemo(() => {
+    let pending = 0, inProgress = 0, resolved = 0;
+    filteredTasks.forEach(t => {
+      const s = normalizeTicketStatus(t);
+      if (s === "pending") pending++;
+      else if (s === "in_progress") inProgress++;
+      else if (s === "resolved") resolved++;
+    });
+    return { pending, inProgress, resolved };
+  }, [filteredTasks]);
+
+  // Particionado en secciones: Prioritarias (alta, no resueltas), En curso,
+  // Pendientes. Resueltas no aparecen en secciones por defecto — el filtro
+  // de estado Resuelto las trae a En curso (se renombraría visualmente
+  // pero por simplicidad las metemos en sección "En curso" cuando el
+  // usuario filtra explícitamente por resueltas).
+  const sectionedTasks = useMemo(() => {
+    const priorit = [];
+    const enCurso = [];
+    const pend = [];
+    const resu = [];
+    filteredTasks.forEach(t => {
+      const s = normalizeTicketStatus(t);
+      const p = derivePriority(t);
+      if (s === "resolved") { resu.push(t); return; }
+      if (p === "alta") { priorit.push(t); return; }
+      if (s === "in_progress") { enCurso.push(t); return; }
+      pend.push(t);
+    });
+    return { priorit, enCurso, pend, resu };
+  }, [filteredTasks]);
 
   // Inserta una mejora propuesta por Bruno en hector_tickets y actualiza
   // el listado local. Devuelve la fila insertada para que BrunoChat pueda
@@ -877,6 +1100,9 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
         <button type="button" onClick={() => setTab("improvement")} style={tabBtnStyle(tab === "improvement")}>
           💡 Mejoras <span style={{ color: PALETTE.textFaint, marginLeft: 4 }}>({pendingImprovements.length}/{improvements.length})</span>
         </button>
+        <button type="button" onClick={() => setTab("task")} style={tabBtnStyle(tab === "task")}>
+          📋 Tareas <span style={{ color: PALETTE.textFaint, marginLeft: 4 }}>({tickets.filter(t => normalizeTicketStatus(t) !== "resolved").length}/{tickets.length})</span>
+        </button>
       </div>
 
       {loading && (
@@ -940,6 +1166,97 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
                 onSetState={(id, status) => updateStatus(id, status)}
               />
             ))
+          )}
+        </>
+      )}
+
+      {!loading && !error && tab === "task" && (
+        <>
+          {/* Barra de filtros */}
+          <div style={{
+            background: PALETTE.panel,
+            border: `1px solid ${PALETTE.border}`,
+            padding: "10px 12px",
+            marginBottom: 14,
+            borderRadius: 0,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: PALETTE.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginRight: 4, minWidth: 64 }}>Origen</span>
+              <FilterChip label="Todas" active={taskFilters.origen.size === 0} onClick={() => clearFilterGroup("origen")} />
+              {ORIGEN_DEFS.map(o => (
+                <FilterChip key={o.key} label={o.label} active={taskFilters.origen.has(o.key)} onClick={() => toggleFilter("origen", o.key)} />
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: PALETTE.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginRight: 4, minWidth: 64 }}>Estado</span>
+              <FilterChip label="Todos" active={taskFilters.estado.size === 0} onClick={() => clearFilterGroup("estado")} />
+              {NORMALIZED_STATES.map(s => (
+                <FilterChip key={s.key} label={s.label} active={taskFilters.estado.has(s.key)} onClick={() => toggleFilter("estado", s.key)} />
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: PALETTE.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginRight: 4, minWidth: 64 }}>Prioridad</span>
+              <FilterChip label="Todas" active={taskFilters.prioridad.size === 0} onClick={() => clearFilterGroup("prioridad")} />
+              {PRIORITY_DEFS.map(p => (
+                <FilterChip key={p.key} label={p.label} active={taskFilters.prioridad.has(p.key)} onClick={() => toggleFilter("prioridad", p.key)} />
+              ))}
+            </div>
+          </div>
+
+          {/* Contadores */}
+          <div style={{ fontSize: 12, color: PALETTE.textMuted, marginBottom: 14, display: "flex", gap: 14, flexWrap: "wrap" }}>
+            <span><strong style={{ color: PALETTE.warn }}>{taskCounts.pending}</strong> pendientes</span>
+            <span><strong style={{ color: PALETTE.accent }}>{taskCounts.inProgress}</strong> en curso</span>
+            <span><strong style={{ color: PALETTE.success }}>{taskCounts.resolved}</strong> resueltas</span>
+          </div>
+
+          {filteredTasks.length === 0 ? (
+            <div style={{ padding: 24, textAlign: "center", color: PALETTE.textMuted, fontSize: 13, background: PALETTE.panel, border: `1px solid ${PALETTE.border}`, borderRadius: 0 }}>
+              No hay tareas que coincidan con los filtros activos.
+            </div>
+          ) : (
+            <>
+              {sectionedTasks.priorit.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: PALETTE.danger, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
+                    🔥 Prioritarias ({sectionedTasks.priorit.length})
+                  </div>
+                  {sectionedTasks.priorit.map(t => (
+                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} />
+                  ))}
+                </div>
+              )}
+              {sectionedTasks.enCurso.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: PALETTE.accent, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
+                    En curso ({sectionedTasks.enCurso.length})
+                  </div>
+                  {sectionedTasks.enCurso.map(t => (
+                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} />
+                  ))}
+                </div>
+              )}
+              {sectionedTasks.pend.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: PALETTE.textMuted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
+                    Pendientes ({sectionedTasks.pend.length})
+                  </div>
+                  {sectionedTasks.pend.map(t => (
+                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} />
+                  ))}
+                </div>
+              )}
+              {sectionedTasks.resu.length > 0 && taskFilters.estado.has("resolved") && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: PALETTE.success, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
+                    Resueltas ({sectionedTasks.resu.length})
+                  </div>
+                  {sectionedTasks.resu.map(t => (
+                    <TaskCard key={t.id} ticket={t} onSetStatus={setTaskNormalizedStatus} />
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </>
       )}
