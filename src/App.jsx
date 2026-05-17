@@ -4819,7 +4819,7 @@ function TimeReportsView({boards,members,projects}){
 }
 
 // ── Project Modal ─────────────────────────────────────────────────────────────
-function ProjectModal({project,members,workspaces,allProjects,currentMember,onClose,onSave,onTransferOwnership,onDelete}){
+function ProjectModal({project,members,workspaces,allProjects,currentMember,onClose,onSave,onTransferOwnership,onDelete,onArchive,onUnarchive}){
   const isEdit=!!project;
   const [name,setName]=useState(project?.name||"");
   const [desc,setDesc]=useState(project?.desc||"");
@@ -5003,6 +5003,32 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
             <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
             <button onClick={save} disabled={!canSave} style={{padding:"8px 20px",borderRadius:8,background:canSave?color:"#e5e7eb",color:canSave?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:canSave?"pointer":"default",fontWeight:600}}>{isEdit?"Guardar cambios":"Crear proyecto"}</button>
           </div>
+          {/* Archivar / Restaurar — alternativa no destructiva. Marca
+              el proyecto como archived (lo oculta de la operativa pero
+              preserva tareas, negociaciones y links). Reversible vía
+              "Restaurar". Solo visible en edición. */}
+          {isEdit && (onArchive || onUnarchive) && (
+            <div style={{marginTop:24,paddingTop:16,borderTop:"0.5px solid #E5E0D5"}}>
+              {project?.archived
+                ? (onUnarchive && <button
+                    type="button"
+                    onClick={onUnarchive}
+                    style={{background:"transparent",border:"0.5px solid #1D9E75",color:"#1D9E75",fontSize:12,cursor:"pointer",fontFamily:"inherit",padding:"6px 12px",borderRadius:0,fontWeight:600}}
+                  >↩ Restaurar proyecto</button>)
+                : (onArchive && <button
+                    type="button"
+                    onClick={onArchive}
+                    style={{background:"transparent",border:"0.5px solid #C9A84C",color:"#876C1E",fontSize:12,cursor:"pointer",fontFamily:"inherit",padding:"6px 12px",borderRadius:0,fontWeight:600}}
+                  >📦 Archivar proyecto</button>)
+              }
+              <div style={{fontSize:11,color:"#9B9B9B",marginTop:6,lineHeight:1.4}}>
+                {project?.archived
+                  ? "El proyecto está archivado. Restaurarlo lo devuelve a la operativa diaria."
+                  : "Archivar oculta el proyecto de la operativa diaria sin eliminar datos. Reversible."}
+              </div>
+            </div>
+          )}
+
           {/* Commit 26: zona destructiva. Solo visible en edición y solo
               para el owner. Doble confirmación obligatoria — paso 1
               pide escribir el código del proyecto exactamente, paso 2
@@ -5363,10 +5389,14 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
 }
 
 // ── Projects Home View ────────────────────────────────────────────────────────
-function ProjectsView({projects,members,boards,currentMember,onSelectProject,onCreateProject,onEditProject,onDeleteProject,favoriteProjectIds=[],onToggleFavorite}){
+function ProjectsView({projects,members,boards,currentMember,onSelectProject,onCreateProject,onEditProject,onDeleteProject,onArchiveProject,onUnarchiveProject,favoriteProjectIds=[],onToggleFavorite}){
   const total=pid=>(boards[pid]||[]).flatMap(c=>c.tasks).length;
   const done=pid=>(boards[pid]||[]).filter(c=>c.name==="Hecho").flatMap(c=>c.tasks).length;
   const [pendingDel,setPendingDel]=useState(null);
+  // Toggle para mostrar/ocultar proyectos archivados. Por defecto false:
+  // archivados quedan fuera de la vista principal. El contador junto al
+  // toggle indica cuántos archivados hay disponibles para revisar.
+  const [showArchived, setShowArchived] = useState(false);
   // Commit 27: doble confirmación obligatoria para borrado desde la
   // grid de proyectos (mismo patrón que ProjectModal). pendingDel = idx
   // del proyecto en flujo destructivo. delStep = 1 (input código) o 2
@@ -5409,9 +5439,15 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
   // el índice maestro (i) para que onEditProject/onDeleteProject sigan
   // apuntando al elemento correcto del array data.projects.
   const favSet = new Set(favoriteProjectIds || []);
-  const visibleEntries = (projects||[])
+  const allVisibleEntries = (projects||[])
     .map((p,i)=>({p,i}))
     .filter(({p})=>isVisible(p));
+  // Separamos archivados de no-archivados. La vista principal solo
+  // muestra no-archivados; el toggle showArchived alterna a la lista
+  // de archivados (sin mezclar — UX más clara que un filtro mixto).
+  const archivedEntries = allVisibleEntries.filter(({p})=>p.archived);
+  const activeEntries   = allVisibleEntries.filter(({p})=>!p.archived);
+  const visibleEntries  = showArchived ? archivedEntries : activeEntries;
   const favEntries  = visibleEntries.filter(({p})=>favSet.has(p.id));
   const restEntries = visibleEntries.filter(({p})=>!favSet.has(p.id));
   // Card render extraído a closure para reutilizar entre las dos
@@ -5520,8 +5556,22 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
   return(
     <div style={{padding:20}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
-        <div><div style={{fontSize:16,fontWeight:700,marginBottom:2}}>Todos los proyectos</div><div style={{fontSize:12,color:"#6b7280"}}>{visibleCount} proyectos activos</div></div>
-        <button onClick={onCreateProject} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo proyecto</button>
+        <div>
+          <div style={{fontSize:16,fontWeight:700,marginBottom:2}}>{showArchived ? "Proyectos archivados" : "Todos los proyectos"}</div>
+          <div style={{fontSize:12,color:"#6b7280"}}>
+            {showArchived ? `${archivedEntries.length} archivado${archivedEntries.length===1?"":"s"}` : `${activeEntries.length} proyecto${activeEntries.length===1?"":"s"} activo${activeEntries.length===1?"":"s"}`}
+          </div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          {/* Toggle Activos / Archivados — chip oro Kluxor cuando activo */}
+          <button
+            type="button"
+            onClick={()=>setShowArchived(s=>!s)}
+            title={showArchived ? "Volver a proyectos activos" : "Ver proyectos archivados"}
+            style={{padding:"6px 12px",borderRadius:0,background:showArchived?"#FBF6E6":"transparent",border:showArchived?"1px solid #C9A84C":"1px solid #E5E0D5",color:showArchived?"#876C1E":"#6B6B6B",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}
+          >📦 {showArchived ? `Volver a activos` : `Archivados (${archivedEntries.length})`}</button>
+          {!showArchived && <button onClick={onCreateProject} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo proyecto</button>}
+        </div>
       </div>
       {favEntries.length > 0 && (
         <>
@@ -12175,6 +12225,7 @@ export default function TaskFlow(){
         createdBy: activeMember,
         createdAt: new Date().toISOString(),
         visibility: visibility || "private",
+        archived: false,
       }],boards:{...prev.boards,[id]:cols}};
     });
     addToast("✓ Proyecto creado");
@@ -12523,6 +12574,29 @@ export default function TaskFlow(){
       return{...prev,agents:(prev.agents||[]).filter(a=>a.id!==id),boards};
     });
     setAgentModal(null); addToast("Agente eliminado","info");
+  },[addToast]);
+
+  // Archivar / desarchivar proyecto. A diferencia de deleteProject (que
+  // borra en cascada), aquí solo flipeamos el flag `archived` en la fila.
+  // Los filtros en HectorPanel, HectorDirect, agentActions y ProjectsView
+  // ya consultan `!p.archived` — el proyecto desaparece de la operativa
+  // diaria pero queda reversible. Tareas, negociaciones y links siguen
+  // intactos (a diferencia de delete que limpia referencias).
+  const archiveProject = useCallback((idx)=>{
+    setData(prev=>{
+      if(!prev.projects[idx]) return prev;
+      const projects = prev.projects.map((p,i)=>i===idx ? {...p, archived: true} : p);
+      return {...prev, projects};
+    });
+    addToast("📦 Proyecto archivado","info");
+  },[addToast]);
+  const unarchiveProject = useCallback((idx)=>{
+    setData(prev=>{
+      if(!prev.projects[idx]) return prev;
+      const projects = prev.projects.map((p,i)=>i===idx ? {...p, archived: false} : p);
+      return {...prev, projects};
+    });
+    addToast("↩ Proyecto restaurado","info");
   },[addToast]);
 
   // Commit 26: borrado en cascada del proyecto. Además de quitarlo del
@@ -12967,7 +13041,7 @@ export default function TaskFlow(){
           {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext}/>}
           {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} authSession={authSession} onNavigate={setActiveTab} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onApplyTaskChanges={applyTaskChanges} onOpenNegotiation={openNegotiationById} onOpenProject={pid=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); } }} onToggleFavorite={toggleFavoriteProject} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
-          {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} favoriteProjectIds={data.favoriteProjectIds||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject} onToggleFavorite={toggleFavoriteProject}/>}
+          {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} favoriteProjectIds={data.favoriteProjectIds||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject} onArchiveProject={archiveProject} onUnarchiveProject={unarchiveProject} onToggleFavorite={toggleFavoriteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission} onSetAgentPermission={setMemberAgentPermission}/>}
           {activeTab==="mantenimiento" && <MantenimientoView authUid={authSession?.user?.id || null} onRegisterImprovementAsTask={registerImprovementAsTask}/>}
           {activeTab==="finance"   &&(()=>{
@@ -13015,7 +13089,7 @@ export default function TaskFlow(){
       <Toast toasts={toasts}/>
       {profileMember&&<ProfileModal member={profileMember} onClose={()=>setPM(null)} onSave={avail=>{saveMemberProfile(profileMember.id,avail);setPM(null);}}/>}
       {projectModal==="create"&&<ProjectModal members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setProjModal(null)} onSave={createProject}/>}
-      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)} onTransferOwnership={transferProjectOwnership} onDelete={()=>{ deleteProject(projectModal); setProjModal(null); }}/>}
+      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)} onTransferOwnership={transferProjectOwnership} onDelete={()=>{ deleteProject(projectModal); setProjModal(null); }} onArchive={()=>{ archiveProject(projectModal); setProjModal(null); }} onUnarchive={()=>{ unarchiveProject(projectModal); setProjModal(null); }}/>}
       {memberModal==="create"&&<MemberEditModal allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={createMember}/>}
       {memberModal&&memberModal!=="create"&&<MemberEditModal member={memberModal} allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={d=>updateMember(d,memberModal.id)} onDelete={id=>{deleteMember(id);setMemberModal(null);}}/>}
       {agentModal==="create"&&<AgentEditModal onClose={()=>setAgentModal(null)} onSave={createAgent}/>}
