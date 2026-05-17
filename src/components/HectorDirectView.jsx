@@ -579,7 +579,13 @@ Reglas:
       // cutoff. No afecta a [ACTIONS] porque viene en user, no system.
       const today = new Date();
       const fechaContext = `[Hoy es ${today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} — ${today.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}]`;
-      const lastIdx = next.length - 1;
+      // Filtramos avisos locales (isLocalNotice: true) — son metadata
+      // del sistema (ej. "He registrado una incidencia en Mantenimiento")
+      // no parte del diálogo CEO↔Héctor. Enviarlos a Claude pollutearía
+      // el contexto Y rompería la alternancia user/assistant exigida
+      // por Anthropic (queda assistant→assistant consecutivos).
+      const nextForApi = next.filter(m => !m.isLocalNotice);
+      const lastIdx = nextForApi.length - 1;
       // Sintético: cuando un turn assistant terminó con content que iría
       // a la API como "(sin texto)" o cadena vacía, mandar eso a Claude
       // pierde contexto y, con varios turns así, induce un bucle (Claude
@@ -593,7 +599,7 @@ Reglas:
         if (m.error)             return `(Turno anterior con error)`;
         return `(Respuesta sin contenido textual en turno anterior)`;
       };
-      const messages = next.map((m, idx) => {
+      const messages = nextForApi.map((m, idx) => {
         const isLastUser = (idx === lastIdx && m.role === "user");
         if (m.role === "user") {
           const c = m.text || "";
@@ -811,7 +817,21 @@ Reglas:
             userMessage: (txt || "").slice(0, 2000),
             agentResponse: (reply || "").slice(0, 4000),
             incidents,
-          });
+          }).then((result) => {
+            // Si el ticket se insertó realmente en hector_tickets, añadimos
+            // un aviso al chat para que el CEO sepa que la incidencia quedó
+            // registrada y puede revisarla en Mantenimiento. isLocalNotice
+            // marca el mensaje para que no se envíe a Claude como contexto
+            // de turn (es metadata interna del sistema, no parte del diálogo).
+            if (result?.inserted) {
+              setChatHistory(prev => [...prev, {
+                role: "assistant",
+                text: "He registrado una incidencia en Mantenimiento. Puedes verla y copiar el prompt de diagnóstico desde ahí.",
+                isLocalNotice: true,
+                ts: Date.now(),
+              }].slice(-CHAT_MAX));
+            }
+          }).catch(() => { /* el insert ya logea su error internamente */ });
         }
       } catch (e) {
         console.warn("[collectHectorFailures] gather error:", e?.message);

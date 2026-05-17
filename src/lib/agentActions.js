@@ -1194,13 +1194,13 @@ export async function collectHectorFailures({
   agentResponse,
   incidents,
 }) {
-  if (!incidents || incidents.length === 0) return;
+  if (!incidents || incidents.length === 0) return { inserted: false };
   try {
     const { data: sessionData } = await supabase.auth.getSession();
     const userId = sessionData?.session?.user?.id;
     if (!userId) {
       console.warn('[collectHectorFailures] Sin sesión activa, ticket no guardado.');
-      return;
+      return { inserted: false, reason: 'no-session' };
     }
     const { error } = await supabase.from('hector_tickets').insert({
       user_id: userId,
@@ -1213,10 +1213,13 @@ export async function collectHectorFailures({
     });
     if (error) {
       console.error('[collectHectorFailures] Supabase error:', error);
-      return;
+      return { inserted: false, error: error.message };
     }
-    console.log('[collectHectorFailures] Ticket insertado:', incidents.map(i => i.type));
+    const types = incidents.map(i => i.type);
+    console.log('[collectHectorFailures] Ticket insertado:', types);
+    return { inserted: true, types };
   } catch (err) {
     console.error('[collectHectorFailures] Error (ignorado):', err);
+    return { inserted: false, error: err?.message };
   }
 }
