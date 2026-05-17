@@ -715,24 +715,35 @@ export function executeAgentActions(actions, helpers) {
           const uniqueCodes = [...new Set(requestedCodes)];
           console.log('[ASOC] codes a resolver:', uniqueCodes);
           const linkedProjs = [];
+          const seenIds = new Set();
+          // 1) Codes explícitos de Héctor (linkedProjectCode/linkedProjectCodes).
+          //    Sirven solo para vincular a proyectos PREEXISTENTES; los codes
+          //    para proyectos creados en este mismo bloque son inventados y
+          //    no casan con los reales que asigna createProject.
           for (const code of uniqueCodes) {
             const proj = findProjectByCode?.(code);
-            if (proj) {
+            if (proj && proj.id != null && !seenIds.has(proj.id)) {
               linkedProjs.push(proj);
-            } else {
+              seenIds.add(proj.id);
+            } else if (!proj) {
               console.error("[Executor] Proyecto no encontrado para code:", code, "— negociación creada sin link a ese proyecto");
               addToast?.(`⚠ Proyecto "${code}" no encontrado — negociación creada sin ese vínculo`, "warn");
             }
           }
-          // Auto-link por co-presencia: si Héctor no resolvió ningún proyecto
-          // por code (suele pasar porque inventa codes que el validador
-          // regenera) y hay proyectos recién creados en este mismo bloque
-          // [ACTIONS], vinculamos todos por defecto. Comportamiento
-          // conservador: solo dispara cuando linkedProjs queda vacío, así
-          // que emisiones explícitas con codes válidos no se ven afectadas.
-          if (linkedProjs.length === 0 && Array.isArray(newlyCreatedProjects) && newlyCreatedProjects.length > 0) {
-            for (const p of newlyCreatedProjects) linkedProjs.push(p);
-            console.log(`[Executor] Auto-link por co-presencia: vinculados ${linkedProjs.length} proyectos recién creados a la negociación.`);
+          // 2) UNIÓN con auto-link por co-presencia: TODOS los proyectos
+          //    creados en este mismo bloque [ACTIONS] se asocian a la
+          //    negociación, independientemente de lo que Héctor haya
+          //    emitido en linkedProjectCode. Antes era fallback (solo si
+          //    linkedProjs.length === 0) pero eso fallaba cuando Héctor
+          //    casaba accidentalmente un code → linkedProjs.length === 1
+          //    y los otros N-1 proyectos quedaban huérfanos. Dedup por id.
+          if (Array.isArray(newlyCreatedProjects)) {
+            for (const p of newlyCreatedProjects) {
+              if (p && p.id != null && !seenIds.has(p.id)) {
+                linkedProjs.push(p);
+                seenIds.add(p.id);
+              }
+            }
           }
           console.log('[ASOC] linkedProjs resueltos:', linkedProjs);
           const primaryProj = linkedProjs[0] || null;
