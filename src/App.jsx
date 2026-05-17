@@ -25,6 +25,7 @@ import CierreDia from "./components/CierreDia.jsx";
 import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import HectorDirectView from "./components/HectorDirectView.jsx";
+import MantenimientoView from "./components/MantenimientoView.jsx";
 import { CHAT_PALETTE } from "./components/Shared/ChatBubble.jsx";
 import AgentAvatar from "./components/Shared/AgentAvatar.jsx";
 import FinanceView from "./components/Finanzas/FinanceView.jsx";
@@ -9839,7 +9840,7 @@ export default function TaskFlow(){
   //   non-admin aunque tengan algún permiso.
   // - TAB_REQUIRES_PERM: tabs gateados por permission flag. Si el miembro
   //   tiene permission "view" en ese feature, puede entrar; si no, redirect.
-  const ADMIN_ONLY_TABS  = new Set(["planner","users","vault"]);
+  const ADMIN_ONLY_TABS  = new Set(["planner","users","vault","mantenimiento"]);
   const TAB_REQUIRES_PERM = {
     workspaces: "workspaces",
     dashboard:  "dashboard",
@@ -12451,6 +12452,7 @@ export default function TaskFlow(){
           {id:"gobernanza", icon:"🏛️", label:"Gobernanza",   shortcut:"⌘⇧G", onClick:()=>{setActiveTab("gobernanza");}, adminOnly:false, requiresPermission:"gobernanza"},
           {id:"vault",      icon:"🔐", label:"Vault Personal", shortcut:"⌘⇧V", onClick:()=>{setActiveTab("vault");}, adminOnly:true},
           {id:"users",      icon:"👥", label:"Usuarios",     shortcut:"⌘⇧U", onClick:()=>{setActiveTab("users");}, adminOnly:true},
+          {id:"mantenimiento", icon:"🛠️", label:"Mantenimiento", shortcut:"", onClick:()=>{setActiveTab("mantenimiento");}, adminOnly:true},
         ];
         // Filtrado del sidebar: admin global ve todo. Para no-admins:
         // - adminOnly:true → oculto.
@@ -12748,6 +12750,7 @@ export default function TaskFlow(){
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} favoriteProjectIds={data.favoriteProjectIds||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject} onToggleFavorite={toggleFavoriteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission} onSetAgentPermission={setMemberAgentPermission}/>}
+          {activeTab==="mantenimiento" && <MantenimientoView authUid={authSession?.user?.id || null}/>}
           {activeTab==="finance"   &&(()=>{
             const myMember = (data.members||[]).find(x=>x.id===activeMember);
             const canView = hasPermission(myMember, "finance", "view", data.permissions);
