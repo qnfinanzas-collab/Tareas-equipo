@@ -2458,8 +2458,12 @@ Reglas para block_task:
         </div>
       )}
 
-      {/* Tab bar (40px fijo) */}
-      <div data-hp="tabs-bar" style={{ height: 40, display: "flex", borderBottom: "0.5px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0 }}>
+      {/* Tab bar (40px fijo). Sticky para que permanezca visible cuando el
+          contenido del tab Chat es alto y el usuario hace scroll de la
+          página — sin sticky, la tab bar salía del viewport al desplazar
+          mucha conversación porque el panel crece a su contenido (el
+          wrapper padre en CommandRoomView no constrain altura). */}
+      <div data-hp="tabs-bar" style={{ height: 40, display: "flex", borderBottom: "0.5px solid #E5E7EB", background: "#FAFAFA", flexShrink: 0, position: "sticky", top: 0, zIndex: 10 }}>
         {[
           { key: "analysis", label: "📋 Análisis", badge: 0 },
           { key: "chat",     label: "💬 Chat",     badge: unreadCount },
