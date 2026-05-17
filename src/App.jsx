@@ -12095,6 +12095,25 @@ export default function TaskFlow(){
     const projectActions = selectedActions.filter(a => a.type === "create_project");
     const otherActions   = selectedActions.filter(a => a.type !== "create_project");
 
+    // Pre-resolución de codes únicos antes de pass-1. createProject calcula
+    // safeCode contra dataRef.current.projects (snapshot), pero setData no
+    // commit-flusha entre iteraciones del mismo tick — así que 3 create_project
+    // en el mismo bloque verían el MISMO snapshot y autoProjectCode devolvería
+    // el mismo fallback ("PR2", "PR2", "PR2") para los 3. Pre-resolvemos aquí
+    // con un Set acumulativo: cada acción se queda con un code único antes
+    // siquiera de llegar al executor, eliminando la race condition. La
+    // segunda barrera (createProject) queda intacta como defensa adicional.
+    const usedCodes = new Set((dataRef.current?.projects || []).map(p => p.code).filter(Boolean));
+    for (const a of projectActions) {
+      const proposed = typeof a.code === "string" ? a.code.toUpperCase() : "";
+      const safe = isValidProjectCode(proposed) && !usedCodes.has(proposed)
+        ? proposed
+        : autoProjectCode(a.name || "PRJ", [...usedCodes]);
+      console.log('[ASOC] pre-resolve code:', { name: a.name, proposed, safe });
+      a.code = safe;
+      usedCodes.add(safe);
+    }
+
     const results1 = executeAgentActions(projectActions, helpers);
     // Retry escalonado para que setData de createProject haga commit y
     // dataRef tenga el proyecto antes de que pass-2 (create_tasks /
