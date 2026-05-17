@@ -590,10 +590,12 @@ Reglas:
         { system: baseSystem, messages, max_tokens: 2048 },
         { timeoutMs: 60000 }
       );
+      console.log('[BUG_SINTEXTO] reply:', JSON.stringify(reply).slice(0, 1000));
       const sanitizedReply = reply.replace(/"(?:[^"\\]|\\.)*"/g, m =>
         m.replace(/[\n\r\t]/g, c => ({ "\n":"\\n", "\r":"\\r", "\t":"\\t" }[c]))
       );
       const proposal = parseAgentActions(sanitizedReply);
+      console.log('[BUG_SINTEXTO] proposal:', proposal);
       // Validación post-LLM de fechas (date-validation-postllm-v1).
       // Sonnet 4.5 con cutoff enero 2025 emite años pasados al razonar
       // fechas relativas. correctActionsDates muta proposal in-place
@@ -751,6 +753,7 @@ Reglas:
       // respuesta es una CONSULTA con [TASKS_LIST], NO la consideramos
       // afirmación de éxito aunque la prosa contenga verbos como
       // "actualizado" — es lectura, no ejecución.
+      console.log('[BUG_SINTEXTO] cleanText final:', cleanText);
       const fakeSuccess = !tasksList && detectFalseSuccessClaim(cleanText, proposal);
       // Fase 1 mantenimiento — fire-and-forget de incidentes a hector_tickets.
       // Agrega los 4 tipos cazados por los detectores post-LLM y los inserta
