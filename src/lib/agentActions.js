@@ -632,6 +632,7 @@ export function executeAgentActions(actions, helpers) {
     updateInvoice,        // (id, patch) → side-effect (Diego: actualizar factura)
     defaultCompanyId,     // string|null — empresa filtrada en la UI cuando aplica
     addToast,             // (msg, level, opts?) → side-effect — visibilidad de fallos
+    newlyCreatedProjects = [], // [{id, code}] — proyectos creados en pass-1 del MISMO bloque [ACTIONS]; usado para auto-link en CREATE_NEGOTIATION cuando Héctor no provee codes (no puede anticiparlos antes de la ejecución).
   } = helpers || {};
 
   for (const action of actions) {
@@ -722,6 +723,16 @@ export function executeAgentActions(actions, helpers) {
               console.error("[Executor] Proyecto no encontrado para code:", code, "— negociación creada sin link a ese proyecto");
               addToast?.(`⚠ Proyecto "${code}" no encontrado — negociación creada sin ese vínculo`, "warn");
             }
+          }
+          // Auto-link por co-presencia: si Héctor no resolvió ningún proyecto
+          // por code (suele pasar porque inventa codes que el validador
+          // regenera) y hay proyectos recién creados en este mismo bloque
+          // [ACTIONS], vinculamos todos por defecto. Comportamiento
+          // conservador: solo dispara cuando linkedProjs queda vacío, así
+          // que emisiones explícitas con codes válidos no se ven afectadas.
+          if (linkedProjs.length === 0 && Array.isArray(newlyCreatedProjects) && newlyCreatedProjects.length > 0) {
+            for (const p of newlyCreatedProjects) linkedProjs.push(p);
+            console.log(`[Executor] Auto-link por co-presencia: vinculados ${linkedProjs.length} proyectos recién creados a la negociación.`);
           }
           console.log('[ASOC] linkedProjs resueltos:', linkedProjs);
           const primaryProj = linkedProjs[0] || null;
@@ -1015,6 +1026,10 @@ Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movim
 Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),dueDate("+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode (string, un solo proyecto, formato viejo),linkedProjectCodes (array de codes, para vincular varios proyectos; el primer code del array se considera "principal" y los demás "relacionado". Usar este campo cuando el CEO pida vincular más de un proyecto a la negociación)}; "create_tasks" {projectCode,tasks:[...]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario).
 
 Reglas: solo cuando lo pidan explícitamente, NUNCA en análisis ni consultas. El bloque se OCULTA del CEO. Tu prosa va ANTES del bloque.
+
+NOTA SOBRE VINCULACIÓN DE PROYECTOS A UNA NEGOCIACIÓN:
+- Si vas a crear UNO o VARIOS proyectos en el MISMO bloque [ACTIONS] que la negociación, NO necesitas (ni puedes) anticipar sus codes finales — el sistema los regenera al ejecutar. El sistema vincula AUTOMÁTICAMENTE todos los proyectos creados en el mismo bloque a la negociación del mismo bloque. En ese caso, OMITE linkedProjectCode y linkedProjectCodes en la acción create_negotiation: déjalos sin emitir.
+- Solo usa linkedProjectCode (string) cuando quieras vincular la negociación a un proyecto que YA EXISTE (no creado en este bloque), con el code real que veas en el contexto del system prompt o que el CEO te haya mencionado.
 
 REGLA STAKEHOLDERS: En cualquier acción que incluya el campo stakeholders, usa exclusivamente nombres de personas reales externas mencionadas por el CEO. Jamás uses tu nombre (Héctor) ni el de ningún agente (Mario, Jorge, Álvaro, Gonzalo, Diego). Si no hay personas concretas mencionadas: stakeholders: []
 

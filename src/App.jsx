@@ -12168,6 +12168,12 @@ export default function TaskFlow(){
         console.log('[ASOC] findProjectByCode busca:', code, '→ encontrado:', resultado);
         return resultado;
       },
+      // Lista de proyectos creados en pass-1 del MISMO bloque [ACTIONS].
+      // El executor la usa como fallback en CREATE_NEGOTIATION cuando
+      // Héctor no provee linkedProjectCode/linkedProjectCodes (auto-link
+      // por co-presencia: los proyectos del mismo bloque se asocian
+      // automáticamente a la negociación del mismo bloque).
+      newlyCreatedProjects: [...newProjectMap.values()],
     };
     const results2 = executeAgentActions(otherActions, helpers2);
     return { results: [...results1, ...results2] };
