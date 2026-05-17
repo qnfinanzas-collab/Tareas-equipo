@@ -285,6 +285,26 @@ const taskDescription = (t) => {
   return parts.join("\n\n");
 };
 
+// Normaliza la query del buscador. Si parece un código MNT (sólo dígitos,
+// o prefijo "mnt" opcional + dígitos con o sin separadores), la canoniza
+// a "mnt-NNN" con padding a 3 dígitos. Casos cubiertos:
+//   "9"     → "mnt-009"
+//   "MNT9"  → "mnt-009"
+//   "mnt-9" → "mnt-009"
+//   "mnt 9" → "mnt-009"
+//   "MNT-009" → "mnt-009"
+// Texto libre (palabras) pasa lowercased sin tocar, para match por substring.
+const normalizeSearchQuery = (q) => {
+  const trimmed = (q || "").toLowerCase().trim();
+  if (!trimmed) return "";
+  const codeMatch = trimmed.match(/^(mnt)?[\s-]*(\d+)$/);
+  if (codeMatch) {
+    const num = codeMatch[2].padStart(3, "0");
+    return `mnt-${num}`;
+  }
+  return trimmed;
+};
+
 // Construye el prompt que se copia desde el botón Copiar de TaskCard.
 // Formato pegable directamente en Claude Code o en el chat con Bruno.
 const buildTaskPrompt = (t, code) => {
@@ -1219,7 +1239,7 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
   // tarea concreta cuando la referencia el CEO u otro miembro como "MNT-007").
   const filteredTasks = useMemo(() => {
     const { origen, estado, prioridad } = taskFilters;
-    const q = searchQuery.trim().toLowerCase();
+    const q = normalizeSearchQuery(searchQuery);
     return tickets.filter(t => {
       if (origen.size > 0 && !origen.has(t.kind)) return false;
       if (estado.size > 0 && !estado.has(normalizeTicketStatus(t))) return false;
