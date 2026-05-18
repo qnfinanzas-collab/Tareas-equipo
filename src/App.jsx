@@ -5648,22 +5648,61 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
           )}
         </div>
       )}
+      {/* Sección Favoritos — siempre primero. Mezcla proyectos de
+          cualquier categoría que estén en favoritos. */}
       {favEntries.length > 0 && (
         <>
-          <div style={{fontSize:11,letterSpacing:"3px",color:"#C9A84C",textTransform:"uppercase",marginBottom:12,fontWeight:600}}>★ Favoritos</div>
+          <div style={{fontSize:11,letterSpacing:"3px",color:"#C9A84C",textTransform:"uppercase",marginBottom:12,fontWeight:600}}>★ Favoritos <span style={{color:"#9B9B9B",fontWeight:500,letterSpacing:"0.04em"}}>({favEntries.length})</span></div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14,marginBottom:24,paddingBottom:24,borderBottom:"0.5px solid #E5E0D5"}}>
             {favEntries.map(({p,i})=>renderProjectCard(p,i))}
           </div>
         </>
       )}
-      <div style={{fontSize:11,letterSpacing:"3px",color:"#9B9B9B",textTransform:"uppercase",marginBottom:12,fontWeight:600}}>Proyectos</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
-        {restEntries.map(({p,i})=>renderProjectCard(p,i))}
-        <div onClick={onCreateProject} style={{border:"2px dashed #d1d5db",borderRadius:12,padding:16,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:180,gap:8}}>
-          <div style={{width:40,height:40,borderRadius:"50%",background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>+</div>
-          <div style={{fontSize:13,fontWeight:500,color:"#6b7280"}}>Nuevo proyecto</div>
-        </div>
-      </div>
+      {/* Agrupación del resto por categoría. Categorías ordenadas
+          alfabéticamente; "Sin categorizar" siempre al final. Una
+          sección por grupo con header (nombre + contador) y grid.
+          Si una categoría queda sin proyectos no-favorito, se omite
+          la sección entera (no se pinta header vacío). */}
+      {(() => {
+        const restCategorized   = restEntries.filter(({p}) => p.category);
+        const restUncategorized = restEntries.filter(({p}) => !p.category);
+        const categoryNames = Array.from(new Set(restCategorized.map(({p}) => p.category))).sort();
+        return (
+          <>
+            {categoryNames.map(catName => {
+              const entries = restCategorized.filter(({p}) => p.category === catName);
+              if (entries.length === 0) return null;
+              return (
+                <div key={`cat-${catName}`} style={{marginBottom:24}}>
+                  <div style={{fontSize:11,letterSpacing:"3px",color:"#876C1E",textTransform:"uppercase",marginBottom:12,fontWeight:600}}>{catName} <span style={{color:"#9B9B9B",fontWeight:500,letterSpacing:"0.04em"}}>({entries.length})</span></div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+                    {entries.map(({p,i}) => renderProjectCard(p,i))}
+                  </div>
+                </div>
+              );
+            })}
+            {restUncategorized.length > 0 && (
+              <div style={{marginBottom:24}}>
+                <div style={{fontSize:11,letterSpacing:"3px",color:"#9B9B9B",textTransform:"uppercase",marginBottom:12,fontWeight:600}}>Sin categorizar <span style={{color:"#9B9B9B",fontWeight:500,letterSpacing:"0.04em"}}>({restUncategorized.length})</span></div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+                  {restUncategorized.map(({p,i}) => renderProjectCard(p,i))}
+                </div>
+              </div>
+            )}
+            {/* Tile dashed "Nuevo proyecto" — siempre visible al final
+                de toda la sección (después de la última categoría),
+                solo en vista de activos (no en archivados). */}
+            {!showArchived && (
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+                <div onClick={onCreateProject} style={{border:"2px dashed #d1d5db",borderRadius:12,padding:16,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:180,gap:8}}>
+                  <div style={{width:40,height:40,borderRadius:"50%",background:"#f3f4f6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>+</div>
+                  <div style={{fontSize:13,fontWeight:500,color:"#6b7280"}}>Nuevo proyecto</div>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 }
