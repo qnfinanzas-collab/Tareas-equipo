@@ -12412,13 +12412,33 @@ export default function TaskFlow(){
       });
       proj = { id: res.id, code: res.code };
     }
-    // 3) Título = primera línea/frase (máx 120 chars). Desc = texto completo
-    //    con referencia al ticket de hector_tickets para trazabilidad.
-    const firstLine = text.split(/[\n.]/)[0].trim().slice(0, 120) || text.slice(0, 120);
+    // 3) Título = el texto entero si entra en TITLE_MAX. Si no, corte
+    //    limpio por espacio (sin romper palabras) y el resto va a desc.
+    //    Antes capábamos a 120 chars y truncábamos brutalmente; ahora
+    //    no se pierde nada — el overflow se preserva en la descripción.
+    const TITLE_MAX = 200;
+    const fullText = text.trim();
     const ticketRef = ticketId ? `#${String(ticketId).slice(0, 8)}` : "(sin id)";
-    const desc = `Registrada por Bruno desde Mantenimiento — ticket ${ticketRef}\n\n${text}`;
+    const meta = `— Registrada por Bruno desde Mantenimiento · ticket ${ticketRef}`;
+    let title, desc;
+    if (fullText.length <= TITLE_MAX) {
+      // Cabe entero en el título. Desc solo lleva la línea de metadata
+      // (sin duplicar el texto que ya está en el título).
+      title = fullText;
+      desc = meta;
+    } else {
+      // Buscamos último espacio en la franja [0.7·MAX, MAX] para cortar
+      // en word boundary. Si no hay espacio cercano (palabra extra larga),
+      // cortamos en MAX duro — preferible a un título de 250 chars.
+      const head = fullText.slice(0, TITLE_MAX);
+      const lastSpace = head.lastIndexOf(" ");
+      const splitAt = lastSpace > TITLE_MAX * 0.7 ? lastSpace : TITLE_MAX;
+      title = fullText.slice(0, splitAt).trim();
+      const overflow = fullText.slice(splitAt).trim();
+      desc = overflow ? `${overflow}\n\n${meta}` : meta;
+    }
     addTaskToProject(proj.id, {
-      title: firstLine,
+      title,
       desc,
       priority: safePriority,
       dueDate: null,
@@ -12435,7 +12455,7 @@ export default function TaskFlow(){
         isMilestone: false,
       }],
     });
-    return { projectId: proj.id, projectCode: proj.code, taskTitle: firstLine };
+    return { projectId: proj.id, projectCode: proj.code, taskTitle: title };
   }, [createProject, addTaskToProject, activeMember]);
 
   // Orchestrator de acciones propuestas por agentes. Se pasa como prop al
