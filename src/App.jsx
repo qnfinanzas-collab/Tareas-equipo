@@ -4829,6 +4829,11 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
   const [sel,setSel]=useState(project?.members||[]);
   const [workspaceId,setWorkspaceId]=useState(project?.workspaceId??null);
   const [visibility,setVisibility]=useState(project?.visibility || "private");
+  // Categoría personalizada del proyecto. Texto libre — el CEO escribe
+  // o autocompleta desde el datalist con categorías que ya existen en
+  // otros proyectos. Trim + nullify cadenas vacías para no introducir
+  // basura en data. Sin lista cerrada: el CEO inventa las que necesite.
+  const [category,setCategory]=useState(project?.category || "");
   const [cols,setCols]=useState(["Por hacer","En progreso","Revision","Hecho"]);
   const [newCol,setNewCol]=useState("");
   const [pendingClose,setPendingClose]=useState(false);
@@ -4847,9 +4852,10 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
     code:project?.code||"",
     sel:project?.members||[], workspaceId:project?.workspaceId??null,
     visibility: project?.visibility || "private",
+    category: project?.category || "",
     cols:["Por hacer","En progreso","Revision","Hecho"], newCol:"",
   }));
-  const isDirty=JSON.stringify({name,desc,color,emoji,code,sel,workspaceId,visibility,cols,newCol})!==initialSnap;
+  const isDirty=JSON.stringify({name,desc,color,emoji,code,sel,workspaceId,visibility,category,cols,newCol})!==initialSnap;
   const owner = isEdit ? (members||[]).find(m=>m.id===project.ownerId) : null;
   const isOwner = isEdit && currentMember && (currentMember.id === project.ownerId || currentMember.accountRole === "admin");
   const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
@@ -4872,7 +4878,10 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
   const canSave = !!name.trim() && !codeError;
   const save=()=>{
     if(!canSave) return;
-    onSave({name:name.trim(),desc,color,emoji,code,members:sel,columns:cols,workspaceId,visibility});
+    // category: trim + null si está vacío. Evita strings de espacios
+    // en data.projects que ensuciarían el autocompletado.
+    const cleanCategory = category.trim() || null;
+    onSave({name:name.trim(),desc,color,emoji,code,members:sel,columns:cols,workspaceId,visibility,category:cleanCategory});
     onClose();
   };
   return(
@@ -4945,6 +4954,24 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
             <option value="">— Sin workspace —</option>
             {(workspaces||[]).map(w=><option key={w.id} value={w.id}>{w.emoji} {w.name}</option>)}
           </select>
+          {/* Categoría personalizada — texto libre con autocompletado de
+              categorías que ya existen en otros proyectos. Sin lista
+              cerrada: el CEO inventa las que necesite. Vacío = "Sin
+              categorizar" (estado por defecto, sin guardar nada en data). */}
+          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:6}}>Categoría (opcional)</div>
+          <input
+            list="project-category-options"
+            value={category}
+            onChange={e=>setCategory(e.target.value)}
+            placeholder="ej: Estratégico, Cliente, Interno…"
+            style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,background:"#fff",fontFamily:"inherit",marginBottom:16,outline:"none",boxSizing:"border-box"}}
+          />
+          <datalist id="project-category-options">
+            {Array.from(new Set((allProjects||[])
+              .map(p=>p?.category)
+              .filter(c=>typeof c==="string" && c.trim())
+            )).sort().map(c=><option key={c} value={c}/>)}
+          </datalist>
           <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Visibilidad del proyecto</div>
           <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
             {[
@@ -5397,6 +5424,9 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
   // archivados quedan fuera de la vista principal. El contador junto al
   // toggle indica cuántos archivados hay disponibles para revisar.
   const [showArchived, setShowArchived] = useState(false);
+  // Filtro por categoría. null = todas. "__none__" = "Sin categorizar"
+  // (proyectos sin category). Cualquier otro string = matchea exacto.
+  const [categoryFilter, setCategoryFilter] = useState(null);
   // Commit 27: doble confirmación obligatoria para borrado desde la
   // grid de proyectos (mismo patrón que ProjectModal). pendingDel = idx
   // del proyecto en flujo destructivo. delStep = 1 (input código) o 2
@@ -5447,7 +5477,21 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
   // de archivados (sin mezclar — UX más clara que un filtro mixto).
   const archivedEntries = allVisibleEntries.filter(({p})=>p.archived);
   const activeEntries   = allVisibleEntries.filter(({p})=>!p.archived);
-  const visibleEntries  = showArchived ? archivedEntries : activeEntries;
+  // Lista única de categorías existentes en los proyectos activos.
+  // Ordenada alfabéticamente. Sirve para el filtro y para mostrar
+  // chips solo si el CEO realmente ha usado alguna.
+  const categoryOptions = Array.from(new Set(
+    activeEntries.map(({p})=>p.category).filter(c=>typeof c==="string" && c.trim())
+  )).sort();
+  const hasUncategorized = activeEntries.some(({p})=>!p.category);
+  // Aplicar filtro de categoría a la vista actual (activos o archivados).
+  const baseEntries = showArchived ? archivedEntries : activeEntries;
+  const filteredByCategory = categoryFilter === null
+    ? baseEntries
+    : categoryFilter === "__none__"
+      ? baseEntries.filter(({p})=>!p.category)
+      : baseEntries.filter(({p})=>p.category===categoryFilter);
+  const visibleEntries  = filteredByCategory;
   const favEntries  = visibleEntries.filter(({p})=>favSet.has(p.id));
   const restEntries = visibleEntries.filter(({p})=>!favSet.has(p.id));
   // Card render extraído a closure para reutilizar entre las dos
@@ -5475,6 +5519,9 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
                     <span title={visTitle} style={{fontSize:13,lineHeight:1}}>{visIcon}</span>
                     {isMine && <span title="Eres el owner de este proyecto" style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:10,background:"#1D9E7518",color:"#0E7C5A",border:"0.5px solid #1D9E7555",textTransform:"uppercase",letterSpacing:"0.04em"}}>Tuyo</span>}
                     {readOnly && <span title="Solo puedes ver este proyecto" style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:10,background:"#F3F4F6",color:"#6B7280",border:"0.5px solid #D1D5DB",textTransform:"uppercase",letterSpacing:"0.04em"}}>Solo lectura</span>}
+                    {/* Chip de categoría — visible siempre que el proyecto
+                        tenga una. "Sin categorizar" no se chip-ea (sería ruido). */}
+                    {p.category && <span title={`Categoría: ${p.category}`} style={{fontSize:9.5,fontWeight:700,padding:"2px 7px",borderRadius:0,background:"#FBF6E6",color:"#876C1E",border:"0.5px solid #C9A84C",textTransform:"uppercase",letterSpacing:"0.04em"}}>{p.category}</span>}
                   </div>
                   {p.desc&&<div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.desc}</div>}
                 </div>
@@ -5573,6 +5620,34 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
           {!showArchived && <button onClick={onCreateProject} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo proyecto</button>}
         </div>
       </div>
+      {/* Barra de filtros por categoría — chips clicables. Solo aparece
+          si hay alguna categoría usada o algún proyecto sin categorizar.
+          Activo en oro Kluxor #C9A84C; inactivo neutro. */}
+      {(categoryOptions.length > 0 || hasUncategorized) && (
+        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:16}}>
+          <span style={{fontSize:10.5,fontWeight:700,color:"#9B9B9B",textTransform:"uppercase",letterSpacing:0.4,marginRight:4}}>Categoría</span>
+          <button
+            type="button"
+            onClick={()=>setCategoryFilter(null)}
+            style={{padding:"4px 10px",fontSize:11.5,fontWeight:categoryFilter===null?700:500,cursor:"pointer",fontFamily:"inherit",borderRadius:0,border:categoryFilter===null?"1px solid #C9A84C":"1px solid #E5E0D5",background:categoryFilter===null?"#FBF6E6":"#fff",color:categoryFilter===null?"#876C1E":"#6B6B6B"}}
+          >Todas</button>
+          {categoryOptions.map(cat=>(
+            <button
+              key={cat}
+              type="button"
+              onClick={()=>setCategoryFilter(cat)}
+              style={{padding:"4px 10px",fontSize:11.5,fontWeight:categoryFilter===cat?700:500,cursor:"pointer",fontFamily:"inherit",borderRadius:0,border:categoryFilter===cat?"1px solid #C9A84C":"1px solid #E5E0D5",background:categoryFilter===cat?"#FBF6E6":"#fff",color:categoryFilter===cat?"#876C1E":"#6B6B6B"}}
+            >{cat}</button>
+          ))}
+          {hasUncategorized && (
+            <button
+              type="button"
+              onClick={()=>setCategoryFilter("__none__")}
+              style={{padding:"4px 10px",fontSize:11.5,fontWeight:categoryFilter==="__none__"?700:500,cursor:"pointer",fontFamily:"inherit",borderRadius:0,border:categoryFilter==="__none__"?"1px solid #C9A84C":"1px solid #E5E0D5",background:categoryFilter==="__none__"?"#FBF6E6":"#fff",color:categoryFilter==="__none__"?"#876C1E":"#6B6B6B"}}
+            >Sin categorizar</button>
+          )}
+        </div>
+      )}
       {favEntries.length > 0 && (
         <>
           <div style={{fontSize:11,letterSpacing:"3px",color:"#C9A84C",textTransform:"uppercase",marginBottom:12,fontWeight:600}}>★ Favoritos</div>
@@ -12198,7 +12273,7 @@ export default function TaskFlow(){
     addToast(`✓ ${tasks.length} tarea${tasks.length!==1?"s":""} creada${tasks.length!==1?"s":""}`);
   },[addToast]);
 
-  const createProject = useCallback(({name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility})=>{
+  const createProject = useCallback(({name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility,category})=>{
     const id=nextProjId++;
     const cols=columns.map(n=>({id:`nc${nextColId++}`,name:n,tasks:[]}));
     // Calculamos safeCode SÍNCRONAMENTE leyendo dataRef.current. Antes el
@@ -12226,6 +12301,7 @@ export default function TaskFlow(){
         createdAt: new Date().toISOString(),
         visibility: visibility || "private",
         archived: false,
+        category: (typeof category === "string" && category.trim()) ? category.trim() : null,
       }],boards:{...prev.boards,[id]:cols}};
     });
     addToast("✓ Proyecto creado");
@@ -12485,7 +12561,7 @@ export default function TaskFlow(){
     const results2 = executeAgentActions(otherActions, helpers2);
     return { results: [...results1, ...results2] };
   },[createProject, addTaskToProject, createNegotiation, addFinanceMovement, addBankMovement, updateBankMovement, addAccountingEntry, addInvoice, updateInvoice, addToast, activeMember, data]);
-  const editProject = useCallback((idx,{name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility})=>{
+  const editProject = useCallback((idx,{name,desc,color,emoji,code,members:mems,columns,workspaceId,visibility,category})=>{
     setData(prev=>{
       const p=prev.projects[idx];
       // Solo aceptamos cambio de código si es válido y no colisiona con
@@ -12493,7 +12569,12 @@ export default function TaskFlow(){
       const codeIsFree = isValidProjectCode(code) && !prev.projects.some((x,i)=>i!==idx && x.code===code);
       const finalCode = codeIsFree ? code : p.code;
       const finalVisibility = (visibility==="private"||visibility==="team"||visibility==="public") ? visibility : p.visibility;
-      const projects=prev.projects.map((x,i)=>i===idx?{...x,name,desc,color,emoji,code:finalCode,codeAuto:finalCode===p.code?x.codeAuto:false,members:mems,workspaceId:workspaceId??null,visibility:finalVisibility}:x);
+      // Normalize category: string non-vacío o null. Si la prop no viene
+      // (caller antiguo) preservamos el valor actual del proyecto.
+      const finalCategory = (typeof category === "undefined")
+        ? (p.category ?? null)
+        : ((typeof category === "string" && category.trim()) ? category.trim() : null);
+      const projects=prev.projects.map((x,i)=>i===idx?{...x,name,desc,color,emoji,code:finalCode,codeAuto:finalCode===p.code?x.codeAuto:false,members:mems,workspaceId:workspaceId??null,visibility:finalVisibility,category:finalCategory}:x);
       const existing=prev.boards[p.id]||[];
       const existNames=existing.map(c=>c.name);
       const newCols=columns.filter(n=>!existNames.includes(n)).map(n=>({id:`nc${nextColId++}`,name:n,tasks:[]}));
