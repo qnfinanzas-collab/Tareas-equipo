@@ -264,17 +264,15 @@ const taskTitle = (t) => {
 };
 
 // Descripción para mostrar bajo el título en TaskCard. Para mejoras:
-// el resto del texto tras la primera frase. Para incidencias: snippet
-// del mensaje del CEO + snippet de la respuesta de Héctor limpia.
+// improvement_text íntegro (mismo texto que el título, redundancia
+// aceptable — antes troceábamos asumiendo "primera frase = título,
+// resto = descripción" pero desde que improvement_text se guarda como
+// un único string libre, el troceado dejaba "" en mejoras de una sola
+// frase y la card no mostraba contenido). Para incidencias: snippet
+// del mensaje del CEO + respuesta de Héctor limpia.
 const taskDescription = (t) => {
   if (t?.kind === "improvement") {
-    const txt = String(t.improvement_text || "").trim();
-    if (!txt) return "";
-    const lines = txt.split("\n");
-    if (lines.length > 1) return lines.slice(1).join("\n").trim();
-    const dot = txt.indexOf(".");
-    if (dot > 0 && dot < txt.length - 1) return txt.slice(dot + 1).trim();
-    return "";
+    return String(t.improvement_text || "").trim();
   }
   // incident: combinamos CEO + Héctor limpiando markers.
   const parts = [];
