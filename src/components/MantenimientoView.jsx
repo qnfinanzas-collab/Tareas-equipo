@@ -955,7 +955,7 @@ function FilterChip({ label, active, onClick }) {
   );
 }
 
-function TaskCard({ ticket, taskCode, assigneeName, onSetStatus, onSetPriority }) {
+function TaskCard({ ticket, taskCode, assigneeName, onSetStatus, onSetPriority, onArchive, onUnarchive, onDelete, archived }) {
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const isIncident = ticket.kind === "incident";
@@ -1007,9 +1007,33 @@ function TaskCard({ ticket, taskCode, assigneeName, onSetStatus, onSetPriority }
           )}
           <span style={chipStyle(origenColor, origenBg)}>{origenLabel}</span>
         </div>
-        <button type="button" onClick={copyTaskPrompt} style={btnStyle("default")}>
-          {copied ? "✅ Copiado" : "Copiar"}
-        </button>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+          <button type="button" onClick={copyTaskPrompt} style={btnStyle("default")}>
+            {copied ? "✅ Copiado" : "Copiar"}
+          </button>
+          {/* Archivar / Restaurar — sin schema change: flag vive en
+              hector_tickets.incidents (metadata jsonb). */}
+          {archived
+            ? (typeof onUnarchive === "function" && (
+                <button type="button" onClick={() => onUnarchive(ticket.id)} title="Restaurar tarea" style={btnStyle("default")}>↩ Restaurar</button>
+              ))
+            : (typeof onArchive === "function" && (
+                <button type="button" onClick={() => onArchive(ticket.id)} title="Archivar tarea (la oculta de la vista por defecto, reversible)" style={btnStyle("default")}>🗂 Archivar</button>
+              ))
+          }
+          {/* Eliminar — DELETE Supabase con doble confirmación. */}
+          {typeof onDelete === "function" && (
+            <button
+              type="button"
+              onClick={() => {
+                const ok = window.confirm("¿Eliminar esta tarea? Esta acción no se puede deshacer.");
+                if (ok) onDelete(ticket.id);
+              }}
+              title="Eliminar tarea definitivamente"
+              style={btnStyle("danger")}
+            >🗑 Eliminar</button>
+          )}
+        </div>
       </div>
 
       {/* Título (bold, mayor) */}
@@ -1142,6 +1166,10 @@ export default function MantenimientoView({ authUid }) {
   // taskTitle(t) y taskDescription(t). Aplica antes de los filtros
   // por origen/estado/prioridad para reducir el set primero.
   const [searchQuery, setSearchQuery] = useState("");
+  // Toggle archivados en pestaña Tareas. Por defecto false → ocultos.
+  // Se persisten en hector_tickets.incidents (metadata jsonb) con
+  // archived:true; el toggle alterna su visibilidad.
+  const [showArchivedTasks, setShowArchivedTasks] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1200,6 +1228,36 @@ export default function MantenimientoView({ authUid }) {
     if (error) console.warn(`[Mantenimiento] update priority error: ${error.message}`);
   };
 
+  // Archivar/desarchivar/eliminar — acciones para la pestaña Tareas.
+  // Sin schema change: el flag archived vive en la entrada de metadata
+  // de incidents (mismo patrón que priority). Eliminar es DELETE Supabase
+  // tras doble confirmación del lado del usuario (handler en TaskCard).
+  const archiveTicket = async (id) => {
+    const ticket = tickets.find(t => t.id === id);
+    if (!ticket) return;
+    const newIncidents = upsertMetadata(ticket.incidents, { archived: true });
+    setTickets(prev => prev.map(t => t.id === id ? { ...t, incidents: newIncidents } : t));
+    if (!supa) return;
+    const { error } = await supa.from("hector_tickets").update({ incidents: newIncidents }).eq("id", id);
+    if (error) console.warn(`[Mantenimiento] archive error: ${error.message}`);
+  };
+  const unarchiveTicket = async (id) => {
+    const ticket = tickets.find(t => t.id === id);
+    if (!ticket) return;
+    const newIncidents = upsertMetadata(ticket.incidents, { archived: false });
+    setTickets(prev => prev.map(t => t.id === id ? { ...t, incidents: newIncidents } : t));
+    if (!supa) return;
+    const { error } = await supa.from("hector_tickets").update({ incidents: newIncidents }).eq("id", id);
+    if (error) console.warn(`[Mantenimiento] unarchive error: ${error.message}`);
+  };
+  const deleteTicket = async (id) => {
+    setTickets(prev => prev.filter(t => t.id !== id));
+    if (!supa) return;
+    const { error } = await supa.from("hector_tickets").delete().eq("id", id);
+    if (error) console.warn(`[Mantenimiento] delete error: ${error.message}`);
+  };
+  const isArchived = (t) => !!metadataEntry(t?.incidents)?.archived;
+
   // Mapa de códigos MNT-001, MNT-002, ... derivado del orden ASC de
   // created_at. Deterministic y estable entre clientes sin schema change.
   // Tickets más antiguos = números menores. Nuevos tickets = al final.
@@ -1225,6 +1283,11 @@ export default function MantenimientoView({ authUid }) {
     const { origen, estado, prioridad } = taskFilters;
     const q = normalizeSearchQuery(searchQuery);
     return tickets.filter(t => {
+      // Filtro archived: por defecto ocultos. Toggle showArchivedTasks
+      // invierte: solo archivados. Si el usuario quiere ambos no hay
+      // opción todavía (matching el patrón de ProjectsView).
+      const archived = !!metadataEntry(t?.incidents)?.archived;
+      if (showArchivedTasks ? !archived : archived) return false;
       if (origen.size > 0 && !origen.has(t.kind)) return false;
       if (estado.size > 0 && !estado.has(normalizeTicketStatus(t))) return false;
       if (prioridad.size > 0 && !prioridad.has(derivePriority(t))) return false;
@@ -1235,7 +1298,13 @@ export default function MantenimientoView({ authUid }) {
       }
       return true;
     });
-  }, [tickets, taskFilters, searchQuery, ticketCodes]);
+  }, [tickets, taskFilters, searchQuery, ticketCodes, showArchivedTasks]);
+  // Contador de archivados disponibles (independiente de filtros) para
+  // mostrarlo en el toggle.
+  const archivedCount = useMemo(
+    () => tickets.filter(t => !!metadataEntry(t?.incidents)?.archived).length,
+    [tickets]
+  );
 
   // Contadores del header de la pestaña Tareas (sobre filtered).
   const taskCounts = useMemo(() => {
@@ -1467,13 +1536,26 @@ export default function MantenimientoView({ authUid }) {
                 <FilterChip key={s.key} label={s.label} active={taskFilters.estado.has(s.key)} onClick={() => toggleFilter("estado", s.key)} />
               ))}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
               <span style={{ fontSize: 10.5, fontWeight: 700, color: PALETTE.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginRight: 4, minWidth: 64 }}>Prioridad</span>
               <FilterChip label="Todas" active={taskFilters.prioridad.size === 0} onClick={() => clearFilterGroup("prioridad")} />
               {PRIORITY_DEFS.map(p => (
                 <FilterChip key={p.key} label={p.label} active={taskFilters.prioridad.has(p.key)} onClick={() => toggleFilter("prioridad", p.key)} />
               ))}
             </div>
+            {/* Toggle Mostrar archivados — análogo al patrón de ProjectsView.
+                Visible siempre que existan archivados; activo destaca en oro. */}
+            {(archivedCount > 0 || showArchivedTasks) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: PALETTE.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginRight: 4, minWidth: 64 }}>Archivo</span>
+                <button
+                  type="button"
+                  onClick={() => setShowArchivedTasks(s => !s)}
+                  title={showArchivedTasks ? "Volver a tareas activas" : "Ver tareas archivadas"}
+                  style={{ padding: "5px 11px", fontSize: 11.5, fontWeight: showArchivedTasks ? 700 : 500, cursor: "pointer", fontFamily: "inherit", borderRadius: 0, border: showArchivedTasks ? `1px solid ${GOLD}` : `1px solid ${PALETTE.border}`, background: showArchivedTasks ? GOLD_BG : PALETTE.panel, color: showArchivedTasks ? GOLD : PALETTE.textMuted }}
+                >📦 {showArchivedTasks ? "Volver a activas" : `Mostrar archivadas (${archivedCount})`}</button>
+              </div>
+            )}
           </div>
 
           {/* Contadores */}
@@ -1495,7 +1577,7 @@ export default function MantenimientoView({ authUid }) {
                     🔥 Prioritarias ({sectionedTasks.priorit.length})
                   </div>
                   {sectionedTasks.priorit.map(t => (
-                    <TaskCard key={t.id} ticket={t} taskCode={ticketCodes.get(t.id)} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
+                    <TaskCard key={t.id} ticket={t} taskCode={ticketCodes.get(t.id)} archived={isArchived(t)} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} onArchive={archiveTicket} onUnarchive={unarchiveTicket} onDelete={deleteTicket} />
                   ))}
                 </div>
               )}
@@ -1505,7 +1587,7 @@ export default function MantenimientoView({ authUid }) {
                     En curso ({sectionedTasks.enCurso.length})
                   </div>
                   {sectionedTasks.enCurso.map(t => (
-                    <TaskCard key={t.id} ticket={t} taskCode={ticketCodes.get(t.id)} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
+                    <TaskCard key={t.id} ticket={t} taskCode={ticketCodes.get(t.id)} archived={isArchived(t)} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} onArchive={archiveTicket} onUnarchive={unarchiveTicket} onDelete={deleteTicket} />
                   ))}
                 </div>
               )}
@@ -1515,7 +1597,7 @@ export default function MantenimientoView({ authUid }) {
                     Pendientes ({sectionedTasks.pend.length})
                   </div>
                   {sectionedTasks.pend.map(t => (
-                    <TaskCard key={t.id} ticket={t} taskCode={ticketCodes.get(t.id)} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
+                    <TaskCard key={t.id} ticket={t} taskCode={ticketCodes.get(t.id)} archived={isArchived(t)} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} onArchive={archiveTicket} onUnarchive={unarchiveTicket} onDelete={deleteTicket} />
                   ))}
                 </div>
               )}
@@ -1525,7 +1607,7 @@ export default function MantenimientoView({ authUid }) {
                     Resueltas ({sectionedTasks.resu.length})
                   </div>
                   {sectionedTasks.resu.map(t => (
-                    <TaskCard key={t.id} ticket={t} taskCode={ticketCodes.get(t.id)} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} />
+                    <TaskCard key={t.id} ticket={t} taskCode={ticketCodes.get(t.id)} archived={isArchived(t)} onSetStatus={setTaskNormalizedStatus} onSetPriority={setTaskPriority} onArchive={archiveTicket} onUnarchive={unarchiveTicket} onDelete={deleteTicket} />
                   ))}
                 </div>
               )}
