@@ -12385,77 +12385,6 @@ export default function TaskFlow(){
     });
   },[]);
 
-  // Registra una mejora de Bruno como tarea real de Kluxor.
-  // Busca el proyecto "Mejoras Kluxor" (code KMJ); si no existe lo crea.
-  // Devuelve { projectId, projectCode, taskTitle } para que la UI pueda
-  // mostrar feedback. Síncrono — la única async-implícita es setData,
-  // pero createProject devuelve {id,code} de forma inmediata.
-  const registerImprovementAsTask = useCallback((improvementText, ticketId, priority) => {
-    const text = String(improvementText || "").trim();
-    if (!text) return null;
-    const safePriority = ["alta","media","baja"].includes(priority) ? priority : "media";
-    // 1) Buscar proyecto KMJ existente. Lee de dataRef para evitar
-    //    cierres con data stale si se llama varias veces seguidas.
-    let proj = (dataRef.current?.projects || []).find(p => p.code === "KMJ");
-    // 2) Si no existe, crear. createProject devuelve {id, code} sync.
-    if (!proj) {
-      const res = createProject({
-        name: "Mejoras Kluxor",
-        code: "KMJ",
-        desc: "Mejoras del producto registradas por Bruno desde Mantenimiento.",
-        color: DEFAULT_PROJECT_COLOR,
-        emoji: "🏗️",
-        members: [activeMember],
-        columns: ["Por hacer","En progreso","Hecho"],
-        workspaceId: null,
-        visibility: "private",
-      });
-      proj = { id: res.id, code: res.code };
-    }
-    // 3) Título: el texto entero si cabe en TITLE_MAX; si no, corte
-    //    limpio por espacio (sin romper palabras). Descripción: SIEMPRE
-    //    el texto completo de la mejora (aunque ya esté en el título)
-    //    seguido de la línea de metadata para trazabilidad. Antes
-    //    omitíamos el texto en desc cuando cabía en el título y el CEO
-    //    veía la card "sin descripción" — fix MNT-XXX.
-    const TITLE_MAX = 200;
-    const fullText = text.trim();
-    const ticketRef = ticketId ? `#${String(ticketId).slice(0, 8)}` : "(sin id)";
-    const meta = `— Registrada por Bruno desde Mantenimiento · ticket ${ticketRef}`;
-    let title;
-    if (fullText.length <= TITLE_MAX) {
-      title = fullText;
-    } else {
-      // Buscamos último espacio en la franja [0.7·MAX, MAX] para cortar
-      // en word boundary. Si no hay espacio cercano (palabra extra larga),
-      // cortamos en MAX duro — preferible a un título de 250 chars.
-      const head = fullText.slice(0, TITLE_MAX);
-      const lastSpace = head.lastIndexOf(" ");
-      const splitAt = lastSpace > TITLE_MAX * 0.7 ? lastSpace : TITLE_MAX;
-      title = fullText.slice(0, splitAt).trim();
-    }
-    const desc = `${fullText}\n\n${meta}`;
-    addTaskToProject(proj.id, {
-      title,
-      desc,
-      priority: safePriority,
-      dueDate: null,
-      assignees: [activeMember],
-      tags: [{ l: "mejora-kluxor", c: "purple" }],
-      timeline: [{
-        id: `tl_bruno_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
-        type: "ai",
-        author: "Bruno",
-        authorId: null,
-        authorAvatar: "🏗️",
-        text: "Mejora registrada automáticamente desde el módulo Mantenimiento.",
-        timestamp: new Date().toISOString(),
-        isMilestone: false,
-      }],
-    });
-    return { projectId: proj.id, projectCode: proj.code, taskTitle: title };
-  }, [createProject, addTaskToProject, activeMember]);
-
   // Orchestrator de acciones propuestas por agentes. Se pasa como prop al
   // chat (HectorPanel, GobernanzaView, etc) y delega en agentActions.js
   // que mapea cada acción a la función de mutación adecuada.
@@ -13181,7 +13110,7 @@ export default function TaskFlow(){
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} favoriteProjectIds={data.favoriteProjectIds||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject} onArchiveProject={archiveProject} onUnarchiveProject={unarchiveProject} onToggleFavorite={toggleFavoriteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission} onSetAgentPermission={setMemberAgentPermission}/>}
-          {activeTab==="mantenimiento" && <MantenimientoView authUid={authSession?.user?.id || null} onRegisterImprovementAsTask={registerImprovementAsTask}/>}
+          {activeTab==="mantenimiento" && <MantenimientoView authUid={authSession?.user?.id || null}/>}
           {activeTab==="finance"   &&(()=>{
             const myMember = (data.members||[]).find(x=>x.id===activeMember);
             const canView = hasPermission(myMember, "finance", "view", data.permissions);

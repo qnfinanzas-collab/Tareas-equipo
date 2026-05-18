@@ -609,10 +609,10 @@ function IncidentCard({ ticket, onResolve, onReopen }) {
 
 // Helper compartido para guardar una mejora en hector_tickets y actualizar
 // el mensaje del chat con el resultado. Encapsula los 3 caminos posibles:
-// éxito (savedId + taskInfo opcional), fila sin id (error), o exception.
-// Siempre cierra el ciclo: tras esta función, improvementSaving es false
-// y o bien improvementSavedId o improvementError quedan asignados, así
-// el mensaje nunca queda en estado ambiguo en localStorage.
+// éxito (savedId), fila sin id (error), o exception. Siempre cierra el
+// ciclo: tras esta función, improvementSaving es false y o bien
+// improvementSavedId o improvementError quedan asignados, así el mensaje
+// nunca queda en estado ambiguo en localStorage.
 async function persistImprovementToMessage({ tempId, text, priority, onImprovementCreated, setHistory }) {
   try {
     const saved = await onImprovementCreated(text, priority);
@@ -624,7 +624,6 @@ async function persistImprovementToMessage({ tempId, text, priority, onImproveme
               improvementSavedId: saved.id,
               improvementSaving: false,
               improvementError: null,
-              improvementTaskInfo: saved.taskInfo || null,
             }
           : m
       ));
@@ -917,19 +916,6 @@ function BrunoBubble({ message, saving, onRetry }) {
                 gap: 6,
                 borderRadius: 0,
               }}>{label}</div>
-              {isSaved && message.improvementTaskInfo && (
-                <div style={{
-                  marginTop: 4,
-                  padding: "6px 8px",
-                  background: "#F0F7FF",
-                  border: `1px solid ${PALETTE.accent}`,
-                  fontSize: 11,
-                  color: PALETTE.accent,
-                  borderRadius: 0,
-                }}>
-                  🏗️ Tarea creada en proyecto <strong>{message.improvementTaskInfo.projectCode}</strong> — “{message.improvementTaskInfo.taskTitle}”
-                </div>
-              )}
               {showRetry && (
                 <button
                   type="button"
@@ -1130,7 +1116,7 @@ function ImprovementCard({ ticket, onSetState }) {
   );
 }
 
-export default function MantenimientoView({ authUid, onRegisterImprovementAsTask }) {
+export default function MantenimientoView({ authUid }) {
   const [tab, setTab] = useState("incident");
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1324,15 +1310,10 @@ export default function MantenimientoView({ authUid, onRegisterImprovementAsTask
     }
     if (!inserted) throw new Error("Insert sin fila devuelta (¿RLS bloquea select?)");
     setTickets(prev => [inserted, ...prev]);
-    let taskInfo = null;
-    if (typeof onRegisterImprovementAsTask === "function") {
-      try {
-        taskInfo = onRegisterImprovementAsTask(text, inserted.id, safePriority) || null;
-      } catch (e) {
-        console.warn("[Mantenimiento] registerImprovementAsTask threw:", e?.message);
-      }
-    }
-    return { ...inserted, taskInfo };
+    // La mejora vive solo en hector_tickets — la pestaña Tareas la lee
+    // de ahí. No creamos tarea Kluxor paralela en el proyecto KMJ para
+    // evitar duplicación entre los dos sistemas de gestión de tareas.
+    return inserted;
   };
 
   return (
