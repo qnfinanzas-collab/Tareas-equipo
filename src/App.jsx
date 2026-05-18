@@ -12412,20 +12412,19 @@ export default function TaskFlow(){
       });
       proj = { id: res.id, code: res.code };
     }
-    // 3) Título = el texto entero si entra en TITLE_MAX. Si no, corte
-    //    limpio por espacio (sin romper palabras) y el resto va a desc.
-    //    Antes capábamos a 120 chars y truncábamos brutalmente; ahora
-    //    no se pierde nada — el overflow se preserva en la descripción.
+    // 3) Título: el texto entero si cabe en TITLE_MAX; si no, corte
+    //    limpio por espacio (sin romper palabras). Descripción: SIEMPRE
+    //    el texto completo de la mejora (aunque ya esté en el título)
+    //    seguido de la línea de metadata para trazabilidad. Antes
+    //    omitíamos el texto en desc cuando cabía en el título y el CEO
+    //    veía la card "sin descripción" — fix MNT-XXX.
     const TITLE_MAX = 200;
     const fullText = text.trim();
     const ticketRef = ticketId ? `#${String(ticketId).slice(0, 8)}` : "(sin id)";
     const meta = `— Registrada por Bruno desde Mantenimiento · ticket ${ticketRef}`;
-    let title, desc;
+    let title;
     if (fullText.length <= TITLE_MAX) {
-      // Cabe entero en el título. Desc solo lleva la línea de metadata
-      // (sin duplicar el texto que ya está en el título).
       title = fullText;
-      desc = meta;
     } else {
       // Buscamos último espacio en la franja [0.7·MAX, MAX] para cortar
       // en word boundary. Si no hay espacio cercano (palabra extra larga),
@@ -12434,9 +12433,8 @@ export default function TaskFlow(){
       const lastSpace = head.lastIndexOf(" ");
       const splitAt = lastSpace > TITLE_MAX * 0.7 ? lastSpace : TITLE_MAX;
       title = fullText.slice(0, splitAt).trim();
-      const overflow = fullText.slice(splitAt).trim();
-      desc = overflow ? `${overflow}\n\n${meta}` : meta;
     }
+    const desc = `${fullText}\n\n${meta}`;
     addTaskToProject(proj.id, {
       title,
       desc,
