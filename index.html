@@ -107,10 +107,13 @@
       .tf-only-mobile { display: flex; }
       @media (min-width: 901px){ .tf-only-mobile { display: none !important; } }
 
-      /* Responsive: sidebar drawer en móvil */
+      /* Responsive: sidebar drawer en móvil (breakpoint bajado a 600px —
+         antes 900px, lo que ocultaba el sidebar en ventanas Mac estrechas
+         dejando al usuario sin navegación). El toggle del header sirve
+         de respaldo cuando el ancho aprieta. */
       .tf-sidebar { transition: transform .2s ease; }
       .tf-backdrop { display: none; }
-      @media (max-width: 900px){
+      @media (max-width: 600px){
         .tf-sidebar {
           position: fixed !important;
           inset: 0 auto 0 0;

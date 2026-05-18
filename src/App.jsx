@@ -12827,14 +12827,16 @@ export default function TaskFlow(){
         });
         return(
         <div className={`tf-sidebar${sidebarOpen?" open":""}`} data-sb-no-close style={{width:sidebarCollapsed?60:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column",transition:"width .18s ease"}}>
-          {/* Header: logo + brand + collapse button */}
-          <div style={{padding:sidebarCollapsed?"14px 8px":"14px 14px 12px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:sidebarCollapsed?0:10,justifyContent:sidebarCollapsed?"center":"flex-start"}}>
+          {/* Header: logo + brand + toggle siempre visible (☰/✕).
+              Cuando colapsado el header pasa a column: logo arriba, botón abajo.
+              Cuando expandido layout en row con botón pegado a la derecha. */}
+          <div style={{padding:sidebarCollapsed?"10px 6px":"14px 14px 12px",borderBottom:"0.5px solid #e5e7eb",display:"flex",flexDirection:sidebarCollapsed?"column":"row",alignItems:"center",gap:sidebarCollapsed?8:10}}>
             <div title="Kluxor" style={{width:30,height:30,background:"#7F77DD",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700,flexShrink:0}}>SB</div>
             {!sidebarCollapsed&&<>
               <span style={{fontWeight:600,fontSize:15,flex:1}}>Kluxor</span>
               <span title={syncStatus==="connected"?"Sincronizado con Supabase":syncStatus==="connecting"?"Conectando…":syncStatus==="error"?"Error de sincronización":"Solo local (sin sync)"} style={{width:8,height:8,borderRadius:"50%",background:syncStatus==="connected"?"#10b981":syncStatus==="connecting"?"#f59e0b":syncStatus==="error"?"#ef4444":"#9ca3af",flexShrink:0}}/>
-              <button onClick={toggleSidebarCollapsed} title="Colapsar sidebar (⌘\\)" style={{width:22,height:22,borderRadius:5,background:"transparent",border:"none",fontSize:12,cursor:"pointer",color:"#9CA3AF",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
             </>}
+            <button onClick={toggleSidebarCollapsed} title={sidebarCollapsed?"Abrir menú (⌘\\)":"Cerrar menú (⌘\\)"} style={{width:sidebarCollapsed?44:28,height:28,borderRadius:0,background:"transparent",border:"none",fontSize:16,cursor:"pointer",color:"#4B5563",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontFamily:"inherit",padding:0,lineHeight:1}}>{sidebarCollapsed?"☰":"✕"}</button>
           </div>
 
           {/* User dropdown */}
