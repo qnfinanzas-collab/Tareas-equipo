@@ -617,7 +617,7 @@ Reglas:
         return { role: "assistant", content };
       });
       const reply = await callAgentSafe(
-        { system: baseSystem, messages, max_tokens: 2048 },
+        { system: baseSystem, messages, max_tokens: 4096 },
         { timeoutMs: 60000 }
       );
       console.log('[BUG_SINTEXTO] reply:', JSON.stringify(reply).slice(0, 1000));
@@ -937,7 +937,7 @@ Reglas:
           const timeoutMs = isRedaccion ? 90000 : 45000;
           const userPrompt = `TAREA QUE TE ENCARGA HÉCTOR (Chief of Staff):\n${inv.task}\n\nResponde con la información concreta que pide. Sin disclaimers extensos. Frases claras y accionables.`;
           const respuesta = await callAgentSafe(
-            { system: sys, messages: [{ role: "user", content: userPrompt }], max_tokens: 2048 },
+            { system: sys, messages: [{ role: "user", content: userPrompt }], max_tokens: 4096 },
             { timeoutMs }
           );
           setChatHistory(prev => prev.map(m => m.tempId === tempId
