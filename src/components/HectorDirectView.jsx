@@ -614,6 +614,14 @@ Reglas:
         if (!stripped || stripped === "(sin texto)") {
           content = synthAssistantContent(m);
         }
+        // Capa A — marcador post-ejecución. Sin esta señal, Héctor ve su
+        // [ACTIONS] previo en replyRaw pero no sabe si el CEO lo aceptó.
+        // El addon prohíbe lenguaje confirmatorio sin [ACTIONS] en el
+        // turno actual, así que cae en propositivo futuro ("¿creo X?")
+        // sobre entidades que ya existen → banner falso positivo.
+        if (m.proposalExecuted === true) {
+          content = content + "\n\n[SISTEMA — turno anterior] Las acciones del bloque [ACTIONS] precedente fueron ACEPTADAS y EJECUTADAS por el CEO. Las entidades creadas (proyectos, tareas, negociaciones, movimientos) ya existen en la BD. Si el CEO se refiere a ellas en este turno, son entidades reales, no propuestas pendientes.";
+        }
         return { role: "assistant", content };
       });
       const reply = await callAgentSafe(
