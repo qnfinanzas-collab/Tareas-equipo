@@ -12021,9 +12021,7 @@ export default function TaskFlow(){
     }
   },[addToast, ensureCanEditDeal]);
   const deleteNegotiation = useCallback((negId)=>{
-    console.log("[delete-neg] inicio", { id: negId });
     if(!ensureCanEditDeal(negId)) return;
-    console.log("[delete-neg] post-guard, ejecutando DELETE", { id: negId });
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).filter(n=>n.id!==negId)}));
     addToast("Negociación eliminada","info");
   },[addToast, ensureCanEditDeal]);
