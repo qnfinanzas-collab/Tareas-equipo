@@ -651,7 +651,7 @@ Reglas:
       // tareas (van en proposal.actions[].tasks[].title) ni prosa libre.
       let propositiveIncident = null;
       let fabricatedRemoved = [];
-      if (proposal && proposal.summary) {
+      if (proposal && proposal.summary && proposal.confirmRequired !== false) {
         const r = rewriteToPropositive(proposal.summary);
         if (r.wasFixed) {
           console.log(`✏️ [agentActions] Resumen reescrito a propositivo: '${r.original}' → '${r.rewritten}'`);
@@ -775,7 +775,7 @@ Reglas:
       // estricta: solo si proposal.actions existe y no está vacío.
       // Prosa libre conversacional (sin actions) queda intacta — esa
       // es la frontera dura de seguridad que evita falsos positivos.
-      if (proposal && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
+      if (proposal && Array.isArray(proposal.actions) && proposal.actions.length > 0 && proposal.confirmRequired !== false) {
         const r = rewriteToPropositive(cleanText);
         if (r.wasFixed) {
           console.log(`✏️ [agentActions] Prosa reescrita (precede ActionProposal): '${r.original}' → '${r.rewritten}'`);
