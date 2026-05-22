@@ -5265,13 +5265,8 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
     return ()=>{ cancelled=true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[tasksHash]);
-  // Foco efectivo: el del LLM si lo hay y la tarea sigue activa, si no
-  // el determinista. La validación contra `active` evita que al marcar
-  // "Hecho" la tarjeta se quede colgada del llmFocus stale mientras la
-  // próxima llamada LLM async resuelve (2-10s típicos).
-  const focus = (llmFocus?.task && active.some(t=>t.id===llmFocus.task.id))
-    ? llmFocus
-    : fallbackFocus;
+  // Foco efectivo: el del LLM si lo hay, si no el determinista.
+  const focus = llmFocus || fallbackFocus;
   const focusTask = focus?.task || null;
   const focusReason = focus?.reason || "";
   const focusCountdown = (()=>{
