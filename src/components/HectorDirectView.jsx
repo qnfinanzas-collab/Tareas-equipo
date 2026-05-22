@@ -79,6 +79,18 @@ function detectCEODecision(text) {
 // mismos colores. Aquí solo aliasamos como `C` por brevedad.
 const C = CHAT_PALETTE;
 
+// Filtra el marcador interno [SISTEMA — turno anterior] que la Capa A
+// inyecta en el historial enviado al modelo. Claude lo eco a veces de
+// vuelta en su prosa, y entonces ese texto interno acaba visible en la
+// burbuja del CEO. Strip puramente visual: NO se modifica m.text ni
+// m.replyRaw en chatHistory; el mapper sigue enviando el marcador real
+// a Claude en el siguiente turno (Capa A intacta).
+const SYSTEM_MARKER_RE = /\n*\[SISTEMA[^\]]*\][\s\S]*?(?=\n\n|$)/g;
+function stripSystemMarker(text) {
+  if (!text || typeof text !== "string") return text;
+  return text.replace(SYSTEM_MARKER_RE, "").trim();
+}
+
 // Frase de apertura según hora local. Cambia 3 veces al día para
 // situar al CEO en el momento del día — no es generación con LLM.
 function getAperturaFrase() {
@@ -1089,7 +1101,7 @@ Reglas:
               ? <SpecialistBubble key={i} message={m} data={data} onRunAgentActions={onRunAgentActions}/>
               : <ChatBubble
                   key={i}
-                  message={m}
+                  message={{ ...m, text: stripSystemMarker(m.text) }}
                   userInitials={userInitials}
                   onRunAgentActions={onRunAgentActions}
                   onDiscardProposal={() => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
