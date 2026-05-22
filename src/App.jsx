@@ -5265,8 +5265,14 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
     return ()=>{ cancelled=true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[tasksHash]);
-  // Foco efectivo: el del LLM si lo hay, si no el determinista.
-  const focus = llmFocus || fallbackFocus;
+  // Foco efectivo: el del LLM si sigue activo, si no el determinista.
+  // La validación contra `active` evita que al marcar "Hecho" la prop
+  // focusTask quede colgada del llmFocus stale mientras la próxima
+  // llamada LLM async resuelve. Sin esto, HectorPanel no detecta cambio
+  // de id y la tarjeta no salta a la siguiente tarea.
+  const focus = (llmFocus?.task && active.some(t=>t.id===llmFocus.task.id))
+    ? llmFocus
+    : fallbackFocus;
   const focusTask = focus?.task || null;
   const focusReason = focus?.reason || "";
   const focusCountdown = (()=>{

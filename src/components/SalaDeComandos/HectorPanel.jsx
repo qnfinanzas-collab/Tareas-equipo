@@ -455,6 +455,30 @@ export default function HectorPanel({
   const cancelledRef = useRef(false);
   const stopListenRef = useRef(null);
   const chatScrollRef = useRef(null);
+
+  // Refresco inmediato de focoTexto cuando cambia el id de focusTask
+  // (típicamente al marcar "Hecho" sobre la tarea del foco). Sin esto,
+  // focoTexto queda colgado del thought del análisis anterior y la
+  // tarjeta sigue mostrando el texto de la tarea completada hasta el
+  // próximo generateHectorThought (manual o tras reload). Usamos el
+  // title como placeholder inmediato; el siguiente análisis lo enriquece
+  // con la síntesis AI. Respetamos focoLocked para no pisar al CEO.
+  const prevFocusIdRef = useRef(focusTask?.id);
+  useEffect(() => {
+    const prev = prevFocusIdRef.current;
+    const curr = focusTask?.id;
+    prevFocusIdRef.current = curr;
+    if (prev == null || prev === curr) return;
+    if (focoLocked) return;
+    if (curr && focusTask?.title) {
+      setFocoTexto(focusTask.title);
+      setFocoSource("hector");
+    } else {
+      setFocoTexto("");
+      setFocoSource("hector");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTask?.id, focoLocked]);
   // Botón flotante "↓ Ir al final" — aparece cuando el CEO ha hecho scroll
   // arriba en una conversación larga y desaparece cerca del fondo. Sin
   // tocar lógica del chat, solo presentación.
