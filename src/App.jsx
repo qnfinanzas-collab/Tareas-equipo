@@ -12816,6 +12816,7 @@ export default function TaskFlow(){
           {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:false, requiresPermission:"briefings"},
           {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:false, requiresPermission:"memory"},
           {id:"gobernanza", icon:"🏛️", label:"Gobernanza",   shortcut:"⌘⇧G", onClick:()=>{setActiveTab("gobernanza");}, adminOnly:false, requiresPermission:"gobernanza"},
+          {id:"planner",    icon:"⚡", label:"Planificador IA", shortcut:"", onClick:()=>{setActiveTab("planner");}, adminOnly:true},
           {id:"vault",      icon:"🔐", label:"Vault Personal", shortcut:"⌘⇧V", onClick:()=>{setActiveTab("vault");}, adminOnly:true},
           {id:"users",      icon:"👥", label:"Usuarios",     shortcut:"⌘⇧U", onClick:()=>{setActiveTab("users");}, adminOnly:true},
           {id:"mantenimiento", icon:"🛠️", label:"Mantenimiento", shortcut:"", onClick:()=>{setActiveTab("mantenimiento");}, adminOnly:true},
