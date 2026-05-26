@@ -13006,7 +13006,7 @@ export default function TaskFlow(){
             <button onClick={()=>{setSidebarOpen(true);setUserMenuOpen(o=>!o);}} title={me?.name||"Usuario"} style={{width:34,height:34,borderRadius:"50%",background:mp.solid,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{me?.initials}</button>
           );})()}
         </div>
-        {activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="briefings"&&(
+        {activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="midia"&&activeTab!=="briefings"&&(
           <div data-tf-bar="project-header" style={{background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px",height:52,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
@@ -13026,7 +13026,7 @@ export default function TaskFlow(){
             </div>
           </div>
         )}
-        {activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="briefings"&&(
+        {activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="midia"&&activeTab!=="briefings"&&(
           <div data-tf-bar="project-tabs" style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",background:"#fff",padding:"0 20px",flexShrink:0,overflowX:"auto"}}>
             {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #7F77DD":"2px solid transparent",color:activeTab===tab.key?"#7F77DD":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
           </div>
