@@ -26,6 +26,7 @@ import CierreDia from "./components/CierreDia.jsx";
 import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import HectorDirectView from "./components/HectorDirectView.jsx";
+import MiDiaView from "./components/MiDiaView.jsx";
 import MantenimientoView from "./components/MantenimientoView.jsx";
 import { CHAT_PALETTE } from "./components/Shared/ChatBubble.jsx";
 import AgentAvatar from "./components/Shared/AgentAvatar.jsx";
@@ -12806,6 +12807,7 @@ export default function TaskFlow(){
         const ALL_PRIMARY=[
           {id:"hector-direct", icon:"🧙", label:"Héctor",       shortcut:"",    onClick:()=>{setActiveTab("hector-direct");}, adminOnly:false},
           {id:"command",    icon:"🎯", label:"Sala de Mando",shortcut:"",    onClick:()=>{setActiveTab("command");}, adminOnly:false},
+          {id:"midia",      icon:"📅", label:"Mi Día",       shortcut:"",    onClick:()=>{setActiveTab("midia");}, adminOnly:false},
           {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}, adminOnly:false},
           {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:false},
           {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false},
@@ -13033,6 +13035,7 @@ export default function TaskFlow(){
         <div style={{flex:1,overflow:"auto"}}>
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onToast={addToast} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)} onUnarchiveTask={unarchiveTaskAnywhere}/>}
+          {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)}/>}
           {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
           {activeTab==="memory"    &&<MemoryPanel ceoMemory={data.ceoMemory} onAddCeo={addCeoMemoryItems} onRemoveCeo={removeCeoMemoryItem} onAddNeg={addNegMemoryItems} onRemoveNeg={removeNegMemoryItem}/>}
           {activeTab==="dealroom"&&(()=>{
