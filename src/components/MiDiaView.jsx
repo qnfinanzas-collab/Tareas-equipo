@@ -71,6 +71,35 @@ function btnStyle(color, primary = false) {
   };
 }
 
+const fieldLabelStyle = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  fontSize: 10,
+  fontWeight: 600,
+  color: C.textSecondary,
+  letterSpacing: "0.05em",
+  textTransform: "uppercase",
+};
+
+const fieldInputStyle = {
+  background: "#fff",
+  border: `0.5px solid ${C.border}`,
+  borderRadius: 0,
+  padding: "6px 8px",
+  fontSize: 12,
+  color: C.textPrimary,
+  fontFamily: "inherit",
+  outline: "none",
+};
+
+// Opciones de estado disponibles en el editor inline. El mapping a colId
+// real se hace por nombre dentro del board del proyecto de cada tarea.
+// Si el proyecto no tiene una columna con ese nombre exacto, el cambio
+// se ignora silenciosamente — el resto de campos (fecha/hora/duración)
+// se actualizan igual.
+const STATUS_OPTIONS = ["Por hacer", "En progreso", "Hecho"];
+
 export default function MiDiaView({
   data,
   activeMember,
@@ -79,10 +108,44 @@ export default function MiDiaView({
   onArchiveTask,
   onDeleteTask,
   onUpdateTask,
+  onMoveTask,
 }) {
   const [tab, setTab] = useState("hoy");
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
-  const [editDurId, setEditDurId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState(null);
+
+  const openEdit = (t) => {
+    setEditingId(t.id);
+    setEditDraft({
+      dueDate: t.dueDate || "",
+      dueTime: t.dueTime || "",
+      duration_minutes: Number(t.duration_minutes) || 60,
+      colName: t.colName || "Por hacer",
+    });
+    setPendingDeleteId(null);
+  };
+  const closeEdit = () => { setEditingId(null); setEditDraft(null); };
+  const saveEdit = (t) => {
+    if (!editDraft) { closeEdit(); return; }
+    const fieldUpdates = {};
+    if (editDraft.dueDate !== (t.dueDate || ""))                              fieldUpdates.dueDate = editDraft.dueDate;
+    if (editDraft.dueTime !== (t.dueTime || ""))                              fieldUpdates.dueTime = editDraft.dueTime;
+    if (Number(editDraft.duration_minutes) !== (Number(t.duration_minutes) || 60)) {
+      fieldUpdates.duration_minutes = Number(editDraft.duration_minutes);
+    }
+    if (Object.keys(fieldUpdates).length > 0) onUpdateTask?.(t.id, fieldUpdates);
+    if (editDraft.colName && editDraft.colName !== t.colName && onMoveTask) {
+      const projCols = data?.boards?.[t.projId] || [];
+      const target = projCols.find(c => c?.name === editDraft.colName);
+      if (target && target.id !== t.colId) {
+        onMoveTask(t.id, t.colId, target.id);
+      } else if (!target) {
+        console.warn(`[MiDiaView] proyecto ${t.projCode || t.projId} no tiene columna "${editDraft.colName}", estado no movido`);
+      }
+    }
+    closeEdit();
+  };
 
   // Aplanar tareas vivas asignadas al usuario activo.
   const myTasks = useMemo(() => {
@@ -133,7 +196,13 @@ export default function MiDiaView({
     const endT = hideTime ? "" : endTime(t.dueTime, dur);
     const pri = PRI_COLORS[t.priority] || PRI_COLORS.media;
     const isPendingDel = pendingDeleteId === t.id;
-    const isEditDur = editDurId === t.id;
+    const isEditing = editingId === t.id;
+
+    // Opciones de estado para el select: las 3 estándar + la actual si
+    // el proyecto tiene una columna fuera de ese set (ej. "Revision").
+    const statusOptions = STATUS_OPTIONS.includes(t.colName || "")
+      ? STATUS_OPTIONS
+      : [...new Set([t.colName || "Por hacer", ...STATUS_OPTIONS])];
 
     return (
       <div style={{
@@ -168,37 +237,9 @@ export default function MiDiaView({
             {!hideTime && (
               <div style={{
                 fontSize: 11, color: C.textSecondary, marginTop: 4,
-                fontVariantNumeric: "tabular-nums", display: "flex",
-                alignItems: "center", gap: 6, flexWrap: "wrap",
+                fontVariantNumeric: "tabular-nums",
               }}>
-                <span>{t.dueTime} – {endT}</span>
-                {onUpdateTask && (
-                  <button
-                    onClick={() => setEditDurId(isEditDur ? null : t.id)}
-                    style={{
-                      background: "transparent", border: `0.5px solid ${C.border}`,
-                      padding: "1px 6px", fontSize: 10, cursor: "pointer",
-                      color: C.textSecondary, fontFamily: "inherit", borderRadius: 0,
-                    }}
-                  >{dur}m</button>
-                )}
-              </div>
-            )}
-            {isEditDur && onUpdateTask && (
-              <div style={{ marginTop: 6, display: "flex", gap: 4, flexWrap: "wrap" }}>
-                {DUR_OPTIONS.map(m => (
-                  <button
-                    key={m}
-                    onClick={() => { onUpdateTask(t.id, { duration_minutes: m }); setEditDurId(null); }}
-                    style={{
-                      padding: "3px 8px", fontSize: 10,
-                      background: dur === m ? C.gold : "transparent",
-                      color: dur === m ? "#fff" : C.textSecondary,
-                      border: `0.5px solid ${dur === m ? C.gold : C.border}`,
-                      cursor: "pointer", fontFamily: "inherit", borderRadius: 0,
-                    }}
-                  >{m}m</button>
-                ))}
+                {t.dueTime} – {endT} <span style={{ color: C.textTertiary }}>· {dur}m</span>
               </div>
             )}
           </div>
@@ -209,15 +250,66 @@ export default function MiDiaView({
           }}>{t.priority || "media"}</span>
         </div>
 
-        {!isPendingDel ? (
+        {isEditing ? (
+          <div style={{
+            background: C.borderSoft, padding: 10, marginTop: 4,
+            borderTop: `0.5px solid ${C.border}`,
+            display: "flex", flexDirection: "column", gap: 10,
+          }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <label style={fieldLabelStyle}>
+                <span>Fecha</span>
+                <input
+                  type="date"
+                  value={editDraft?.dueDate || ""}
+                  onChange={e => setEditDraft(d => ({ ...d, dueDate: e.target.value }))}
+                  style={fieldInputStyle}
+                />
+              </label>
+              <label style={fieldLabelStyle}>
+                <span>Hora inicio</span>
+                <input
+                  type="time"
+                  value={editDraft?.dueTime || ""}
+                  onChange={e => setEditDraft(d => ({ ...d, dueTime: e.target.value }))}
+                  style={fieldInputStyle}
+                />
+              </label>
+              <label style={fieldLabelStyle}>
+                <span>Duración</span>
+                <select
+                  value={editDraft?.duration_minutes || 60}
+                  onChange={e => setEditDraft(d => ({ ...d, duration_minutes: Number(e.target.value) }))}
+                  style={fieldInputStyle}
+                >
+                  {DUR_OPTIONS.map(m => <option key={m} value={m}>{m} min</option>)}
+                </select>
+              </label>
+              <label style={fieldLabelStyle}>
+                <span>Estado</span>
+                <select
+                  value={editDraft?.colName || "Por hacer"}
+                  onChange={e => setEditDraft(d => ({ ...d, colName: e.target.value }))}
+                  style={fieldInputStyle}
+                >
+                  {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </label>
+            </div>
+            <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+              <button onClick={closeEdit}            style={btnStyle()}>Cancelar</button>
+              <button onClick={() => saveEdit(t)}    style={btnStyle(C.gold, true)}>Guardar</button>
+            </div>
+          </div>
+        ) : !isPendingDel ? (
           <div style={{
             display: "flex", gap: 6, flexWrap: "wrap",
             paddingTop: 6, borderTop: `0.5px solid ${C.borderSoft}`,
           }}>
-            {onOpenTask     && <button onClick={() => onOpenTask(t.id)}                                style={btnStyle()}>✏ Editar</button>}
+            {onUpdateTask   && <button onClick={() => openEdit(t)}                                    style={btnStyle()}>✏ Editar</button>}
             {onCompleteTask && <button onClick={() => onCompleteTask(t.id, t.projId, t.colId)}        style={btnStyle("#0E7C5A")}>✓ Hecho</button>}
             {onArchiveTask  && <button onClick={() => onArchiveTask(t.id)}                            style={btnStyle()}>🗂 Archivar</button>}
-            {onDeleteTask   && <button onClick={() => setPendingDeleteId(t.id)}                        style={btnStyle(C.red)}>🗑 Eliminar</button>}
+            {onDeleteTask   && <button onClick={() => setPendingDeleteId(t.id)}                       style={btnStyle(C.red)}>🗑 Eliminar</button>}
           </div>
         ) : (
           <div style={{

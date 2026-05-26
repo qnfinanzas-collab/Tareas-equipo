@@ -13035,7 +13035,7 @@ export default function TaskFlow(){
         <div style={{flex:1,overflow:"auto"}}>
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onToast={addToast} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)} onUnarchiveTask={unarchiveTaskAnywhere}/>}
-          {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)}/>}
+          {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)} onMoveTask={moveTaskAnywhere}/>}
           {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
           {activeTab==="memory"    &&<MemoryPanel ceoMemory={data.ceoMemory} onAddCeo={addCeoMemoryItems} onRemoveCeo={removeCeoMemoryItem} onAddNeg={addNegMemoryItems} onRemoveNeg={removeNegMemoryItem}/>}
           {activeTab==="dealroom"&&(()=>{
