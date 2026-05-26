@@ -112,6 +112,7 @@ export default function MiDiaView({
 }) {
   const [tab, setTab] = useState("hoy");
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
+  const [pendingArchiveId, setPendingArchiveId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
 
@@ -124,6 +125,7 @@ export default function MiDiaView({
       colName: t.colName || "Por hacer",
     });
     setPendingDeleteId(null);
+    setPendingArchiveId(null);
   };
   const closeEdit = () => { setEditingId(null); setEditDraft(null); };
   const saveEdit = (t) => {
@@ -196,6 +198,7 @@ export default function MiDiaView({
     const endT = hideTime ? "" : endTime(t.dueTime, dur);
     const pri = PRI_COLORS[t.priority] || PRI_COLORS.media;
     const isPendingDel = pendingDeleteId === t.id;
+    const isPendingArch = pendingArchiveId === t.id;
     const isEditing = editingId === t.id;
 
     // Opciones de estado para el select: las 3 estándar + la actual si
@@ -296,34 +299,53 @@ export default function MiDiaView({
                 </select>
               </label>
             </div>
-            <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-              <button onClick={closeEdit}            style={btnStyle()}>Cancelar</button>
-              <button onClick={() => saveEdit(t)}    style={btnStyle(C.gold, true)}>Guardar</button>
+            <div style={{ display: "flex", gap: 6, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
+              {onOpenTask
+                ? <button onClick={() => { closeEdit(); onOpenTask(t.id); }} style={btnStyle()}>↗ Ver tarea completa</button>
+                : <span/>}
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={closeEdit}            style={btnStyle()}>Cancelar</button>
+                <button onClick={() => saveEdit(t)}    style={btnStyle(C.gold, true)}>Guardar</button>
+              </div>
             </div>
           </div>
-        ) : !isPendingDel ? (
+        ) : isPendingDel ? (
+          <div style={{
+            display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap",
+            background: C.redBg, padding: 8, borderTop: `0.5px solid ${C.red}`,
+          }}>
+            <span style={{ fontSize: 11, color: C.red, flex: 1, minWidth: 0 }}>
+              ¿Eliminar esta tarea? Esta acción no se puede deshacer.
+            </span>
+            <button
+              onClick={() => { onDeleteTask?.(t.id); setPendingDeleteId(null); }}
+              style={btnStyle(C.red, true)}
+            >Eliminar</button>
+            <button onClick={() => setPendingDeleteId(null)} style={btnStyle()}>Cancelar</button>
+          </div>
+        ) : isPendingArch ? (
+          <div style={{
+            display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap",
+            background: C.borderSoft, padding: 8, borderTop: `0.5px solid ${C.border}`,
+          }}>
+            <span style={{ fontSize: 11, color: C.textSecondary, flex: 1, minWidth: 0 }}>
+              ¿Archivar esta tarea? Podrás restaurarla desde Mis Tareas.
+            </span>
+            <button
+              onClick={() => { onArchiveTask?.(t.id); setPendingArchiveId(null); }}
+              style={btnStyle(C.gold, true)}
+            >Archivar</button>
+            <button onClick={() => setPendingArchiveId(null)} style={btnStyle()}>Cancelar</button>
+          </div>
+        ) : (
           <div style={{
             display: "flex", gap: 6, flexWrap: "wrap",
             paddingTop: 6, borderTop: `0.5px solid ${C.borderSoft}`,
           }}>
             {onUpdateTask   && <button onClick={() => openEdit(t)}                                    style={btnStyle()}>✏ Editar</button>}
             {onCompleteTask && <button onClick={() => onCompleteTask(t.id, t.projId, t.colId)}        style={btnStyle("#0E7C5A")}>✓ Hecho</button>}
-            {onArchiveTask  && <button onClick={() => onArchiveTask(t.id)}                            style={btnStyle()}>🗂 Archivar</button>}
+            {onArchiveTask  && <button onClick={() => setPendingArchiveId(t.id)}                      style={btnStyle()}>🗂 Archivar</button>}
             {onDeleteTask   && <button onClick={() => setPendingDeleteId(t.id)}                       style={btnStyle(C.red)}>🗑 Eliminar</button>}
-          </div>
-        ) : (
-          <div style={{
-            display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap",
-            background: C.redBg, padding: 8, borderTop: `0.5px solid ${C.red}`,
-          }}>
-            <span style={{ fontSize: 11, color: C.red, flex: 1, minWidth: 0 }}>
-              ¿Eliminar "{(t.title || "").slice(0, 50)}{(t.title || "").length > 50 ? "…" : ""}"?
-            </span>
-            <button
-              onClick={() => { onDeleteTask?.(t.id); setPendingDeleteId(null); }}
-              style={btnStyle(C.red, true)}
-            >Sí, eliminar</button>
-            <button onClick={() => setPendingDeleteId(null)} style={btnStyle()}>Cancelar</button>
           </div>
         )}
       </div>
