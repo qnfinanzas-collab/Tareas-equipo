@@ -221,7 +221,7 @@ export default function MiDiaView({
   const [editDraft, setEditDraft] = useState(null);
   const [createHour, setCreateHour] = useState(null);
   const [createDraft, setCreateDraft] = useState(null);
-  const [overdueCollapsed, setOverdueCollapsed] = useState(false);
+  const [overdueCollapsed, setOverdueCollapsed] = useState(true);
 
   const availableProjects = useMemo(
     () => (data?.projects || []).filter(p => p && !p.archived),
@@ -650,7 +650,31 @@ export default function MiDiaView({
       fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
     }}>
       <div style={{ maxWidth: 880, margin: "0 auto" }}>
-        <h1 style={{ fontSize: 22, fontWeight: 600, color: C.textPrimary, margin: "0 0 4px" }}>Mi Día</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, justifyContent: "space-between", margin: "0 0 4px", flexWrap: "wrap" }}>
+          <h1 style={{ fontSize: 22, fontWeight: 600, color: C.textPrimary, margin: 0 }}>
+            Mi Día
+            <span style={{ color: C.textSecondary, fontWeight: 400, fontSize: 16, marginLeft: 8 }}>
+              — {weekdayLabel(new Date())} {dayMonthLabel(new Date())}
+            </span>
+          </h1>
+          {overdueTasks.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setOverdueCollapsed(c => !c)}
+              title={overdueCollapsed ? "Mostrar tareas atrasadas" : "Ocultar tareas atrasadas"}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "5px 10px", background: "#FDF5F5",
+                border: `0.5px solid ${C.red}55`, borderRadius: 0,
+                color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                fontFamily: "inherit", letterSpacing: "0.02em",
+              }}
+            >
+              <span>⚠ {overdueTasks.length} atrasada{overdueTasks.length === 1 ? "" : "s"}</span>
+              <span style={{ fontSize: 10, opacity: 0.7 }}>{overdueCollapsed ? "▾" : "▴"}</span>
+            </button>
+          )}
+        </div>
         <p style={{ fontSize: 13, color: C.textSecondary, margin: "0 0 18px" }}>
           Agenda de tus tareas asignadas, organizada por horas.
         </p>
@@ -680,30 +704,25 @@ export default function MiDiaView({
           ))}
         </div>
 
-        {/* Días anteriores — tareas vencidas no completadas que el CEO
-            arrastra. Visible en cualquier tab porque las vencidas no
-            dependen del día filtrado. Colapsable para no ocupar espacio
-            cuando el CEO quiere centrarse en hoy/mañana. */}
-        {overdueTasks.length > 0 && (
-          <div style={{ marginBottom: 20, border: `1px solid ${C.border}`, background: C.surface }}>
-            <button
-              type="button"
-              onClick={() => setOverdueCollapsed(c => !c)}
-              style={{
-                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "10px 14px", background: "#FDF5F5", border: "none", borderBottom: overdueCollapsed ? "none" : `0.5px solid ${C.border}`,
-                color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                fontFamily: "inherit", borderRadius: 0, letterSpacing: "0.02em",
-              }}
-            >
-              <span>⚠ Días anteriores · {overdueTasks.length} tarea{overdueTasks.length === 1 ? "" : "s"}</span>
-              <span style={{ fontSize: 11 }}>{overdueCollapsed ? "▾" : "▴"}</span>
-            </button>
-            {!overdueCollapsed && (
-              <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                {overdueTasks.map(t => <TaskCard key={t.id} t={t} hideTime={!t.dueTime} />)}
-              </div>
-            )}
+        {/* Días anteriores — listado expandido. Por defecto colapsado;
+            se despliega con el badge "⚠ N atrasadas" del header. Visible
+            en cualquier tab porque las vencidas no dependen del día. */}
+        {overdueTasks.length > 0 && !overdueCollapsed && (
+          <div style={{
+            marginBottom: 20,
+            border: `1px solid ${C.border}`,
+            background: C.surface,
+            padding: 12,
+            display: "flex", flexDirection: "column", gap: 8,
+          }}>
+            <div style={{
+              fontSize: 11, fontWeight: 600, color: C.red,
+              letterSpacing: "0.08em", textTransform: "uppercase",
+              paddingBottom: 6, borderBottom: `0.5px solid ${C.border}`,
+            }}>
+              ⚠ Días anteriores · {overdueTasks.length} tarea{overdueTasks.length === 1 ? "" : "s"}
+            </div>
+            {overdueTasks.map(t => <TaskCard key={t.id} t={t} hideTime={!t.dueTime} />)}
           </div>
         )}
 
