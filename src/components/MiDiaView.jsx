@@ -93,12 +93,115 @@ const fieldInputStyle = {
   outline: "none",
 };
 
+// Formulario inline de creación. Vive dentro de una franja horaria del
+// agenda — la hora inicio llega pre-rellenada por el caller. Valida
+// solo título no vacío; el resto tiene defaults razonables (60m, alta,
+// proyecto = primero disponible si "Personal / Sin proyecto"). Submit
+// dispara onSubmit(); el caller llama a onCreateTask y cierra.
+function CreateForm({ draft, setDraft, availableProjects, onSubmit, onCancel }) {
+  if (!draft) return null;
+  const canSubmit = (draft.title || "").trim().length > 0 && availableProjects.length > 0;
+  return (
+    <div style={{
+      background: C.borderSoft, padding: 12, border: `0.5px solid ${C.border}`,
+      borderLeft: `3px solid ${C.gold}`,
+      display: "flex", flexDirection: "column", gap: 10,
+    }}>
+      <label style={fieldLabelStyle}>
+        <span>Título</span>
+        <input
+          type="text"
+          autoFocus
+          value={draft.title}
+          onChange={e => setDraft(d => ({ ...d, title: e.target.value }))}
+          onKeyDown={e => { if (e.key === "Enter" && canSubmit) { e.preventDefault(); onSubmit(); } if (e.key === "Escape") onCancel(); }}
+          placeholder="¿Qué hay que hacer?"
+          style={{ ...fieldInputStyle, fontSize: 13 }}
+        />
+      </label>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <label style={fieldLabelStyle}>
+          <span>Hora inicio</span>
+          <input
+            type="time"
+            value={draft.dueTime}
+            onChange={e => setDraft(d => ({ ...d, dueTime: e.target.value }))}
+            style={fieldInputStyle}
+          />
+        </label>
+        <label style={fieldLabelStyle}>
+          <span>Duración</span>
+          <select
+            value={draft.duration_minutes}
+            onChange={e => setDraft(d => ({ ...d, duration_minutes: Number(e.target.value) }))}
+            style={fieldInputStyle}
+          >
+            {DUR_OPTIONS.map(m => <option key={m} value={m}>{m} min</option>)}
+          </select>
+        </label>
+        <label style={fieldLabelStyle}>
+          <span>Prioridad</span>
+          <select
+            value={draft.priority}
+            onChange={e => setDraft(d => ({ ...d, priority: e.target.value }))}
+            style={fieldInputStyle}
+          >
+            <option value="alta">Alta</option>
+            <option value="media">Media</option>
+            <option value="baja">Baja</option>
+          </select>
+        </label>
+        <label style={fieldLabelStyle}>
+          <span>Proyecto</span>
+          <select
+            value={draft.projId}
+            onChange={e => setDraft(d => ({ ...d, projId: e.target.value }))}
+            style={fieldInputStyle}
+          >
+            <option value="">🪪 Personal / Sin proyecto</option>
+            {availableProjects.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.emoji || "📋"} {p.name}{p.code ? ` [${p.code}]` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+        <button onClick={onCancel} style={btnStyle()}>Cancelar</button>
+        <button
+          onClick={onSubmit}
+          disabled={!canSubmit}
+          style={{
+            ...btnStyle(C.gold, true),
+            opacity: canSubmit ? 1 : 0.5,
+            cursor: canSubmit ? "pointer" : "not-allowed",
+          }}
+        >Crear</button>
+      </div>
+    </div>
+  );
+}
+
 // Opciones de estado disponibles en el editor inline. El mapping a colId
 // real se hace por nombre dentro del board del proyecto de cada tarea.
 // Si el proyecto no tiene una columna con ese nombre exacto, el cambio
 // se ignora silenciosamente — el resto de campos (fecha/hora/duración)
 // se actualizan igual.
 const STATUS_OPTIONS = ["Por hacer", "En progreso", "Hecho"];
+
+// Selección del proyecto destino cuando el CEO elige "Personal / Sin
+// proyecto". Buscamos uno con nombre o code que empiece por "personal"
+// / "per" / "prs"; si no existe, caemos al primero no archivado. Si la
+// lista está vacía, el submit aborta con warn — sin proyecto no hay
+// dónde guardar la tarea (no existen tasks huérfanas en este schema).
+function findPersonalProject(projects) {
+  if (!Array.isArray(projects) || projects.length === 0) return null;
+  return projects.find(p => /^personal/i.test(p?.name || "")
+                          || /^(per|prs)$/i.test(p?.code || ""))
+       || projects[0]
+       || null;
+}
 
 export default function MiDiaView({
   data,
@@ -109,12 +212,60 @@ export default function MiDiaView({
   onDeleteTask,
   onUpdateTask,
   onMoveTask,
+  onCreateTask,
 }) {
   const [tab, setTab] = useState("hoy");
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
   const [pendingArchiveId, setPendingArchiveId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editDraft, setEditDraft] = useState(null);
+  const [createHour, setCreateHour] = useState(null);
+  const [createDraft, setCreateDraft] = useState(null);
+  const [overdueCollapsed, setOverdueCollapsed] = useState(false);
+
+  const availableProjects = useMemo(
+    () => (data?.projects || []).filter(p => p && !p.archived),
+    [data]
+  );
+
+  const openCreate = (h) => {
+    setCreateHour(h);
+    setCreateDraft({
+      title: "",
+      dueTime: `${String(h).padStart(2, "0")}:00`,
+      duration_minutes: 60,
+      priority: "alta",
+      projId: "",
+    });
+    setEditingId(null);
+    setEditDraft(null);
+    setPendingDeleteId(null);
+    setPendingArchiveId(null);
+  };
+  const closeCreate = () => { setCreateHour(null); setCreateDraft(null); };
+  const submitCreate = () => {
+    if (!createDraft || !createDraft.title.trim() || !onCreateTask) { closeCreate(); return; }
+    let targetProjId = createDraft.projId ? Number(createDraft.projId) : null;
+    if (!targetProjId) {
+      const def = findPersonalProject(availableProjects);
+      if (!def) {
+        console.warn("[MiDiaView] No hay proyecto disponible para crear la tarea");
+        closeCreate();
+        return;
+      }
+      targetProjId = def.id;
+    }
+    const dueDate = tab === "manana" ? tomorrowISO() : todayISO();
+    onCreateTask(targetProjId, {
+      title: createDraft.title.trim(),
+      priority: createDraft.priority,
+      dueDate,
+      dueTime: createDraft.dueTime,
+      duration_minutes: Number(createDraft.duration_minutes) || 60,
+      assignees: [activeMember],
+    });
+    closeCreate();
+  };
 
   const openEdit = (t) => {
     setEditingId(t.id);
@@ -126,6 +277,8 @@ export default function MiDiaView({
     });
     setPendingDeleteId(null);
     setPendingArchiveId(null);
+    setCreateHour(null);
+    setCreateDraft(null);
   };
   const closeEdit = () => { setEditingId(null); setEditDraft(null); };
   const saveEdit = (t) => {
@@ -192,6 +345,20 @@ export default function MiDiaView({
       return false;
     });
   }, [myTasks, tab]);
+
+  // Días anteriores — tareas con dueDate previa a hoy que el CEO arrastra
+  // sin completar. myTasks ya filtra archived + columna "Hecho" + assignee,
+  // así que basta comparar ISO YYYY-MM-DD lexicográficamente.
+  const overdueTasks = useMemo(() => {
+    const today = todayISO();
+    return myTasks
+      .filter(t => t.dueDate && t.dueDate < today)
+      .sort((a, b) => {
+        const dateCmp = (a.dueDate || "").localeCompare(b.dueDate || "");
+        if (dateCmp !== 0) return dateCmp;
+        return (a.dueTime || "99:99").localeCompare(b.dueTime || "99:99");
+      });
+  }, [myTasks]);
 
   const TaskCard = ({ t, hideTime = false }) => {
     const dur = Number(t.duration_minutes) || 60;
@@ -366,34 +533,62 @@ export default function MiDiaView({
       byHour[bucket].push(t);
     });
 
-    if (withTime.length === 0 && withoutTime.length === 0) {
-      return (
-        <div style={{ padding: "60px 20px", textAlign: "center", color: C.textTertiary, fontSize: 13 }}>
-          Sin tareas asignadas para {dayLabel}.
-        </div>
-      );
-    }
+    const empty = withTime.length === 0 && withoutTime.length === 0;
 
     return (
       <>
+        {empty && (
+          <div style={{
+            padding: "16px 20px", textAlign: "center", color: C.textTertiary,
+            fontSize: 12, background: C.borderSoft, border: `0.5px solid ${C.border}`,
+            marginBottom: 12,
+          }}>
+            Sin tareas asignadas para {dayLabel}. Pulsa cualquier franja horaria para añadir una.
+          </div>
+        )}
         <div>
-          {HOURS_AGENDA.map(h => (
-            <div key={h} style={{
-              display: "flex", alignItems: "flex-start",
-              borderTop: `0.5px solid ${C.border}`,
-              padding: "8px 0", minHeight: 48,
-            }}>
-              <div style={{
-                width: 56, paddingTop: 4, fontSize: 11,
-                color: C.textSecondary, fontVariantNumeric: "tabular-nums",
-              }}>{String(h).padStart(2, "0")}:00</div>
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-                {byHour[h].length === 0
-                  ? <div style={{ height: 32 }} />
-                  : byHour[h].map(t => <TaskCard key={t.id} t={t} />)}
+          {HOURS_AGENDA.map(h => {
+            const isCreateHere = createHour === h;
+            const slotTasks = byHour[h];
+            return (
+              <div key={h} style={{
+                display: "flex", alignItems: "flex-start",
+                borderTop: `0.5px solid ${C.border}`,
+                padding: "8px 0", minHeight: 48,
+              }}>
+                <div style={{
+                  width: 56, paddingTop: 4, fontSize: 11,
+                  color: C.textSecondary, fontVariantNumeric: "tabular-nums",
+                }}>{String(h).padStart(2, "0")}:00</div>
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {slotTasks.map(t => <TaskCard key={t.id} t={t} />)}
+                  {isCreateHere
+                    ? <CreateForm
+                        draft={createDraft}
+                        setDraft={setCreateDraft}
+                        availableProjects={availableProjects}
+                        onSubmit={submitCreate}
+                        onCancel={closeCreate}
+                      />
+                    : (slotTasks.length === 0 && onCreateTask && (
+                        <button
+                          type="button"
+                          onClick={() => openCreate(h)}
+                          style={{
+                            height: 32, background: "transparent",
+                            border: `0.5px dashed ${C.border}`, borderRadius: 0,
+                            color: C.textTertiary, fontSize: 11, cursor: "pointer",
+                            fontFamily: "inherit", textAlign: "left",
+                            padding: "0 10px",
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.background = C.borderSoft; e.currentTarget.style.color = C.textSecondary; }}
+                          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.textTertiary; }}
+                        >+ Añadir tarea a las {String(h).padStart(2, "0")}:00</button>
+                      ))}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         {withoutTime.length > 0 && (
           <div style={{ marginTop: 28 }}>
@@ -484,6 +679,33 @@ export default function MiDiaView({
             >{opt.label}</button>
           ))}
         </div>
+
+        {/* Días anteriores — tareas vencidas no completadas que el CEO
+            arrastra. Visible en cualquier tab porque las vencidas no
+            dependen del día filtrado. Colapsable para no ocupar espacio
+            cuando el CEO quiere centrarse en hoy/mañana. */}
+        {overdueTasks.length > 0 && (
+          <div style={{ marginBottom: 20, border: `1px solid ${C.border}`, background: C.surface }}>
+            <button
+              type="button"
+              onClick={() => setOverdueCollapsed(c => !c)}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "10px 14px", background: "#FDF5F5", border: "none", borderBottom: overdueCollapsed ? "none" : `0.5px solid ${C.border}`,
+                color: C.red, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                fontFamily: "inherit", borderRadius: 0, letterSpacing: "0.02em",
+              }}
+            >
+              <span>⚠ Días anteriores · {overdueTasks.length} tarea{overdueTasks.length === 1 ? "" : "s"}</span>
+              <span style={{ fontSize: 11 }}>{overdueCollapsed ? "▾" : "▴"}</span>
+            </button>
+            {!overdueCollapsed && (
+              <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                {overdueTasks.map(t => <TaskCard key={t.id} t={t} hideTime={!t.dueTime} />)}
+              </div>
+            )}
+          </div>
+        )}
 
         {tab === "hoy"    && renderAgendaDay("hoy")}
         {tab === "manana" && renderAgendaDay("mañana")}
