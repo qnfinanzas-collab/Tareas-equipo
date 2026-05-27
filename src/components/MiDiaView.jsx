@@ -281,6 +281,26 @@ export default function MiDiaView({
     setCreateDraft(null);
   };
   const closeEdit = () => { setEditingId(null); setEditDraft(null); };
+
+  // Lookup de la tarea original (sin metadata de proyecto que añade el
+  // flatten). Necesario porque updateTaskAnywhere REEMPLAZA la tarea con
+  // el objeto recibido (no merge) — pasarle solo el diff destrozaba
+  // assignees/tags/comments/timeline/subtasks y crasheaba con forEach
+  // sobre undefined en código downstream. Mismo patrón del bug del
+  // color picker en Kanban.
+  const findOriginalTask = (taskId) => {
+    if (!data?.boards) return null;
+    for (const pid in data.boards) {
+      const cols = data.boards[pid];
+      if (!Array.isArray(cols)) continue;
+      for (const col of cols) {
+        const found = col?.tasks?.find?.(x => x?.id === taskId);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
   const saveEdit = (t) => {
     if (!editDraft) { closeEdit(); return; }
     const fieldUpdates = {};
@@ -289,7 +309,14 @@ export default function MiDiaView({
     if (Number(editDraft.duration_minutes) !== (Number(t.duration_minutes) || 60)) {
       fieldUpdates.duration_minutes = Number(editDraft.duration_minutes);
     }
-    if (Object.keys(fieldUpdates).length > 0) onUpdateTask?.(t.id, fieldUpdates);
+    if (Object.keys(fieldUpdates).length > 0) {
+      const original = findOriginalTask(t.id);
+      if (original) {
+        onUpdateTask?.(t.id, { ...original, ...fieldUpdates });
+      } else {
+        console.warn(`[MiDiaView] no se encontró tarea original ${t.id} en data.boards, update omitido`);
+      }
+    }
     if (editDraft.colName && editDraft.colName !== t.colName && onMoveTask) {
       const projCols = data?.boards?.[t.projId] || [];
       const target = projCols.find(c => c?.name === editDraft.colName);
