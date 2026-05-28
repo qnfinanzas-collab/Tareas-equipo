@@ -8281,6 +8281,191 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
   );
 }
 
+// Panel Resumen aditivo — se renderiza encima del grid 2-col existente
+// sin tocar las columnas ni ocultar Héctor. Solo lectura: cualquier
+// edición sigue por los botones del header o por Detalle. Grid 3-col
+// con 6 cards (cabecera/participantes/docs/proyectos/memoria/actividad).
+function NegSummaryPanel({ negotiation, members, projects, boards, owner, status, onClose }) {
+  const docs = negotiation.documents || [];
+  const analyzedDocs = docs.filter(d => d?.analyzedBy);
+  const teamMembers = (negotiation.members || [])
+    .map(id => (members||[]).find(m => m.id === id))
+    .filter(Boolean);
+  const stakeholders = negotiation.stakeholders || [];
+  const relatedProjs = (negotiation.relatedProjects || [])
+    .map(rp => {
+      const p = (projects||[]).find(x => x.id === rp.projectId);
+      if (!p) return null;
+      const cols = boards?.[p.id] || [];
+      const today = new Date(); today.setHours(0,0,0,0);
+      const overdue = cols.flatMap(c => c.name === "Hecho" ? [] : (c.tasks||[]))
+        .filter(t => t && !t.archived && t.dueDate && new Date(t.dueDate) < today);
+      return { p, role: rp.role, overdueCount: overdue.length };
+    })
+    .filter(Boolean);
+  const mem = negotiation.memory || { keyFacts: [], agreements: [], redFlags: [] };
+  const sessions = (negotiation.sessions || []).slice().sort((a, b) => (b.date||"").localeCompare(a.date||""));
+  const recentSessions = sessions.slice(0, 3);
+  const createdAt = negotiation.createdAt
+    ? new Date(negotiation.createdAt).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })
+    : "—";
+  const lastActivity = negotiation.updatedAt
+    ? new Date(negotiation.updatedAt).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })
+    : createdAt;
+  const docIcon = (doc) => {
+    if (doc.url) return "🔗";
+    const t = doc.type || "";
+    if (t.includes("pdf")) return "📕";
+    if (t.includes("word") || t.includes("document")) return "📘";
+    if (t.startsWith("image/")) return "🖼️";
+    if (t.startsWith("text/")) return "📝";
+    return "📄";
+  };
+
+  const PAL = {
+    panelBg: "#F0EDE5", panelBorder: "#E5E0D5",
+    surface: "#fff",
+    textPrimary: "#1A1A1A", textSec: "#6B6B6B", textTer: "#9B9B9B",
+    gold: "#C9A84C", goldText: "#876C1E", goldBg: "#FBF6E6",
+  };
+  const card = { background: PAL.surface, border: `1px solid ${PAL.panelBorder}`, borderRadius: 8, padding: 12 };
+  const cardTitle = { fontSize: 10.5, fontWeight: 700, color: PAL.textTer, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 };
+
+  return (
+    <div style={{
+      background: PAL.panelBg, border: `1px solid ${PAL.panelBorder}`,
+      padding: 14, marginBottom: 20, borderRadius: 8,
+    }}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:12}}>
+
+        {/* Card 1 — Cabecera */}
+        <div style={card}>
+          <div style={cardTitle}>📌 Cabecera</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6,fontSize:12}}>
+            <div><span style={{color:PAL.textTer}}>Responsable</span> <b style={{color:PAL.textPrimary}}>{owner?.name || "—"}</b></div>
+            <div><span style={{color:PAL.textTer}}>Contraparte</span> <b style={{color:PAL.textPrimary}}>{negotiation.counterparty || "—"}</b></div>
+            <div><span style={{color:PAL.textTer}}>Creada</span> <span style={{color:PAL.textPrimary}}>{createdAt}</span></div>
+            <div><span style={{color:PAL.textTer}}>Última actividad</span> <span style={{color:PAL.textPrimary}}>{lastActivity}</span></div>
+            <div style={{marginTop:4}}>
+              <span style={{fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:14,background:status.color+"18",color:status.color}}>{status.label}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 2 — Participantes */}
+        <div style={card}>
+          <div style={cardTitle}>👥 Participantes</div>
+          <div style={{fontSize:11,fontWeight:600,color:PAL.textSec,marginBottom:5}}>Equipo ({teamMembers.length})</div>
+          {teamMembers.length === 0
+            ? <div style={{fontSize:11.5,color:PAL.textTer,fontStyle:"italic",marginBottom:8}}>Sin miembros asignados.</div>
+            : <div style={{display:"flex",flexWrap:"wrap",gap:5,marginBottom:8}}>
+                {teamMembers.map(m => (
+                  <span key={m.id} style={{fontSize:11,padding:"2px 8px",background:PAL.panelBg,color:PAL.textPrimary,border:`0.5px solid ${PAL.panelBorder}`,borderRadius:0}}>{m.name}</span>
+                ))}
+              </div>}
+          <div style={{fontSize:11,fontWeight:600,color:PAL.textSec,marginBottom:5}}>Stakeholders ({stakeholders.length})</div>
+          {stakeholders.length === 0
+            ? <div style={{fontSize:11.5,color:PAL.textTer,fontStyle:"italic"}}>Sin stakeholders registrados.</div>
+            : <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                {stakeholders.slice(0,5).map(s => (
+                  <div key={s.id} style={{fontSize:11.5,color:PAL.textPrimary}}>
+                    <b>{s.name}</b>{s.role ? <span style={{color:PAL.textTer}}> · {s.role}</span> : null}{s.company ? <span style={{color:PAL.textTer}}> · {s.company}</span> : null}
+                  </div>
+                ))}
+                {stakeholders.length > 5 && <div style={{fontSize:10.5,color:PAL.textTer,fontStyle:"italic"}}>+{stakeholders.length-5} más</div>}
+              </div>}
+        </div>
+
+        {/* Card 3 — Documentos */}
+        <div style={card}>
+          <div style={cardTitle}>📎 Documentos</div>
+          <div style={{fontSize:11.5,color:PAL.textSec,marginBottom:8}}>
+            <b style={{color:PAL.textPrimary}}>{docs.length}</b> total · <b style={{color:"#0E7C5A"}}>{analyzedDocs.length}</b> analizados · <b style={{color:PAL.textTer}}>{docs.length - analyzedDocs.length}</b> pendiente{docs.length - analyzedDocs.length === 1 ? "" : "s"}
+          </div>
+          {docs.length === 0
+            ? <div style={{fontSize:11.5,color:PAL.textTer,fontStyle:"italic"}}>Sin documentos todavía.</div>
+            : <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:140,overflowY:"auto"}}>
+                {docs.slice(0,6).map(d => (
+                  <div key={d.id} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,padding:"3px 0",borderBottom:`0.5px solid ${PAL.panelBg}`}}>
+                    <span style={{fontSize:13}}>{docIcon(d)}</span>
+                    <span style={{flex:1,minWidth:0,color:PAL.textPrimary,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</span>
+                    <span style={{fontSize:10,color:d.analyzedBy?"#0E7C5A":PAL.textTer,fontWeight:d.analyzedBy?600:400,flexShrink:0}}>{d.analyzedBy ? `✓ ${d.analyzedBy}` : "pendiente"}</span>
+                  </div>
+                ))}
+                {docs.length > 6 && <div style={{fontSize:10.5,color:PAL.textTer,fontStyle:"italic",marginTop:3}}>+{docs.length-6} más</div>}
+              </div>}
+        </div>
+
+        {/* Card 4 — Proyectos vinculados */}
+        <div style={card}>
+          <div style={cardTitle}>📊 Proyectos vinculados</div>
+          {relatedProjs.length === 0
+            ? <div style={{fontSize:11.5,color:PAL.textTer,fontStyle:"italic"}}>Sin proyectos vinculados.</div>
+            : <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                {relatedProjs.map(({p, role, overdueCount}) => (
+                  <div key={p.id} style={{display:"flex",alignItems:"center",gap:7,fontSize:11.5,padding:"5px 7px",background:PAL.panelBg,border:`0.5px solid ${PAL.panelBorder}`}}>
+                    <span style={{fontSize:13}}>{p.emoji || "📋"}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:600,color:PAL.textPrimary,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+                      {role && <div style={{fontSize:10,color:PAL.textTer}}>{role}{p.code ? ` · ${p.code}` : ""}</div>}
+                    </div>
+                    {overdueCount > 0 && (
+                      <span title={`${overdueCount} vencida${overdueCount===1?"":"s"}`} style={{fontSize:10,fontWeight:700,padding:"2px 6px",background:"#FEE2E2",color:"#B91C1C",border:"0.5px solid #FCA5A5",borderRadius:0,flexShrink:0}}>{overdueCount} vencidas</span>
+                    )}
+                  </div>
+                ))}
+              </div>}
+        </div>
+
+        {/* Card 5 — Memoria */}
+        <div style={card}>
+          <div style={cardTitle}>🧠 Memoria</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+            {[
+              { label: "Hechos",    icon: "📍", count: (mem.keyFacts||[]).length,   color: "#3B82F6" },
+              { label: "Acuerdos",  icon: "🤝", count: (mem.agreements||[]).length, color: "#0E7C5A" },
+              { label: "Red flags", icon: "🚩", count: (mem.redFlags||[]).length,   color: "#B91C1C" },
+            ].map(b => (
+              <div key={b.label} style={{padding:"10px 6px",border:`0.5px solid ${PAL.panelBorder}`,borderRadius:0,textAlign:"center"}}>
+                <div style={{fontSize:16,marginBottom:2}}>{b.icon}</div>
+                <div style={{fontSize:18,fontWeight:700,color:b.color,lineHeight:1}}>{b.count}</div>
+                <div style={{fontSize:9.5,color:PAL.textSec,marginTop:3,letterSpacing:"0.04em",textTransform:"uppercase",fontWeight:600}}>{b.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Card 6 — Actividad reciente */}
+        <div style={card}>
+          <div style={cardTitle}>⏱ Actividad reciente</div>
+          {recentSessions.length === 0
+            ? <div style={{fontSize:11.5,color:PAL.textTer,fontStyle:"italic"}}>Sin sesiones registradas todavía.</div>
+            : <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                {recentSessions.map(s => {
+                  const dt = s.date ? new Date(s.date) : null;
+                  const label = dt
+                    ? dt.toLocaleDateString("es-ES",{day:"numeric",month:"short"}) + " · " + dt.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})
+                    : "—";
+                  return (
+                    <div key={s.id} style={{fontSize:11.5,padding:"5px 8px",background:PAL.panelBg,border:`0.5px solid ${PAL.panelBorder}`}}>
+                      <div style={{fontWeight:600,color:PAL.textPrimary}}>{s.type || "Sesión"}{s.location ? ` · ${s.location}` : ""}</div>
+                      <div style={{fontSize:10,color:PAL.textTer,marginTop:2}}>{label}</div>
+                    </div>
+                  );
+                })}
+              </div>}
+        </div>
+      </div>
+      <div style={{display:"flex",justifyContent:"center",marginTop:12}}>
+        <button
+          onClick={onClose}
+          style={{padding:"6px 14px",background:"transparent",border:`0.5px solid ${PAL.gold}`,borderRadius:0,fontSize:11.5,color:PAL.goldText,cursor:"pointer",fontFamily:"inherit",fontWeight:600,letterSpacing:"0.02em"}}
+        >↑ Cerrar resumen</button>
+      </div>
+    </div>
+  );
+}
+
 // Detalle negociación: header, info, timeline sesiones.
 function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,currentMember,permissions,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onSummarizeAndClearChat,onRouteAutoLearn,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask,onRunAgentActions}){
   const st=getNegStatus(negotiation.status);
@@ -8311,6 +8496,11 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   // mobile via CSS media query — desktop renderiza todo a la vez. Default
   // "hector" porque el motivo principal de entrar es chatear sobre la deal.
   const [mobileTab,setMobileTab] = useState("hector");
+  // Panel Resumen colapsable — aditivo, vive encima del grid 2-col sin
+  // modificar las columnas existentes ni ocultar Héctor. Default cerrado
+  // para preservar el comportamiento previo. Toggle con el botón
+  // "📊 Resumen" en el header.
+  const [summaryOpen,setSummaryOpen] = useState(false);
   // Commit 42: Set local de timestamps de propuestas descartadas en
   // esta sesión. No se persiste — al recargar la negociación la card
   // oro vuelve a aparecer si la propuesta sigue en chatMsgs. Suficiente
@@ -8626,7 +8816,23 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
       <div data-mobile-section="negociacion" style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
         <button onClick={onCreateSession} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva sesión</button>
         <button onClick={()=>onEditNeg(negotiation)} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
+        <button onClick={()=>setSummaryOpen(o=>!o)} data-neg="header-btn" title={summaryOpen?"Cerrar panel de resumen":"Abrir panel de resumen"} style={{padding:"9px 16px",borderRadius:10,background:summaryOpen?"#FBF6E6":"#fff",color:summaryOpen?"#876C1E":"#374151",border:`0.5px solid ${summaryOpen?"#C9A84C":"#d1d5db"}`,fontSize:13,cursor:"pointer",fontWeight:600}}>📊 {summaryOpen?"Cerrar resumen":"Resumen"}</button>
       </div>
+
+      {/* Panel Resumen — aditivo, encima del grid 2-col. Cuando open
+          muestra dashboard con 6 cards (cabecera, participantes, docs,
+          proyectos, memoria, actividad). No toca el layout principal. */}
+      {summaryOpen && (
+        <NegSummaryPanel
+          negotiation={negotiation}
+          members={members}
+          projects={projects}
+          boards={boards}
+          owner={owner}
+          status={st}
+          onClose={()=>setSummaryOpen(false)}
+        />
+      )}
 
       {/* Dashboard grid 50/50 — stack en móvil vía .tf-dashboard-grid-2 */}
       <div className="tf-dashboard-grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start",marginBottom:20}}>
