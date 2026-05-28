@@ -7241,7 +7241,7 @@ function NegotiationCloseModal({negotiation, outcomeStatus, onSave, onCancel}){
   );
 }
 
-function NegotiationModal({negotiation,members,workspaces,projects,agents,allNegotiations,currentMember,onClose,onSave,onDelete,onTransferOwnership}){
+function NegotiationModal({negotiation,members,workspaces,projects,agents,allNegotiations,currentMember,onClose,onSave,onDelete,onArchive,onUnarchive,onTransferOwnership}){
   const isEdit=!!negotiation;
   const [title,setTitle]       = useState(negotiation?.title||"");
   const [counterparty,setCP]   = useState(negotiation?.counterparty||"");
@@ -7281,7 +7281,12 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
     // Si la negociación venía sin emoji explícito, queda como auto.
     return !(negotiation?.emoji && String(negotiation.emoji).trim());
   });
-  const [pendingDel,setPendingDel] = useState(false);
+  // Eliminación 2 pasos (mismo patrón que ProjectModal): paso 1 pide
+  // teclear el code (NEG-XXX) exactamente; paso 2 advertencia final
+  // antes de ejecutar onDelete. delStep null = sin entrar en flujo.
+  const [delStep,setDelStep] = useState(null);
+  const [delCode,setDelCode] = useState("");
+  const [pendingArchive,setPendingArchive] = useState(false);
   const [pendingClose,setPendingClose] = useState(false);
   const [transferOpen,setTransferOpen] = useState(false);
   const [transferTarget,setTransferTarget] = useState("");
@@ -7627,20 +7632,98 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
             <div style={{fontSize:11,color:"#9CA3AF",marginTop:3}}>El agente recibirá contexto completo en briefings y consejos</div>
           </div>
 
-          <div style={{display:"flex",gap:8,marginTop:20,justifyContent:"space-between",alignItems:"center"}}>
-            <div>
-              {isEdit&&onDelete&&(!pendingDel
-                ? <button onClick={()=>setPendingDel(true)} style={{padding:"8px 14px",borderRadius:8,background:"transparent",color:"#E24B4A",border:"1px solid #E24B4A55",fontSize:12,cursor:"pointer"}}>Eliminar</button>
-                : <div style={{display:"flex",gap:6}}>
-                    <button onClick={()=>{onDelete(negotiation.id);onClose();}} style={{padding:"8px 12px",borderRadius:8,background:"#E24B4A",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>Confirmar</button>
-                    <button onClick={()=>setPendingDel(false)} style={{padding:"8px 12px",borderRadius:8,background:"transparent",border:"0.5px solid #d1d5db",fontSize:12,cursor:"pointer"}}>No</button>
-                  </div>)}
-            </div>
-            <div style={{display:"flex",gap:8}}>
-              <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
-              <button onClick={save} disabled={!title.trim()||!counterparty.trim()} style={{padding:"8px 20px",borderRadius:8,background:(title.trim()&&counterparty.trim())?"#3B82F6":"#e5e7eb",color:(title.trim()&&counterparty.trim())?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:(title.trim()&&counterparty.trim())?"pointer":"default",fontWeight:600}}>{isEdit?"Guardar":"Crear"}</button>
-            </div>
+          <div style={{display:"flex",gap:8,marginTop:20,justifyContent:"flex-end",alignItems:"center"}}>
+            <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,border:"0.5px solid #d1d5db",background:"transparent",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={save} disabled={!title.trim()||!counterparty.trim()} style={{padding:"8px 20px",borderRadius:8,background:(title.trim()&&counterparty.trim())?"#3B82F6":"#e5e7eb",color:(title.trim()&&counterparty.trim())?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:(title.trim()&&counterparty.trim())?"pointer":"default",fontWeight:600}}>{isEdit?"Guardar":"Crear"}</button>
           </div>
+
+          {/* Archivar / Restaurar negociación — alternativa no destructiva.
+              Mismo patrón visual que ProjectModal (oro Kluxor, neutro).
+              Solo visible en edición. */}
+          {isEdit && (onArchive || onUnarchive) && (
+            <div style={{marginTop:24,paddingTop:16,borderTop:"0.5px solid #E5E0D5"}}>
+              {!pendingArchive ? (
+                negotiation?.archived
+                  ? (onUnarchive && <button
+                      type="button"
+                      onClick={()=>{ onUnarchive(negotiation.id); onClose(); }}
+                      style={{background:"transparent",border:"0.5px solid #1D9E75",color:"#1D9E75",fontSize:12,cursor:"pointer",fontFamily:"inherit",padding:"6px 12px",borderRadius:0,fontWeight:600}}
+                    >↩ Restaurar negociación</button>)
+                  : (onArchive && <button
+                      type="button"
+                      onClick={()=>setPendingArchive(true)}
+                      style={{background:"transparent",border:"0.5px solid #C9A84C",color:"#876C1E",fontSize:12,cursor:"pointer",fontFamily:"inherit",padding:"6px 12px",borderRadius:0,fontWeight:600}}
+                    >📦 Archivar negociación</button>)
+              ) : (
+                <div style={{padding:"12px 14px",border:"0.5px solid #E5E0D5",background:"#FAFAF7"}}>
+                  <div style={{fontSize:12.5,color:"#1A1A1A",lineHeight:1.5,marginBottom:10}}>
+                    ¿Archivar esta negociación? Podrás restaurarla desde el listado.
+                  </div>
+                  <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                    <button onClick={()=>setPendingArchive(false)} style={{padding:"6px 14px",borderRadius:0,background:"transparent",border:"0.5px solid #E5E0D5",color:"#6B6B6B",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+                    <button onClick={()=>{ onArchive(negotiation.id); setPendingArchive(false); onClose(); }} style={{padding:"8px 16px",borderRadius:0,background:"#C9A84C",color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Archivar</button>
+                  </div>
+                </div>
+              )}
+              <div style={{fontSize:11,color:"#9B9B9B",marginTop:6,lineHeight:1.4}}>
+                {negotiation?.archived
+                  ? "La negociación está archivada. Restaurarla la devuelve al listado activo."
+                  : "Archivar oculta la negociación del listado activo sin eliminar datos. Reversible."}
+              </div>
+            </div>
+          )}
+
+          {/* Zona destructiva — eliminación 2 pasos (mismo patrón que
+              ProjectModal). Paso 1: warning + input del code NEG-XXX
+              exacto. Paso 2: advertencia final. Solo entonces onDelete. */}
+          {isEdit && onDelete && (
+            <div style={{marginTop:24,paddingTop:16,borderTop:"0.5px solid #E5E0D5"}}>
+              {delStep === null && (
+                <button
+                  onClick={()=>{ setDelStep(1); setDelCode(""); }}
+                  style={{background:"transparent",border:"none",color:"#9B9B9B",fontSize:12,cursor:"pointer",fontFamily:"inherit",padding:0}}
+                >Eliminar negociación</button>
+              )}
+              {delStep === 1 && (
+                <div style={{padding:"12px 14px",border:"0.5px solid #E5E0D5",background:"#FDF5F5"}}>
+                  <div style={{fontSize:12.5,color:"#1A1A1A",lineHeight:1.5,marginBottom:8}}>
+                    ¿Eliminar {negotiation?.code || "esta negociación"}? Esta acción no se puede deshacer.
+                  </div>
+                  <div style={{fontSize:11,color:"#6B6B6B",marginBottom:6}}>
+                    Escribe el código para confirmar (ej: {negotiation?.code || "NEG-001"})
+                  </div>
+                  <input
+                    value={delCode}
+                    onChange={e=>setDelCode((e.target.value||"").toUpperCase())}
+                    placeholder={`Escribe ${negotiation?.code || ""} para confirmar`}
+                    style={{width:"100%",border:"0.5px solid #E5E0D5",borderRadius:0,padding:8,fontSize:13,fontFamily:"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",letterSpacing:"0.08em",textTransform:"uppercase",outline:"none",boxSizing:"border-box",marginBottom:10}}
+                  />
+                  <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                    <button onClick={()=>{ setDelStep(null); setDelCode(""); }} style={{padding:"6px 14px",borderRadius:0,background:"transparent",border:"0.5px solid #E5E0D5",color:"#6B6B6B",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+                    <button
+                      onClick={()=>setDelStep(2)}
+                      disabled={delCode !== (negotiation?.code || "")}
+                      style={{padding:"8px 20px",borderRadius:0,background: delCode === (negotiation?.code || "") ? "#7A1F1F" : "#E5E0D5", color: delCode === (negotiation?.code || "") ? "#fff" : "#9B9B9B", border:"none",fontSize:12,fontWeight:600,cursor: delCode === (negotiation?.code || "") ? "pointer" : "not-allowed",fontFamily:"inherit"}}
+                    >Confirmar eliminación</button>
+                  </div>
+                </div>
+              )}
+              {delStep === 2 && (
+                <div style={{padding:"12px 14px",border:"0.5px solid #7A1F1F",background:"#FDF5F5"}}>
+                  <div style={{fontSize:13,color:"#7A1F1F",fontWeight:600,lineHeight:1.5,marginBottom:10}}>
+                    ⚠ ÚLTIMA ADVERTENCIA — La negociación {negotiation?.code || ""}{negotiation?.title?` "${negotiation.title}"`:""} y todas sus sesiones serán eliminadas definitivamente. No podrás echarte atrás.
+                  </div>
+                  <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                    <button onClick={()=>{ setDelStep(null); setDelCode(""); }} style={{padding:"6px 14px",borderRadius:0,background:"transparent",border:"0.5px solid #E5E0D5",color:"#6B6B6B",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
+                    <button
+                      onClick={()=>{ onDelete(negotiation.id); onClose(); }}
+                      style={{padding:"8px 20px",borderRadius:0,background:"#7A1F1F",color:"#fff",border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}
+                    >Sí, eliminar definitivamente</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
       {showCloseFlow && <NegotiationCloseModal negotiation={negotiation} outcomeStatus={status} onSave={handleCloseFlowSave} onCancel={()=>setShowCloseFlow(false)}/>}
@@ -7750,7 +7833,8 @@ function AddNoteModal({initialNote,onClose,onSave,onDelete}){
 }
 
 // Vista principal: lista de negociaciones con filtros.
-function DealRoomView({negotiations,members,projects,workspaces,currentMember,filter,onSetFilter,onCreate,onOpen,onEdit}){
+function DealRoomView({negotiations,members,projects,workspaces,currentMember,filter,onSetFilter,onCreate,onOpen,onEdit,onArchive,onUnarchive}){
+  const [showArchived,setShowArchived] = React.useState(false);
   // Guard: hasta tener miembro resuelto, no rendereamos nada — evita el
   // flash de negociaciones ajenas que ocurría con el redirect tardío.
   if (!currentMember) {
@@ -7759,9 +7843,18 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
   // Filtrado de visibilidad SÍNCRONO con useMemo. canViewDeal aplica reglas
   // de admin/owner/miembro/visibility. Todas las counts y alertas operan
   // sobre la lista ya filtrada — el non-admin nunca ve datos ajenos.
-  const visibleNegotiations = React.useMemo(
+  // Toggle showArchived separa activas (default) de archivadas.
+  const allViewable = React.useMemo(
     ()=>(negotiations||[]).filter(n=>canViewDeal(currentMember, n)),
     [negotiations, currentMember]
+  );
+  const visibleNegotiations = React.useMemo(
+    ()=>allViewable.filter(n=>showArchived ? !!n.archived : !n.archived),
+    [allViewable, showArchived]
+  );
+  const archivedCount = React.useMemo(
+    ()=>allViewable.filter(n=>!!n.archived).length,
+    [allViewable]
   );
   const filtered = filter==="all" ? visibleNegotiations : visibleNegotiations.filter(n=>n.status===filter);
   const counts = NEG_STATUSES.reduce((o,s)=>{o[s.id]=visibleNegotiations.filter(n=>n.status===s.id).length;return o;},{all:visibleNegotiations.length});
@@ -7826,10 +7919,17 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
     <div style={{maxWidth:1000,margin:"0 auto",padding:"30px 20px"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
         <div>
-          <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>🤝 Deal Room</div>
-          <div style={{fontSize:13,color:"#6b7280"}}>{visibleNegotiations.length} negociación{visibleNegotiations.length!==1?"es":""} · Timeline de sesiones, notas y resúmenes</div>
+          <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>🤝 Deal Room{showArchived?" — Archivadas":""}</div>
+          <div style={{fontSize:13,color:"#6b7280"}}>{visibleNegotiations.length} negociación{visibleNegotiations.length!==1?"es":""}{showArchived?" archivada"+(visibleNegotiations.length!==1?"s":""):""} · Timeline de sesiones, notas y resúmenes</div>
         </div>
-        <button onClick={onCreate} style={{padding:"10px 18px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva negociación</button>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button
+            onClick={()=>setShowArchived(s=>!s)}
+            title={showArchived ? "Volver a negociaciones activas" : "Ver negociaciones archivadas"}
+            style={{padding:"8px 14px",borderRadius:0,background:showArchived?"#FBF6E6":"transparent",border:showArchived?"1px solid #C9A84C":"1px solid #E5E0D5",color:showArchived?"#876C1E":"#6B6B6B",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}
+          >📦 {showArchived ? "Volver a activas" : `Archivadas (${archivedCount})`}</button>
+          {!showArchived && <button onClick={onCreate} style={{padding:"10px 18px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva negociación</button>}
+        </div>
       </div>
 
       {/* Panel de alertas */}
@@ -7889,7 +7989,13 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
                     </div>
                     <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
                       <span style={{fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:14,background:st.color+"18",color:st.color}}>{st.label}</span>
-                      <button onClick={e=>{e.stopPropagation();onEdit(n);}} title="Editar" style={{background:"none",border:"none",fontSize:13,cursor:"pointer",color:"#9ca3af"}}>✏️</button>
+                      {showArchived && onUnarchive
+                        ? <button
+                            onClick={e=>{e.stopPropagation(); onUnarchive(n.id);}}
+                            title="Restaurar negociación"
+                            style={{padding:"4px 10px",background:"transparent",border:"0.5px solid #1D9E75",borderRadius:0,fontSize:11,color:"#1D9E75",cursor:"pointer",fontFamily:"inherit",fontWeight:600}}
+                          >↩ Restaurar</button>
+                        : <button onClick={e=>{e.stopPropagation();onEdit(n);}} title="Editar" style={{background:"none",border:"none",fontSize:13,cursor:"pointer",color:"#9ca3af"}}>✏️</button>}
                     </div>
                   </div>
                   {n.description&&<div style={{fontSize:13,color:"#4B5563",lineHeight:1.5,marginBottom:6}}>{n.description}</div>}
@@ -12131,6 +12237,21 @@ export default function TaskFlow(){
     setData(prev=>({...prev,negotiations:(prev.negotiations||[]).filter(n=>n.id!==negId)}));
     addToast("Negociación eliminada","info");
   },[addToast, ensureCanEditDeal]);
+  // Archivar / Restaurar negociaciones. Mismo patrón que proyectos:
+  // alternativa no destructiva al delete — flag .archived booleana en
+  // el objeto, filtrado downstream con showArchived. Reversible.
+  const archiveNegotiation = useCallback((negId)=>{
+    if(!ensureCanEditDeal(negId)) return;
+    const now = new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,archived:true,updatedAt:now}:n)}));
+    addToast("📦 Negociación archivada","info");
+  },[addToast, ensureCanEditDeal]);
+  const unarchiveNegotiation = useCallback((negId)=>{
+    if(!ensureCanEditDeal(negId)) return;
+    const now = new Date().toISOString();
+    setData(prev=>({...prev,negotiations:(prev.negotiations||[]).map(n=>n.id===negId?{...n,archived:false,updatedAt:now}:n)}));
+    addToast("↩ Negociación restaurada","info");
+  },[addToast, ensureCanEditDeal]);
   const addSession = useCallback((negId,payload)=>{
     if(!ensureCanEditDeal(negId)) return;
     const id=_uid("sess"); const now=new Date().toISOString();
@@ -13216,6 +13337,8 @@ export default function TaskFlow(){
               onCreate={()=>setNegModal("create")}
               onOpen={id=>{setActiveNegId(id);setActiveSessId(null);}}
               onEdit={n=>setNegModal(n)}
+              onArchive={archiveNegotiation}
+              onUnarchive={unarchiveNegotiation}
             />;
           })()}
           {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext}/>}
@@ -13278,7 +13401,7 @@ export default function TaskFlow(){
       {workspaceModal&&workspaceModal!=="create"&&<WorkspaceModal workspace={workspaceModal} onClose={()=>setWorkspaceModal(null)} onSave={d=>editWorkspace(workspaceModal.id,d)} onDelete={deleteWorkspace}/>}
 
       {negModal==="create"&&<NegotiationModal members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} allNegotiations={data.negotiations||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setNegModal(null)} onSave={createNegotiation}/>}
-      {negModal&&negModal!=="create"&&<NegotiationModal negotiation={negModal} members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} allNegotiations={data.negotiations||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setNegModal(null)} onSave={p=>updateNegotiation(negModal.id,p)} onDelete={id=>{ deleteNegotiation(id); if(activeNegId===id){ setActiveNegId(null); setActiveSessId(null); } }} onTransferOwnership={transferNegotiationOwnership}/>}
+      {negModal&&negModal!=="create"&&<NegotiationModal negotiation={negModal} members={data.members} workspaces={data.workspaces||[]} projects={data.projects} agents={data.agents||[]} allNegotiations={data.negotiations||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setNegModal(null)} onSave={p=>updateNegotiation(negModal.id,p)} onDelete={id=>{ deleteNegotiation(id); if(activeNegId===id){ setActiveNegId(null); setActiveSessId(null); } }} onArchive={archiveNegotiation} onUnarchive={unarchiveNegotiation} onTransferOwnership={transferNegotiationOwnership}/>}
       {attendeesModalOpen&&activeNegId&&activeSessId&&(()=>{
         const n=(data.negotiations||[]).find(x=>x.id===activeNegId); const s=n?.sessions.find(x=>x.id===activeSessId);
         if(!s) return null;
