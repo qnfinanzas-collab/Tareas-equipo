@@ -8285,8 +8285,15 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
 // colapsada a 1 línea por defecto con toggle "Ver más / Ver menos" en
 // oro Kluxor. Usa el mismo render markdown que NegDescription (cards)
 // pero con UX adaptada para una sección destacada.
-function NegDetailDescription({ text }) {
-  const [expanded, setExpanded] = React.useState(false);
+function NegDetailDescription({ text, expanded: expandedProp, onToggle }) {
+  // Estado controlado (cuando el padre pasa expanded+onToggle) o no controlado.
+  // Permite al padre saber si la descripción está expandida sin acoplar UI.
+  const [localExpanded, setLocalExpanded] = React.useState(false);
+  const expanded = typeof expandedProp === "boolean" ? expandedProp : localExpanded;
+  const setExpanded = (v) => {
+    const next = typeof v === "function" ? v(expanded) : v;
+    if (onToggle) onToggle(next); else setLocalExpanded(next);
+  };
   if (!text) return null;
   const plainPreview = stripMarkdownForPreview(text);
   const isLongPlain = plainPreview.length > 80; // umbral aproximado de 1 línea visual
@@ -8536,6 +8543,11 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   // para preservar el comportamiento previo. Toggle con el botón
   // "📊 Resumen" en el header.
   const [summaryOpen,setSummaryOpen] = useState(false);
+  // Estado de expansión de la descripción — lifted al padre para que
+  // cuando esté expandida, Héctor pase de sticky a static. Sin esto, al
+  // expandir la descripción la grid se desplazaba hacia abajo pero Héctor
+  // se quedaba pegado al top y aparecía un vacío entre ellos.
+  const [descExpanded,setDescExpanded] = useState(false);
   // Commit 42: Set local de timestamps de propuestas descartadas en
   // esta sesión. No se persiste — al recargar la negociación la card
   // oro vuelve a aparecer si la propuesta sigue en chatMsgs. Suficiente
@@ -8847,7 +8859,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
         </div>
         <div style={{fontSize:13,color:"#6b7280"}}>Contraparte: <b style={{color:"#374151"}}>{negotiation.counterparty}</b>{negotiation.value!=null&&<> · <b style={{color:"#059669"}}>{Number(negotiation.value).toLocaleString("es-ES")} {negotiation.currency||"EUR"}</b></>}{owner&&<> · Responsable: <b style={{color:"#374151"}}>{owner.name}</b></>}</div>
       </div>
-      <NegDetailDescription text={negotiation.description}/>
+      <NegDetailDescription text={negotiation.description} expanded={descExpanded} onToggle={setDescExpanded}/>
       <div data-mobile-section="negociacion" style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
         <button onClick={onCreateSession} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva sesión</button>
         <button onClick={()=>onEditNeg(negotiation)} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
@@ -9462,7 +9474,7 @@ ${taskLines||"(ninguna)"}`;
           };
           const chatMsgs = negotiation.hectorChat||[];
           return(
-            <div data-neg="hector-card" data-mobile-section="hector" style={{position:"sticky",top:20,background:"#fff",border:"0.5px solid #E5E0D5",borderRadius:8,minWidth:0,display:"flex",flexDirection:"column",minHeight:380,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
+            <div data-neg="hector-card" data-mobile-section="hector" style={{...(descExpanded?{}:{position:"sticky",top:20}),background:"#fff",border:"0.5px solid #E5E0D5",borderRadius:8,minWidth:0,display:"flex",flexDirection:"column",minHeight:380,maxHeight:"calc(100vh - 60px)",overflow:"hidden"}}>
               {/* Header */}
               <div data-neg="hector-header" style={{padding:"12px 16px",borderBottom:"0.5px solid #E5E0D5",display:"flex",alignItems:"center",gap:10}}>
                 <AgentAvatar agent="hector" size={48} />
