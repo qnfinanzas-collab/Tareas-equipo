@@ -8281,6 +8281,192 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
   );
 }
 
+// Dashboard de la pestaña Resumen — vista rápida con 6 bloques: cabecera,
+// participantes, documentos, proyectos vinculados, memoria y actividad
+// reciente. Solo lectura — cualquier acción (editar, abrir tarea, ver
+// memoria) navega a Detalle vía onOpenDetalle. Sin librerías de UI, CSS
+// inline siguiendo paleta Kluxor operacional.
+function NegSummaryDashboard({ negotiation, members, projects, boards, owner, status, onOpenDetalle, onOpenChat, onEditNeg }) {
+  const docs = negotiation.documents || [];
+  const analyzedDocs = docs.filter(d => d?.analyzedBy);
+  const teamMembers = (negotiation.members || [])
+    .map(id => (members||[]).find(m => m.id === id))
+    .filter(Boolean);
+  const stakeholders = negotiation.stakeholders || [];
+  const relatedProjs = (negotiation.relatedProjects || [])
+    .map(rp => {
+      const p = (projects||[]).find(x => x.id === rp.projectId);
+      if (!p) return null;
+      const cols = boards?.[p.id] || [];
+      const overdue = cols.flatMap(c => c.name === "Hecho" ? [] : (c.tasks||[]))
+        .filter(t => t && !t.archived && t.dueDate && new Date(t.dueDate) < new Date(new Date().setHours(0,0,0,0)));
+      return { p, role: rp.role, priority: rp.priority, overdueCount: overdue.length };
+    })
+    .filter(Boolean);
+  const mem = negotiation.memory || { keyFacts: [], agreements: [], redFlags: [] };
+  const sessions = (negotiation.sessions || [])
+    .slice()
+    .sort((a, b) => (b.date||"").localeCompare(a.date||""));
+  const recentSessions = sessions.slice(0, 5);
+  const createdAt = negotiation.createdAt ? new Date(negotiation.createdAt).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }) : "—";
+  const lastActivity = negotiation.updatedAt ? new Date(negotiation.updatedAt).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }) : createdAt;
+  const docIcon = (doc) => {
+    if (doc.url) return "🔗";
+    const t = doc.type || "";
+    if (t.includes("pdf")) return "📕";
+    if (t.includes("word") || t.includes("document")) return "📘";
+    if (t.startsWith("image/")) return "🖼️";
+    if (t.startsWith("text/")) return "📝";
+    return "📄";
+  };
+  const C = { surface:"#fff", border:"#E5E0D5", textPrimary:"#1A1A1A", textSec:"#6B6B6B", textTer:"#9B9B9B", gold:"#C9A84C", goldBg:"#FBF6E6", goldText:"#876C1E" };
+  const cardBase = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 14 };
+  const sectionTitle = { fontSize: 10.5, fontWeight: 700, color: C.textTer, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 };
+
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:20}} className="tf-dashboard-grid-2">
+
+      {/* BLOQUE 1 — Cabecera */}
+      <div style={{...cardBase, gridColumn:"1 / -1"}}>
+        <div style={sectionTitle}>📌 Cabecera</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:18,alignItems:"flex-start"}}>
+          <div style={{flex:"1 1 200px",minWidth:160}}>
+            <div style={{fontSize:10.5,color:C.textTer,marginBottom:2}}>Responsable</div>
+            <div style={{fontSize:13,fontWeight:600,color:C.textPrimary}}>{owner?.name || "—"}</div>
+          </div>
+          <div style={{flex:"1 1 200px",minWidth:160}}>
+            <div style={{fontSize:10.5,color:C.textTer,marginBottom:2}}>Contraparte</div>
+            <div style={{fontSize:13,fontWeight:600,color:C.textPrimary}}>{negotiation.counterparty || "—"}</div>
+          </div>
+          <div style={{flex:"1 1 200px",minWidth:160}}>
+            <div style={{fontSize:10.5,color:C.textTer,marginBottom:2}}>Creada</div>
+            <div style={{fontSize:13,color:C.textPrimary}}>{createdAt}</div>
+          </div>
+          <div style={{flex:"1 1 200px",minWidth:160}}>
+            <div style={{fontSize:10.5,color:C.textTer,marginBottom:2}}>Última actividad</div>
+            <div style={{fontSize:13,color:C.textPrimary}}>{lastActivity}</div>
+          </div>
+          <div style={{flex:"0 0 auto"}}>
+            <span style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:14,background:status.color+"18",color:status.color}}>{status.label}</span>
+          </div>
+          <div style={{flex:"0 0 auto"}}>
+            <button onClick={onEditNeg ? ()=>onEditNeg(negotiation) : undefined} style={{padding:"5px 12px",background:"transparent",border:`1px solid ${C.gold}`,borderRadius:0,fontSize:11,color:C.gold,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>✏ Editar</button>
+          </div>
+        </div>
+      </div>
+
+      {/* BLOQUE 2 — Participantes */}
+      <div style={cardBase}>
+        <div style={sectionTitle}>👥 Participantes</div>
+        <div style={{fontSize:11,fontWeight:600,color:C.textSec,marginBottom:6}}>Equipo ({teamMembers.length})</div>
+        {teamMembers.length === 0
+          ? <div style={{fontSize:12,color:C.textTer,fontStyle:"italic",marginBottom:10}}>Sin miembros asignados.</div>
+          : <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+              {teamMembers.map(m => (
+                <span key={m.id} style={{fontSize:11.5,padding:"3px 9px",background:"#F0EDE5",color:C.textPrimary,border:`0.5px solid ${C.border}`,borderRadius:0}}>{m.name}</span>
+              ))}
+            </div>}
+        <div style={{fontSize:11,fontWeight:600,color:C.textSec,marginBottom:6}}>Stakeholders externos ({stakeholders.length})</div>
+        {stakeholders.length === 0
+          ? <div style={{fontSize:12,color:C.textTer,fontStyle:"italic"}}>Sin stakeholders registrados.</div>
+          : <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {stakeholders.slice(0,6).map(s => (
+                <div key={s.id} style={{fontSize:12,color:C.textPrimary,display:"flex",gap:6,alignItems:"baseline"}}>
+                  <span style={{fontWeight:500}}>{s.name}</span>
+                  {s.role && <span style={{fontSize:10.5,color:C.textTer}}>· {s.role}</span>}
+                  {s.company && <span style={{fontSize:10.5,color:C.textTer}}>· {s.company}</span>}
+                </div>
+              ))}
+              {stakeholders.length > 6 && <div style={{fontSize:10.5,color:C.textTer,fontStyle:"italic"}}>+{stakeholders.length-6} más</div>}
+            </div>}
+      </div>
+
+      {/* BLOQUE 3 — Documentos */}
+      <div style={cardBase}>
+        <div style={sectionTitle}>📎 Documentos</div>
+        <div style={{fontSize:12,color:C.textSec,marginBottom:10}}>
+          <b style={{color:C.textPrimary}}>{docs.length}</b> total · <b style={{color:"#0E7C5A"}}>{analyzedDocs.length}</b> analizados · <b style={{color:C.textTer}}>{docs.length - analyzedDocs.length}</b> pendiente{docs.length - analyzedDocs.length === 1 ? "" : "s"}
+        </div>
+        {docs.length === 0
+          ? <div style={{fontSize:12,color:C.textTer,fontStyle:"italic"}}>Sin documentos. Súbelos en la pestaña Detalle.</div>
+          : <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:160,overflowY:"auto"}}>
+              {docs.slice(0,8).map(d => (
+                <div key={d.id} style={{display:"flex",alignItems:"center",gap:8,fontSize:11.5,padding:"4px 0",borderBottom:`0.5px solid #F0EDE5`}}>
+                  <span style={{fontSize:14}}>{docIcon(d)}</span>
+                  <span style={{flex:1,minWidth:0,color:C.textPrimary,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</span>
+                  <span style={{fontSize:10.5,color:d.analyzedBy?"#0E7C5A":C.textTer,fontWeight:d.analyzedBy?600:400}}>{d.analyzedBy ? `✓ ${d.analyzedBy}` : "pendiente"}</span>
+                </div>
+              ))}
+              {docs.length > 8 && <div style={{fontSize:10.5,color:C.textTer,fontStyle:"italic",marginTop:4}}>+{docs.length-8} más en Detalle</div>}
+            </div>}
+      </div>
+
+      {/* BLOQUE 4 — Proyectos vinculados */}
+      <div style={cardBase}>
+        <div style={sectionTitle}>📊 Proyectos vinculados</div>
+        {relatedProjs.length === 0
+          ? <div style={{fontSize:12,color:C.textTer,fontStyle:"italic"}}>Sin proyectos vinculados.</div>
+          : <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {relatedProjs.map(({p, role, overdueCount}) => (
+                <div key={p.id} style={{display:"flex",alignItems:"center",gap:8,fontSize:12,padding:"6px 8px",background:"#FAFAF7",border:`0.5px solid ${C.border}`,borderRadius:0}}>
+                  <span style={{fontSize:14}}>{p.emoji || "📋"}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,color:C.textPrimary,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+                    {role && <div style={{fontSize:10.5,color:C.textTer}}>{role}{p.code ? ` · ${p.code}` : ""}</div>}
+                  </div>
+                  {overdueCount > 0 && (
+                    <span title={`${overdueCount} tarea${overdueCount===1?"":"s"} vencida${overdueCount===1?"":"s"}`} style={{fontSize:10.5,fontWeight:700,padding:"2px 7px",background:"#FEE2E2",color:"#B91C1C",border:"0.5px solid #FCA5A5",borderRadius:0}}>{overdueCount} vencidas</span>
+                  )}
+                </div>
+              ))}
+            </div>}
+      </div>
+
+      {/* BLOQUE 5 — Memoria */}
+      <div style={cardBase}>
+        <div style={sectionTitle}>🧠 Memoria</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          {[
+            { label: "Hechos",    icon: "📍", count: (mem.keyFacts||[]).length,   color: "#3B82F6" },
+            { label: "Acuerdos",  icon: "🤝", count: (mem.agreements||[]).length, color: "#0E7C5A" },
+            { label: "Red flags", icon: "🚩", count: (mem.redFlags||[]).length,   color: "#B91C1C" },
+          ].map(b => (
+            <button
+              key={b.label}
+              onClick={onOpenDetalle}
+              title={`Ver ${b.label.toLowerCase()} en Detalle`}
+              style={{padding:"10px 8px",background:"transparent",border:`0.5px solid ${C.border}`,borderRadius:0,cursor:"pointer",fontFamily:"inherit",textAlign:"center"}}
+            >
+              <div style={{fontSize:18,marginBottom:4}}>{b.icon}</div>
+              <div style={{fontSize:20,fontWeight:700,color:b.color,lineHeight:1}}>{b.count}</div>
+              <div style={{fontSize:10.5,color:C.textSec,marginTop:3,letterSpacing:"0.04em",textTransform:"uppercase",fontWeight:600}}>{b.label}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* BLOQUE 6 — Actividad reciente */}
+      <div style={cardBase}>
+        <div style={sectionTitle}>⏱ Actividad reciente</div>
+        {recentSessions.length === 0
+          ? <div style={{fontSize:12,color:C.textTer,fontStyle:"italic"}}>Sin sesiones registradas todavía.</div>
+          : <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {recentSessions.map(s => {
+                const dt = s.date ? new Date(s.date) : null;
+                const label = dt ? dt.toLocaleDateString("es-ES", { day:"numeric", month:"short" }) + " · " + dt.toLocaleTimeString("es-ES", { hour:"2-digit", minute:"2-digit" }) : "—";
+                return (
+                  <div key={s.id} style={{fontSize:12,padding:"6px 8px",background:"#FAFAF7",border:`0.5px solid ${C.border}`}}>
+                    <div style={{fontWeight:600,color:C.textPrimary}}>{s.type || "Sesión"}{s.location ? ` · ${s.location}` : ""}</div>
+                    <div style={{fontSize:10.5,color:C.textTer,marginTop:2}}>{label}</div>
+                  </div>
+                );
+              })}
+            </div>}
+      </div>
+    </div>
+  );
+}
+
 // Detalle negociación: header, info, timeline sesiones.
 function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,currentMember,permissions,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onSummarizeAndClearChat,onRouteAutoLearn,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask,onRunAgentActions}){
   const st=getNegStatus(negotiation.status);
@@ -8311,6 +8497,13 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
   // mobile via CSS media query — desktop renderiza todo a la vez. Default
   // "hector" porque el motivo principal de entrar es chatear sobre la deal.
   const [mobileTab,setMobileTab] = useState("hector");
+  // Top-level tabs (Resumen / Detalle / Chat) — añadidas como capa sobre
+  // el layout 2-col existente. Resumen renderiza un nuevo dashboard;
+  // Detalle muestra la columna izquierda (proyectos/sesiones/docs/memoria);
+  // Chat muestra la card de Héctor. Mobile tabs siguen funcionando dentro
+  // de Detalle. Default "resumen" para que entrar a una negociación dé
+  // un vistazo rápido antes que el chat o el scroll largo del detalle.
+  const [topTab,setTopTab] = useState("resumen");
   // Commit 42: Set local de timestamps de propuestas descartadas en
   // esta sesión. No se persiste — al recargar la negociación la card
   // oro vuelve a aparecer si la propuesta sigue en chatMsgs. Suficiente
@@ -8497,6 +8690,13 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           card Héctor pierde sticky en mobile y usa 100dvh para evitar
           saltos por la URL bar de iOS Safari. */}
       <style>{`
+        /* Detalle: oculta la card de Héctor (columna derecha). */
+        [data-top-tab="detalle"] [data-neg="hector-card"] { display: none !important; }
+        /* Chat: oculta todas las secciones del main left (negociación, docs, sesiones)
+           para dejar solo la card de Héctor full-width. */
+        [data-top-tab="chat"] [data-mobile-section="negociacion"],
+        [data-top-tab="chat"] [data-mobile-section="docs"],
+        [data-top-tab="chat"] [data-mobile-section="sesiones"] { display: none !important; }
         [data-mobile-tabs] { display: none; }
         @media (max-width: 900px) {
           /* Outer: padding mínimo. Las tabs son STICKY (no fixed) para
@@ -8570,6 +8770,42 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
         }
       `}</style>
       <button onClick={onBack} data-neg="header-btn" style={{background:"none",border:"none",color:"#3B82F6",fontSize:13,cursor:"pointer",marginBottom:14,padding:0,fontFamily:"inherit"}}>← Deal Room</button>
+
+      {/* Tab bar global Resumen/Detalle/Chat — siempre visible, controla
+          qué bloque grande se renderiza. CSS más abajo gestiona qué
+          columnas del grid existente se muestran cuando Detalle/Chat. */}
+      <div style={{display:"flex",gap:0,marginBottom:18,borderBottom:`1px solid #E5E0D5`}}>
+        {[
+          { key: "resumen", label: "Resumen" },
+          { key: "detalle", label: "Detalle" },
+          { key: "chat",    label: "Chat" },
+        ].map(opt => {
+          const active = topTab === opt.key;
+          return (
+            <button
+              key={opt.key}
+              onClick={()=>setTopTab(opt.key)}
+              style={{padding:"10px 18px",background:"transparent",border:"none",borderBottom:`2px solid ${active?"#C9A84C":"transparent"}`,color:active?"#1A1A1A":"#6B6B6B",fontSize:13,fontWeight:active?600:400,cursor:"pointer",fontFamily:"inherit",borderRadius:0}}
+            >{opt.label}</button>
+          );
+        })}
+      </div>
+
+      {/* PESTAÑA RESUMEN — dashboard compacto de la negociación. */}
+      {topTab === "resumen" && (
+        <NegSummaryDashboard
+          negotiation={negotiation}
+          members={members}
+          projects={projects}
+          boards={boards}
+          owner={owner}
+          status={st}
+          onOpenDetalle={()=>setTopTab("detalle")}
+          onOpenChat={()=>setTopTab("chat")}
+          onEditNeg={onEditNeg}
+        />
+      )}
+
       {/* Tab bar mobile (commit 41) — solo visible ≤900px. Default
           "hector" para que el CEO entre directo al chat. Badge unread
           en Héctor cuando hay mensajes nuevos no vistos. */}
@@ -8628,8 +8864,10 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
         <button onClick={()=>onEditNeg(negotiation)} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
       </div>
 
-      {/* Dashboard grid 50/50 — stack en móvil vía .tf-dashboard-grid-2 */}
-      <div className="tf-dashboard-grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start",marginBottom:20}}>
+      {/* Dashboard grid 50/50 — stack en móvil vía .tf-dashboard-grid-2.
+          data-top-tab gobierna qué columnas se ven cuando Detalle/Chat
+          (reglas CSS más arriba en el <style> block del componente). */}
+      <div className="tf-dashboard-grid-2" data-top-tab={topTab} style={{display:topTab==="resumen"?"none":"grid",gridTemplateColumns: topTab==="chat" || topTab==="detalle" ? "1fr" : "1fr 1fr",gap:20,alignItems:"start",marginBottom:20}}>
 
         {/* ─── IZQUIERDA: datos operativos ─── */}
         <div style={{display:"flex",flexDirection:"column",gap:18,minWidth:0}}>
