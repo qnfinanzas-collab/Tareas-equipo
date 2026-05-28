@@ -7852,6 +7852,28 @@ function AddNoteModal({initialNote,onClose,onSave,onDelete}){
 }
 
 // Vista principal: lista de negociaciones con filtros.
+// Descripción colapsable de card de negociación. Estado de expansión
+// local por card (cada instancia mantiene el suyo). Si el texto cabe en
+// el límite, se renderiza completo sin botón.
+function NegDescription({ text }) {
+  const [expanded, setExpanded] = React.useState(false);
+  if (!text) return null;
+  const LIMIT = 150;
+  const needsCollapse = text.length > LIMIT;
+  if (!needsCollapse) {
+    return <div style={{fontSize:13,color:"#4B5563",lineHeight:1.5,marginBottom:6}}>{text}</div>;
+  }
+  return (
+    <div style={{fontSize:13,color:"#4B5563",lineHeight:1.5,marginBottom:6}}>
+      {expanded ? text : text.slice(0, LIMIT).trimEnd() + "…"}
+      <button
+        onClick={e=>{ e.stopPropagation(); setExpanded(v=>!v); }}
+        style={{background:"transparent",border:"none",color:"#C9A84C",cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:0,marginLeft:6,fontWeight:600}}
+      >{expanded ? "← Ver menos" : "Ver más →"}</button>
+    </div>
+  );
+}
+
 function DealRoomView({negotiations,members,projects,workspaces,currentMember,filter,onSetFilter,onCreate,onOpen,onEdit,onArchive,onUnarchive}){
   const [showArchived,setShowArchived] = React.useState(false);
   const [categoryFilter,setCategoryFilter] = React.useState(null);
@@ -8081,7 +8103,7 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
                         : <button onClick={e=>{e.stopPropagation();onEdit(n);}} title="Editar" style={{background:"none",border:"none",fontSize:13,cursor:"pointer",color:"#9ca3af"}}>✏️</button>}
                     </div>
                   </div>
-                  {n.description&&<div style={{fontSize:13,color:"#4B5563",lineHeight:1.5,marginBottom:6}}>{n.description}</div>}
+                  <NegDescription text={n.description}/>
 
                   {/* Dependencias */}
                   {blockedByList.length>0&&(
