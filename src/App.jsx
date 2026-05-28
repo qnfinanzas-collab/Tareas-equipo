@@ -8281,6 +8281,41 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
   );
 }
 
+// Descripción de la vista detalle: ancho completo encima del grid,
+// colapsada a 1 línea por defecto con toggle "Ver más / Ver menos" en
+// oro Kluxor. Usa el mismo render markdown que NegDescription (cards)
+// pero con UX adaptada para una sección destacada.
+function NegDetailDescription({ text }) {
+  const [expanded, setExpanded] = React.useState(false);
+  if (!text) return null;
+  const plainPreview = stripMarkdownForPreview(text);
+  const isLongPlain = plainPreview.length > 80; // umbral aproximado de 1 línea visual
+  // Si no hay nada que ocultar, render directo sin toggle.
+  if (!isLongPlain && !text.includes("\n")) {
+    return (
+      <div
+        data-mobile-section="negociacion"
+        style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13,color:"#4B5563",lineHeight:1.6}}
+        dangerouslySetInnerHTML={{__html: renderMarkdownToHtml(text)}}
+      />
+    );
+  }
+  return (
+    <div
+      data-mobile-section="negociacion"
+      style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13,color:"#4B5563",lineHeight:1.6}}
+    >
+      {expanded
+        ? <div dangerouslySetInnerHTML={{__html: renderMarkdownToHtml(text)}}/>
+        : <div style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{plainPreview}</div>}
+      <button
+        onClick={()=>setExpanded(v=>!v)}
+        style={{background:"transparent",border:"none",color:"#C9A84C",cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:0,marginTop:expanded?8:4,fontWeight:600}}
+      >{expanded ? "← Ver menos" : "Ver más →"}</button>
+    </div>
+  );
+}
+
 // Panel Resumen aditivo — se renderiza encima del grid 2-col existente
 // sin tocar las columnas ni ocultar Héctor. Solo lectura: cualquier
 // edición sigue por los botones del header o por Detalle. Grid 3-col
@@ -8812,7 +8847,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
         </div>
         <div style={{fontSize:13,color:"#6b7280"}}>Contraparte: <b style={{color:"#374151"}}>{negotiation.counterparty}</b>{negotiation.value!=null&&<> · <b style={{color:"#059669"}}>{Number(negotiation.value).toLocaleString("es-ES")} {negotiation.currency||"EUR"}</b></>}{owner&&<> · Responsable: <b style={{color:"#374151"}}>{owner.name}</b></>}</div>
       </div>
-      {negotiation.description&&<div data-mobile-section="negociacion" style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13,color:"#4B5563",lineHeight:1.6}} dangerouslySetInnerHTML={{__html: renderMarkdownToHtml(negotiation.description)}}/>}
+      <NegDetailDescription text={negotiation.description}/>
       <div data-mobile-section="negociacion" style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
         <button onClick={onCreateSession} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva sesión</button>
         <button onClick={()=>onEditNeg(negotiation)} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
