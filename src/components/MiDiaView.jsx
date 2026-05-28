@@ -93,6 +93,21 @@ const fieldInputStyle = {
   outline: "none",
 };
 
+function dateNavBtnStyle(disabled) {
+  return {
+    padding: "5px 10px",
+    background: "transparent",
+    color: disabled ? C.textTertiary : C.textSecondary,
+    border: `0.5px solid ${C.border}`,
+    borderRadius: 0,
+    fontSize: 12,
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontFamily: "inherit",
+    fontWeight: 500,
+    minWidth: 36,
+  };
+}
+
 // Formulario inline de creación. Vive dentro de una franja horaria del
 // agenda — la hora inicio llega pre-rellenada por el caller. Valida
 // solo título no vacío; el resto tiene defaults razonables (60m, alta,
@@ -214,7 +229,8 @@ export default function MiDiaView({
   onMoveTask,
   onCreateTask,
 }) {
-  const [tab, setTab] = useState("hoy");
+  const [tab, setTab] = useState("dia");
+  const [selectedDate, setSelectedDate] = useState(() => todayISO());
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
   const [pendingArchiveId, setPendingArchiveId] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -255,7 +271,7 @@ export default function MiDiaView({
       }
       targetProjId = def.id;
     }
-    const dueDate = tab === "manana" ? tomorrowISO() : todayISO();
+    const dueDate = tab === "dia" ? selectedDate : todayISO();
     onCreateTask(targetProjId, {
       title: createDraft.title.trim(),
       priority: createDraft.priority,
@@ -265,6 +281,25 @@ export default function MiDiaView({
       assignees: [activeMember],
     });
     closeCreate();
+  };
+
+  // Navegación de fechas en modo "día". goToday vuelve a hoy; goPrev/
+  // goNext desplazan en días naturales. Cambiar fecha desde el picker
+  // fuerza tab="dia" automáticamente.
+  const goPrevDay = () => setSelectedDate(toISO(addDays(new Date(selectedDate + "T00:00:00"), -1)));
+  const goNextDay = () => setSelectedDate(toISO(addDays(new Date(selectedDate + "T00:00:00"),  1)));
+  const goToday   = () => setSelectedDate(todayISO());
+  const isToday   = selectedDate === todayISO();
+  const selectedDateObj = new Date(selectedDate + "T00:00:00");
+  const dateHeaderLabel = `${weekdayLabel(selectedDateObj)} ${dayMonthLabel(selectedDateObj)}`;
+
+  // Reabrir tarea completada — vuelve a "Por hacer" (o primera columna
+  // disponible si el proyecto no tiene esa exacta).
+  const reopenTask = (t) => {
+    if (!onMoveTask) return;
+    const projCols = data?.boards?.[t.projId] || [];
+    const target = projCols.find(c => c?.name === "Por hacer") || projCols[0];
+    if (target && target.id !== t.colId) onMoveTask(t.id, t.colId, target.id);
   };
 
   const openEdit = (t) => {
@@ -329,14 +364,16 @@ export default function MiDiaView({
     closeEdit();
   };
 
-  // Aplanar tareas vivas asignadas al usuario activo.
+  // Aplanar tareas asignadas al usuario activo. Incluye "Hecho" para que
+  // las completadas aparezcan en su día con visual tachado/verde. Los
+  // filtros downstream (overdue, agenda) excluyen Hecho cuando aplica.
   const myTasks = useMemo(() => {
     const out = [];
     Object.entries(data?.boards || {}).forEach(([pid, cols]) => {
       const proj = (data?.projects || []).find(p => p && p.id === Number(pid));
       if (!proj || proj.archived) return;
       (cols || []).forEach(col => {
-        if (!col || col.name === "Hecho") return;
+        if (!col) return;
         (col.tasks || []).forEach(t => {
           if (!t || t.archived) return;
           if (!t.assignees?.includes(activeMember)) return;
@@ -357,12 +394,9 @@ export default function MiDiaView({
   }, [data, activeMember]);
 
   const filtered = useMemo(() => {
-    const today = todayISO();
-    const tomorrow = tomorrowISO();
     return myTasks.filter(t => {
       if (!t.dueDate) return false;
-      if (tab === "hoy") return t.dueDate === today;
-      if (tab === "manana") return t.dueDate === tomorrow;
+      if (tab === "dia") return t.dueDate === selectedDate;
       if (tab === "semana") {
         const start = new Date(); start.setHours(0, 0, 0, 0);
         const end = addDays(new Date(), 6); end.setHours(23, 59, 59, 999);
@@ -371,15 +405,15 @@ export default function MiDiaView({
       }
       return false;
     });
-  }, [myTasks, tab]);
+  }, [myTasks, tab, selectedDate]);
 
-  // Días anteriores — tareas con dueDate previa a hoy que el CEO arrastra
-  // sin completar. myTasks ya filtra archived + columna "Hecho" + assignee,
-  // así que basta comparar ISO YYYY-MM-DD lexicográficamente.
+  // Días anteriores — tareas vencidas NO completadas. Excluye Hecho aquí
+  // porque myTasks ahora sí incluye esa columna (para mostrarlas en su
+  // día con visual diferenciado).
   const overdueTasks = useMemo(() => {
     const today = todayISO();
     return myTasks
-      .filter(t => t.dueDate && t.dueDate < today)
+      .filter(t => t.dueDate && t.dueDate < today && t.colName !== "Hecho")
       .sort((a, b) => {
         const dateCmp = (a.dueDate || "").localeCompare(b.dueDate || "");
         if (dateCmp !== 0) return dateCmp;
@@ -394,6 +428,7 @@ export default function MiDiaView({
     const isPendingDel = pendingDeleteId === t.id;
     const isPendingArch = pendingArchiveId === t.id;
     const isEditing = editingId === t.id;
+    const isDone = t.colName === "Hecho";
 
     // Opciones de estado para el select: las 3 estándar + la actual si
     // el proyecto tiene una columna fuera de ese set (ej. "Revision").
@@ -403,9 +438,9 @@ export default function MiDiaView({
 
     return (
       <div style={{
-        background: C.surface,
+        background: isDone ? "#F0FAF0" : C.surface,
         border: `1px solid ${C.border}`,
-        borderLeft: `3px solid ${t.projColor || C.gold}`,
+        borderLeft: `3px solid ${isDone ? "#4CAF50" : (t.projColor || C.gold)}`,
         borderRadius: 8,
         padding: "10px 12px",
         display: "flex",
@@ -428,7 +463,9 @@ export default function MiDiaView({
               </span>
             </div>
             <div style={{
-              fontSize: 13, fontWeight: 500, color: C.textPrimary,
+              fontSize: 13, fontWeight: 500,
+              color: isDone ? C.textSecondary : C.textPrimary,
+              textDecoration: isDone ? "line-through" : "none",
               lineHeight: 1.35, wordBreak: "break-word",
             }}>{t.title}</div>
             {!hideTime && (
@@ -440,11 +477,20 @@ export default function MiDiaView({
               </div>
             )}
           </div>
-          <span style={{
-            fontSize: 9, fontWeight: 700, padding: "2px 7px",
-            background: pri.bg, color: pri.text, border: `0.5px solid ${pri.border}`,
-            letterSpacing: "0.04em", textTransform: "uppercase", flexShrink: 0,
-          }}>{t.priority || "media"}</span>
+          {isDone ? (
+            <span style={{
+              fontSize: 9, fontWeight: 700, padding: "2px 7px",
+              background: "#E8F5E9", color: "#2E7D32",
+              border: "0.5px solid #4CAF5055",
+              letterSpacing: "0.04em", textTransform: "uppercase", flexShrink: 0,
+            }}>✓ Hecho</span>
+          ) : (
+            <span style={{
+              fontSize: 9, fontWeight: 700, padding: "2px 7px",
+              background: pri.bg, color: pri.text, border: `0.5px solid ${pri.border}`,
+              letterSpacing: "0.04em", textTransform: "uppercase", flexShrink: 0,
+            }}>{t.priority || "media"}</span>
+          )}
         </div>
 
         {isEditing ? (
@@ -530,6 +576,14 @@ export default function MiDiaView({
               style={btnStyle(C.gold, true)}
             >Archivar</button>
             <button onClick={() => setPendingArchiveId(null)} style={btnStyle()}>Cancelar</button>
+          </div>
+        ) : isDone ? (
+          <div style={{
+            display: "flex", gap: 6, flexWrap: "wrap",
+            paddingTop: 6, borderTop: `0.5px solid ${C.borderSoft}`,
+          }}>
+            {onMoveTask    && <button onClick={() => reopenTask(t)}                                   style={btnStyle("#2E7D32")}>↺ Reabrir</button>}
+            {onDeleteTask  && <button onClick={() => setPendingDeleteId(t.id)}                        style={btnStyle(C.red)}>🗑 Eliminar</button>}
           </div>
         ) : (
           <div style={{
@@ -681,7 +735,7 @@ export default function MiDiaView({
           <h1 style={{ fontSize: 22, fontWeight: 600, color: C.textPrimary, margin: 0 }}>
             Mi Día
             <span style={{ color: C.textSecondary, fontWeight: 400, fontSize: 16, marginLeft: 8 }}>
-              — {weekdayLabel(new Date())} {dayMonthLabel(new Date())}
+              — {tab === "semana" ? "Esta semana" : dateHeaderLabel}
             </span>
           </h1>
           {overdueTasks.length > 0 && (
@@ -706,29 +760,75 @@ export default function MiDiaView({
           Agenda de tus tareas asignadas, organizada por horas.
         </p>
 
-        <div style={{ display: "flex", gap: 0, marginBottom: 20, borderBottom: `1px solid ${C.border}` }}>
-          {[
-            { id: "hoy",    label: "Hoy" },
-            { id: "manana", label: "Mañana" },
-            { id: "semana", label: "Esta semana" },
-          ].map(opt => (
-            <button
-              key={opt.id}
-              onClick={() => setTab(opt.id)}
+        {/* Navegación de fecha: ◀ Hoy ▶ + selector + tab Esta semana.
+            En modo "dia" los controles están activos y el header refleja
+            selectedDate; en modo "semana" los controles se desactivan y
+            el header muestra "Esta semana". */}
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 20, flexWrap: "wrap", borderBottom: `1px solid ${C.border}`, paddingBottom: 14 }}>
+          <button
+            type="button"
+            onClick={goPrevDay}
+            disabled={tab === "semana"}
+            title="Día anterior"
+            style={dateNavBtnStyle(tab === "semana")}
+          >◀</button>
+          <button
+            type="button"
+            onClick={() => { setTab("dia"); goToday(); }}
+            disabled={tab === "dia" && isToday}
+            style={{
+              ...dateNavBtnStyle(tab === "dia" && isToday),
+              minWidth: 50,
+              background: (tab === "dia" && isToday) ? C.borderSoft : "transparent",
+              fontWeight: (tab === "dia" && isToday) ? 600 : 500,
+            }}
+          >Hoy</button>
+          <button
+            type="button"
+            onClick={goNextDay}
+            disabled={tab === "semana"}
+            title="Día siguiente"
+            style={dateNavBtnStyle(tab === "semana")}
+          >▶</button>
+          <label style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "5px 8px",
+            border: `0.5px solid ${C.border}`,
+            background: tab === "dia" ? "#fff" : C.borderSoft,
+            cursor: "pointer",
+            fontSize: 12,
+            color: C.textSecondary,
+            fontFamily: "inherit",
+          }}>
+            <span style={{ fontSize: 13 }}>📅</span>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={e => { if (e.target.value) { setSelectedDate(e.target.value); setTab("dia"); } }}
               style={{
-                padding: "10px 18px",
-                background: "transparent",
-                border: "none",
-                borderBottom: `2px solid ${tab === opt.id ? C.gold : "transparent"}`,
-                color: tab === opt.id ? C.textPrimary : C.textSecondary,
-                fontSize: 13,
-                fontWeight: tab === opt.id ? 600 : 400,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                borderRadius: 0,
+                border: "none", outline: "none", background: "transparent",
+                fontFamily: "inherit", fontSize: 12, color: C.textPrimary,
+                padding: 0, cursor: "pointer",
               }}
-            >{opt.label}</button>
-          ))}
+            />
+          </label>
+          <div style={{ flex: 1, minWidth: 10 }} />
+          <button
+            type="button"
+            onClick={() => setTab("semana")}
+            style={{
+              padding: "6px 14px",
+              background: tab === "semana" ? C.gold : "transparent",
+              color: tab === "semana" ? "#fff" : C.textSecondary,
+              border: `0.5px solid ${tab === "semana" ? C.gold : C.border}`,
+              borderRadius: 0,
+              fontSize: 12,
+              fontWeight: tab === "semana" ? 600 : 500,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              letterSpacing: "0.02em",
+            }}
+          >Esta semana</button>
         </div>
 
         {/* Días anteriores — listado expandido. Por defecto colapsado;
@@ -753,8 +853,7 @@ export default function MiDiaView({
           </div>
         )}
 
-        {tab === "hoy"    && renderAgendaDay("hoy")}
-        {tab === "manana" && renderAgendaDay("mañana")}
+        {tab === "dia"    && renderAgendaDay(dateHeaderLabel.toLowerCase())}
         {tab === "semana" && renderWeek()}
       </div>
     </div>
