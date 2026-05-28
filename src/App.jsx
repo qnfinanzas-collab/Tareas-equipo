@@ -8819,27 +8819,26 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
         <button onClick={()=>setSummaryOpen(o=>!o)} data-neg="header-btn" title={summaryOpen?"Cerrar panel de resumen":"Abrir panel de resumen"} style={{padding:"9px 16px",borderRadius:10,background:summaryOpen?"#FBF6E6":"#fff",color:summaryOpen?"#876C1E":"#374151",border:`0.5px solid ${summaryOpen?"#C9A84C":"#d1d5db"}`,fontSize:13,cursor:"pointer",fontWeight:600}}>📊 {summaryOpen?"Cerrar resumen":"Resumen"}</button>
       </div>
 
+      {/* Panel Resumen — aditivo, encima del grid 2-col. Cuando open
+          muestra dashboard con 6 cards (cabecera, participantes, docs,
+          proyectos, memoria, actividad). No toca el layout principal. */}
+      {summaryOpen && (
+        <NegSummaryPanel
+          negotiation={negotiation}
+          members={members}
+          projects={projects}
+          boards={boards}
+          owner={owner}
+          status={st}
+          onClose={()=>setSummaryOpen(false)}
+        />
+      )}
+
       {/* Dashboard grid 50/50 — stack en móvil vía .tf-dashboard-grid-2 */}
       <div className="tf-dashboard-grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start",marginBottom:20}}>
 
         {/* ─── IZQUIERDA: datos operativos ─── */}
         <div style={{display:"flex",flexDirection:"column",gap:18,minWidth:0}}>
-
-          {/* Panel Resumen — vive DENTRO de la columna izquierda para
-              no introducir espacio vacío encima de la card Héctor
-              (sticky en la columna derecha). Toggle desde el botón
-              "📊 Resumen" del header. Solo lectura. */}
-          {summaryOpen && (
-            <NegSummaryPanel
-              negotiation={negotiation}
-              members={members}
-              projects={projects}
-              boards={boards}
-              owner={owner}
-              status={st}
-              onClose={()=>setSummaryOpen(false)}
-            />
-          )}
 
           {/* Proyectos relacionados */}
           <section data-mobile-section="negociacion">
