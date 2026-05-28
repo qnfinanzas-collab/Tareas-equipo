@@ -13013,6 +13013,7 @@ export default function TaskFlow(){
               <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
               <span style={{fontSize:15,fontWeight:600}}>{proj.name}</span>
               <RefBadge code={proj.code}/>
+              <button onClick={()=>setProjModal(activeProject)} title="Editar proyecto" style={{padding:"2px 6px",background:"transparent",border:"0.5px solid #e5e7eb",borderRadius:0,fontSize:11,color:"#6b7280",cursor:"pointer",fontFamily:"inherit",lineHeight:1}}>✏</button>
               <span style={{fontSize:11,padding:"2px 9px",borderRadius:20,background:`${proj.color}22`,color:proj.color,border:`0.5px solid ${proj.color}55`,fontWeight:500}}>{proj.members.length} miembros</span>
               {activeTab==="board"&&<span style={{fontSize:12,color:"#6b7280"}}>{doneTasks}/{totalTasks} completadas</span>}
               {(()=>{ const relNeg=(data.negotiations||[]).find(n=>n.projectId===proj.id); if(!relNeg) return null; const st=getNegStatus(relNeg.status); return(
