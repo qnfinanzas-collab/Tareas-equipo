@@ -1997,6 +1997,10 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
   const [agentMenuDocId,setAgentMenuDocId] = useState(null); // doc.id cuyo dropdown de agentes está abierto
   const [urlInput,setUrlInput]   = useState("");
   const [urlBusy,setUrlBusy]     = useState(false);
+  const [textMode,setTextMode]   = useState(false);
+  const [textName,setTextName]   = useState("");
+  const [textType,setTextType]   = useState("text/markdown");
+  const [textBody,setTextBody]   = useState("");
   const fileInputRef      = useRef(null);
 
   if(!storageEnabled()){
@@ -2008,14 +2012,20 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
   // El análisis por Anthropic soporta PDF (document block) e imágenes PNG/JPG
   // (image block). DOCX no es soportado natively por la API. TXT va como texto.
   // URLs (type:text/html) van como texto ya extraído por /api/fetch-url.
+  // Inline (text/html, text/markdown sin storagePath): el doc.text se pasa
+  // como texto directamente al modelo.
   const canAnalyze = (doc)=>{
     if(doc.url) return true;
+    if(doc.text != null && !doc.storagePath) return true; // inline
     const type = doc.type;
-    return type==="application/pdf" || type==="image/png" || type==="image/jpeg" || type==="text/plain";
+    return type==="application/pdf" || type==="image/png" || type==="image/jpeg"
+        || type==="text/plain" || type==="text/html" || type==="text/markdown";
   };
 
   const buildAttachment = async (doc)=>{
-    if(doc.url){ return { kind:"text", name:doc.name, text: (doc.text||"").slice(0,50000) }; }
+    if(doc.url || (doc.text != null && !doc.storagePath)){
+      return { kind:"text", name:doc.name, text: (doc.text||"").slice(0,50000) };
+    }
     const blob = await downloadDocumentBlob(doc.storagePath);
     if(doc.type==="text/plain"){
       const text = await blob.text();
@@ -2159,8 +2169,51 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
     }
   };
 
+  // Añade un documento de texto/HTML inline (sin Storage, sin URL). Útil
+  // para informes redactados por Héctor, actas tecleadas por el CEO,
+  // notas markdown. El contenido vive en doc.text dentro del jsonb
+  // taskflow_state — sin migración, sin bucket nuevo.
+  const addInlineText = ()=>{
+    const body = (textBody || "").trim();
+    const nm   = (textName || "").trim();
+    if(!body || !nm) { setError("Necesitas un título y contenido para guardar el texto."); return; }
+    setError(null);
+    const doc = {
+      id: "doc_"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+      name: nm,
+      type: textType,
+      size: body.length,
+      storagePath: null,
+      url: null,
+      text: body,
+      kind: "inline",
+      uploadedAt: new Date().toISOString(),
+      analyzedBy: null,
+      analyzedAt: null,
+      report: null,
+    };
+    onChange?.([...documents, doc]);
+    setTextMode(false);
+    setTextName("");
+    setTextBody("");
+    setTextType("text/markdown");
+  };
+
   const openDoc = async (doc)=>{
     try {
+      // Inline (text/html, text/markdown, text/plain con contenido pegado
+      // por el CEO o generado por Héctor): rendereamos un Blob URL para
+      // que el navegador muestre el HTML / texto plano en pestaña nueva.
+      if(doc.text != null && !doc.storagePath && !doc.url){
+        const blob = new Blob([doc.text || ""], { type: doc.type || "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const w = window.open(url, "_blank", "noopener");
+        // Revoca la URL temporal tras 60s — tiempo de sobra para que el
+        // navegador la cargue. Sin esto se acumulan en memoria.
+        setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch{} }, 60000);
+        if(!w) setError("El navegador bloqueó la nueva pestaña. Permite popups para previsualizar.");
+        return;
+      }
       if(doc.url){ window.open(doc.url,"_blank","noopener"); return; }
       const url = await getSignedUrl(doc.storagePath);
       window.open(url,"_blank","noopener");
@@ -2242,6 +2295,52 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
           style={{padding:"6px 12px",borderRadius:6,background:urlBusy?"#FEF3C7":(urlInput.trim()?"#1E40AF":"#E5E7EB"),color:urlBusy?"#92400E":(urlInput.trim()?"#fff":"#9CA3AF"),border:"none",fontSize:11.5,fontWeight:600,cursor:(urlBusy||!urlInput.trim())?"default":"pointer"}}
         >{urlBusy?"Descargando…":"Añadir URL"}</button>
       </div>
+      {!textMode ? (
+        <button
+          onClick={()=>{ setTextMode(true); setError(null); }}
+          style={{alignSelf:"flex-start",padding:"6px 12px",background:"transparent",border:"1px solid #C9A84C",borderRadius:0,fontSize:11.5,color:"#C9A84C",cursor:"pointer",fontFamily:"inherit",fontWeight:600,letterSpacing:"0.02em"}}
+        >📝 Texto / Informe</button>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:8,padding:10,background:"#FAFAF7",border:"1px solid #E5E0D5",borderRadius:0}}>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <input
+              type="text"
+              value={textName}
+              onChange={e=>setTextName(e.target.value)}
+              placeholder="Título del documento (ej: Informe Héctor sobre NEG-046)"
+              style={{flex:1,minWidth:200,padding:"6px 10px",borderRadius:0,border:"0.5px solid #D1D5DB",fontSize:12,fontFamily:"inherit",outline:"none",background:"#fff"}}
+            />
+            <select
+              value={textType}
+              onChange={e=>setTextType(e.target.value)}
+              style={{padding:"6px 10px",borderRadius:0,border:"0.5px solid #D1D5DB",fontSize:12,fontFamily:"inherit",outline:"none",background:"#fff"}}
+              title="Tipo de contenido"
+            >
+              <option value="text/markdown">Markdown</option>
+              <option value="text/html">HTML</option>
+              <option value="text/plain">Texto plano</option>
+            </select>
+          </div>
+          <textarea
+            value={textBody}
+            onChange={e=>setTextBody(e.target.value)}
+            placeholder={textType==="text/html"?"<h1>Informe…</h1>":textType==="text/markdown"?"# Informe\n\n…":"Contenido…"}
+            rows={8}
+            style={{width:"100%",padding:"8px 10px",borderRadius:0,border:"0.5px solid #D1D5DB",fontSize:12,fontFamily:textType==="text/plain"?"ui-monospace,SFMono-Regular,Menlo,Consolas,monospace":"inherit",outline:"none",background:"#fff",resize:"vertical",boxSizing:"border-box"}}
+          />
+          <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+            <button
+              onClick={()=>{ setTextMode(false); setTextName(""); setTextBody(""); setTextType("text/markdown"); setError(null); }}
+              style={{padding:"6px 12px",background:"transparent",border:"0.5px solid #D1D5DB",borderRadius:0,fontSize:11.5,color:"#6B6B6B",cursor:"pointer",fontFamily:"inherit"}}
+            >Cancelar</button>
+            <button
+              onClick={addInlineText}
+              disabled={!textName.trim()||!textBody.trim()}
+              style={{padding:"6px 14px",background:(textName.trim()&&textBody.trim())?"#C9A84C":"#E5E0D5",color:(textName.trim()&&textBody.trim())?"#fff":"#9B9B9B",border:"none",borderRadius:0,fontSize:11.5,fontWeight:600,cursor:(textName.trim()&&textBody.trim())?"pointer":"not-allowed",fontFamily:"inherit"}}
+            >Guardar texto</button>
+          </div>
+        </div>
+      )}
       {error&&<div style={{fontSize:11.5,color:"#B91C1C",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:6,padding:"6px 10px"}}>{error}</div>}
       {documents.length>0 && (
         <div style={{display:"flex",flexDirection:"column",gap:6}}>
