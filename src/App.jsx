@@ -7281,6 +7281,7 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
     // Si la negociación venía sin emoji explícito, queda como auto.
     return !(negotiation?.emoji && String(negotiation.emoji).trim());
   });
+  const [category,setCategory] = useState(negotiation?.category || "");
   // Eliminación 2 pasos (mismo patrón que ProjectModal): paso 1 pide
   // teclear el code (NEG-XXX) exactamente; paso 2 advertencia final
   // antes de ejecutar onDelete. delStep null = sin entrar en flujo.
@@ -7290,8 +7291,8 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
   const [pendingClose,setPendingClose] = useState(false);
   const [transferOpen,setTransferOpen] = useState(false);
   const [transferTarget,setTransferTarget] = useState("");
-  const [initialSnap]=useState(()=>JSON.stringify({title:negotiation?.title||"",counterparty:negotiation?.counterparty||"",status:negotiation?.status||"en_curso",value:negotiation?.value??"",currency:negotiation?.currency||"EUR",description:negotiation?.description||"",visibility:negotiation?.visibility||"private",members:Array.isArray(negotiation?.members)?negotiation.members:(currentMember?[currentMember.id]:[]),relatedProjects:negotiation?.relatedProjects||[],relationships:negotiation?.relationships||[],stakeholders:negotiation?.stakeholders||[],agentId:negotiation?.agentId??""}));
-  const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,visibility,members:selMembers,relatedProjects,relationships,stakeholders,agentId})!==initialSnap;
+  const [initialSnap]=useState(()=>JSON.stringify({title:negotiation?.title||"",counterparty:negotiation?.counterparty||"",status:negotiation?.status||"en_curso",value:negotiation?.value??"",currency:negotiation?.currency||"EUR",description:negotiation?.description||"",visibility:negotiation?.visibility||"private",members:Array.isArray(negotiation?.members)?negotiation.members:(currentMember?[currentMember.id]:[]),relatedProjects:negotiation?.relatedProjects||[],relationships:negotiation?.relationships||[],stakeholders:negotiation?.stakeholders||[],agentId:negotiation?.agentId??"",category:negotiation?.category||""}));
+  const isDirty=JSON.stringify({title,counterparty,status,value,currency,description,visibility,members:selMembers,relatedProjects,relationships,stakeholders,agentId,category})!==initialSnap;
   const handleClose=()=>{ if(isDirty) setPendingClose(true); else onClose(); };
   useEffect(()=>{ const k=e=>{if(e.key==="Escape") handleClose();}; window.addEventListener("keydown",k); return()=>window.removeEventListener("keydown",k); },[isDirty]);
   // Commit 29: recálculo del emoji cuando cambia título/descripción y el
@@ -7314,7 +7315,7 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
     // huérfano. Si Marc transfiere a Antonio antes de guardar, la transferencia
     // ya añade a Antonio; si el owner sigue siendo el actual, lo aseguramos.
     const finalMembers = selMembers.includes(ownerId) ? selMembers : [...selMembers, ownerId];
-    return {title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),visibility,members:finalMembers,projectId:primaryProjectId,agentId:agentId===""?null:Number(agentId),relatedProjects,relationships,stakeholders,emoji,_emojiAuto:emojiAuto};
+    return {title:title.trim(),counterparty:counterparty.trim(),status,value:value===""?null:Number(value),currency,description:description.trim(),ownerId:Number(ownerId),visibility,members:finalMembers,projectId:primaryProjectId,agentId:agentId===""?null:Number(agentId),relatedProjects,relationships,stakeholders,emoji,_emojiAuto:emojiAuto,category:category.trim()||null};
   };
   const save=()=>{
     if(!title.trim()||!counterparty.trim()) return;
@@ -7422,6 +7423,24 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
           </div>
           <FL c="Descripción"/>
           <textarea value={description} onChange={e=>setDesc(e.target.value)} rows={3} placeholder="Contexto, objetivo, contraparte, plazos…" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit"}}/>
+
+          {/* Categoría personalizada — texto libre con autocompletado de
+              categorías que ya existen en otras negociaciones (datalist).
+              Mismo patrón que ProjectModal. Vacío = "Sin categorizar". */}
+          <FL c="Categoría (opcional)"/>
+          <input
+            list="negotiation-category-options"
+            value={category}
+            onChange={e=>setCategory(e.target.value)}
+            placeholder="ej: Cliente, Inversión, Operativa…"
+            style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,fontFamily:"inherit",background:"#fff",outline:"none",boxSizing:"border-box",marginBottom:8}}
+          />
+          <datalist id="negotiation-category-options">
+            {Array.from(new Set((allNegotiations||[])
+              .map(n=>n?.category)
+              .filter(c=>typeof c==="string" && c.trim())
+            )).sort().map(c=><option key={c} value={c}/>)}
+          </datalist>
 
           {/* Visibilidad — controla quién puede VER la negociación. La edición
               sigue gateada por canEditDeal (owner/miembros/admin) en server. */}
@@ -7835,6 +7854,8 @@ function AddNoteModal({initialNote,onClose,onSave,onDelete}){
 // Vista principal: lista de negociaciones con filtros.
 function DealRoomView({negotiations,members,projects,workspaces,currentMember,filter,onSetFilter,onCreate,onOpen,onEdit,onArchive,onUnarchive}){
   const [showArchived,setShowArchived] = React.useState(false);
+  const [categoryFilter,setCategoryFilter] = React.useState(null);
+  const [groupByCategory,setGroupByCategory] = React.useState(false);
   // Guard: hasta tener miembro resuelto, no rendereamos nada — evita el
   // flash de negociaciones ajenas que ocurría con el redirect tardío.
   if (!currentMember) {
@@ -7856,7 +7877,22 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
     ()=>allViewable.filter(n=>!!n.archived).length,
     [allViewable]
   );
-  const filtered = filter==="all" ? visibleNegotiations : visibleNegotiations.filter(n=>n.status===filter);
+  // Categorías presentes en el subset activo. Ordenadas alfabéticamente
+  // + flag de "hay sin categorizar" para mostrar el chip "Sin categoría".
+  const categoryOptions = React.useMemo(
+    ()=>Array.from(new Set(visibleNegotiations.map(n=>n?.category).filter(c=>typeof c==="string"&&c.trim()))).sort(),
+    [visibleNegotiations]
+  );
+  const hasUncategorized = React.useMemo(
+    ()=>visibleNegotiations.some(n=>!n?.category),
+    [visibleNegotiations]
+  );
+  const filteredByStatus = filter==="all" ? visibleNegotiations : visibleNegotiations.filter(n=>n.status===filter);
+  const filtered = categoryFilter === null
+    ? filteredByStatus
+    : categoryFilter === "__none__"
+      ? filteredByStatus.filter(n=>!n?.category)
+      : filteredByStatus.filter(n=>n?.category===categoryFilter);
   const counts = NEG_STATUSES.reduce((o,s)=>{o[s.id]=visibleNegotiations.filter(n=>n.status===s.id).length;return o;},{all:visibleNegotiations.length});
   // Empty state prominente cuando el miembro no ve ninguna negociación —
   // CTA dedicado en lugar del banner dashed dentro del listado.
@@ -7922,7 +7958,12 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
           <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>🤝 Deal Room{showArchived?" — Archivadas":""}</div>
           <div style={{fontSize:13,color:"#6b7280"}}>{visibleNegotiations.length} negociación{visibleNegotiations.length!==1?"es":""}{showArchived?" archivada"+(visibleNegotiations.length!==1?"s":""):""} · Timeline de sesiones, notas y resúmenes</div>
         </div>
-        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <button
+            onClick={()=>setGroupByCategory(g=>!g)}
+            title={groupByCategory?"Desagrupar":"Agrupar por categoría"}
+            style={{padding:"8px 14px",borderRadius:0,background:groupByCategory?"#FBF6E6":"transparent",border:groupByCategory?"1px solid #C9A84C":"1px solid #E5E0D5",color:groupByCategory?"#876C1E":"#6B6B6B",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}
+          >🗂 {groupByCategory ? "Desagrupar" : "Agrupar por categoría"}</button>
           <button
             onClick={()=>setShowArchived(s=>!s)}
             title={showArchived ? "Volver a negociaciones activas" : "Ver negociaciones archivadas"}
@@ -7955,14 +7996,55 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
         })}
       </div>
 
+      {/* Filtro por categoría. Solo aparece si hay categorías en uso o
+          alguna negociación sin categorizar. Estilo oro Kluxor (mismo
+          patrón que ProjectsView). */}
+      {(categoryOptions.length > 0 || hasUncategorized) && (
+        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginBottom:18}}>
+          <span style={{fontSize:10.5,fontWeight:700,color:"#9B9B9B",textTransform:"uppercase",letterSpacing:0.4,marginRight:4}}>Categoría</span>
+          <button
+            type="button"
+            onClick={()=>setCategoryFilter(null)}
+            style={{padding:"4px 10px",fontSize:11.5,fontWeight:categoryFilter===null?700:500,cursor:"pointer",fontFamily:"inherit",borderRadius:0,border:categoryFilter===null?"1px solid #C9A84C":"1px solid #E5E0D5",background:categoryFilter===null?"#FBF6E6":"#fff",color:categoryFilter===null?"#876C1E":"#6B6B6B"}}
+          >Todas</button>
+          {categoryOptions.map(cat=>(
+            <button
+              key={cat}
+              type="button"
+              onClick={()=>setCategoryFilter(cat)}
+              style={{padding:"4px 10px",fontSize:11.5,fontWeight:categoryFilter===cat?700:500,cursor:"pointer",fontFamily:"inherit",borderRadius:0,border:categoryFilter===cat?"1px solid #C9A84C":"1px solid #E5E0D5",background:categoryFilter===cat?"#FBF6E6":"#fff",color:categoryFilter===cat?"#876C1E":"#6B6B6B"}}
+            >{cat}</button>
+          ))}
+          {hasUncategorized && (
+            <button
+              type="button"
+              onClick={()=>setCategoryFilter("__none__")}
+              style={{padding:"4px 10px",fontSize:11.5,fontWeight:categoryFilter==="__none__"?700:500,cursor:"pointer",fontFamily:"inherit",borderRadius:0,border:categoryFilter==="__none__"?"1px solid #C9A84C":"1px solid #E5E0D5",background:categoryFilter==="__none__"?"#FBF6E6":"#fff",color:categoryFilter==="__none__"?"#876C1E":"#6B6B6B"}}
+            >Sin categoría</button>
+          )}
+        </div>
+      )}
+
       {filtered.length===0
         ? <div style={{textAlign:"center",padding:"60px 20px",background:"#F9FAFB",border:"1px dashed #e5e7eb",borderRadius:12}}>
             <div style={{fontSize:32,marginBottom:10}}>🤝</div>
             <div style={{fontSize:14,color:"#6b7280",marginBottom:14}}>{visibleNegotiations.length===0?"Aún no hay negociaciones. Crea la primera para empezar.":`Sin negociaciones ${getNegStatus(filter).label.toLowerCase()}.`}</div>
             {visibleNegotiations.length===0&&<button onClick={onCreate} style={{padding:"9px 18px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva negociación</button>}
           </div>
-        : <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            {filtered.map(n=>{
+        : (() => {
+            // Cuando groupByCategory es true, dividimos el listado filtrado
+            // en secciones por category (con "Sin categoría" al final).
+            // Mismo patrón visual que ProjectsView pero como toggle opcional.
+            const sections = (() => {
+              if (!groupByCategory) return [{name:null, items:filtered}];
+              const catItems = filtered.filter(n=>n?.category);
+              const uncatItems = filtered.filter(n=>!n?.category);
+              const catNames = Array.from(new Set(catItems.map(n=>n.category))).sort();
+              const out = catNames.map(c=>({name:c, items:catItems.filter(n=>n.category===c)}));
+              if (uncatItems.length > 0) out.push({name:"Sin categoría", items:uncatItems});
+              return out;
+            })();
+            const renderNegCard = (n)=>{
               const st=getNegStatus(n.status);
               const owner=members.find(m=>m.id===n.ownerId);
               const mp2=MP[owner?.id]||MP[0];
@@ -7984,6 +8066,7 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
                         <div style={{fontSize:16,fontWeight:600,color:"#111827"}}>{n.title}</div>
                         {alertLevel==="critical"&&<span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:10,background:"#FEE2E2",border:"1px solid #FCA5A5",color:"#B91C1C"}}>🚨 Crítico</span>}
                         {alertLevel==="warning"&&<span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:10,background:"#FEF3C7",border:"1px solid #FCD34D",color:"#92400E"}}>⚠️ Atención</span>}
+                        {n.category && <span title={`Categoría: ${n.category}`} style={{fontSize:9.5,fontWeight:700,padding:"2px 7px",borderRadius:0,background:"#FBF6E6",color:"#876C1E",border:"0.5px solid #C9A84C",textTransform:"uppercase",letterSpacing:"0.04em"}}>{n.category}</span>}
                       </div>
                       <div style={{fontSize:12,color:"#6b7280"}}>Contraparte: <b style={{color:"#374151"}}>{n.counterparty}</b>{n.value!=null&&<> · <b style={{color:"#059669"}}>{Number(n.value).toLocaleString("es-ES")} {n.currency||"EUR"}</b></>}</div>
                     </div>
@@ -8049,8 +8132,24 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
                   </div>
                 </div>
               );
-            })}
-          </div>}
+            };
+            return (
+              <div style={{display:"flex",flexDirection:"column",gap:24}}>
+                {sections.map(({name,items})=>(
+                  <div key={name||"__flat__"}>
+                    {name && (
+                      <div style={{fontSize:11,letterSpacing:"3px",color:name==="Sin categoría"?"#9B9B9B":"#876C1E",textTransform:"uppercase",marginBottom:12,fontWeight:600}}>
+                        {name} <span style={{color:"#9B9B9B",fontWeight:500,letterSpacing:"0.04em"}}>({items.length})</span>
+                      </div>
+                    )}
+                    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                      {items.map(n=>renderNegCard(n))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
     </div>
   );
 }
