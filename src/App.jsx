@@ -7852,20 +7852,125 @@ function AddNoteModal({initialNote,onClose,onSave,onDelete}){
 }
 
 // Vista principal: lista de negociaciones con filtros.
+// Sanitización HTML: escapa caracteres antes de transformar markdown,
+// así cualquier <script>/etc del CEO queda como texto y no se ejecuta.
+function escapeHtmlForMarkdown(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// Parser markdown mínimo inline (sin dependencias). Cubre el subset que
+// usa Héctor: **bold**, *italic*, `code`, [text](url), listas - y 1.,
+// encabezados # ## ###, párrafos por doble newline, <br> por single.
+// Salida pensada para dangerouslySetInnerHTML — la entrada está
+// escape-eada antes, así los únicos tags emitidos son los del propio
+// parser (whitelist implícita por construcción).
+function renderMarkdownToHtml(text) {
+  if (!text) return "";
+  let t = escapeHtmlForMarkdown(text);
+
+  // Headings (line-based, antes de listas para no comerse el "#").
+  t = t.replace(/^### (.+)$/gm, "<h4>$1</h4>");
+  t = t.replace(/^## (.+)$/gm, "<h3>$1</h3>");
+  t = t.replace(/^# (.+)$/gm, "<h2>$1</h2>");
+
+  // Listas line-by-line con state tracker. Iteramos para abrir/cerrar
+  // <ul>/<ol> de forma equilibrada.
+  const lines = t.split(/\r?\n/);
+  const out = [];
+  let inUl = false, inOl = false;
+  const closeLists = () => {
+    if (inUl) { out.push("</ul>"); inUl = false; }
+    if (inOl) { out.push("</ol>"); inOl = false; }
+  };
+  for (const line of lines) {
+    const ulMatch = line.match(/^\s*[-*]\s+(.*)$/);
+    const olMatch = line.match(/^\s*\d+\.\s+(.*)$/);
+    if (ulMatch) {
+      if (inOl) { out.push("</ol>"); inOl = false; }
+      if (!inUl) { out.push("<ul>"); inUl = true; }
+      out.push(`<li>${ulMatch[1]}</li>`);
+    } else if (olMatch) {
+      if (inUl) { out.push("</ul>"); inUl = false; }
+      if (!inOl) { out.push("<ol>"); inOl = true; }
+      out.push(`<li>${olMatch[1]}</li>`);
+    } else {
+      closeLists();
+      out.push(line);
+    }
+  }
+  closeLists();
+  t = out.join("\n");
+
+  // Inline formatting — bold antes que italic para evitar que *bold* se
+  // coma el wrapper de italic.
+  t = t.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  t = t.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
+  t = t.replace(/(^|[^\w*])\*([^*\n]+)\*(?!\w)/g, "$1<em>$2</em>");
+  t = t.replace(/(^|[^\w_])_([^_\n]+)_(?!\w)/g, "$1<em>$2</em>");
+  t = t.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  // Links — sólo http(s) para no permitir javascript: u otros esquemas.
+  t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+  // Párrafos: doble newline separa bloques. Bloques que ya son listas o
+  // encabezados se dejan tal cual; los demás van envueltos en <p> con
+  // <br> para single-newlines internas.
+  const blocks = t.split(/\n{2,}/);
+  t = blocks.map(b => {
+    const trimmed = b.trim();
+    if (!trimmed) return "";
+    if (/^<(h\d|ul|ol|blockquote|p)\b/.test(trimmed)) return trimmed;
+    return `<p>${trimmed.replace(/\n/g, "<br>")}</p>`;
+  }).filter(Boolean).join("");
+  return t;
+}
+
+// Para previews colapsadas: quita la sintaxis markdown y deja texto
+// plano de una sola línea, ideal para chips/cards cortas.
+function stripMarkdownForPreview(text) {
+  if (!text) return "";
+  return String(text)
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/__([^_\n]+)__/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/(^|[^\w_])_([^_\n]+)_(?!\w)/g, "$1$2")
+    .replace(/^\s*#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\s*\n+\s*/g, " ")
+    .trim();
+}
+
 // Descripción colapsable de card de negociación. Estado de expansión
 // local por card (cada instancia mantiene el suyo). Si el texto cabe en
-// el límite, se renderiza completo sin botón.
+// el límite, se renderiza completo sin botón. El preview corto va como
+// texto plano (stripMarkdownForPreview) para no ensuciar la card; al
+// expandir, se renderiza markdown completo con renderMarkdownToHtml.
 function NegDescription({ text }) {
   const [expanded, setExpanded] = React.useState(false);
   if (!text) return null;
   const LIMIT = 150;
-  const needsCollapse = text.length > LIMIT;
+  const plain = stripMarkdownForPreview(text);
+  const needsCollapse = plain.length > LIMIT;
   if (!needsCollapse) {
-    return <div style={{fontSize:13,color:"#4B5563",lineHeight:1.5,marginBottom:6}}>{text}</div>;
+    return (
+      <div
+        style={{fontSize:13,color:"#4B5563",lineHeight:1.5,marginBottom:6}}
+        dangerouslySetInnerHTML={{__html: renderMarkdownToHtml(text)}}
+      />
+    );
   }
   return (
-    <div style={{fontSize:13,color:"#4B5563",lineHeight:1.5,marginBottom:6}}>
-      {expanded ? text : text.slice(0, LIMIT).trimEnd() + "…"}
+    <div style={{fontSize:13,color:"#4B5563",lineHeight:1.5,marginBottom:6}} onClick={e=>e.stopPropagation()}>
+      {expanded
+        ? <div dangerouslySetInnerHTML={{__html: renderMarkdownToHtml(text)}}/>
+        : <span>{plain.slice(0, LIMIT).trimEnd() + "…"}</span>}
       <button
         onClick={e=>{ e.stopPropagation(); setExpanded(v=>!v); }}
         style={{background:"transparent",border:"none",color:"#C9A84C",cursor:"pointer",fontSize:13,fontFamily:"inherit",padding:0,marginLeft:6,fontWeight:600}}
@@ -8517,7 +8622,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
         </div>
         <div style={{fontSize:13,color:"#6b7280"}}>Contraparte: <b style={{color:"#374151"}}>{negotiation.counterparty}</b>{negotiation.value!=null&&<> · <b style={{color:"#059669"}}>{Number(negotiation.value).toLocaleString("es-ES")} {negotiation.currency||"EUR"}</b></>}{owner&&<> · Responsable: <b style={{color:"#374151"}}>{owner.name}</b></>}</div>
       </div>
-      {negotiation.description&&<div data-mobile-section="negociacion" style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13,color:"#4B5563",lineHeight:1.6,whiteSpace:"pre-wrap"}}>{negotiation.description}</div>}
+      {negotiation.description&&<div data-mobile-section="negociacion" style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:10,padding:"12px 14px",marginBottom:16,fontSize:13,color:"#4B5563",lineHeight:1.6}} dangerouslySetInnerHTML={{__html: renderMarkdownToHtml(negotiation.description)}}/>}
       <div data-mobile-section="negociacion" style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
         <button onClick={onCreateSession} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nueva sesión</button>
         <button onClick={()=>onEditNeg(negotiation)} data-neg="header-btn" style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar negociación</button>
