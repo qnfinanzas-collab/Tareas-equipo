@@ -7982,7 +7982,7 @@ function NegDescription({ text }) {
 function DealRoomView({negotiations,members,projects,workspaces,currentMember,filter,onSetFilter,onCreate,onOpen,onEdit,onArchive,onUnarchive}){
   const [showArchived,setShowArchived] = React.useState(false);
   const [categoryFilter,setCategoryFilter] = React.useState(null);
-  const [groupByCategory,setGroupByCategory] = React.useState(false);
+  const [groupByCategory,setGroupByCategory] = React.useState(true);
   // Guard: hasta tener miembro resuelto, no rendereamos nada — evita el
   // flash de negociaciones ajenas que ocurría con el redirect tardío.
   if (!currentMember) {
