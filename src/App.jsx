@@ -813,6 +813,9 @@ function _migrate(d){
   // dispositivos del mismo workspace) por decisión del CEO; si en el
   // futuro se quiere per-user, basta migrar este array a member.X.
   if(!Array.isArray(d.favoriteProjectIds)) d.favoriteProjectIds = [];
+  // Favoritos de negociaciones — mismo patrón global por workspace que
+  // favoriteProjectIds. Backfill blando para filas antiguas.
+  if(!Array.isArray(d.favoriteNegotiationIds)) d.favoriteNegotiationIds = [];
   // Commit 29: backfill emoji en negociaciones. Si no tiene emoji,
   // calculamos uno con la heurística y marcamos _emojiAuto=true para
   // que se recalcule automáticamente cuando cambie el título.
@@ -7979,7 +7982,7 @@ function NegDescription({ text }) {
   );
 }
 
-function DealRoomView({negotiations,members,projects,workspaces,currentMember,filter,onSetFilter,onCreate,onOpen,onEdit,onArchive,onUnarchive}){
+function DealRoomView({negotiations,members,projects,workspaces,currentMember,filter,onSetFilter,onCreate,onOpen,onEdit,onArchive,onUnarchive,favoriteNegotiationIds=[],onToggleFavorite}){
   const [showArchived,setShowArchived] = React.useState(false);
   const [categoryFilter,setCategoryFilter] = React.useState(null);
   const [groupByCategory,setGroupByCategory] = React.useState(true);
@@ -8021,6 +8024,12 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
       ? filteredByStatus.filter(n=>!n?.category)
       : filteredByStatus.filter(n=>n?.category===categoryFilter);
   const counts = NEG_STATUSES.reduce((o,s)=>{o[s.id]=visibleNegotiations.filter(n=>n.status===s.id).length;return o;},{all:visibleNegotiations.length});
+  // Favoritos — mismo patrón que ProjectsView. favEntries va arriba en
+  // su propia sección; restForGrouping alimenta el grouping por
+  // categoría sin duplicar los que ya están en favoritos.
+  const favSet = new Set(favoriteNegotiationIds || []);
+  const favEntries = filtered.filter(n=>favSet.has(n.id));
+  const restForGrouping = filtered.filter(n=>!favSet.has(n.id));
   // Empty state prominente cuando el miembro no ve ninguna negociación —
   // CTA dedicado en lugar del banner dashed dentro del listado.
   if (visibleNegotiations.length === 0) {
@@ -8162,10 +8171,12 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
             // Cuando groupByCategory es true, dividimos el listado filtrado
             // en secciones por category (con "Sin categoría" al final).
             // Mismo patrón visual que ProjectsView pero como toggle opcional.
+            // sections SIEMPRE excluye favoritos — esos viven en su propia
+            // sección oro arriba del listado, no se duplican en categorías.
             const sections = (() => {
-              if (!groupByCategory) return [{name:null, items:filtered}];
-              const catItems = filtered.filter(n=>n?.category);
-              const uncatItems = filtered.filter(n=>!n?.category);
+              if (!groupByCategory) return [{name:null, items:restForGrouping}];
+              const catItems = restForGrouping.filter(n=>n?.category);
+              const uncatItems = restForGrouping.filter(n=>!n?.category);
               const catNames = Array.from(new Set(catItems.map(n=>n.category))).sort();
               const out = catNames.map(c=>({name:c, items:catItems.filter(n=>n.category===c)}));
               if (uncatItems.length > 0) out.push({name:"Sin categoría", items:uncatItems});
@@ -8197,15 +8208,22 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
                       </div>
                       <div style={{fontSize:12,color:"#6b7280"}}>Contraparte: <b style={{color:"#374151"}}>{n.counterparty}</b>{n.value!=null&&<> · <b style={{color:"#059669"}}>{Number(n.value).toLocaleString("es-ES")} {n.currency||"EUR"}</b></>}</div>
                     </div>
-                    <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+                    <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}} onClick={e=>e.stopPropagation()}>
                       <span style={{fontSize:11,fontWeight:600,padding:"3px 9px",borderRadius:14,background:st.color+"18",color:st.color}}>{st.label}</span>
+                      {onToggleFavorite && (
+                        <button
+                          onClick={()=>onToggleFavorite(n.id)}
+                          title={favSet.has(n.id) ? "Quitar de favoritos" : "Marcar como favorito"}
+                          style={{background:"transparent",border:"none",fontSize:22,cursor:"pointer",color:"#C9A84C",opacity: favSet.has(n.id) ? 1 : 0.3,padding:6,lineHeight:1,transition:"opacity 0.2s ease",fontFamily:"inherit"}}
+                        >★</button>
+                      )}
                       {showArchived && onUnarchive
                         ? <button
-                            onClick={e=>{e.stopPropagation(); onUnarchive(n.id);}}
+                            onClick={()=>onUnarchive(n.id)}
                             title="Restaurar negociación"
                             style={{padding:"4px 10px",background:"transparent",border:"0.5px solid #1D9E75",borderRadius:0,fontSize:11,color:"#1D9E75",cursor:"pointer",fontFamily:"inherit",fontWeight:600}}
                           >↩ Restaurar</button>
-                        : <button onClick={e=>{e.stopPropagation();onEdit(n);}} title="Editar" style={{background:"none",border:"none",fontSize:13,cursor:"pointer",color:"#9ca3af"}}>✏️</button>}
+                        : <button onClick={()=>onEdit(n)} title="Editar" style={{background:"none",border:"none",fontSize:13,cursor:"pointer",color:"#9ca3af"}}>✏️</button>}
                     </div>
                   </div>
                   <NegDescription text={n.description}/>
@@ -8262,6 +8280,20 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
             };
             return (
               <div style={{display:"flex",flexDirection:"column",gap:24}}>
+                {/* Sección ★ Favoritos — siempre primero. Mezcla
+                    negociaciones de cualquier categoría que estén
+                    marcadas como favoritas. Mismo patrón visual que
+                    la sección Favoritos de ProjectsView. */}
+                {favEntries.length > 0 && (
+                  <div style={{paddingBottom:24,borderBottom:"0.5px solid #E5E0D5"}}>
+                    <div style={{fontSize:11,letterSpacing:"3px",color:"#C9A84C",textTransform:"uppercase",marginBottom:12,fontWeight:600}}>
+                      ★ Favoritos <span style={{color:"#9B9B9B",fontWeight:500,letterSpacing:"0.04em"}}>({favEntries.length})</span>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                      {favEntries.map(n=>renderNegCard(n))}
+                    </div>
+                  </div>
+                )}
                 {sections.map(({name,items})=>(
                   <div key={name||"__flat__"}>
                     {name && (
@@ -11399,6 +11431,19 @@ export default function TaskFlow(){
       return { ...prev, favoriteProjectIds: newFavs };
     });
   }, [addToast]);
+  // Mismo patrón que toggleFavoriteProject. Sin guard de permisos —
+  // favorito es preferencia personal del workspace. El array vive en
+  // data.favoriteNegotiationIds (string ids: las negs usan _uid("neg")).
+  const toggleFavoriteNegotiation = useCallback((negId) => {
+    setData(prev => {
+      const favs = Array.isArray(prev.favoriteNegotiationIds) ? prev.favoriteNegotiationIds : [];
+      const newFavs = favs.includes(negId) ? favs.filter(f => f !== negId) : [...favs, negId];
+      if (newFavs.length > 8) {
+        addToast("Tienes muchas negociaciones favoritas — el panel se está llenando", "info");
+      }
+      return { ...prev, favoriteNegotiationIds: newFavs };
+    });
+  }, [addToast]);
   const applyTaskChanges = useCallback((taskId, partial, meta = {}) => {
     if (!taskId || !partial || typeof partial !== "object") return;
     setData(prev => {
@@ -13818,6 +13863,8 @@ export default function TaskFlow(){
               onEdit={n=>setNegModal(n)}
               onArchive={archiveNegotiation}
               onUnarchive={unarchiveNegotiation}
+              favoriteNegotiationIds={data.favoriteNegotiationIds||[]}
+              onToggleFavorite={toggleFavoriteNegotiation}
             />;
           })()}
           {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext}/>}
