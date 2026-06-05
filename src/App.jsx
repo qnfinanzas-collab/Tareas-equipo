@@ -1162,6 +1162,31 @@ function _migrate(d){
     }
     return { ...m, email: m.email || "", accountRole: m.accountRole || "member" };
   });
+  // Fase 1 El Umbral — ID visible de socio (KX-NNN). Backfill blando:
+  // a cada miembro sin code le asignamos uno secuencial usando el patrón
+  // nextSeqCode (mismo que NEG-/WSP-/MNT-). Orden estable: por id local
+  // existente, ya que el id determina el sort visual histórico. Inmutable
+  // una vez asignado — el code persiste en data.members[].code.
+  {
+    const ordered = [...d.members].sort((a,b)=>(a.id||0)-(b.id||0));
+    let maxN = 0;
+    ordered.forEach(m=>{
+      if(typeof m.code==="string" && m.code.startsWith("KX-")){
+        const n = parseInt(m.code.slice(3), 10);
+        if(Number.isFinite(n) && n>maxN) maxN = n;
+      }
+    });
+    const byId = new Map();
+    ordered.forEach(m=>{
+      if(m.code && typeof m.code==="string" && m.code.startsWith("KX-")){
+        byId.set(m.id, m.code);
+      } else {
+        maxN += 1;
+        byId.set(m.id, "KX-" + String(maxN).padStart(3,"0"));
+      }
+    });
+    d.members = d.members.map(m => byId.has(m.id) && !m.code ? { ...m, code: byId.get(m.id) } : m);
+  }
   d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>{
     // Migración timeline: si existen comments antiguos y no hay timeline,
     // mapeamos cada comment a una entrada de tipo "human". Idempotente:
@@ -3500,7 +3525,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                           const cur=draft.assignees||[];
                           const nxt=sel?cur.filter(x=>x!==m.id):[...cur,m.id];
                           set("assignees",nxt);
-                        }} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px 4px 4px",borderRadius:20,border:`1.5px solid ${sel?mp2.solid:"#e5e7eb"}`,background:sel?mp2.light:"#fff",cursor:"pointer",fontFamily:"inherit"}}>
+                        }} title={m.code ? `${m.name} · ${m.code}` : m.name} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px 4px 4px",borderRadius:20,border:`1.5px solid ${sel?mp2.solid:"#e5e7eb"}`,background:sel?mp2.light:"#fff",cursor:"pointer",fontFamily:"inherit"}}>
                           <div style={{width:22,height:22,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{m.initials}</div>
                           <span style={{fontSize:12,fontWeight:600,color:sel?mp2.solid:"#6b7280"}}>{m.name.split(" ")[0]}</span>
                           {sel&&<span style={{fontSize:10,color:mp2.solid}}>✓</span>}
@@ -5113,7 +5138,7 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
                 <div style={{marginTop:10,paddingTop:10,borderTop:"0.5px dashed #E5E7EB",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <select value={transferTarget} onChange={e=>setTransferTarget(e.target.value)} style={{flex:1,minWidth:160,padding:"5px 8px",borderRadius:6,border:"0.5px solid #D1D5DB",fontSize:12,fontFamily:"inherit",background:"#fff"}}>
                     <option value="">— Selecciona nuevo owner —</option>
-                    {(members||[]).filter(m=>m.id!==project.ownerId).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                    {(members||[]).filter(m=>m.id!==project.ownerId).map(m=><option key={m.id} value={m.id}>{m.code ? `${m.name} · ${m.code}` : m.name}</option>)}
                   </select>
                   <button
                     disabled={!transferTarget}
@@ -6060,7 +6085,10 @@ function UsersView({members,projects,permissions,onEdit,onCreate,onDelete,onSetP
               <div style={{display:"flex",alignItems:"flex-start",gap:12,marginBottom:12}}>
                 <div style={{width:44,height:44,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,flexShrink:0}}>{m.initials}</div>
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:14,fontWeight:600,color:mp2.solid,marginBottom:2}}>{m.name}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2,flexWrap:"wrap"}}>
+                    <div style={{fontSize:14,fontWeight:600,color:mp2.solid}}>{m.name}</div>
+                    <RefBadge code={m.code} title="ID de socio (inmutable)"/>
+                  </div>
                   <div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.email}</div>
                   <div style={{display:"flex",gap:5,marginTop:5,flexWrap:"wrap"}}>
                     <span style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:rc.bg,color:rc.text,fontWeight:600}}>{m.role}</span>
@@ -7488,7 +7516,7 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
                 <div style={{marginTop:10,paddingTop:10,borderTop:"0.5px dashed #ECF0F1",display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                   <select value={transferTarget} onChange={e=>setTransferTarget(e.target.value)} style={{flex:1,minWidth:160,padding:"5px 8px",borderRadius:6,border:"0.5px solid #D1D5DB",fontSize:12,fontFamily:"inherit",background:"#fff"}}>
                     <option value="">— Selecciona nuevo owner —</option>
-                    {(members||[]).filter(m=>m.id!==negotiation.ownerId).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
+                    {(members||[]).filter(m=>m.id!==negotiation.ownerId).map(m=><option key={m.id} value={m.id}>{m.code ? `${m.name} · ${m.code}` : m.name}</option>)}
                   </select>
                   <button
                     disabled={!transferTarget}
@@ -11222,7 +11250,9 @@ export default function TaskFlow(){
     setData(prev=>{
       const id = prev.members.length > 0 ? Math.max(...prev.members.map(m=>m.id)) + 1 : 0;
       if(_color) MP[id] = { solid:_color, light:_color+"22", cardBorder:_color, cardBg:_color+"11" };
-      return { ...prev, members:[...prev.members, {id,name,email,role,initials,avail}] };
+      // Fase 1 El Umbral — code visible KX-NNN, mismo patrón que NEG-/WSP-.
+      const code = nextSeqCode("KX-", prev.members);
+      return { ...prev, members:[...prev.members, {id,code,name,email,role,initials,avail}] };
     });
     setMemberModal(null);
     addToast("✓ Usuario creado");
