@@ -1122,9 +1122,12 @@ function _migrate(d){
   //   (id 6 = Antonio) — así los proyectos seed no quedan huérfanos.
   // - createdBy: si no había, asume mismo que ownerId.
   // - createdAt: ISO de ahora si no existía.
-  // - visibility: "team" para datos antiguos (mantiene el comportamiento
-  //   previo donde cualquier usuario con sidebar visible accedía). Los
-  //   proyectos nuevos creados desde createProject empiezan en "private".
+  // - visibility: "private" por defecto. El backfill previo asignaba "team"
+  //   para preservar visibilidad histórica del trio admin/Marc/Albert.
+  //   Tras El Umbral (opción B), se privatiza todo: cualquier "team"
+  //   legacy se migra a "private" (idempotente — segunda pasada no toca
+  //   nada). Los miembros solo ven recursos donde están explícitamente
+  //   en members[] (o son owner). Reasignaciones a mano por el admin.
   d.projects = (d.projects||[]).map(p=>{
     const out = {...p, workspaceId: p.workspaceId ?? null};
     if (out.ownerId == null) {
@@ -1134,7 +1137,9 @@ function _migrate(d){
     }
     if (out.createdBy == null) out.createdBy = out.ownerId;
     if (!out.createdAt)        out.createdAt = new Date().toISOString();
-    if (!out.visibility)       out.visibility = "team";
+    // Blindaje El Umbral FASE 1: cualquier visibility distinto de "private"
+    // se normaliza. Idempotente — segunda pasada no toca nada.
+    if (out.visibility !== "private") out.visibility = "private";
     return out;
   });
   // Auth: backfill email + accountRole + supabaseUid en members. Mapping
@@ -1277,28 +1282,31 @@ function _migrate(d){
     });
   }
   // Backfill documents[] en negociaciones (upload + informes de análisis).
-  // Backfill propiedad/visibilidad/miembros: para datos antiguos el visibility
-  // queda en "team" (mantener acceso actual del equipo), createdBy = ownerId
-  // si no estaba, members = [] si nunca se asignó. Las negociaciones nuevas
-  // creadas desde createNegotiation arrancan en "private" e incluyen al
-  // creador en members[]. Idempotente.
-  d.negotiations = d.negotiations.map(n=>({
-    ...n,
-    documents: n.documents||[],
-    result: n.result || null,
-    memory: n.memory ? {
-      keyFacts:      Array.isArray(n.memory.keyFacts)      ? n.memory.keyFacts      : [],
-      agreements:    Array.isArray(n.memory.agreements)    ? n.memory.agreements    : [],
-      redFlags:      Array.isArray(n.memory.redFlags)      ? n.memory.redFlags      : [],
-      chatSummaries: Array.isArray(n.memory.chatSummaries) ? n.memory.chatSummaries : [],
-      updatedAt:     n.memory.updatedAt || null,
-    } : {...emptyNegMemory(), chatSummaries:[]},
-    ownerId:    n.ownerId != null ? n.ownerId : 6,
-    createdBy:  n.createdBy != null ? n.createdBy : (n.ownerId != null ? n.ownerId : 6),
-    createdAt:  n.createdAt || new Date().toISOString(),
-    visibility: n.visibility || "team",
-    members:    Array.isArray(n.members) ? n.members : [],
-  }));
+  // Backfill propiedad/visibilidad/miembros. Tras El Umbral (opción B), el
+  // default es "private" y cualquier "team" legacy se migra a "private"
+  // (idempotente — la segunda pasada no toca nada). createdBy = ownerId
+  // si no estaba, members = [] si nunca se asignó. Reasignaciones a mano
+  // por el admin después del deploy.
+  d.negotiations = d.negotiations.map(n=>{
+    const baseVis = n.visibility || "private";
+    return {
+      ...n,
+      documents: n.documents||[],
+      result: n.result || null,
+      memory: n.memory ? {
+        keyFacts:      Array.isArray(n.memory.keyFacts)      ? n.memory.keyFacts      : [],
+        agreements:    Array.isArray(n.memory.agreements)    ? n.memory.agreements    : [],
+        redFlags:      Array.isArray(n.memory.redFlags)      ? n.memory.redFlags      : [],
+        chatSummaries: Array.isArray(n.memory.chatSummaries) ? n.memory.chatSummaries : [],
+        updatedAt:     n.memory.updatedAt || null,
+      } : {...emptyNegMemory(), chatSummaries:[]},
+      ownerId:    n.ownerId != null ? n.ownerId : 6,
+      createdBy:  n.createdBy != null ? n.createdBy : (n.ownerId != null ? n.ownerId : 6),
+      createdAt:  n.createdAt || new Date().toISOString(),
+      visibility: "private", // El Umbral FASE 1: blindaje, sin excepciones.
+      members:    Array.isArray(n.members) ? n.members : [],
+    };
+  });
   // Memoria global del CEO (nivel app).
   d.ceoMemory = d.ceoMemory ? {
     preferences: Array.isArray(d.ceoMemory.preferences) ? d.ceoMemory.preferences : [],
@@ -1700,7 +1708,7 @@ function seedRegistroKluxor(d){
       createdBy: adminId,
       createdAt: nowIso,
       updatedAt: nowIso,
-      visibility: "team",
+      visibility: "private",
       members: [adminId, marcId],
       projectId: PROJ_ID,
       agentId: null,
@@ -5100,26 +5108,11 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
               .filter(c=>typeof c==="string" && c.trim())
             )).sort().map(c=><option key={c} value={c}/>)}
           </datalist>
-          <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>Visibilidad del proyecto</div>
-          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
-            {[
-              {key:"private", icon:"🔒", label:"Privado", desc:"Solo tú y los miembros invitados"},
-              {key:"team",    icon:"👥", label:"Equipo",  desc:"Todos pueden verlo, solo miembros editan"},
-              {key:"public",  icon:"🌍", label:"Público", desc:"Visible para toda la organización"},
-            ].map(opt=>{
-              const active = visibility===opt.key;
-              return (
-                <label key={opt.key} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:8,border:`1.5px solid ${active?color:"#e5e7eb"}`,background:active?`${color}10`:"#fff",cursor:"pointer"}}>
-                  <input type="radio" name="visibility" value={opt.key} checked={active} onChange={()=>setVisibility(opt.key)} style={{margin:0,accentColor:color}}/>
-                  <span style={{fontSize:14}}>{opt.icon}</span>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:active?700:500,color:active?color:"#374151"}}>{opt.label}</div>
-                    <div style={{fontSize:11,color:"#7F8C8D"}}>{opt.desc}</div>
-                  </div>
-                </label>
-              );
-            })}
-          </div>
+          {/* Selector de visibilidad eliminado (El Umbral, FASE 1). Todo
+              recurso es 🔒 privado. Compartir = añadir miembros a members[].
+              El campo `visibility` sigue existiendo en el state local con
+              valor "private" para no romper la firma de save() y los
+              llamados a updateProject / createProject. */}
           {isEdit && owner && (
             <div style={{padding:"10px 12px",borderRadius:8,background:"#F9FAFB",border:"0.5px solid #E5E7EB",marginBottom:16,fontSize:12}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
@@ -7473,28 +7466,10 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
             )).sort().map(c=><option key={c} value={c}/>)}
           </datalist>
 
-          {/* Visibilidad — controla quién puede VER la negociación. La edición
-              sigue gateada por canEditDeal (owner/miembros/admin) en server. */}
-          <FL c="Visibilidad"/>
-          <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:8}}>
-            {[
-              {key:"private", icon:"🔒", label:"Privada", desc:"Solo tú y los miembros invitados"},
-              {key:"team",    icon:"👥", label:"Equipo",  desc:"Todos pueden ver, solo miembros editan"},
-              {key:"public",  icon:"🌍", label:"Pública", desc:"Visible para toda la organización"},
-            ].map(opt=>{
-              const active = visibility===opt.key;
-              return (
-                <label key={opt.key} style={{display:"flex",alignItems:"center",gap:10,padding:"12px",borderRadius:8,border:`1.5px solid ${active?"#3B82F6":"#ECF0F1"}`,background:active?"#3B82F610":"#fff",cursor:"pointer",marginBottom:4}}>
-                  <input type="radio" name="neg-visibility" value={opt.key} checked={active} onChange={()=>setVisibility(opt.key)} style={{margin:0,accentColor:"#3B82F6"}}/>
-                  <span style={{fontSize:14}}>{opt.icon}</span>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:13,fontWeight:active?700:500,color:active?"#1E40AF":"#374151"}}>{opt.label}</div>
-                    <div style={{fontSize:11,color:"#7F8C8D"}}>{opt.desc}</div>
-                  </div>
-                </label>
-              );
-            })}
-          </div>
+          {/* Selector de visibilidad eliminado (El Umbral, FASE 1). Toda
+              negociación es 🔒 privada. Compartir = añadir miembros a
+              members[]. El campo `visibility` permanece en el state local
+              con valor "private" para no romper la firma de buildPayload. */}
 
           {/* Propiedad — read-only en edición. Solo el owner (o admin global)
               puede transferir a otro miembro. Mismo patrón que ProjectModal. */}
@@ -12726,7 +12701,7 @@ export default function TaskFlow(){
         createdBy:  activeMember,
         createdAt:  now,
         updatedAt:  now,
-        visibility: payload.visibility || "private",
+        visibility: "private", // El Umbral FASE 1: forzado, sin selector UI.
         members:    finalMembers,
         sessions:   [],
       }]};
@@ -13119,7 +13094,7 @@ export default function TaskFlow(){
         ownerId: activeMember,
         createdBy: activeMember,
         createdAt: new Date().toISOString(),
-        visibility: visibility || "private",
+        visibility: "private", // El Umbral FASE 1: forzado, sin selector UI.
         archived: false,
         category: (typeof category === "string" && category.trim()) ? category.trim() : null,
       }],boards:{...prev.boards,[id]:cols}};
@@ -13336,7 +13311,7 @@ export default function TaskFlow(){
       // otro proyecto distinto. En caso contrario, mantenemos el actual.
       const codeIsFree = isValidProjectCode(code) && !prev.projects.some((x,i)=>i!==idx && x.code===code);
       const finalCode = codeIsFree ? code : p.code;
-      const finalVisibility = (visibility==="private"||visibility==="team"||visibility==="public") ? visibility : p.visibility;
+      const finalVisibility = "private"; // El Umbral FASE 1: edit no toca visibility.
       // Normalize category: string non-vacío o null. Si la prop no viene
       // (caller antiguo) preservamos el valor actual del proyecto.
       const finalCategory = (typeof category === "undefined")

@@ -660,7 +660,7 @@ export function executeAgentActions(actions, helpers) {
             members: memberIds,
             columns: ["Por hacer", "En progreso", "Hecho"],
             workspaceId: action.workspaceId ?? null,
-            visibility: action.visibility || "private",
+            visibility: "private", // El Umbral FASE 1: forzado.
           });
           const realCode = (result && typeof result === "object" && result.code) ? result.code : code;
           const realId   = (result && typeof result === "object" && result.id != null) ? result.id : result;
@@ -764,7 +764,7 @@ export function executeAgentActions(actions, helpers) {
             value: null, currency: "EUR",
             description: action.notes || action.description || "",
             ownerId: adminMemberId,
-            visibility: action.visibility || "team",
+            visibility: "private", // El Umbral FASE 1: forzado.
             members: memberIds,
             projectId: primaryProj?.id || null,
             agentId: null,
