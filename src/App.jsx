@@ -4964,7 +4964,9 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
   const [code,setCode]=useState(project?.code||"");
   const [sel,setSel]=useState(project?.members||[]);
   const [workspaceId,setWorkspaceId]=useState(project?.workspaceId??null);
-  const [visibility,setVisibility]=useState(project?.visibility || "private");
+  // El Umbral FASE 1: visibility ya no es state — siempre "private". El
+  // selector UI se eliminó; el campo persiste como literal en save().
+  const visibility = "private";
   // Categoría personalizada del proyecto. Texto libre — el CEO escribe
   // o autocompleta desde el datalist con categorías que ya existen en
   // otros proyectos. Trim + nullify cadenas vacías para no introducir
@@ -7277,7 +7279,10 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
   // (createNegotiation fuerza activeMember); para edición solo cambia vía
   // botón "Transferir propiedad". El selector libre anterior se eliminó.
   const [ownerId]              = useState(negotiation?.ownerId ?? (currentMember?.id ?? members[0]?.id ?? 0));
-  const [visibility,setVisibility] = useState(negotiation?.visibility || "private");
+  // El Umbral FASE 1: visibility ya no es state — siempre "private". El
+  // selector UI se eliminó; el campo persiste como literal en buildPayload
+  // e initialSnap. Sin useState evita cualquier riesgo de setter colgando.
+  const visibility = "private";
   // Miembros con permiso de edición (semántica equivalente a project.members).
   // En creación arrancamos con el currentMember para que el creador siempre
   // figure como miembro inicial. En edición se respeta lo que ya hubiera.
