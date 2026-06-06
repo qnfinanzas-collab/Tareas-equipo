@@ -4398,182 +4398,64 @@ function timeAgoDate(dateStr){
 }
 
 // ── Home View (panel de mandos tras login) ────────────────────────────────────
-function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onToast,onOpenTask}){
-  const [expandedCard,setExpandedCard] = useState(null);
-  const toggleExpand = (id)=>setExpandedCard(c=>c===id?null:id);
+// Escaparate completo del sistema. Cards agrupadas en 5 bloques con la misma
+// estructura que el menú lateral. Microcopy operativa, paleta sobria, oro
+// como acento. Filtrado por permisos idéntico al sidebar.
+function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavigate,onOpenTask}){
   const me=data.members.find(m=>m.id===activeMember);
   const firstName=me?.name.split(" ")[0]||"";
 
-  // Stats dinámicos personalizados por usuario activo.
-  const today=fmt(TODAY);
-  const horizonEnd=(()=>{ const d=new Date(TODAY); d.setDate(d.getDate()+PLAN_HORIZON_DAYS); return fmt(d); })();
-  const weekFrom=(()=>{ const d=new Date(TODAY); d.setDate(d.getDate()-7); return fmt(d); })();
-  const allMyTasks=[]; const myProjIds=new Set();
-  Object.entries(data.boards||{}).forEach(([pid,cols])=>cols.forEach(c=>c.tasks.forEach(t=>{
-    if(t.assignees?.includes(activeMember)){ allMyTasks.push(t); myProjIds.add(Number(pid)); }
-  })));
-  const scheduledMine=(data.aiSchedule||[]).filter(s=>s.memberId===activeMember&&s.date>=today&&s.date<=horizonEnd).length;
-  const myWorkspaces=(data.workspaces||[]).filter(w=>data.projects.some(p=>p.workspaceId===w.id&&p.members?.includes(activeMember)));
-  const weekSeconds=Object.values(data.boards||{}).flatMap(cols=>cols.flatMap(c=>c.tasks.flatMap(t=>(t.timeLogs||[])))).filter(l=>l.memberId===activeMember&&l.date>=weekFrom&&l.date<=today).reduce((s,l)=>s+l.seconds,0);
-  const weekHours=(weekSeconds/3600).toFixed(1);
-  const projectsCount=data.projects.length;
-  const workspacesCount=(data.workspaces||[]).length;
-  const agentsCount=(data.agents||[]).length;
-
-  const showVideoToast=(label)=>()=>onToast?.(`📹 ${label} — próximamente`,"info");
-
-  // Datasets para cards expandibles ─ se calculan una sola vez por render.
-  const dashCritical=[], myTasks=[];
-  Object.entries(data.boards||{}).forEach(([pid,cols])=>{
-    const proj=data.projects.find(p=>p.id===Number(pid));
-    cols.forEach(col=>{
-      col.tasks.forEach(t=>{
-        if(!t.assignees?.includes(activeMember)) return;
-        const base={id:t.id,title:t.title,projId:Number(pid),projName:proj?.name||"",projEmoji:proj?.emoji||"📋"};
-        myTasks.push({...base,status:col.name,_startDate:t.startDate||""});
-        if(col.name==="Hecho") return;
-        const q=getQ(t); const days=daysUntil(t.dueDate);
-        const isCrit = q==="Q1" || (t.dueDate && days<=1);
-        if(isCrit){
-          const status = !t.dueDate?"Prioridad alta":days<0?`Vencida hace ${-days}d`:days===0?"Vence hoy":`Vence en ${days}d`;
-          dashCritical.push({...base,status,_days:t.dueDate?days:999,_q:q});
-        }
-      });
-    });
+  // Definición de cards por bloque. Microcopy EXACTO según spec del CEO.
+  // requiresPermission/adminOnly se reutilizan tal cual del sidebar para no
+  // duplicar la lógica de visibilidad.
+  const ALL_CARDS = [
+    { id:"hector-direct", emoji:"🧙", title:"Héctor",              tagline:"Tu jefe de gabinete. Pide, decide, delega.",                                       block:"tu-dia" },
+    { id:"command",       emoji:"🎯", title:"Sala de Mando",       tagline:"El foco de hoy, con sus acciones directas.",                                       block:"tu-dia" },
+    { id:"midia",         emoji:"📅", title:"Mi Día",              tagline:"Tu agenda por horas, edición directa.",                                            block:"tu-dia" },
+    { id:"dealroom",      emoji:"🤝", title:"Deal Room",           tagline:"Tus negociaciones, con su memoria y documentos.",                                  block:"operacion" },
+    { id:"mytasks",       emoji:"✅", title:"Mis tareas",          tagline:"Todo lo tuyo, de todos los proyectos.",                                            block:"operacion" },
+    { id:"projects",      emoji:"📁", title:"Proyectos",           tagline:"Tableros por categorías, favoritos arriba.",                                       block:"operacion" },
+    { id:"workspaces",    emoji:"🏢", title:"Workspaces",          tagline:"Espacios por cliente: enlaces, contactos, credenciales.",                          block:"operacion",    requiresPermission:"workspaces" },
+    { id:"finance",       emoji:"💰", title:"Finanzas",            tagline:"Movimientos, tesorería, contabilidad y facturas, con Diego.",                      block:"patrimonio",   requiresPermission:"finance" },
+    { id:"gobernanza",    emoji:"🏛️", title:"Gobernanza",          tagline:"Estructura societaria, documentos y compliance.",                                  block:"patrimonio",   requiresPermission:"gobernanza" },
+    { id:"dashboard",     emoji:"📊", title:"Dashboard analítico", tagline:"KPIs globales y matriz de prioridades.",                                           block:"inteligencia", requiresPermission:"dashboard" },
+    { id:"briefings",     emoji:"🧠", title:"Briefings IA",        tagline:"Informes de tus negociaciones y sesiones.",                                        block:"inteligencia", requiresPermission:"briefings" },
+    { id:"memory",        emoji:"🧩", title:"Memoria",             tagline:"Lo que Kluxor recuerda de ti y de cada negociación.",                              block:"inteligencia", requiresPermission:"memory" },
+    { id:"planner",       emoji:"⚡", title:"Planificador IA",     tagline:"Planifica el trabajo del equipo sobre su disponibilidad real.",                    block:"administracion", adminOnly:true },
+    { id:"vault",         emoji:"🔐", title:"Vault Personal",      tagline:"Tu caja fuerte de documentos.",                                                    block:"administracion", adminOnly:true },
+    { id:"users",         emoji:"👥", title:"Usuarios",            tagline:"Tu equipo: miembros, IDs de socio y permisos.",                                    block:"administracion", adminOnly:true },
+    { id:"mantenimiento", emoji:"🛠️", title:"Mantenimiento",       tagline:"La salud del sistema: incidencias y mejoras.",                                    block:"administracion", adminOnly:true },
+  ];
+  const VISIBLE_CARDS = ALL_CARDS.filter(c=>{
+    if(isAdmin) return true;
+    if(c.adminOnly) return false;
+    if(c.requiresPermission && !hasPermission(me, c.requiresPermission, "view", data.permissions)) return false;
+    return true;
   });
-  dashCritical.sort((a,b)=>{ if(a._days!==b._days) return a._days-b._days; return a._q==="Q1"?-1:1; });
-  myTasks.sort((a,b)=>(b._startDate||"").localeCompare(a._startDate||""));
-
-  // Planificador: entradas aiSchedule del usuario en ventana, dedup por taskId, enriquecidas.
-  const plannerTasks=[];
-  const plannerSeen=new Set();
-  (data.aiSchedule||[])
-    .filter(s=>s.memberId===activeMember&&s.date>=today&&s.date<=horizonEnd)
-    .sort((a,b)=>a.date.localeCompare(b.date))
-    .forEach(s=>{
-      if(plannerSeen.has(s.taskId)) return; plannerSeen.add(s.taskId);
-      let found=null;
-      for(const [pid,cols] of Object.entries(data.boards||{})){
-        for(const col of cols){
-          const t=col.tasks.find(x=>x.id===s.taskId);
-          if(t){ found={t,pid:Number(pid)}; break; }
-        }
-        if(found) break;
-      }
-      if(!found) return;
-      const proj=data.projects.find(p=>p.id===found.pid);
-      const d=new Date(s.date), td=new Date(today);
-      const dd=Math.floor((d-td)/86400000);
-      const when = dd===0?"Hoy":dd===1?"Mañana":`En ${dd}d`;
-      plannerTasks.push({id:found.t.id,title:found.t.title,projId:found.pid,projName:proj?.name||"",projEmoji:proj?.emoji||"📋",status:`${when} · ${s.hours}h`});
-    });
-
-  // Mapa id→tareas para expansión inline.
-  const expansions={
-    dashboard:{tasks:dashCritical, label:"TAREAS CRÍTICAS"},
-    projects: {tasks:myTasks,      label:"MIS TAREAS"},
-    planner:  {tasks:plannerTasks, label:"PLANIFICADAS PRÓXIMOS 14 DÍAS"},
-  };
-
-  const cards=[
-    {
-      id:"dashboard", emoji:"📊", title:"Dashboard",
-      tooltip:"Centro de comando para tareas urgentes y matriz de prioridades",
-      tagline:"Centro de control para gestionar el trabajo diario",
-      description:"Ve las 5 tareas más críticas del equipo, organiza tu trabajo con la matriz de prioridades (urgente vs importante), y detecta cuellos de botella antes de que se conviertan en problemas. Todo en una sola pantalla optimizada para tomar decisiones rápidas.",
-      features:[
-        "Top 5 tareas críticas con quick actions (completar, posponer, comentar)",
-        "Matriz Eisenhower interactiva con preview por cuadrante",
-        "Vista global del progreso de todos los proyectos",
-      ],
-      stats: critMineCount>0 ? `Tienes ${critMineCount} tarea${critMineCount!==1?"s":""} crítica${critMineCount!==1?"s":""} esperándote` : "Todo bajo control — 0 tareas críticas hoy ✓",
-      videoLabel:"Ver cómo usar el Dashboard (2 min)",
-    },
-    {
-      id:"projects", emoji:"📋", title:"Proyectos",
-      tooltip:"Tableros Kanban para gestionar flujos de trabajo por proyecto",
-      tagline:"Gestiona SHOWROOM MARBELLA, Iceflow, y todos tus proyectos en tableros Kanban",
-      description:"Arrastra tareas entre columnas (Por hacer → En curso → Hecho), asigna responsables, establece deadlines, y colabora en tiempo real. Cada proyecto tiene su propio tablero personalizable con columnas que se adaptan a tu flujo de trabajo.",
-      features:[
-        `${projectsCount} proyecto${projectsCount!==1?"s":""} activo${projectsCount!==1?"s":""} con tableros independientes`,
-        "Drag & drop intuitivo entre columnas",
-        "Asignación de responsables y deadlines",
-      ],
-      stats: `Tienes ${allMyTasks.length} tarea${allMyTasks.length!==1?"s":""} asignada${allMyTasks.length!==1?"s":""} en ${myProjIds.size} proyecto${myProjIds.size!==1?"s":""}`,
-      videoLabel:"Cómo organizar proyectos en Kanban (3 min)",
-    },
-    {
-      id:"planner", emoji:"🎯", title:"Planificador IA", badge:"Nuevo",
-      tooltip:"IA que organiza tu calendario automáticamente según prioridades",
-      tagline:"Deja que la IA organice tu día automáticamente",
-      description:"Conecta tu Google Calendar y el planificador distribuye tus tareas considerando prioridad, urgencia, tiempo disponible entre reuniones, y márgenes de transporte entre ubicaciones. La IA aprende de tus patrones y optimiza tu calendario para máxima productividad.",
-      features:[
-        "Integración bidireccional con Google Calendar",
-        "Priorización automática basada en matriz Eisenhower",
-        "Considera tiempo de desplazamiento entre ubicaciones",
-        "Ahorra ~2 horas semanales en planificación manual",
-      ],
-      stats: `Has planificado ${scheduledMine} tarea${scheduledMine!==1?"s":""} para los próximos ${PLAN_HORIZON_DAYS} días`,
-      videoLabel:"Conectar Google Calendar paso a paso (4 min)",
-    },
-    {
-      id:"workspaces", emoji:"📁", title:"Workspaces",
-      tooltip:"Espacios organizados por cliente con proyectos y miembros",
-      tagline:"Espacios de trabajo organizados por cliente o proyecto estratégico",
-      description:"Cada workspace agrupa múltiples proyectos relacionados con un cliente específico (ej: SHOWROOM MARBELLA incluye diseño, logística, ventas). Ideal para separar contextos y mantener conversaciones y archivos centralizados por cuenta. Colabora en tiempo real con acceso granular por miembro.",
-      features:[
-        `${workspacesCount} workspace${workspacesCount!==1?"s":""} activo${workspacesCount!==1?"s":""}${workspacesCount>0?" ("+(data.workspaces||[]).slice(0,3).map(w=>w.name).join(", ")+(workspacesCount>3?"…":"")+")":""}`,
-        "Permisos por miembro y acceso compartido",
-        "Historial de cambios y sincronización realtime",
-      ],
-      stats: `Tienes acceso a ${myWorkspaces.length} workspace${myWorkspaces.length!==1?"s":""} con ${projectsCount} proyecto${projectsCount!==1?"s":""} totales`,
-      videoLabel:"Organizar equipos con Workspaces (3 min)",
-    },
-    {
-      id:"agents", emoji:"🤖", title:"Agentes IA", badge:"Nuevo",
-      tooltip:"Asesores virtuales con contexto de Kluxor y memoria persistente",
-      tagline:"Asesores virtuales personalizados para marketing, ventas, y estrategia",
-      description:"Conversa por voz o texto con agentes especializados que entienden el contexto de Kluxor. Pídeles que redacten emails de prospección, analicen competencia, sugieran estrategias de captación, o respondan dudas técnicas. Cada agente tiene memoria persistente y aprende de tus conversaciones anteriores.",
-      features:[
-        `${agentsCount} agente${agentsCount!==1?"s":""} configurado${agentsCount!==1?"s":""}`,
-        "Conversación bidireccional por voz o texto",
-        "Memoria persistente entre sesiones",
-        "Respuestas contextualizadas a Kluxor",
-      ],
-      stats: `Tienes ${agentsCount} agente${agentsCount!==1?"s":""} disponible${agentsCount!==1?"s":""} para consultar`,
-      videoLabel:"Usar agentes IA para redactar propuestas (5 min)",
-    },
-    {
-      id:"dealroom", emoji:"🤝", title:"Deal Room", badge:"Nuevo",
-      tooltip:"Timeline de negociaciones con sesiones, notas y resúmenes",
-      tagline:"Gestiona negociaciones complejas con histórico completo por sesión",
-      description:"Cada negociación agrupa reuniones, llamadas y conversaciones informales en un timeline cronológico. Toma notas con hora exacta durante cada sesión y genera un resumen al cierre. Cambia el estado (en curso / pausado / cerrado ganado / cerrado perdido) y mantén visible el contexto completo sin perder detalles.",
-      features:[
-        `${(data.negotiations||[]).length} negociación${(data.negotiations||[]).length!==1?"es":""} registrada${(data.negotiations||[]).length!==1?"s":""}`,
-        "Sesiones con tipo, fecha, ubicación y duración",
-        "Notas cronológicas por sesión y resumen editable",
-        "Filtros por estado y responsable",
-      ],
-      stats: (data.negotiations||[]).length===0 ? "Aún no hay negociaciones — crea la primera para empezar" : `${(data.negotiations||[]).filter(n=>n.status==="en_curso").length} negociación${(data.negotiations||[]).filter(n=>n.status==="en_curso").length!==1?"es":""} activa${(data.negotiations||[]).filter(n=>n.status==="en_curso").length!==1?"s":""} · ${(data.negotiations||[]).reduce((s,n)=>s+(n.sessions||[]).length,0)} sesion${(data.negotiations||[]).reduce((s,n)=>s+(n.sessions||[]).length,0)!==1?"es":""} totales`,
-      videoLabel:"Registrar negociaciones paso a paso (4 min)",
-    },
-    {
-      id:"reports", emoji:"⏱", title:"Tiempos",
-      tooltip:"Tracking de horas para facturación y análisis de productividad",
-      tagline:"Seguimiento de horas invertidas por tarea, proyecto y persona",
-      description:"Registra automáticamente el tiempo que dedicas a cada tarea con un timer integrado. Genera reportes por miembro, proyecto, o cliente para facturación precisa, análisis de rentabilidad, y detección de cuellos de botella. Identifica qué tareas consumen más tiempo y optimiza la asignación de recursos.",
-      features:[
-        "Timer integrado en cada tarea",
-        "Reportes por persona, proyecto y periodo",
-        "Exportación para facturación",
-        "Análisis de productividad del equipo",
-      ],
-      stats: `Has registrado ${weekHours} horas esta semana`,
-      videoLabel:"Registrar tiempo y generar reportes (3 min)",
-    },
+  const BLOCKS = [
+    { key:"tu-dia",         title:"TU DÍA" },
+    { key:"operacion",      title:"OPERACIÓN" },
+    { key:"patrimonio",     title:"PATRIMONIO" },
+    { key:"inteligencia",   title:"INTELIGENCIA" },
+    { key:"administracion", title:"ADMINISTRACIÓN" },
   ];
 
-  // Actividad: reune time logs, completados (Hecho) y creados. Granularidad diaria.
+  // Bloque "Lo nuevo en Kluxor" — releases recientes con ★ oro.
+  const NEWS = [
+    { title:"Normativa Viva",        text:"Tus especialistas consultan la normativa vigente (BOE, AEAT, EUR-Lex) antes de responder, y citan la fuente. Asesoría al día, verificable." },
+    { title:"El Umbral",             text:"El nuevo sistema de accesos de Kluxor. Todo privado por defecto: cada proyecto o negociación solo lo ve quien tú añades. Cada miembro, con su ID de socio permanente (KX-001). Y pronto: invitaciones al círculo desde la propia plataforma." },
+    { title:"Mi Día",                text:"Agenda por horas: crea desde una franja, edita sin abrir nada." },
+    { title:"Favoritos y categorías", text:"En proyectos y negociaciones. Lo importante, arriba." },
+  ];
+  // Bloque "Próximamente" — roadmap visible con ◇ y tono más tenue.
+  const SOON = [
+    { title:"El Círculo",         text:"Invitaciones de CEO a CEO desde la propia plataforma. Cada nuevo miembro, avalado por quien ya pertenece y aprobado por la casa." },
+    { title:"Salas compartidas",  text:"Invite a un cliente o colaborador externo a una negociación o proyecto concreto. Él ve esa sala; usted conserva el control." },
+    { title:"Héctor Intérprete",  text:"Traducción en tiempo real en sus reuniones, con el contexto de su negociación cargado." },
+    { title:"Manual integrado",   text:"La guía completa de Kluxor, accesible desde cada sección con un toque." },
+  ];
+
+  // Actividad reciente — time logs, hechos y creados, granularidad diaria.
   const activity=[];
   Object.entries(data.boards||{}).forEach(([pid,cols])=>{
     const proj=data.projects.find(p=>p.id===Number(pid));
@@ -4594,10 +4476,9 @@ function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onT
   const recent=activity.filter(a=>a.date).sort((a,b)=>a.date<b.date?1:-1).slice(0,5);
   const iconFor={log:"⏱", done:"✓", created:"➕"};
   const verbFor={log:"registró tiempo en", done:"completó", created:"creó"};
-
   const activityText=(a)=>{
-    const m=data.members.find(x=>x.id===a.memberId);
-    const who=m?.name||"Alguien";
+    const mm=data.members.find(x=>x.id===a.memberId);
+    const who=mm?.name||"Alguien";
     const when=timeAgoDate(a.date);
     return <><strong>{who}</strong> {verbFor[a.type]} "<em>{a.task.title}</em>" · <span style={{color:"#9CA3AF"}}>{when}</span></>;
   };
@@ -4606,102 +4487,79 @@ function HomeView({data,activeMember,critMineCount,alertMineCount,onNavigate,onT
     ? `Tienes ${critMineCount} tarea${critMineCount!==1?"s":""} crítica${critMineCount!==1?"s":""} hoy · ${alertMineCount>0?`${alertMineCount} alerta${alertMineCount!==1?"s":""} pendiente${alertMineCount!==1?"s":""}`:"sin alertas pendientes"}`
     : `Tienes 0 tareas críticas hoy · Todo bajo control ✓`;
 
+  // Estilos compartidos para títulos de sección oro.
+  const sectionTitleStyle = {fontSize:11,fontWeight:600,color:"#8B6914",textTransform:"uppercase",letterSpacing:"0.25em",marginBottom:14,lineHeight:1};
+  const containerStyle = {background:"#fff",border:"1px solid #E5E7EB",padding:"22px 24px",marginBottom:20};
+
   return(
     <div style={{maxWidth:1200,margin:"0 auto",padding:"40px 20px"}}>
-      <div style={{marginBottom:40}}>
+      <div style={{marginBottom:32}}>
         <div style={{fontSize:32,fontWeight:700,color:"#111827",marginBottom:8,lineHeight:1.2}}>Bienvenido de nuevo, {firstName} 👋</div>
         <div style={{fontSize:15,color:"#6B7280"}}>{statsLine}</div>
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(360px,1fr))",gap:20,marginBottom:40,alignItems:"start"}}>
-        {cards.map((c,i)=>{
-          const exp=expansions[c.id];
-          const isExpandable = exp && exp.tasks.length>0;
-          const isExpanded   = expandedCard===c.id;
-          return(
-          <div
-            key={c.id}
-            onClick={()=>{ if(isExpandable&&isExpanded) return; onNavigate(c.id); }}
-            style={{background:"#fff",border:"2px solid #E5E7EB",borderRadius:16,padding:"24px 26px",cursor:"pointer",transition:"all .25s cubic-bezier(0.4,0,0.2,1)",animation:`tf-card-in .3s ease ${i*50}ms both`,display:"flex",flexDirection:"column"}}
-            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-6px) scale(1.01)";e.currentTarget.style.boxShadow="0 20px 40px rgba(59,130,246,0.18)";e.currentTarget.style.borderColor="#3B82F6";const arr=e.currentTarget.querySelector("[data-arr]"); if(arr){arr.style.transform="translateX(4px)";arr.style.color="#3B82F6";}}}
-            onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0) scale(1)";e.currentTarget.style.boxShadow="none";e.currentTarget.style.borderColor="#E5E7EB";const arr=e.currentTarget.querySelector("[data-arr]"); if(arr){arr.style.transform="translateX(0)";arr.style.color="#9CA3AF";}}}
-          >
-            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
-              <span title={c.tooltip} style={{fontSize:30,lineHeight:1,cursor:"help"}}>{c.emoji}</span>
-              <h3 style={{fontSize:19,fontWeight:700,color:"#111827",margin:0,flex:"0 1 auto"}}>{c.title}</h3>
-              {c.badge&&<span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:4,textTransform:"uppercase",letterSpacing:"0.06em",background:"#10B981",color:"#fff"}}>{c.badge}</span>}
-              <span data-arr onClick={e=>{e.stopPropagation();onNavigate(c.id);}} title="Ir a la sección" style={{fontSize:20,color:"#9CA3AF",transition:"transform .2s ease, color .2s ease",marginLeft:"auto",cursor:"pointer"}}>→</span>
-            </div>
-
-            <p style={{fontSize:15,fontWeight:500,color:"#111827",margin:"0 0 10px 0",lineHeight:1.45}}>{c.tagline}</p>
-            <p style={{fontSize:13.5,color:"#6B7280",lineHeight:1.55,margin:"0 0 14px 0"}}>{c.description}</p>
-
-            <ul style={{listStyle:"none",padding:0,margin:"0 0 14px 0"}}>
-              {c.features.map((f,fi)=>(
-                <li key={fi} style={{fontSize:12.5,color:"#4B5563",lineHeight:1.55,display:"flex",alignItems:"flex-start",gap:7,marginBottom:5}}>
-                  <span style={{color:"#10B981",flexShrink:0,fontWeight:700}}>✓</span>
-                  <span>{f}</span>
-                </li>
-              ))}
-            </ul>
-
-            {isExpandable
-              ? <div
-                  onClick={e=>{e.stopPropagation();toggleExpand(c.id);}}
-                  style={{fontSize:13,fontWeight:600,color:"#3B82F6",padding:"9px 12px",background:"#EFF6FF",border:"1px solid transparent",borderRadius:8,marginBottom:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,transition:"background .15s, border-color .15s"}}
-                  onMouseEnter={e=>{e.currentTarget.style.background="#DBEAFE";e.currentTarget.style.borderColor="#3B82F6";}}
-                  onMouseLeave={e=>{e.currentTarget.style.background="#EFF6FF";e.currentTarget.style.borderColor="transparent";}}
+      {/* Bloques de cards — un grupo por bloque, oculto si vacío tras filtro. */}
+      {BLOCKS.map(({key,title})=>{
+        const cards = VISIBLE_CARDS.filter(c=>c.block===key);
+        if(cards.length===0) return null;
+        return(
+          <div key={key} style={{marginBottom:32}}>
+            <div style={sectionTitleStyle}>{title}</div>
+            <div className="tf-home-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:14}}>
+              {cards.map(c=>(
+                <div
+                  key={c.id}
+                  onClick={()=>onNavigate(c.id)}
+                  style={{background:"#fff",border:"1px solid #E5E7EB",padding:"18px 20px",cursor:"pointer",transition:"border-color .15s ease, box-shadow .15s ease",display:"flex",flexDirection:"column",gap:8}}
+                  onMouseEnter={e=>{e.currentTarget.style.borderColor="#C9A84C";e.currentTarget.style.boxShadow="0 2px 12px rgba(201,168,76,0.15)";}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor="#E5E7EB";e.currentTarget.style.boxShadow="none";}}
                 >
-                  <span>{c.stats}</span>
-                  <span style={{fontSize:14,color:"#3B82F6",flexShrink:0}}>{isExpanded?"↑":"↓"}</span>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:22,lineHeight:1,flexShrink:0}}>{c.emoji}</span>
+                    <h3 style={{fontSize:15,fontWeight:600,color:"#111827",margin:0}}>{c.title}</h3>
+                  </div>
+                  <p style={{fontSize:13,color:"#6B7280",margin:0,lineHeight:1.5}}>{c.tagline}</p>
                 </div>
-              : <div style={{fontSize:13,fontWeight:600,color:"#3B82F6",padding:"9px 12px",background:"#EFF6FF",borderRadius:8,marginBottom:10}}>{c.stats}</div>
-            }
-
-            {isExpandable&&isExpanded&&(
-              <div style={{marginTop:6,paddingTop:14,borderTop:"2px solid #E5E7EB",animation:"tf-slide-down .25s ease"}}>
-                <div style={{fontSize:11,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>{exp.label} ({exp.tasks.length})</div>
-                <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:300,overflowY:"auto",marginBottom:10}}>
-                  {exp.tasks.slice(0,5).map(t=>(
-                    <div
-                      key={t.id}
-                      onClick={e=>{e.stopPropagation();onOpenTask?.(t.id);}}
-                      style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:8,padding:"9px 11px",cursor:"pointer",transition:"all .15s ease"}}
-                      onMouseEnter={e=>{e.currentTarget.style.background="#fff";e.currentTarget.style.borderColor="#3B82F6";e.currentTarget.style.transform="translateX(3px)";e.currentTarget.style.boxShadow="0 2px 8px rgba(59,130,246,0.1)";}}
-                      onMouseLeave={e=>{e.currentTarget.style.background="#F9FAFB";e.currentTarget.style.borderColor="#E5E7EB";e.currentTarget.style.transform="translateX(0)";e.currentTarget.style.boxShadow="none";}}
-                    >
-                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
-                        <span style={{fontSize:14,flexShrink:0}}>{t.projEmoji}</span>
-                        <span style={{fontSize:13,fontWeight:500,color:"#111827",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</span>
-                      </div>
-                      <div style={{fontSize:11,color:"#6B7280",marginLeft:22}}>{t.projName} · {t.status}</div>
-                    </div>
-                  ))}
-                </div>
-                {exp.tasks.length>5&&(
-                  <button
-                    onClick={e=>{e.stopPropagation();setExpandedCard(null);onNavigate(c.id);}}
-                    style={{width:"100%",padding:"9px 14px",background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,fontSize:13,fontWeight:500,color:"#3B82F6",cursor:"pointer",fontFamily:"inherit",transition:"background .15s, border-color .15s"}}
-                    onMouseEnter={e=>{e.currentTarget.style.background="#EFF6FF";e.currentTarget.style.borderColor="#3B82F6";}}
-                    onMouseLeave={e=>{e.currentTarget.style.background="#fff";e.currentTarget.style.borderColor="#E5E7EB";}}
-                  >Ver las {exp.tasks.length} en {c.title} →</button>
-                )}
-              </div>
-            )}
-
-            <div style={{marginTop:"auto",paddingTop:10,borderTop:"1px solid #E5E7EB"}}>
-              <button
-                onClick={e=>{e.stopPropagation();showVideoToast(c.videoLabel)();}}
-                style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:13,color:"#3B82F6",background:"none",border:"none",padding:0,cursor:"pointer",fontWeight:500,fontFamily:"inherit"}}
-                onMouseEnter={e=>{e.currentTarget.style.color="#2563EB";e.currentTarget.style.textDecoration="underline";}}
-                onMouseLeave={e=>{e.currentTarget.style.color="#3B82F6";e.currentTarget.style.textDecoration="none";}}
-              >📹 Ver tutorial — {c.videoLabel.match(/\((\d+ min)\)/)?.[1]||"próximamente"}</button>
+              ))}
             </div>
           </div>
-        );})}
+        );
+      })}
+
+      {/* Lo nuevo en Kluxor */}
+      <div style={containerStyle}>
+        <div style={sectionTitleStyle}>LO NUEVO EN KLUXOR</div>
+        <ul style={{listStyle:"none",padding:0,margin:0}}>
+          {NEWS.map((n,i)=>(
+            <li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i===NEWS.length-1?"none":"0.5px solid #F3F4F6"}}>
+              <span style={{color:"#C9A84C",fontSize:14,lineHeight:1.5,flexShrink:0}}>★</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:600,color:"#111827",marginBottom:4}}>{n.title}</div>
+                <div style={{fontSize:13,color:"#4B5563",lineHeight:1.5}}>{n.text}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
       </div>
 
-      <div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",borderRadius:12,padding:"20px 24px",animation:`tf-card-in .3s ease ${cards.length*50}ms both`}}>
+      {/* Próximamente */}
+      <div style={{...containerStyle,background:"#FAFAF7",border:"1px solid #EFEFE8"}}>
+        <div style={sectionTitleStyle}>PRÓXIMAMENTE</div>
+        <ul style={{listStyle:"none",padding:0,margin:0}}>
+          {SOON.map((n,i)=>(
+            <li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i===SOON.length-1?"none":"0.5px solid #EFEFE8"}}>
+              <span style={{color:"#C9A84C",fontSize:14,lineHeight:1.5,flexShrink:0}}>◇</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:14,fontWeight:600,color:"#8B6914",marginBottom:4}}>{n.title}</div>
+                <div style={{fontSize:13,color:"#6B6B6B",lineHeight:1.5}}>{n.text}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Actividad reciente */}
+      <div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",padding:"20px 24px"}}>
         <h3 style={{fontSize:12,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginTop:0,marginBottom:14}}>Actividad reciente</h3>
         {recent.length===0
           ? <div style={{fontSize:13,color:"#9CA3AF"}}>No hay actividad reciente<div style={{fontSize:12,marginTop:4,color:"#B9BEC6"}}>Las acciones de tu equipo aparecerán aquí</div></div>
@@ -13596,24 +13454,36 @@ export default function TaskFlow(){
         // Items del sidebar. Para no-admin, filtramos a Home + Mis tareas
         // (no acceden a Board, Proyectos, Deal Room, Dashboard, Briefings,
         // Memoria — solo ven sus propias tareas asignadas).
+        // Bloques visuales del sidebar. `block:null` → suelto al inicio (Home).
+        // Los demás se agrupan bajo títulos de sección oro. Si tras el filtro
+        // de permisos un bloque queda vacío, su título no se renderiza.
         const ALL_PRIMARY=[
-          {id:"hector-direct", icon:"🧙", label:"Héctor",       shortcut:"",    onClick:()=>{setActiveTab("hector-direct");}, adminOnly:false},
-          {id:"command",    icon:"🎯", label:"Sala de Mando",shortcut:"",    onClick:()=>{setActiveTab("command");}, adminOnly:false},
-          {id:"midia",      icon:"📅", label:"Mi Día",       shortcut:"",    onClick:()=>{setActiveTab("midia");}, adminOnly:false},
-          {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}, adminOnly:false},
-          {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:false},
-          {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false},
-          {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:false},
-          {id:"finance",    icon:"💰", label:"Finanzas",     shortcut:"",    onClick:()=>{setActiveTab("finance");}, adminOnly:false, requiresPermission:"finance"},
-          {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}, adminOnly:false, requiresPermission:"workspaces"},
-          {id:"dashboard",  icon:"📊", label:"Dashboard analítico", shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:false, requiresPermission:"dashboard"},
-          {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:false, requiresPermission:"briefings"},
-          {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:false, requiresPermission:"memory"},
-          {id:"gobernanza", icon:"🏛️", label:"Gobernanza",   shortcut:"⌘⇧G", onClick:()=>{setActiveTab("gobernanza");}, adminOnly:false, requiresPermission:"gobernanza"},
-          {id:"planner",    icon:"⚡", label:"Planificador IA", shortcut:"", onClick:()=>{setActiveTab("planner");}, adminOnly:true},
-          {id:"vault",      icon:"🔐", label:"Vault Personal", shortcut:"⌘⇧V", onClick:()=>{setActiveTab("vault");}, adminOnly:true},
-          {id:"users",      icon:"👥", label:"Usuarios",     shortcut:"⌘⇧U", onClick:()=>{setActiveTab("users");}, adminOnly:true},
-          {id:"mantenimiento", icon:"🛠️", label:"Mantenimiento", shortcut:"", onClick:()=>{setActiveTab("mantenimiento");}, adminOnly:true},
+          {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}, adminOnly:false, block:null},
+          {id:"hector-direct", icon:"🧙", label:"Héctor",       shortcut:"",    onClick:()=>{setActiveTab("hector-direct");}, adminOnly:false, block:"tu-dia"},
+          {id:"command",    icon:"🎯", label:"Sala de Mando",shortcut:"",    onClick:()=>{setActiveTab("command");}, adminOnly:false, block:"tu-dia"},
+          {id:"midia",      icon:"📅", label:"Mi Día",       shortcut:"",    onClick:()=>{setActiveTab("midia");}, adminOnly:false, block:"tu-dia"},
+          {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:false, block:"operacion"},
+          {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false, block:"operacion"},
+          {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:false, block:"operacion"},
+          {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}, adminOnly:false, requiresPermission:"workspaces", block:"operacion"},
+          {id:"finance",    icon:"💰", label:"Finanzas",     shortcut:"",    onClick:()=>{setActiveTab("finance");}, adminOnly:false, requiresPermission:"finance", block:"patrimonio"},
+          {id:"gobernanza", icon:"🏛️", label:"Gobernanza",   shortcut:"⌘⇧G", onClick:()=>{setActiveTab("gobernanza");}, adminOnly:false, requiresPermission:"gobernanza", block:"patrimonio"},
+          {id:"dashboard",  icon:"📊", label:"Dashboard analítico", shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:false, requiresPermission:"dashboard", block:"inteligencia"},
+          {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:false, requiresPermission:"briefings", block:"inteligencia"},
+          {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:false, requiresPermission:"memory", block:"inteligencia"},
+          {id:"planner",    icon:"⚡", label:"Planificador IA", shortcut:"", onClick:()=>{setActiveTab("planner");}, adminOnly:true, block:"administracion"},
+          {id:"vault",      icon:"🔐", label:"Vault Personal", shortcut:"⌘⇧V", onClick:()=>{setActiveTab("vault");}, adminOnly:true, block:"administracion"},
+          {id:"users",      icon:"👥", label:"Usuarios",     shortcut:"⌘⇧U", onClick:()=>{setActiveTab("users");}, adminOnly:true, block:"administracion"},
+          {id:"mantenimiento", icon:"🛠️", label:"Mantenimiento", shortcut:"", onClick:()=>{setActiveTab("mantenimiento");}, adminOnly:true, block:"administracion"},
+        ];
+        // Orden y títulos de los bloques. null = sin título (Home).
+        const BLOCK_TITLES = [
+          { key: null,             title: null },
+          { key: "tu-dia",         title: "TU DÍA" },
+          { key: "operacion",      title: "OPERACIÓN" },
+          { key: "patrimonio",     title: "PATRIMONIO" },
+          { key: "inteligencia",   title: "INTELIGENCIA" },
+          { key: "administracion", title: "ADMINISTRACIÓN" },
         ];
         // Filtrado del sidebar: admin global ve todo. Para no-admins:
         // - adminOnly:true → oculto.
@@ -13666,17 +13536,31 @@ export default function TaskFlow(){
             )}
           </div>
 
-          {/* Principales (5) */}
+          {/* Principales — agrupadas por bloque con títulos oro. Si un
+              bloque queda vacío tras el filtro de permisos, su título se
+              oculta. Cuando el sidebar está colapsado los títulos no se
+              muestran (solo iconos). */}
           <div style={{padding:"8px 6px",borderBottom:"0.5px solid #e5e7eb"}}>
-            {PRIMARY.map(it=>{
-              const active = activeTab===it.id;
+            {BLOCK_TITLES.map(({key, title})=>{
+              const items = PRIMARY.filter(it=>it.block===key);
+              if(items.length===0) return null;
               return(
-                <div key={it.id} onClick={it.onClick} title={sidebarCollapsed?`${it.label} · ${it.shortcut}`:it.shortcut} style={{display:"flex",alignItems:"center",gap:sidebarCollapsed?0:10,padding:sidebarCollapsed?"9px 0":"8px 10px",borderRadius:8,cursor:"pointer",fontSize:13,background:active?"#EEEDFE":"transparent",color:active?"#7F77DD":"#4b5563",fontWeight:active?600:500,justifyContent:sidebarCollapsed?"center":"flex-start",marginBottom:2}} onMouseEnter={e=>{if(!active) e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{if(!active) e.currentTarget.style.background="transparent";}}>
-                  <span style={{fontSize:16,flexShrink:0}}>{it.icon}</span>
-                  {!sidebarCollapsed&&<>
-                    <span style={{flex:1}}>{it.label}</span>
-                    <span style={{fontSize:10,color:active?"#7F77DD99":"#9CA3AF",fontFamily:"ui-monospace,monospace"}}>{it.shortcut}</span>
-                  </>}
+                <div key={key||"root"}>
+                  {title && !sidebarCollapsed && (
+                    <div style={{fontSize:10,fontWeight:600,color:"#8B6914",textTransform:"uppercase",letterSpacing:"0.22em",padding:"14px 10px 6px",lineHeight:1}}>{title}</div>
+                  )}
+                  {items.map(it=>{
+                    const active = activeTab===it.id;
+                    return(
+                      <div key={it.id} onClick={it.onClick} title={sidebarCollapsed?`${it.label} · ${it.shortcut}`:it.shortcut} style={{display:"flex",alignItems:"center",gap:sidebarCollapsed?0:10,padding:sidebarCollapsed?"9px 0":"8px 10px",borderRadius:8,cursor:"pointer",fontSize:13,background:active?"#EEEDFE":"transparent",color:active?"#7F77DD":"#4b5563",fontWeight:active?600:500,justifyContent:sidebarCollapsed?"center":"flex-start",marginBottom:2}} onMouseEnter={e=>{if(!active) e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{if(!active) e.currentTarget.style.background="transparent";}}>
+                        <span style={{fontSize:16,flexShrink:0}}>{it.icon}</span>
+                        {!sidebarCollapsed&&<>
+                          <span style={{flex:1}}>{it.label}</span>
+                          <span style={{fontSize:10,color:active?"#7F77DD99":"#9CA3AF",fontFamily:"ui-monospace,monospace"}}>{it.shortcut}</span>
+                        </>}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
@@ -13826,7 +13710,7 @@ export default function TaskFlow(){
         )}
         {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember} projectMemberIds={proj?.members||[]}/>}
         <div style={{flex:1,overflow:"auto"}}>
-          {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onToast={addToast} onOpenTask={id=>setOverlayTaskId(id)}/>}
+          {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} isAdmin={isAdmin} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)} onUnarchiveTask={unarchiveTaskAnywhere}/>}
           {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)} onMoveTask={moveTaskAnywhere} onCreateTask={(pid,payload)=>addTaskToProject(pid,payload)}/>}
           {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
@@ -14095,7 +13979,7 @@ export default function TaskFlow(){
           { id: "hector-direct", icon: "🧙", label: "Héctor",    onClick: () => setActiveTab("hector-direct") },
           { id: "mytasks",       icon: "✅", label: "Tareas",    onClick: () => setActiveTab("mytasks") },
           { id: "dealroom",      icon: "🤝", label: "Negs",      onClick: () => { setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null); } },
-          { id: "projects",      icon: "📁", label: "",          onClick: () => setActiveTab("projects") },
+          { id: "projects",      icon: "📁", label: "Proyectos", onClick: () => setActiveTab("projects") },
         ].map(item => (
           <button
             key={item.id}
