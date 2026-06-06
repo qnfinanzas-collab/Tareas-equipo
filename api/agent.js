@@ -9,7 +9,15 @@
 // Nota: payload base64 pesa ~33% más que el archivo. Vercel Hobby limita
 // a ~4.5MB el body — con ese margen, archivos >3MB pueden fallar.
 
-export const config = { api: { bodyParser: { sizeLimit: "20mb" } } };
+// maxDuration: 90s para alinear con el timeout cliente de los specialists
+// (Jorge, Gonzalo, Diego, Mario en redacción). Sin esta config explícita la
+// función adopta el default del plan Vercel (10s Hobby / 60s Pro), lo que
+// recorta respuestas largas antes de que llegue Anthropic. En Hobby el
+// deploy fallará con un error claro indicando que hay que pasar a Pro.
+export const config = {
+  maxDuration: 90,
+  api: { bodyParser: { sizeLimit: "20mb" } },
+};
 
 function injectAttachments(messages, attachments){
   if(!Array.isArray(attachments) || attachments.length===0) return messages;

@@ -9323,7 +9323,9 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             const taskLower = String(task || "").toLowerCase();
             const esRedaccion = ag.name === "Mario Legal"
               && REDACCION_KEYWORDS.some(k => taskLower.includes(k));
-            const timeoutMs = esRedaccion ? 90000 : 45000;
+            // Todos los specialists con 90s (antes: 45s salvo Mario+redacción).
+            // Jorge y Gonzalo daban timeout en consultas complejas.
+            const timeoutMs = 90000;
             return callAgentSafe(
               { system: sys, messages: [{role:"user", content: ctx}], max_tokens: 4096 },
               { timeoutMs }
@@ -11807,9 +11809,10 @@ export default function TaskFlow(){
     // tareas + negociación con stakeholders/facts. El JSON dentro del
     // bloque pasa fácilmente de 1500-2500 tokens; antes se truncaba y la
     // propuesta llegaba vacía o se perdía.
-    // Timeout 45s: Gonzalo razona sobre estructura societaria + contexto
-    // financiero, latencia típica 8-15s, margen 3x antes de abort.
-    const out = await callAgentSafe({system, messages: messages||[], max_tokens: 3000}, {timeoutMs: 45000});
+    // Timeout 90s: Gonzalo razona sobre estructura societaria + contexto
+    // financiero. Antes 45s, pero consultas complejas (waterfall, fiscalidad
+    // internacional, sucesión) llegaban a 60-80s y se cortaban.
+    const out = await callAgentSafe({system, messages: messages||[], max_tokens: 3000}, {timeoutMs: 90000});
     return out;
   };
   // Diego: analista financiero operativo. Igual que callGonzaloDirect pero
@@ -12143,9 +12146,10 @@ export default function TaskFlow(){
     const callBody = { system, messages: messages||[], max_tokens: 4096 };
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
     if (hasAttachments) callBody.attachments = attachments;
-    // Timeout: 45s normal · 90s si Diego procesa PDF/imagen (Anthropic
-    // necesita más tiempo para parsing nativo de documentos grandes).
-    const timeoutMs = hasAttachments ? 90000 : 45000;
+    // Timeout 90s siempre. Antes 45s sin adjuntos, 90s con PDF/imagen, pero
+    // consultas contables complejas (asientos múltiples, conciliación masiva)
+    // ya superaban los 45s aun sin PDF.
+    const timeoutMs = 90000;
     const out = await callAgentSafe(callBody, { timeoutMs });
     return out;
   };

@@ -51,7 +51,8 @@ export async function callAgentSafe(body, opts = {}){
       });
     } catch (e) {
       if (e?.name === "AbortError") {
-        throw new Error(`⏱️ El agente tardó más de ${Math.round(timeoutMs/1000)}s. Intenta de nuevo o simplifica la pregunta.`);
+        const secs = Math.round(timeoutMs/1000);
+        throw new Error(`⏱️ El agente tardó más de ${secs}s y se canceló (límite ${secs}s). Sugerencia: trocea la consulta en preguntas más concretas, o reintenta en un minuto si crees que fue un pico de latencia.`);
       }
       throw new Error(`Red caída o /api/agent inalcanzable: ${e?.message || e}`);
     }

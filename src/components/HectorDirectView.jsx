@@ -953,8 +953,12 @@ Reglas:
           // alinearse con criterios ya establecidos (mismo bloque que Héctor).
           const sys = ceoBlock + (ag.promptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE + memBlockFormatted;
           const taskLow = inv.task.toLowerCase();
+          // Todos los specialists obtienen 90s (antes: 45s salvo Mario en
+          // redacción). Jorge y Gonzalo daban timeout en consultas complejas
+          // (valoración empresa, estructura societaria). Mantengo la variable
+          // isRedaccion por si queremos diferenciar mensajes en el futuro.
           const isRedaccion = inv.key === "mario" && REDACCION_KEYS.some(k => taskLow.includes(k));
-          const timeoutMs = isRedaccion ? 90000 : 45000;
+          const timeoutMs = 90000;
           const userPrompt = `TAREA QUE TE ENCARGA HÉCTOR (Chief of Staff):\n${inv.task}\n\nResponde con la información concreta que pide. Sin disclaimers extensos. Frases claras y accionables.`;
           const respuesta = await callAgentSafe(
             { system: sys, messages: [{ role: "user", content: userPrompt }], max_tokens: 4096 },
