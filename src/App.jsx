@@ -7991,20 +7991,27 @@ function NegDescription({ text }) {
 }
 
 function DealRoomView({negotiations,members,projects,workspaces,currentMember,filter,onSetFilter,onCreate,onOpen,onEdit,onArchive,onUnarchive,favoriteNegotiationIds=[],onToggleFavorite}){
+  // TODOS los hooks (useState + useMemo) van ANTES de cualquier early-return.
+  // Regla #1 de React Hooks: el orden y número de hooks debe ser idéntico en
+  // cada render. Tener hooks tras `if (...) return ...` causaba React #310
+  // ("Rendered more hooks than during the previous render") para members
+  // recién creados: en su PRIMER render no tenían negociaciones visibles,
+  // se devolvía empty-state y se saltaba el useMemo alerts; en el SEGUNDO
+  // (tras crear su primera neg) sí entraba al useMemo y el contador de
+  // hooks crecía → crash de página en blanco. Admin no lo veía porque
+  // siempre tenía negs y nunca atravesaba el empty-state.
   const [showArchived,setShowArchived] = React.useState(false);
   const [categoryFilter,setCategoryFilter] = React.useState(null);
   const [groupByCategory,setGroupByCategory] = React.useState(true);
-  // Guard: hasta tener miembro resuelto, no rendereamos nada — evita el
-  // flash de negociaciones ajenas que ocurría con el redirect tardío.
-  if (!currentMember) {
-    return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>Cargando negociaciones…</div>;
-  }
   // Filtrado de visibilidad SÍNCRONO con useMemo. canViewDeal aplica reglas
   // de admin/owner/miembro/visibility. Todas las counts y alertas operan
   // sobre la lista ya filtrada — el non-admin nunca ve datos ajenos.
   // Toggle showArchived separa activas (default) de archivadas.
+  // Guard inline (currentMember puede ser null durante la resolución de
+  // sesión); el componente sigue ejecutando hooks pero devuelve []. El
+  // early-return de "Cargando" se hace abajo, tras todos los hooks.
   const allViewable = React.useMemo(
-    ()=>(negotiations||[]).filter(n=>canViewDeal(currentMember, n)),
+    ()=>currentMember ? (negotiations||[]).filter(n=>canViewDeal(currentMember, n)) : [],
     [negotiations, currentMember]
   );
   const visibleNegotiations = React.useMemo(
@@ -8038,25 +8045,14 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
   const favSet = new Set(favoriteNegotiationIds || []);
   const favEntries = filtered.filter(n=>favSet.has(n.id));
   const restForGrouping = filtered.filter(n=>!favSet.has(n.id));
-  // Empty state prominente cuando el miembro no ve ninguna negociación —
-  // CTA dedicado en lugar del banner dashed dentro del listado.
-  if (visibleNegotiations.length === 0) {
-    return (
-      <div style={{padding:"60px 20px",textAlign:"center",maxWidth:480,margin:"0 auto"}}>
-        <div style={{fontSize:48,marginBottom:16}}>🤝</div>
-        <div style={{fontSize:18,fontWeight:700,color:"#111827",marginBottom:8}}>No tienes negociaciones activas</div>
-        <div style={{fontSize:13,color:"#7F8C8D",marginBottom:24,lineHeight:1.5}}>Crea tu primera negociación para empezar a gestionar tus deals. Será privada por defecto: solo tú y los miembros que invites podrán verla.</div>
-        <button
-          onClick={onCreate}
-          style={{background:"#3498DB",color:"#fff",padding:"12px 24px",borderRadius:8,fontSize:14,fontWeight:600,border:"none",cursor:"pointer",fontFamily:"inherit"}}
-        >+ Nueva negociación</button>
-      </div>
-    );
-  }
 
   // Alerts automáticas: opera SOLO sobre negociaciones visibles para no
-  // filtrar por título datos privados ajenos.
+  // filtrar por título datos privados ajenos. Movido ARRIBA del empty-state
+  // return: el useMemo debe ejecutarse en todos los renders (incluido el
+  // vacío) para mantener constante el número de hooks. Cualquier reorden
+  // futuro debe respetar esta regla — los hooks ANTES de los returns.
   const alerts = React.useMemo(()=>{
+    if (visibleNegotiations.length === 0) return [];
     const out=[];
     const now=Date.now();
     const byId = new Map(visibleNegotiations.map(n=>[n.id,n]));
@@ -8095,6 +8091,28 @@ function DealRoomView({negotiations,members,projects,workspaces,currentMember,fi
     const order={critical:0,warning:1,info:2};
     return out.sort((a,b)=>order[a.level]-order[b.level]);
   },[visibleNegotiations]);
+
+  // === Early returns AHORA, tras todos los hooks ===
+  // Guard de sesión: hasta tener miembro resuelto, mostramos skeleton.
+  if (!currentMember) {
+    return <div style={{padding:30,textAlign:"center",color:"#9CA3AF",fontSize:13}}>Cargando negociaciones…</div>;
+  }
+  // Empty state prominente cuando el miembro no ve ninguna negociación —
+  // CTA dedicado en lugar del banner dashed dentro del listado.
+  if (visibleNegotiations.length === 0) {
+    return (
+      <div style={{padding:"60px 20px",textAlign:"center",maxWidth:480,margin:"0 auto"}}>
+        <div style={{fontSize:48,marginBottom:16}}>🤝</div>
+        <div style={{fontSize:18,fontWeight:700,color:"#111827",marginBottom:8}}>No tienes negociaciones activas</div>
+        <div style={{fontSize:13,color:"#7F8C8D",marginBottom:24,lineHeight:1.5}}>Crea tu primera negociación para empezar a gestionar tus deals. Será privada por defecto: solo tú y los miembros que invites podrán verla.</div>
+        <button
+          onClick={onCreate}
+          style={{background:"#3498DB",color:"#fff",padding:"12px 24px",borderRadius:8,fontSize:14,fontWeight:600,border:"none",cursor:"pointer",fontFamily:"inherit"}}
+        >+ Nueva negociación</button>
+      </div>
+    );
+  }
+
   return(
     <div style={{maxWidth:1000,margin:"0 auto",padding:"30px 20px"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
