@@ -564,12 +564,19 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
     try {
       const messages = next.map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.content }));
       const reply = await onCallAgent({ messages });
-      const rawReply = (reply || "").trim() || "(sin respuesta)";
+      // Normativa Viva: callGonzaloDirect ahora devuelve {text, citations}
+      // cuando hay búsquedas. Backwards-compat con string crudo por si
+      // algún caller futuro lo pasara así, o si la búsqueda falla y
+      // recibimos solo texto.
+      const isStructured = reply && typeof reply === "object" && typeof reply.text === "string";
+      const rawText = isStructured ? reply.text : String(reply || "");
+      const citations = isStructured && Array.isArray(reply.citations) ? reply.citations : [];
+      const rawReply = (rawText || "").trim() || "(sin respuesta)";
       // Si Gonzalo incluye [ACTIONS], limpiamos el texto visible y
       // adjuntamos la propuesta al mensaje para mostrar ActionProposal.
       const proposal = parseAgentActions(rawReply);
       const finalReply = proposal ? (cleanAgentResponse(rawReply) || "(sin texto)") : rawReply;
-      const updated = [...next, { role: "assistant", content: finalReply, proposal, ts: Date.now() }].slice(-CHAT_MAX);
+      const updated = [...next, { role: "assistant", content: finalReply, proposal, citations, ts: Date.now() }].slice(-CHAT_MAX);
       setHistory(updated);
       speakIfUnmuted(finalReply);
     } catch (e) {
@@ -675,6 +682,44 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
                       {reliability.kind === "high" ? "🟢" : reliability.kind === "med" ? "🟡" : "🔴"} {reliability.label}
                     </div>
                   )}
+                  {/* Normativa Viva — fuentes consultadas al pie del mensaje
+                      del especialista. Lista vertical de chips con URL. */}
+                  {!isUser && Array.isArray(m.citations) && m.citations.length > 0 && (
+                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: "0.5px solid #D8B4FE40" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#6B21A8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5 }}>
+                        📚 Fuentes consultadas ({m.citations.length})
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {m.citations.map((c, ci) => (
+                          <a
+                            key={`${i}-cit-${ci}`}
+                            href={c.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={c.cited_text || c.url}
+                            style={{
+                              fontSize: 11,
+                              color: "#6B21A8",
+                              textDecoration: "none",
+                              display: "flex",
+                              gap: 6,
+                              alignItems: "baseline",
+                              padding: "3px 6px",
+                              border: "0.5px solid #D8B4FE",
+                              background: "#F5EEFA",
+                              borderRadius: 4,
+                              wordBreak: "break-all",
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
+                          >
+                            <span style={{ flexShrink: 0 }}>🔗</span>
+                            <span>{c.title || c.url}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
               {!isUser && m.proposal && onRunAgentActions && (
@@ -705,7 +750,9 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
         {loading && (
           <div style={{ display: "flex", gap: 8 }}>
             <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#8E44AD", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🏛️</div>
-            <div style={{ background: "#F5EEFA", border: "0.5px solid #E5E7EB", borderRadius: 12, padding: "10px 14px", fontSize: 12.5, color: "#6B21A8", fontStyle: "italic" }}>🏛️ Gonzalo está respondiendo…</div>
+            <div style={{ background: "#F5EEFA", border: "0.5px solid #E5E7EB", borderRadius: 12, padding: "10px 14px", fontSize: 12.5, color: "#6B21A8", fontStyle: "italic" }}>
+              🔍 Gonzalo está consultando fuentes…
+            </div>
           </div>
         )}
       </div>

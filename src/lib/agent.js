@@ -82,8 +82,25 @@ export async function callAgentSafe(body, opts = {}){
     console.warn("[callAgentSafe] respuesta sospechosamente corta:", trimmed);
     throw new Error("Respuesta sospechosamente corta del agente — probablemente truncada o sin contenido útil.");
   }
+  // Citaciones — solo se devuelven si el caller pasa opts.includeCitations.
+  // Compatibilidad: todos los callers existentes siguen recibiendo string;
+  // solo el piloto Normativa Viva (Gonzalo) opt-in al shape {text,citations}.
+  if (opts && opts.includeCitations) {
+    const citations = Array.isArray(data?.citations) ? data.citations : [];
+    return { text, citations };
+  }
   return text;
 }
+
+// Especificación de la herramienta web_search de Anthropic. Centralizada
+// para que un cambio futuro de versión (web_search_20250305 → siguiente)
+// se haga en un solo punto. max_uses: 2 — margen seguro frente al
+// timeout de 90s. Subir solo si se confirma que sobra presupuesto.
+export const WEB_SEARCH_TOOL = {
+  type: "web_search_20250305",
+  name: "web_search",
+  max_uses: 2,
+};
 
 // Sistema de skills de Héctor. Detecta el contexto del turno (texto del CEO,
 // títulos de tareas activas, recomendación reciente) y devuelve los skills

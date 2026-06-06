@@ -16,7 +16,7 @@ import { tabFromPath, pathFromTab } from "./lib/routing.js";
 import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents, updateUserPassword } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME, migrateBase64DocsInData } from "./lib/storage.js";
 import jsPDF from "jspdf";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel, callAgentSafe } from "./lib/agent.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel, callAgentSafe, WEB_SEARCH_TOOL } from "./lib/agent.js";
 import { PresenceProvider, usePresence } from "./lib/presence.jsx";
 import PulsoDinamico from "./components/PulsoDinamico.jsx";
 import TaskKanban from "./components/TaskKanban.jsx";
@@ -11800,8 +11800,18 @@ export default function TaskFlow(){
         finSummaryTxt = renderFinanceSummaryForPrompt(summary);
       }
     } catch (e) { /* helper puro: si falla, seguimos sin resumen */ }
+    // Normativa Viva (piloto Gonzalo) — instrucciones para uso responsable
+    // de web_search. Tres reglas: cita la fuente, prioriza el resultado
+    // sobre el entrenamiento, no incluyas datos privados en queries.
+    const NORMATIVA_VIVA_RULES = [
+      "HERRAMIENTA WEB_SEARCH — Tienes acceso a búsqueda web (máx 2 consultas por turno).",
+      "1) Antes de afirmar un dato normativo o de mercado (artículo del BOE, regulación AEAT, directiva EUR-Lex, tipo impositivo vigente, plazo legal), BÚSCALO y CITA la fuente con su URL completa.",
+      "2) Si tienes un resultado de búsqueda, fíate de él POR ENCIMA de tu entrenamiento (que puede estar desactualizado).",
+      "3) NUNCA incluyas datos privados del CEO ni de su cliente en la consulta de búsqueda. Busca SOLO normativa y datos públicos (BOE, AEAT, EUR-Lex, registros mercantiles, INE). Si la pregunta menciona nombres de personas o empresas privadas, refórmula la búsqueda en términos genéricos (ej: 'requisitos SL holding España 2026' en lugar de 'Antonio Díaz SL').",
+    ].join("\n");
     const system = (gonzalo.promptBase||`Eres Gonzalo, estratega de gobernanza empresarial.`)
       + "\n\n" + PLAIN_TEXT_RULE
+      + "\n\n" + NORMATIVA_VIVA_RULES
       + (govContext ? `\n\n${govContext}` : "")
       + (finSummaryTxt ? `\n\n${finSummaryTxt}` : "")
       + (extraSystem ? `\n\n${extraSystem}` : "");
@@ -11812,8 +11822,13 @@ export default function TaskFlow(){
     // Timeout 90s: Gonzalo razona sobre estructura societaria + contexto
     // financiero. Antes 45s, pero consultas complejas (waterfall, fiscalidad
     // internacional, sucesión) llegaban a 60-80s y se cortaban.
-    const out = await callAgentSafe({system, messages: messages||[], max_tokens: 3000}, {timeoutMs: 90000});
-    return out;
+    // includeCitations: true → callAgentSafe devuelve {text, citations}
+    // en lugar de string plano. El caller (GovChatTab) las renderiza al pie.
+    const out = await callAgentSafe(
+      { system, messages: messages||[], max_tokens: 3000, tools: [WEB_SEARCH_TOOL] },
+      { timeoutMs: 90000, includeCitations: true }
+    );
+    return out; // { text, citations }
   };
   // Diego: analista financiero operativo. Igual que callGonzaloDirect pero
   // inyecta CONTEXTO FINANCIERO (movimientos bancarios de los últimos 3

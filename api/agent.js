@@ -57,13 +57,18 @@ export default async function handler(req, res){
     res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada en el servidor" });
     return;
   }
-  const { system, messages, attachments, max_tokens: reqMaxTokens, model = "claude-sonnet-4-5-20250929" } = req.body || {};
+  const { system, messages, attachments, max_tokens: reqMaxTokens, model = "claude-sonnet-4-5-20250929", tools, tool_choice } = req.body || {};
   const max_tokens = reqMaxTokens ?? (Array.isArray(attachments) && attachments.length>0 ? 4000 : 600);
   if(!Array.isArray(messages) || messages.length === 0){
     res.status(400).json({ error: "messages requerido" });
     return;
   }
   const finalMessages = injectAttachments(messages, attachments);
+  // Body de Anthropic: añadimos tools / tool_choice si el caller los pasó.
+  // Cambio aditivo: si no vienen, la llamada queda EXACTAMENTE como antes.
+  const anthropicBody = { model, max_tokens, system, messages: finalMessages };
+  if (Array.isArray(tools) && tools.length > 0) anthropicBody.tools = tools;
+  if (tool_choice) anthropicBody.tool_choice = tool_choice;
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -72,15 +77,42 @@ export default async function handler(req, res){
         "x-api-key": key,
         "anthropic-version": "2023-06-01",
       },
-      body: JSON.stringify({ model, max_tokens, system, messages: finalMessages }),
+      body: JSON.stringify(anthropicBody),
     });
     const data = await r.json();
     if(!r.ok){
       res.status(r.status).json({ error: data.error?.message || "Error en Anthropic", details: data });
       return;
     }
+    // Ensamblado de respuesta preservando ORDEN de los bloques (riesgo 7
+    // del diagnóstico). Concatenamos solo los text blocks (los tool_use y
+    // tool_result se descartan, pero recogemos citaciones embebidas en
+    // los text blocks). Deduplicamos citaciones por URL final.
     const text = (data.content || []).filter(c => c.type === "text").map(c => c.text).join("\n").trim();
-    res.status(200).json({ text });
+    const citationsRaw = [];
+    (data.content || []).forEach(c => {
+      if (c.type === "text" && Array.isArray(c.citations)) {
+        c.citations.forEach(cit => {
+          // Tipo emitido por web_search: web_search_result_location.
+          // Aceptamos cualquier cita que traiga url + title.
+          if (cit && typeof cit.url === "string") {
+            citationsRaw.push({
+              url: cit.url,
+              title: cit.title || cit.url,
+              cited_text: typeof cit.cited_text === "string" ? cit.cited_text.slice(0, 300) : "",
+            });
+          }
+        });
+      }
+    });
+    const seen = new Set();
+    const citations = [];
+    citationsRaw.forEach(c => {
+      if (seen.has(c.url)) return;
+      seen.add(c.url);
+      citations.push(c);
+    });
+    res.status(200).json({ text, citations });
   } catch(e){
     res.status(500).json({ error: e.message || "Error desconocido" });
   }
