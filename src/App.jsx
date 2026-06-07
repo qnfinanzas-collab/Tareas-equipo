@@ -27,6 +27,7 @@ import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import HectorDirectView from "./components/HectorDirectView.jsx";
 import MiDiaView from "./components/MiDiaView.jsx";
+import ConsejoView from "./components/ConsejoView.jsx";
 import MantenimientoView from "./components/MantenimientoView.jsx";
 import { CHAT_PALETTE } from "./components/Shared/ChatBubble.jsx";
 import AgentAvatar from "./components/Shared/AgentAvatar.jsx";
@@ -4410,6 +4411,7 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
   // duplicar la lógica de visibilidad.
   const ALL_CARDS = [
     { id:"hector-direct", emoji:"🧙", title:"Héctor",              tagline:"Tu jefe de gabinete. Pide, decide, delega.",                                       block:"tu-dia" },
+    { id:"consejo",       emoji:"💼", title:"El Consejo",          tagline:"Sus especialistas, en directo: legal, inversión, inmobiliario, holdings y finanzas.", block:"tu-dia" },
     { id:"command",       emoji:"🎯", title:"Sala de Mando",       tagline:"El foco de hoy, con sus acciones directas.",                                       block:"tu-dia" },
     { id:"midia",         emoji:"📅", title:"Mi Día",              tagline:"Tu agenda por horas, edición directa.",                                            block:"tu-dia" },
     { id:"dealroom",      emoji:"🤝", title:"Deal Room",           tagline:"Tus negociaciones, con su memoria y documentos.",                                  block:"operacion" },
@@ -12026,6 +12028,34 @@ export default function TaskFlow(){
     const out = await callAgentSafe(callBody, { timeoutMs });
     return out;
   };
+  // ── Chats directos para El Consejo (Mario / Jorge / Álvaro) ───────────
+  // Clones minimalistas de callGonzaloDirect. Pensados como asesoría pura
+  // 1:1 desde la vista ConsejoView. Asimetría deliberada con Gonzalo/Diego:
+  //   - Sin tools de web_search.
+  //   - Sin contexto inyectado de gobernanza/finanzas.
+  //   - Sin attachments (los chats del Consejo no aceptan adjuntos).
+  //   - Devuelven string plano (no {text, citations}).
+  // Memoria del CEO sí se inyecta porque permite respuestas alineadas con
+  // preferencias/decisiones ya conocidas — igual que el patrón de Héctor
+  // y la rama Deal Room. Timeout 90s coherente con el resto del Consejo.
+  const buildCouncilDirect = (agentName, fallbackPrompt) => async ({ messages, extraSystem } = {}) => {
+    const ag = (dataRef.current?.agents||[]).find(a=>a.name===agentName);
+    if (!ag) throw new Error(`${agentName} no está en agents`);
+    const ceoMemory = dataRef.current?.ceoMemory;
+    const ceoBlock  = ceoMemory ? formatCeoMemoryForPrompt(ceoMemory) : "";
+    const system = (ag.promptBase || fallbackPrompt)
+      + "\n\n" + PLAIN_TEXT_RULE
+      + (ceoBlock ? `\n\n${ceoBlock}` : "")
+      + (extraSystem ? `\n\n${extraSystem}` : "");
+    const text = await callAgentSafe(
+      { system, messages: messages || [], max_tokens: 3000 },
+      { timeoutMs: 90000 }
+    );
+    return text;
+  };
+  const callMarioDirect  = buildCouncilDirect("Mario Legal",          "Eres Mario, abogado mercantil. Asesoramiento legal directo y accionable.");
+  const callJorgeDirect  = buildCouncilDirect("Jorge Finanzas",       "Eres Jorge, analista de inversión. Análisis financiero directo y accionable.");
+  const callAlvaroDirect = buildCouncilDirect("Álvaro Inmobiliario",  "Eres Álvaro, especialista en inmobiliario y fiscalidad. Asesoramiento directo y accionable.");
   // Setter dedicado para permisos de agentes IA. Toggle binario por
   // (memberId, agentKey). Llamado desde la PermissionsTable (columna
   // "Agentes"). El admin global no necesita esto.
@@ -13460,6 +13490,7 @@ export default function TaskFlow(){
         const ALL_PRIMARY=[
           {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}, adminOnly:false, block:null},
           {id:"hector-direct", icon:"🧙", label:"Héctor",       shortcut:"",    onClick:()=>{setActiveTab("hector-direct");}, adminOnly:false, block:"tu-dia"},
+          {id:"consejo",    icon:"💼", label:"El Consejo",   shortcut:"",    onClick:()=>{setActiveTab("consejo");}, adminOnly:false, block:"tu-dia"},
           {id:"command",    icon:"🎯", label:"Sala de Mando",shortcut:"",    onClick:()=>{setActiveTab("command");}, adminOnly:false, block:"tu-dia"},
           {id:"midia",      icon:"📅", label:"Mi Día",       shortcut:"",    onClick:()=>{setActiveTab("midia");}, adminOnly:false, block:"tu-dia"},
           {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:false, block:"operacion"},
@@ -13713,6 +13744,7 @@ export default function TaskFlow(){
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} isAdmin={isAdmin} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)} onUnarchiveTask={unarchiveTaskAnywhere}/>}
           {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)} onMoveTask={moveTaskAnywhere} onCreateTask={(pid,payload)=>addTaskToProject(pid,payload)}/>}
+          {activeTab==="consejo"   &&<ConsejoView currentMember={(data.members||[]).find(m=>m.id===activeMember)} permissions={data.permissions} onCallMario={callMarioDirect} onCallJorge={callJorgeDirect} onCallAlvaro={callAlvaroDirect} onNavigate={id=>setActiveTab(id)}/>}
           {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
           {activeTab==="memory"    &&<MemoryPanel ceoMemory={data.ceoMemory} onAddCeo={addCeoMemoryItems} onRemoveCeo={removeCeoMemoryItem} onAddNeg={addNegMemoryItems} onRemoveNeg={removeNegMemoryItem}/>}
           {activeTab==="dealroom"&&(()=>{
