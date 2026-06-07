@@ -4768,7 +4768,7 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
               fontStyle: "italic",
             }}>
               Soy Héctor, su jefe de gabinete.<br/>
-              Aprendo cómo piensa, recuerdo lo que otros olvidan y preparo lo que está por venir. Cuanto más me confía, más suyo soy: mis consejos no son genéricos — nacen de su forma de decidir.
+              Aprendo cómo piensa, recuerdo lo que otros olvidan y preparo lo que está por venir. Cuanto más me confía, más ligera es su cabeza y más lejos llega su día: mis consejos nacen de su forma de decidir.
             </div>
             {/* Lema con más peso visual: tamaño mayor + oro. */}
             <div style={{
