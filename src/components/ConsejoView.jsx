@@ -202,14 +202,69 @@ function CouncilChat({ spec, currentMember, onCall, pendingDerivation, onConsume
   // vez; repetirlo en cada turn infla el system prompt sin valor.
   const [derivationInjected, setDerivationInjected] = useState(false);
 
+  // Apertura automática del especialista al recibir una derivación.
+  // El destino habla PRIMERO como un profesional que recibe el expediente:
+  // 3 pasos (acuse, propuesta concreta, pregunta de cierre).
+  //
+  // Diseño técnico:
+  //   - Mensaje sintético "user" inyectado al history con _synthetic:true.
+  //     Cumple la alternancia que exige Claude (primer turn debe ser user)
+  //     y la UI lo filtra del render — el CEO nunca lo ve.
+  //   - extraSystem único de apertura (no se repite en turnos posteriores).
+  //   - derivationInjected pasa a true tras éxito → el siguiente send del
+  //     CEO NO vuelve a inyectar contexto (lo tiene en history).
+  //   - Si falla: removemos el sintético y dejamos el chat en estado
+  //     pasivo. El siguiente send inyecta el extraSystem normal de
+  //     derivación (comportamiento previo, no rompe nada).
+  const fireDerivationOpener = async (ctx) => {
+    if (!onCall) return;
+    const syntheticContent = "[Sistema] Apertura automática de derivación. Procede según las instrucciones del system prompt.";
+    setLoading(true);
+    setHistory(h => [...h, { role: "user", content: syntheticContent, _synthetic: true, ts: Date.now() }].slice(-CHAT_MAX));
+    try {
+      const FROM_NAME = NAME_BY_KEY[ctx.fromKey] || ctx.fromKey;
+      const truncated = String(ctx.originReply || "").slice(0, 2000);
+      const extraSystem = `CONTEXTO DE DERIVACIÓN — APERTURA AUTOMÁTICA:
+El CEO consultó originalmente a ${FROM_NAME}: "${ctx.originalQuery || ""}"
+${FROM_NAME} respondió y te lo deriva por: "${ctx.reason || ""}".
+Resumen de ${FROM_NAME} (referencia, NO repetir literal): "${truncated}".
+
+INSTRUCCIONES PARA ESTE TURNO INICIAL (único):
+Hablas TÚ primero. El CEO no ha escrito nada en este chat — recibes el expediente como un profesional. Comportamiento esperado en TRES pasos:
+1) ACUSE de recibo en UNA línea (ej: "He revisado el análisis de ${FROM_NAME} sobre …").
+2) PROPUESTA concreta desde tu disciplina (1-2 frases — qué harías y cómo).
+3) PREGUNTA de cierre pidiendo CONFIRMACIÓN o el DATO que falta para avanzar.
+
+No repitas el análisis de ${FROM_NAME}. No emitas [ACTIONS] ni [INVOCAR]. Solo habla.`;
+      const messages = [{ role: "user", content: syntheticContent }];
+      const reply = await onCall({ messages, extraSystem, fromKey: ctx.fromKey });
+      const rawText = typeof reply === "string" ? reply : (reply?.text || "");
+      const { cleanText, derivation, debug } = parseDerivation(rawText);
+      console.log(`🔀 [Consejo·${spec.key}] apertura automática (${debug})`, derivation || "");
+      const finalReply = (cleanText || "").trim() || "(sin respuesta)";
+      setHistory(h => [...h, { role: "assistant", content: finalReply, derivation, ts: Date.now(), _derivationOpener: true }].slice(-CHAT_MAX));
+      setDerivationInjected(true);
+    } catch (e) {
+      console.warn(`🔀 [Consejo·${spec.key}] apertura automática fallida — fallback a chat pasivo:`, e?.message);
+      // Removemos el sintético: si la apertura falló, el siguiente send
+      // del CEO debe quedar como primer mensaje real sin contaminación.
+      setHistory(h => h.filter(m => !m._synthetic));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Consumo del pendingDerivation: al llegar la prop, copiamos a state
-  // local y avisamos al padre para limpiar el global.
+  // local, limpiamos el state global y disparamos la apertura automática.
   useEffect(() => {
     if (pendingDerivation && pendingDerivation.toKey === spec.key) {
-      setDerivationContext(pendingDerivation);
+      const ctx = pendingDerivation;
+      setDerivationContext(ctx);
       setDerivationInjected(false);
       setShowDerivationDetails(false);
       onConsumePendingDerivation?.();
+      // Fire-and-forget: el manejo de errores vive dentro de la función.
+      fireDerivationOpener(ctx);
     }
   }, [pendingDerivation, spec.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -288,8 +343,14 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
     if (!onDerive || !msg.derivation) return;
     const idx = history.indexOf(msg);
     let originalQuery = "";
+    // Buscamos el user message REAL — saltamos sintéticos (aperturas
+    // automáticas de derivaciones anteriores) para no contaminar la
+    // pregunta original que viaja al destino.
     for (let i = idx - 1; i >= 0; i--) {
-      if (history[i].role === "user") { originalQuery = history[i].content; break; }
+      if (history[i].role === "user" && !history[i]._synthetic) {
+        originalQuery = history[i].content;
+        break;
+      }
     }
     onDerive({
       fromKey: spec.key,
@@ -314,8 +375,14 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
     if (!onBridgeToHector) return;
     const idx = history.indexOf(msg);
     let originalQuery = "";
+    // Skip sintéticos al recuperar la pregunta original (igual que el
+    // chip de derivación). Si no hay user real previo (caso apertura
+    // automática sin que el CEO haya escrito aún), originalQuery = "".
     for (let i = idx - 1; i >= 0; i--) {
-      if (history[i].role === "user") { originalQuery = history[i].content; break; }
+      if (history[i].role === "user" && !history[i]._synthetic) {
+        originalQuery = history[i].content;
+        break;
+      }
     }
     onBridgeToHector({
       fromKey: spec.key,
@@ -372,16 +439,18 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
         </div>
       )}
 
-      {/* Mensajes */}
+      {/* Mensajes — filtramos sintéticos (apertura automática de
+          derivaciones): existen en history para mantener la alternancia
+          que exige Claude, pero el CEO no debe verlos. */}
       <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px 16px 8px", display: "flex", flexDirection: "column", gap: 10, maxHeight: 540 }}>
-        {history.length === 0 && (
+        {history.filter(m => !m._synthetic).length === 0 && !loading && (
           <div style={{ padding: "24px 16px", textAlign: "center", color: "#9CA3AF", fontSize: 13, fontStyle: "italic" }}>
             {derivationContext
-              ? `Continúa la conversación con ${spec.name}. El contexto recibido ya está cargado.`
+              ? `${spec.name} está revisando el expediente…`
               : `Pregúntale a ${spec.name} lo que necesites. Asesoría directa, sin intermediarios.`}
           </div>
         )}
-        {history.map((m, i) => {
+        {history.filter(m => !m._synthetic).map((m, i) => {
           const isUser = m.role === "user";
           // Chip de derivación: solo en mensajes assistant con derivation
           // parseada, destino permitido por canDerive y NO estamos ya en
