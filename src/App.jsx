@@ -4682,8 +4682,125 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
             </div>
           )}
 
-          {/* Espaciado generoso antes de El Consejo. */}
-          <div style={{ height: 44 }}/>
+          {/* Espaciado generoso antes de la sección Héctor. */}
+          <div style={{ height: 48 }}/>
+
+          {/* ── HÉCTOR · sección protagonista ────────────────────────
+              Sección clicable propia, entre el hero y El Consejo. El
+              avatar es mayor que los del Consejo (110px vs 88px) — no
+              comparten rango: Héctor es el jefe de gabinete, ellos son
+              los especialistas. Presentación en primera persona, con
+              aire generoso y el lema final ("Usted manda. Yo no
+              olvido.") con más peso visual. */}
+          <div
+            onClick={() => onNavigate("hector-direct")}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              textAlign: "center",
+              cursor: "pointer",
+              padding: "8px 6px 6px",
+              transition: "transform .25s ease",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.transform = "translateY(-2px)";
+              const av = e.currentTarget.querySelector("[data-hector-avatar]");
+              if (av) {
+                av.style.borderColor = "#C9A84C";
+                av.style.boxShadow = "0 0 0 5px rgba(201,168,76,0.14)";
+              }
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.transform = "translateY(0)";
+              const av = e.currentTarget.querySelector("[data-hector-avatar]");
+              if (av) {
+                av.style.borderColor = "rgba(201,168,76,0.45)";
+                av.style.boxShadow = "none";
+              }
+            }}
+          >
+            {/* Avatar circular grande — única excepción a border-radius 0
+                (per regla del Consejo). 110px > 88px del Consejo:
+                protagonismo visual. */}
+            <div data-hector-avatar style={{
+              width: 110, height: 110,
+              borderRadius: "50%",
+              background: "#1A1A1A",
+              border: "1px solid rgba(201,168,76,0.45)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 50,
+              marginBottom: 18,
+              transition: "border-color .25s ease, box-shadow .25s ease",
+            }}>
+              🧙
+            </div>
+            <div style={{
+              fontFamily: KX_SERIF,
+              fontSize: 32,
+              fontWeight: 500,
+              color: "#EDE4D0",
+              marginBottom: 4,
+              letterSpacing: "0.005em",
+              lineHeight: 1.1,
+            }}>
+              Héctor
+            </div>
+            <div style={{
+              fontSize: 12,
+              color: "#8B7B5C",
+              letterSpacing: "0.05em",
+              marginBottom: 26,
+            }}>
+              Su jefe de gabinete
+            </div>
+            {/* Presentación en primera persona. Cormorant perla,
+                centrada, con aire. Última línea ("Usted manda. Yo no
+                olvido.") con más peso. Móvil: tamaños bajan con clamp. */}
+            <div style={{
+              fontFamily: KX_SERIF,
+              fontSize: "clamp(15px, 1.9vw, 18px)",
+              color: "#F5F0E8",
+              lineHeight: 1.65,
+              letterSpacing: "0.005em",
+              maxWidth: 620,
+              padding: "0 12px",
+              fontStyle: "italic",
+            }}>
+              Soy Héctor, su jefe de gabinete.<br/>
+              Aprendo cómo piensa, recuerdo lo que otros olvidan y preparo lo que está por venir. Cuanto más me confía, más suyo soy: mis consejos no son genéricos — nacen de su forma de decidir.
+            </div>
+            {/* Lema con más peso visual: tamaño mayor + oro. */}
+            <div style={{
+              fontFamily: KX_SERIF,
+              fontSize: "clamp(18px, 2.2vw, 22px)",
+              color: "#C9A84C",
+              marginTop: 22,
+              letterSpacing: "0.02em",
+              lineHeight: 1.4,
+              fontStyle: "normal",
+              fontWeight: 500,
+            }}>
+              Usted manda. Yo no olvido.
+            </div>
+          </div>
+
+          {/* Espaciado entre la sección Héctor y la sección Consejo. */}
+          <div style={{ height: 64 }}/>
+
+          {/* Línea puente — pequeña, oro oscuro — que conecta Héctor con
+              el Consejo. Va ENCIMA del título "El Consejo". */}
+          <div style={{
+            fontFamily: KX_SERIF,
+            fontSize: 13,
+            color: "#8B6914",
+            textAlign: "center",
+            letterSpacing: "0.02em",
+            marginBottom: 14,
+            fontStyle: "italic",
+          }}>
+            Y cuando la decisión exige especialistas, convoco a su Consejo.
+          </div>
 
           {/* El Consejo — protagonista. */}
           <h2 style={{
