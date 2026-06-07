@@ -22,29 +22,38 @@ const CHAT_MAX = 50;
 const NAME_BY_KEY = { mario: "Mario", jorge: "Jorge", alvaro: "Álvaro", gonzalo: "Gonzalo", diego: "Diego" };
 const EMOJI_BY_KEY = { mario: "⚖️", jorge: "📊", alvaro: "🏠", gonzalo: "🏛️", diego: "💰" };
 
-// Parser del marker [DERIVAR:agente:razón]. Reglas estrictas (fase 1 MVP):
-//   - Sólo se acepta UN match.
-//   - Debe estar en su PROPIA LÍNEA, al final del texto (último contenido).
-//   - Si el modelo escribe el marker en medio de prosa, NO se acepta como
-//     derivación y queda como texto literal (el modelo se autorregula con
-//     la regla del system prompt; este parser es la red de seguridad).
-// Devuelve { cleanText, derivation: {toKey, reason} | null }.
-const DERIVE_RE = /^\[DERIVAR:(mario|jorge|alvaro):([^\]]+)\]$/i;
+// Parser del marker [DERIVAR:agente:razón]. Diseño v2 (tolerante):
+//   - Escaneo global del texto: el marker puede estar en cualquier línea.
+//   - Si hay varios, gana el ÚLTIMO (más cercano al cierre).
+//   - Todos los markers se quitan del texto visible (no solo el último).
+//   - Distinguimos tres casos para logging:
+//       "ok"               → matcheó y se aplicó
+//       "marker-malformed" → el texto contiene "[DERIVAR" pero ningún
+//                            match válido se encontró (typo en el nombre
+//                            del agente, falta el segundo separador, etc).
+//       "marker-absent"    → no hay rastro del prefijo, el modelo decidió
+//                            no derivar.
+// Devuelve { cleanText, derivation: {toKey, reason} | null, debug }.
+const DERIVE_RE_GLOBAL = /\[DERIVAR:(mario|jorge|alvaro):([^\]\n]+)\]/gi;
 function parseDerivation(text) {
-  if (!text) return { cleanText: text, derivation: null };
-  const lines = String(text).split(/\r?\n/);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const m = line.match(DERIVE_RE);
-    if (m) {
-      const cleanText = lines.slice(0, i).join("\n").trimEnd();
-      return { cleanText, derivation: { toKey: m[1].toLowerCase(), reason: (m[2] || "").trim() } };
-    }
-    // Primera línea no vacía que no es marker → corta la búsqueda.
-    break;
+  if (!text) return { cleanText: text, derivation: null, debug: "no-text" };
+  const str = String(text);
+  const matches = [...str.matchAll(DERIVE_RE_GLOBAL)];
+  if (matches.length === 0) {
+    const debug = /\[DERIVAR/i.test(str) ? "marker-malformed" : "marker-absent";
+    return { cleanText: str, derivation: null, debug };
   }
-  return { cleanText: text, derivation: null };
+  const last = matches[matches.length - 1];
+  const cleanText = str
+    .replace(DERIVE_RE_GLOBAL, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return {
+    cleanText,
+    derivation: { toKey: last[1].toLowerCase(), reason: (last[2] || "").trim() },
+    debug: "ok",
+  };
 }
 
 // Definición de los 5 especialistas. `mode` decide el comportamiento de la
@@ -239,8 +248,17 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
       const reply = await onCall(callArgs);
       const rawText = typeof reply === "string" ? reply : (reply?.text || "");
       // Parseo del marker [DERIVAR:] — limpia el texto visible y guarda
-      // metadata en el mensaje para renderizar el chip al pie.
-      const { cleanText, derivation } = parseDerivation(rawText);
+      // metadata en el mensaje para renderizar el chip al pie. Log de
+      // diagnóstico: "ok" / "marker-absent" (el modelo decidió no derivar)
+      // / "marker-malformed" (lo intentó pero no encaja con el regex).
+      const { cleanText, derivation, debug } = parseDerivation(rawText);
+      if (debug === "ok") {
+        console.log(`🔀 [Consejo·${spec.key}] derivación parseada →`, derivation);
+      } else if (debug === "marker-malformed") {
+        console.warn(`🔀 [Consejo·${spec.key}] marker presente pero malformado · cola del texto:`, String(rawText).slice(-300));
+      } else {
+        console.log(`🔀 [Consejo·${spec.key}] sin derivación (marker-absent)`);
+      }
       const finalReply = (cleanText || "").trim() || "(sin respuesta)";
       setHistory(h => [...h, { role: "assistant", content: finalReply, derivation, ts: Date.now() }].slice(-CHAT_MAX));
       if (derivationContext && !derivationInjected) setDerivationInjected(true);

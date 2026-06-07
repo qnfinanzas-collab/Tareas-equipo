@@ -12063,6 +12063,15 @@ export default function TaskFlow(){
     "Álvaro Inmobiliario": "alvaro",
   };
   const COUNCIL_ALL_KEYS = ["mario","jorge","alvaro"];
+  // Disparadores concretos por especialista (v2). Listamos casos de manual
+  // donde el origen DEBE derivar a este destino. Sonnet generalista tiende
+  // a "lo cubro yo" cuando la regla es abstracta; los ejemplos concretos
+  // anclan el criterio a casos reales (vesting, pactos, plusvalías…).
+  const COUNCIL_TRIGGERS = {
+    mario:  "Mario (abogado mercantil): pacto de socios, vesting, cláusulas de no competencia, escrituras notariales, estatutos, traspaso o ampliación de participaciones, fusiones/adquisiciones, contratos mercantiles concretos, arbitraje y prevención de conflictos societarios.",
+    jorge:  "Jorge (analista de inversión): valoración de empresa, modelos financieros, due diligence, estructura de capital, ratios de inversión, planes de negocio, ROI/TIR, escenarios de salida.",
+    alvaro: "Álvaro (inmobiliario y fiscal): tributación de operaciones inmobiliarias, plusvalías, transmisiones patrimoniales, planificación fiscal de inversiones, vehículos inmobiliarios (SOCIMI, JV), aspectos urbanísticos y catastrales.",
+  };
   const buildCouncilDirect = (agentName, fallbackPrompt) => async ({ messages, extraSystem, fromKey } = {}) => {
     const ag = (dataRef.current?.agents||[]).find(a=>a.name===agentName);
     if (!ag) throw new Error(`${agentName} no está en agents`);
@@ -12070,13 +12079,23 @@ export default function TaskFlow(){
     const ceoBlock  = ceoMemory ? formatCeoMemoryForPrompt(ceoMemory) : "";
     const selfKey = COUNCIL_KEY_BY_NAME[agentName];
     const allowedTargets = COUNCIL_ALL_KEYS.filter(k => k !== selfKey && k !== fromKey);
-    const DERIVATION_RULES = `DERIVACIÓN ENTRE ESPECIALISTAS — Si la consulta tiene una arista DECISIVA de otra disciplina que NO puedes responder con rigor profesional, al FINAL de tu respuesta y EN UNA LÍNEA APARTE, emite un ÚNICO marker:
+    const triggersBlock = allowedTargets.map(k => `- ${COUNCIL_TRIGGERS[k]}`).join("\n");
+    const DERIVATION_RULES = `DERIVACIÓN ENTRE ESPECIALISTAS — Cuando la consulta del CEO tenga un componente OPERATIVO o CRÍTICO de otra disciplina, emite UN ÚNICO marker en línea aparte:
 [DERIVAR:agente:razón_breve]
-donde agente ∈ {${allowedTargets.join(", ")}}. Reglas duras:
-- NUNCA derives por cortesía o "también podría verlo X". Si dudas, NO derives.
+donde agente ∈ {${allowedTargets.join(", ")}}.
+
+DISPARADORES — Deriva si la consulta toca cualquiera de estos casos (no solo "relacionados", sino que requieren criterio profesional del especialista pertinente):
+${triggersBlock}
+
+Reglas:
 - Máximo UN marker por respuesta.
-- El marker SIEMPRE en su propia línea, al final, sin texto antes ni después en esa línea.
-- razón_breve es una frase corta (máx 80 caracteres) explicando qué arista justifica la derivación.`;
+- El marker va EN SU PROPIA LÍNEA. Puede ir antes o después de una pregunta de cierre al CEO; lo importante es que esté en una línea aparte.
+- razón_breve: frase corta (máx 80 caracteres) con la arista que justifica la derivación.
+- NO derives por simple cortesía. Si la cuestión cae enteramente en tu disciplina y la puedes resolver con rigor, NO derives.
+- Ejemplo correcto (Jorge ante consulta de entrada de socio con vesting + pactos parasociales):
+  «[análisis financiero del impacto en capital y dilución]
+  ¿Quieres que prepare un escenario alternativo?
+  [DERIVAR:mario:vesting y pactos parasociales requieren mercantilista]»`;
     const system = (ag.promptBase || fallbackPrompt)
       + "\n\n" + PLAIN_TEXT_RULE
       + "\n\n" + DERIVATION_RULES
