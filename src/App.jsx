@@ -1194,6 +1194,35 @@ function _migrate(d){
     });
     d.members = d.members.map(m => byId.has(m.id) && !m.code ? { ...m, code: byId.get(m.id) } : m);
   }
+  // Fase 1 El Umbral · normalización del fundador. El backfill de KX-NNN
+  // asigna por orden ascendente de id, no por semántica. Antonio Díaz
+  // (qn.finanzas@gmail.com) es el fundador y debe ser KX-001 por
+  // construcción, independientemente del id histórico que ocupe en el
+  // seed (id 6) o el orden en que llegó a un estado persistido. Aquí
+  // forzamos la asignación, intercambiando con quien ocupe KX-001
+  // actualmente para preservar unicidad. Idempotente: si Antonio ya
+  // tiene KX-001, no hace nada y silenciamos el log.
+  {
+    const FOUNDER_EMAIL = "qn.finanzas@gmail.com";
+    const founderIdx = (d.members||[]).findIndex(m => m.email === FOUNDER_EMAIL);
+    if (founderIdx >= 0 && d.members[founderIdx].code !== "KX-001") {
+      const founderPrevCode = d.members[founderIdx].code;
+      const holderIdx = d.members.findIndex(m => m.code === "KX-001" && m.email !== FOUNDER_EMAIL);
+      if (holderIdx >= 0 && founderPrevCode) {
+        // Swap: quien ocupaba KX-001 hereda el code previo del fundador.
+        d.members = d.members.map((m, i) => {
+          if (i === founderIdx) return { ...m, code: "KX-001" };
+          if (i === holderIdx) return { ...m, code: founderPrevCode };
+          return m;
+        });
+        console.log(`🏷️ [KX] Founder normalization: Antonio Díaz → KX-001 (swap con ${d.members[holderIdx].name} → ${founderPrevCode})`);
+      } else {
+        // KX-001 libre, o fundador sin code aún: asignación directa.
+        d.members = d.members.map((m, i) => i === founderIdx ? { ...m, code: "KX-001" } : m);
+        console.log(`🏷️ [KX] Founder normalization: Antonio Díaz → KX-001 (asignación directa, previo: ${founderPrevCode || "ninguno"})`);
+      }
+    }
+  }
   d.boards = Object.fromEntries(Object.entries(d.boards||{}).map(([pid,cols])=>[pid,cols.map(col=>({...col,tasks:col.tasks.map(t=>{
     // Migración timeline: si existen comments antiguos y no hay timeline,
     // mapeamos cada comment a una entrada de tipo "human". Idempotente:
