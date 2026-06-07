@@ -14,7 +14,8 @@ import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
 import { tabFromPath, pathFromTab } from "./lib/routing.js";
 import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents, updateUserPassword } from "./lib/auth.js";
-import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME, migrateBase64DocsInData } from "./lib/storage.js";
+import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME, ALLOWED_EXTENSIONS, migrateBase64DocsInData } from "./lib/storage.js";
+import { extractToText } from "./lib/extract.js";
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel, callAgentSafe, WEB_SEARCH_TOOL } from "./lib/agent.js";
 import { PresenceProvider, usePresence } from "./lib/presence.jsx";
@@ -2081,14 +2082,39 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
     </div>;
   }
 
-  // El análisis por Anthropic soporta PDF (document block) e imágenes PNG/JPG
-  // (image block). DOCX no es soportado natively por la API. TXT va como texto.
-  // URLs (type:text/html) van como texto ya extraído por /api/fetch-url.
-  // Inline (text/html, text/markdown sin storagePath): el doc.text se pasa
-  // como texto directamente al modelo.
+  // Detección por EXTENSIÓN (lección del bug xlsx: el MIME que entrega
+  // Windows/Chrome puede ser vacío). Cuando hay duda entre MIME y
+  // extensión, la extensión gana — es el hint estable del archivo.
+  const docExt = (doc)=>{
+    const n = String(doc?.name || "").toLowerCase();
+    const i = n.lastIndexOf(".");
+    return i >= 0 ? n.slice(i) : "";
+  };
+  const isSpreadsheet = (doc)=>{
+    const t = doc?.type || "";
+    if (t === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+     || t === "application/vnd.ms-excel"
+     || t === "text/csv") return true;
+    const ext = docExt(doc);
+    return ext === ".xlsx" || ext === ".xls" || ext === ".csv";
+  };
+  const isDocx = (doc)=>{
+    if (doc?.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return true;
+    return docExt(doc) === ".docx";
+  };
+
+  // El análisis por Anthropic soporta:
+  //   - PDF: kind:"pdf" base64 → document block nativo.
+  //   - PNG/JPG: kind:"image" base64 → image block nativo.
+  //   - TXT/HTML/Markdown: kind:"text" plano.
+  //   - XLSX/XLS/CSV: convertidos a kind:"text" pipe-separated por
+  //     src/lib/extract.js (Anthropic NO los lee nativos).
+  // DOCX: se almacena, pero el análisis no está soportado (avisamos
+  // en buildAttachment).
   const canAnalyze = (doc)=>{
     if(doc.url) return true;
     if(doc.text != null && !doc.storagePath) return true; // inline
+    if (isSpreadsheet(doc)) return true;
     const type = doc.type;
     return type==="application/pdf" || type==="image/png" || type==="image/jpeg"
         || type==="text/plain" || type==="text/html" || type==="text/markdown";
@@ -2099,9 +2125,23 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
       return { kind:"text", name:doc.name, text: (doc.text||"").slice(0,50000) };
     }
     const blob = await downloadDocumentBlob(doc.storagePath);
+    // Hoja de cálculo o CSV: extracción cliente a texto pipe-separated.
+    // El helper hace el dynamic import de xlsx (solo descarga la lib si
+    // se llega aquí). Caps: 5 hojas / 1.000 filas / 60.000 chars con
+    // aviso visible en el propio texto si trunca.
+    if (isSpreadsheet(doc)) {
+      const text = await extractToText(blob, doc.name);
+      return { kind:"text", name:doc.name, text };
+    }
     if(doc.type==="text/plain"){
       const text = await blob.text();
       return { kind:"text", name:doc.name, text: text.slice(0,50000) };
+    }
+    // DOCX: se sube y se descarga, pero Anthropic no lo lee nativo.
+    // Mensaje claro al CEO. Si se aprueba en el futuro, añadir
+    // mammoth.js (~30 KB) al helper extract.js.
+    if (isDocx(doc)) {
+      throw new Error("DOCX se almacena pero no se puede analizar. Para análisis, expórtelo a PDF.");
     }
     const data = await blobToBase64(blob);
     if(doc.type==="application/pdf") return { kind:"pdf", media_type:"application/pdf", data };
@@ -2306,8 +2346,17 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
 
   const iconFor = (doc)=>{
     if(doc.url) return "🔗";
-    const type = doc.type;
-    if(!type) return "📄";
+    if(isSpreadsheet(doc)) return "📊"; // antes que el matcher genérico de docs office.
+    const type = doc.type || "";
+    if(!type){
+      // Sin MIME — usamos extensión.
+      const ext = docExt(doc);
+      if(ext === ".pdf") return "📕";
+      if(ext === ".docx") return "📘";
+      if(ext === ".png" || ext === ".jpg" || ext === ".jpeg") return "🖼️";
+      if(ext === ".txt" || ext === ".md") return "📝";
+      return "📄";
+    }
     if(type.includes("pdf")) return "📕";
     if(type.includes("word")||type.includes("document")) return "📘";
     if(type.startsWith("image/")) return "🖼️";
@@ -2337,12 +2386,12 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
           {busy?"Subiendo…":"Arrastra o haz clic para adjuntar"}
         </div>
         <div style={{fontSize:10.5,color:"#9CA3AF"}}>
-          PDF, DOCX, PNG, JPG, TXT · máx {MAX_FILE_MB}MB
+          PDF, DOCX, XLSX, XLS, CSV, PNG, JPG, TXT · máx {MAX_FILE_MB}MB
         </div>
         <input
           ref={fileInputRef}
           type="file"
-          accept={ALLOWED_MIME.join(",")}
+          accept={[...ALLOWED_MIME, ...ALLOWED_EXTENSIONS].join(",")}
           multiple
           disabled={busy}
           onChange={e=>handleFiles(e.target.files,{analyze:agentSelected})}

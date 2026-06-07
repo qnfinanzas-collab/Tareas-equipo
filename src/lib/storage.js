@@ -6,12 +6,27 @@ import { supa } from "./sync.js";
 
 export const STORAGE_BUCKET = "documents";
 export const MAX_FILE_MB = 10;
+// Whitelist por MIME. Incluye xlsx/xls/csv (commit A.1) para que el
+// CEO pueda adjuntar hojas de cálculo en negociaciones — Jorge/Diego
+// las analizan vía src/lib/extract.js. Anthropic no lee xlsx nativo,
+// pero las convertimos a texto pipe-separated en cliente.
 export const ALLOWED_MIME = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
   "image/png",
   "image/jpeg",
   "text/plain",
+  "text/csv",
+];
+
+// Extensiones aceptadas como fallback cuando el MIME viene vacío o
+// inconsistente (Windows/Chrome a veces devuelven "" para .xlsx). La
+// lista coincide con ALLOWED_MIME — si añades un MIME, añade su
+// extensión aquí también.
+export const ALLOWED_EXTENSIONS = [
+  ".pdf", ".docx", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".txt", ".csv",
 ];
 
 export function storageEnabled(){ return !!supa; }
@@ -19,8 +34,14 @@ export function storageEnabled(){ return !!supa; }
 export function validateFile(file){
   if(!file) return "Sin archivo";
   if(file.size > MAX_FILE_MB*1024*1024) return `Máximo ${MAX_FILE_MB}MB`;
-  if(!ALLOWED_MIME.includes(file.type||"")) return `Tipo no permitido: ${file.type||"desconocido"}`;
-  return null;
+  const mime = file.type || "";
+  if (ALLOWED_MIME.includes(mime)) return null;
+  // Fallback por extensión: cubre el caso de MIME vacío que Windows
+  // entrega para .xlsx en algunos browsers (lección del bug del CEO).
+  const lower = String(file.name || "").toLowerCase();
+  const ext = lower.lastIndexOf(".") >= 0 ? lower.slice(lower.lastIndexOf(".")) : "";
+  if (ALLOWED_EXTENSIONS.includes(ext)) return null;
+  return `Tipo no permitido: ${mime || ext || "desconocido"}`;
 }
 
 export async function uploadDocument(file, ownerKey){
