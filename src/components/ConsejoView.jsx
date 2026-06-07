@@ -66,7 +66,7 @@ const COUNCIL = [
   { key: "diego",   emoji: "💰", name: "Diego",   role: "Analista financiero",                  accent: "#B91C1C", bg: "#FEF2F2", border: "#FCA5A5", mode: "navigate", target: "finance" },
 ];
 
-export default function ConsejoView({ currentMember, permissions, onCallMario, onCallJorge, onCallAlvaro, onNavigate, pendingDerivation, onSetPendingDerivation, onBridgeToHector, negTargets = [], taskTargets = [], onSaveCouncilDocument }) {
+export default function ConsejoView({ currentMember, permissions, onCallMario, onCallJorge, onCallAlvaro, onNavigate, pendingDerivation, onSetPendingDerivation, onBridgeToHector }) {
   // Filtramos por canUseAgent. Si el miembro no tiene permiso sobre un
   // agente, su card no aparece — admin global pasa libre.
   const visible = COUNCIL.filter(c => canUseAgent(currentMember, c.key, permissions));
@@ -166,9 +166,6 @@ export default function ConsejoView({ currentMember, permissions, onCallMario, o
           onDerive={handleDerive}
           canDerive={canDerive}
           onBridgeToHector={onBridgeToHector}
-          negTargets={negTargets}
-          taskTargets={taskTargets}
-          onSaveCouncilDocument={onSaveCouncilDocument}
         />
       ))}
     </div>
@@ -183,7 +180,7 @@ export default function ConsejoView({ currentMember, permissions, onCallMario, o
 //   - SIN proposal/banner banners.
 // Persistencia localStorage por (specKey, userId) para que cada miembro
 // tenga su propia conversación con cada especialista.
-function CouncilChat({ spec, currentMember, onCall, pendingDerivation, onConsumePendingDerivation, onDerive, canDerive, onBridgeToHector, negTargets = [], taskTargets = [], onSaveCouncilDocument }) {
+function CouncilChat({ spec, currentMember, onCall, pendingDerivation, onConsumePendingDerivation, onDerive, canDerive, onBridgeToHector }) {
   const userId = currentMember?.id ?? "anon";
   const storageKey = `kluxor.consejo.${spec.key}.chat.${userId}`;
   const [history, setHistory] = useState(() => {
@@ -374,19 +371,6 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
   // empuja a Héctor el paquete {fromKey, originalQuery, originReply} para
   // que precargue el input con "Convierte este análisis en acciones…".
   // Héctor responde con su pipeline normal [ACTIONS] → ActionProposal.
-  // Guardar como documento — abre el modal con el mensaje del especialista
-  // como contenido del documento. El modal pide nombre + destino y delega
-  // en onSaveCouncilDocument que vive en App.jsx.
-  const [saveDocFor, setSaveDocFor] = useState(null);
-  const handleSaveDocClick = (msg) => {
-    if (!onSaveCouncilDocument) return;
-    setSaveDocFor(msg);
-  };
-  const handleSaveDocConfirm = ({ targetType, targetId, doc }) => {
-    const ok = onSaveCouncilDocument?.({ targetType, targetId, doc });
-    if (ok) setSaveDocFor(null);
-  };
-
   const handleBridgeClick = (msg) => {
     if (!onBridgeToHector) return;
     const idx = history.indexOf(msg);
@@ -542,29 +526,6 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
                       🧙 Accionar con Héctor
                     </button>
                   )}
-                  {onSaveCouncilDocument && (
-                    <button
-                      onClick={() => handleSaveDocClick(m)}
-                      title="Guardar como documento en una negociación o tarea"
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        padding: "4px 10px",
-                        background: "#fff",
-                        border: "1px solid #E5E0D5",
-                        color: "#3D2E12",
-                        fontSize: 11.5,
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                      }}
-                      onMouseEnter={e => { e.currentTarget.style.background = "#FAFAF7"; e.currentTarget.style.borderColor = "#C9A84C"; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#E5E0D5"; }}
-                    >
-                      📎 Guardar como documento
-                    </button>
-                  )}
                 </div>
               )}
             </div>
@@ -597,187 +558,6 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
         >
           {loading ? "…" : "Enviar"}
         </button>
-      </div>
-      {/* Modal "Guardar como documento". Renderizado en overlay propio
-          (fixed full-screen). Si saveDocFor es null, no se renderiza. */}
-      {saveDocFor && (
-        <SaveDocumentModal
-          msg={saveDocFor}
-          spec={spec}
-          negTargets={negTargets}
-          taskTargets={taskTargets}
-          onSave={handleSaveDocConfirm}
-          onCancel={() => setSaveDocFor(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-// SaveDocumentModal — captura el texto íntegro de la burbuja del especialista
-// y lo guarda como entry {kind:"inline"} en negotiation.documents[] o
-// task.documents[] del destino seleccionado. Reutiliza el schema del
-// DocumentUploader (mismo shape que addInlineText, sección DOCUMENT_INLINE
-// validada en producción). La identidad visual sigue la paleta operativa
-// Kluxor (#FAFAF7, oro acento, borde #E5E0D5, border-radius 0).
-function SaveDocumentModal({ msg, spec, negTargets, taskTargets, onSave, onCancel }) {
-  const [name, setName] = useState(() => {
-    const dateShort = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
-    return `Documento de ${spec.name} · ${dateShort}`;
-  });
-  const [targetType, setTargetType] = useState("negotiation");
-  const [targetId, setTargetId] = useState(null);
-  const [search, setSearch] = useState("");
-
-  const source = targetType === "negotiation" ? negTargets : taskTargets;
-  const filtered = search.trim()
-    ? source.filter(item => {
-        const q = search.toLowerCase();
-        return (item.title || "").toLowerCase().includes(q)
-            || (item.code || "").toLowerCase().includes(q)
-            || (item.projectName || "").toLowerCase().includes(q);
-      })
-    : source;
-
-  const canSave = !!name.trim() && targetId != null;
-
-  const handleSave = () => {
-    if (!canSave) return;
-    const doc = {
-      // Prefijo "doc_council_" para que sea identificable en debug; el
-      // resto del shape sigue exactamente lo que persiste addInlineText
-      // (DocumentUploader) — cambio aditivo cero impacto sobre la
-      // mecánica existente de documentos inline.
-      id: "doc_council_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      name: name.trim(),
-      type: "text/markdown",
-      size: (msg.content || "").length,
-      storagePath: null,
-      url: null,
-      text: msg.content || "",
-      kind: "inline",
-      uploadedAt: new Date().toISOString(),
-      analyzedBy: null,
-      analyzedAt: null,
-      report: null,
-      // Metadata propia del Consejo (no la consume el DocumentUploader
-      // pero queda en jsonb para trazabilidad).
-      _origin: { source: "consejo", specKey: spec.key, specName: spec.name, ts: msg.ts || Date.now() },
-    };
-    onSave({ targetType, targetId, doc });
-  };
-
-  return (
-    <div onClick={onCancel} style={{
-      position: "fixed", inset: 0,
-      background: "rgba(0,0,0,0.45)",
-      zIndex: 2000,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      padding: 16,
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: "#FAFAF7",
-        border: "1px solid #E5E0D5",
-        width: "100%", maxWidth: 560,
-        display: "flex", flexDirection: "column",
-        maxHeight: "90vh", overflow: "hidden",
-      }}>
-        {/* Header */}
-        <div style={{ padding: "14px 18px", borderBottom: "0.5px solid #E5E0D5", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 18 }}>📎</span>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#3D2E12" }}>Guardar documento</h3>
-          <button onClick={onCancel} title="Cerrar" style={{ marginLeft: "auto", background: "transparent", border: "none", fontSize: 20, cursor: "pointer", color: "#8B6914", padding: 0, fontFamily: "inherit", lineHeight: 1, width: 32, height: 32 }}>×</button>
-        </div>
-        {/* Body */}
-        <div style={{ padding: "16px 18px", overflowY: "auto", flex: 1 }}>
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "#8B6914", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, display: "block" }}>
-              Nombre
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              style={{ width: "100%", padding: "10px 12px", border: "0.5px solid #D1D5DB", fontSize: 13, fontFamily: "inherit", outline: "none", background: "#fff", boxSizing: "border-box" }}
-              autoFocus
-            />
-          </div>
-          <div style={{ marginBottom: 4 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: "#8B6914", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6, display: "block" }}>
-              Destino
-            </label>
-            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-              <button
-                onClick={() => { setTargetType("negotiation"); setTargetId(null); }}
-                style={{ flex: 1, padding: "10px 12px", minHeight: 44, background: targetType === "negotiation" ? "#C9A84C" : "#fff", color: targetType === "negotiation" ? "#fff" : "#3D2E12", border: `1px solid ${targetType === "negotiation" ? "#C9A84C" : "#E5E0D5"}`, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
-              >
-                🤝 Negociación
-              </button>
-              <button
-                onClick={() => { setTargetType("task"); setTargetId(null); }}
-                style={{ flex: 1, padding: "10px 12px", minHeight: 44, background: targetType === "task" ? "#C9A84C" : "#fff", color: targetType === "task" ? "#fff" : "#3D2E12", border: `1px solid ${targetType === "task" ? "#C9A84C" : "#E5E0D5"}`, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
-              >
-                ✅ Tarea
-              </button>
-            </div>
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder={targetType === "negotiation" ? "Buscar negociación…" : "Buscar tarea…"}
-              style={{ width: "100%", padding: "9px 12px", border: "0.5px solid #D1D5DB", fontSize: 12, fontFamily: "inherit", outline: "none", background: "#fff", boxSizing: "border-box" }}
-            />
-            <div style={{ marginTop: 8, maxHeight: 240, overflowY: "auto", border: "0.5px solid #E5E0D5", background: "#fff" }}>
-              {filtered.length === 0 ? (
-                <div style={{ padding: "20px 12px", fontSize: 12, color: "#9CA3AF", textAlign: "center" }}>
-                  {source.length === 0
-                    ? (targetType === "negotiation" ? "No hay negociaciones activas." : "No hay tareas abiertas.")
-                    : "Sin resultados."}
-                </div>
-              ) : (
-                filtered.slice(0, 100).map(item => {
-                  const selected = targetId === item.id;
-                  return (
-                    <div key={item.id}
-                      onClick={() => setTargetId(item.id)}
-                      style={{ padding: "10px 12px", borderBottom: "0.5px solid #F3F4F6", cursor: "pointer", fontSize: 12.5, background: selected ? "#FFFBEB" : "transparent", display: "flex", alignItems: "center", gap: 8, minHeight: 48 }}
-                      onMouseEnter={e => { if (!selected) e.currentTarget.style.background = "#FAFAF7"; }}
-                      onMouseLeave={e => { if (!selected) e.currentTarget.style.background = "transparent"; }}
-                    >
-                      {targetType === "task" && <span style={{ fontSize: 14 }}>{item.projectEmoji}</span>}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: selected ? 600 : 400 }}>{item.title}</div>
-                        {targetType === "task" && item.projectName && (
-                          <div style={{ fontSize: 10.5, color: "#6B7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.projectName}</div>
-                        )}
-                        {targetType === "negotiation" && item.code && (
-                          <div style={{ fontSize: 10.5, color: "#6B7280" }}>{item.code}</div>
-                        )}
-                      </div>
-                      {selected && <span style={{ color: "#C9A84C", fontSize: 15, fontWeight: 700 }}>✓</span>}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-        {/* Footer */}
-        <div style={{ padding: "12px 18px", borderTop: "0.5px solid #E5E0D5", display: "flex", gap: 8, justifyContent: "flex-end", background: "#fff" }}>
-          <button
-            onClick={onCancel}
-            style={{ padding: "10px 18px", minHeight: 44, background: "#fff", border: "0.5px solid #D1D5DB", color: "#4B5563", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!canSave}
-            style={{ padding: "10px 18px", minHeight: 44, background: canSave ? "#C9A84C" : "#E5E0D5", color: canSave ? "#fff" : "#9CA3AF", border: "none", fontSize: 13, fontWeight: 700, cursor: canSave ? "pointer" : "not-allowed", fontFamily: "inherit" }}
-          >
-            Guardar
-          </button>
-        </div>
       </div>
     </div>
   );
