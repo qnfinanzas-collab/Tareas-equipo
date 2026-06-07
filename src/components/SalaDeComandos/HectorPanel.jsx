@@ -1326,12 +1326,12 @@ Reglas para block_task:
       // qué pesa el prompt y cuánto se devuelve en respuesta.
       console.log("[Hector] orden enviada, longitud:", userMessage.length);
       console.log("[Hector] system prompt total chars:", system.length);
-      // Timeout 60s (subido desde 30s): con AGENT_ACTIONS_ADDON v4 y
-      // respuestas que incluyen [ACTIONS] grandes (proyecto + 6 tareas +
-      // negociación con stakeholders), Sonnet 4.5 puede tardar 30-50s.
-      // Con 30s saltaba abort en mitad del JSON.
+      // Timeout 90s (subido desde 60s): igualamos a los especialistas y
+      // a maxDuration de api/agent.js. Órdenes estratégicas complejas en
+      // chats largos saturaban el límite anterior. El nuevo techo coincide
+      // con el de la función serverless en Vercel.
       const ac = new AbortController();
-      const timeoutId = setTimeout(() => ac.abort(), 60000);
+      const timeoutId = setTimeout(() => ac.abort(), 90000);
       let r;
       try {
         r = await fetch("/api/agent", {
@@ -1345,7 +1345,7 @@ Reglas para block_task:
         });
       } catch (e) {
         clearTimeout(timeoutId);
-        if (e.name === "AbortError") throw new Error("Héctor tardó más de 60s. La orden puede ser muy compleja. Prueba a dividirla: primero pídele crear el proyecto, luego las tareas, luego la negociación.");
+        if (e.name === "AbortError") throw new Error("Héctor tardó más de 90s (límite 90s). Si la conversación es muy larga, abre un chat nuevo para resetear el contexto. Si la orden es muy compleja, divídela: primero pídele crear el proyecto, luego las tareas, luego la negociación.");
         throw e;
       }
       clearTimeout(timeoutId);

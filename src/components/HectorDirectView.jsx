@@ -638,7 +638,7 @@ Reglas:
       });
       const reply = await callAgentSafe(
         { system: baseSystem, messages, max_tokens: 4096 },
-        { timeoutMs: 60000 }
+        { timeoutMs: 90000 }
       );
       console.log('[BUG_SINTEXTO] reply:', JSON.stringify(reply).slice(0, 1000));
       const sanitizedReply = reply.replace(/"(?:[^"\\]|\\.)*"/g, m =>
@@ -978,9 +978,18 @@ Reglas:
       }
     } catch (e) {
       console.warn("[HectorDirect] send fallo:", e?.message);
+      // Si fue un timeout (mensaje empieza con ⏱️ desde callAgentSafe),
+      // añadimos sugerencia específica de Héctor: chats muy largos saturan
+      // el contexto y aumentan la latencia — abrir uno nuevo es la salida
+      // limpia. Mantenemos el mensaje original (que ya indica el límite real).
+      const isTimeout = (e?.message || "").startsWith("⏱️");
+      const baseMsg = e?.message || "Error consultando a Héctor";
+      const suffix = isTimeout
+        ? " Si la conversación es muy larga, abre un chat nuevo para resetear el contexto y vuelve a preguntar."
+        : "";
       setChatHistory(prev => [...prev, {
         role: "assistant",
-        text: `⚠ ${e?.message || "Error consultando a Héctor"}`,
+        text: `⚠ ${baseMsg}${suffix}`,
         error: true,
         ts: Date.now(),
       }].slice(-CHAT_MAX));

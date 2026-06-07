@@ -9104,7 +9104,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                 return {role:m.role==="user"?"user":"assistant", content:m.content};
               });
             history.push({role:"user",content:datedUserMessage});
-            return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:datedUserMessage}]:history,max_tokens:opts.maxTokens||2048},{timeoutMs:opts.timeoutMs||60000});
+            return callAgentSafe({system,messages:opts.isolatedHistory?[{role:"user",content:datedUserMessage}]:history,max_tokens:opts.maxTokens||2048},{timeoutMs:opts.timeoutMs||90000});
           };
           // Parser de invocación EXPLÍCITA: lee la respuesta de Héctor,
           // busca etiquetas [INVOCAR:mario|jorge:tarea] y devuelve:
