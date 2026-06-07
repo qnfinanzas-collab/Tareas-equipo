@@ -19,6 +19,33 @@ import React, { useState, useRef, useEffect } from "react";
 import { canUseAgent } from "../lib/auth.js";
 
 const CHAT_MAX = 50;
+const NAME_BY_KEY = { mario: "Mario", jorge: "Jorge", alvaro: "Álvaro", gonzalo: "Gonzalo", diego: "Diego" };
+const EMOJI_BY_KEY = { mario: "⚖️", jorge: "📊", alvaro: "🏠", gonzalo: "🏛️", diego: "💰" };
+
+// Parser del marker [DERIVAR:agente:razón]. Reglas estrictas (fase 1 MVP):
+//   - Sólo se acepta UN match.
+//   - Debe estar en su PROPIA LÍNEA, al final del texto (último contenido).
+//   - Si el modelo escribe el marker en medio de prosa, NO se acepta como
+//     derivación y queda como texto literal (el modelo se autorregula con
+//     la regla del system prompt; este parser es la red de seguridad).
+// Devuelve { cleanText, derivation: {toKey, reason} | null }.
+const DERIVE_RE = /^\[DERIVAR:(mario|jorge|alvaro):([^\]]+)\]$/i;
+function parseDerivation(text) {
+  if (!text) return { cleanText: text, derivation: null };
+  const lines = String(text).split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const m = line.match(DERIVE_RE);
+    if (m) {
+      const cleanText = lines.slice(0, i).join("\n").trimEnd();
+      return { cleanText, derivation: { toKey: m[1].toLowerCase(), reason: (m[2] || "").trim() } };
+    }
+    // Primera línea no vacía que no es marker → corta la búsqueda.
+    break;
+  }
+  return { cleanText: text, derivation: null };
+}
 
 // Definición de los 5 especialistas. `mode` decide el comportamiento de la
 // card: "chat" embebe el chat en esta vista; "navigate" salta a otra vista.
@@ -30,7 +57,7 @@ const COUNCIL = [
   { key: "diego",   emoji: "💰", name: "Diego",   role: "Analista financiero",                  accent: "#B91C1C", bg: "#FEF2F2", border: "#FCA5A5", mode: "navigate", target: "finance" },
 ];
 
-export default function ConsejoView({ currentMember, permissions, onCallMario, onCallJorge, onCallAlvaro, onNavigate }) {
+export default function ConsejoView({ currentMember, permissions, onCallMario, onCallJorge, onCallAlvaro, onNavigate, pendingDerivation, onSetPendingDerivation }) {
   // Filtramos por canUseAgent. Si el miembro no tiene permiso sobre un
   // agente, su card no aparece — admin global pasa libre.
   const visible = COUNCIL.filter(c => canUseAgent(currentMember, c.key, permissions));
@@ -38,6 +65,29 @@ export default function ConsejoView({ currentMember, permissions, onCallMario, o
   const [activeKey, setActiveKey] = useState(null);
 
   const callerFor = (key) => key === "mario" ? onCallMario : key === "jorge" ? onCallJorge : key === "alvaro" ? onCallAlvaro : null;
+
+  // canDerive — el chip de derivación solo se pinta si el CEO tiene permiso
+  // sobre el destino. Gate redundante con la regla del system prompt para
+  // que el marker emitido a destinos sin permiso quede silencioso en UI.
+  const canDerive = (toKey) => canUseAgent(currentMember, toKey, permissions);
+
+  // Disparador del chip: marca activeKey en el destino + setea la
+  // derivación pendiente para que el CouncilChat destino la consuma al
+  // montar / al recibir prop.
+  const handleDerive = (payload) => {
+    if (!canDerive(payload.toKey)) return;
+    setActiveKey(payload.toKey);
+    onSetPendingDerivation?.(payload);
+  };
+
+  // Auto-abrir la card destino cuando el state global trae una derivación
+  // — útil si la derivación viniera de fuera (p.ej., navegación cruzada
+  // entre secciones en fase 2). Hoy ya lo hace handleDerive, pero defensivo.
+  useEffect(() => {
+    if (pendingDerivation && visible.some(c => c.key === pendingDerivation.toKey && c.mode === "chat")) {
+      setActiveKey(pendingDerivation.toKey);
+    }
+  }, [pendingDerivation]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 20px" }}>
@@ -102,6 +152,10 @@ export default function ConsejoView({ currentMember, permissions, onCallMario, o
           spec={c}
           currentMember={currentMember}
           onCall={callerFor(c.key)}
+          pendingDerivation={pendingDerivation && pendingDerivation.toKey === c.key ? pendingDerivation : null}
+          onConsumePendingDerivation={() => onSetPendingDerivation?.(null)}
+          onDerive={handleDerive}
+          canDerive={canDerive}
         />
       ))}
     </div>
@@ -116,7 +170,7 @@ export default function ConsejoView({ currentMember, permissions, onCallMario, o
 //   - SIN proposal/banner banners.
 // Persistencia localStorage por (specKey, userId) para que cada miembro
 // tenga su propia conversación con cada especialista.
-function CouncilChat({ spec, currentMember, onCall }) {
+function CouncilChat({ spec, currentMember, onCall, pendingDerivation, onConsumePendingDerivation, onDerive, canDerive }) {
   const userId = currentMember?.id ?? "anon";
   const storageKey = `kluxor.consejo.${spec.key}.chat.${userId}`;
   const [history, setHistory] = useState(() => {
@@ -125,6 +179,29 @@ function CouncilChat({ spec, currentMember, onCall }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef(null);
+  // derivationContext — card visible arriba del chat cuando la conversación
+  // arranca por derivación desde otro especialista. Session-only (no se
+  // persiste). chainDepth se usa para capar a 1 derivación encadenada: si
+  // ya hay derivation context, los chips quedan ocultos en respuestas
+  // posteriores de este chat.
+  const [derivationContext, setDerivationContext] = useState(null);
+  // showDerivationDetails — collapsible del bloque "Mostrar contexto recibido".
+  const [showDerivationDetails, setShowDerivationDetails] = useState(false);
+  // derivationInjected — flag para inyectar extraSystem SOLO en el primer
+  // send tras recibir la derivación. Sonnet integra el contexto la primera
+  // vez; repetirlo en cada turn infla el system prompt sin valor.
+  const [derivationInjected, setDerivationInjected] = useState(false);
+
+  // Consumo del pendingDerivation: al llegar la prop, copiamos a state
+  // local y avisamos al padre para limpiar el global.
+  useEffect(() => {
+    if (pendingDerivation && pendingDerivation.toKey === spec.key) {
+      setDerivationContext(pendingDerivation);
+      setDerivationInjected(false);
+      setShowDerivationDetails(false);
+      onConsumePendingDerivation?.();
+    }
+  }, [pendingDerivation, spec.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify(history.slice(-CHAT_MAX))); } catch {}
@@ -143,10 +220,29 @@ function CouncilChat({ spec, currentMember, onCall }) {
     setLoading(true);
     try {
       const messages = next.map(m => ({ role: m.role === "user" ? "user" : "assistant", content: m.content }));
-      const reply = await onCall({ messages });
-      const text = typeof reply === "string" ? reply : (reply?.text || "");
-      const finalReply = (text || "").trim() || "(sin respuesta)";
-      setHistory(h => [...h, { role: "assistant", content: finalReply, ts: Date.now() }].slice(-CHAT_MAX));
+      const callArgs = { messages };
+      // Si estamos en chat derivado y aún no inyectamos el contexto, lo
+      // mandamos como extraSystem en este primer turn. Tras el primer
+      // turn, el contexto está en el history del LLM implícitamente y no
+      // hace falta volver a inyectarlo.
+      if (derivationContext && !derivationInjected) {
+        const FROM_NAME = NAME_BY_KEY[derivationContext.fromKey] || derivationContext.fromKey;
+        const truncated = String(derivationContext.originReply || "").slice(0, 2000);
+        callArgs.extraSystem = `CONTEXTO DE DERIVACIÓN:
+El CEO consultó originalmente a ${FROM_NAME}: "${derivationContext.originalQuery || ""}"
+${FROM_NAME} respondió y deriva a ti por: "${derivationContext.reason || ""}".
+Resumen de ${FROM_NAME} (referencia, NO repetir): "${truncated}".
+Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repitas su análisis.`;
+        callArgs.fromKey = derivationContext.fromKey;
+      }
+      const reply = await onCall(callArgs);
+      const rawText = typeof reply === "string" ? reply : (reply?.text || "");
+      // Parseo del marker [DERIVAR:] — limpia el texto visible y guarda
+      // metadata en el mensaje para renderizar el chip al pie.
+      const { cleanText, derivation } = parseDerivation(rawText);
+      const finalReply = (cleanText || "").trim() || "(sin respuesta)";
+      setHistory(h => [...h, { role: "assistant", content: finalReply, derivation, ts: Date.now() }].slice(-CHAT_MAX));
+      if (derivationContext && !derivationInjected) setDerivationInjected(true);
     } catch (e) {
       setHistory(h => [...h, { role: "assistant", content: `⚠ Error consultando a ${spec.name}: ${e.message || e}`, ts: Date.now(), error: true }].slice(-CHAT_MAX));
     } finally {
@@ -160,9 +256,36 @@ function CouncilChat({ spec, currentMember, onCall }) {
     if (!history.length) return;
     if (window.confirm(`¿Borrar el historial de conversación con ${spec.name}?`)) {
       setHistory([]);
+      setDerivationContext(null);
+      setDerivationInjected(false);
       try { localStorage.removeItem(storageKey); } catch {}
     }
   };
+
+  // Click en el chip "→ Consultar a X". Reconstruye la pregunta original
+  // del CEO buscando hacia atrás el último mensaje user previo a esta
+  // respuesta del especialista.
+  const handleDeriveChip = (msg) => {
+    if (!onDerive || !msg.derivation) return;
+    const idx = history.indexOf(msg);
+    let originalQuery = "";
+    for (let i = idx - 1; i >= 0; i--) {
+      if (history[i].role === "user") { originalQuery = history[i].content; break; }
+    }
+    onDerive({
+      fromKey: spec.key,
+      toKey: msg.derivation.toKey,
+      reason: msg.derivation.reason,
+      originalQuery,
+      originReply: msg.content,
+      chainDepth: 1,
+    });
+  };
+
+  // Chain cap = 1: si este chat está en estado derivado, sus chips quedan
+  // ocultos. El CEO solo derivó UNA vez; segundas derivaciones quedan para
+  // fases posteriores.
+  const isDerived = !!derivationContext;
 
   return (
     <div style={{ background: "#fff", border: "1px solid #E5E7EB", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 480 }}>
@@ -176,31 +299,100 @@ function CouncilChat({ spec, currentMember, onCall }) {
         <button onClick={clear} title="Borrar conversación" style={{ background: "transparent", border: "1px solid #E5E7EB", width: 32, height: 32, fontSize: 14, cursor: "pointer", color: "#6B7280", fontFamily: "inherit" }}>🗑</button>
       </div>
 
+      {/* Card de derivación recibida — pinned arriba mientras dure la
+          sesión. Trust: el CEO ve exactamente qué se ha pasado al destino. */}
+      {derivationContext && (
+        <div style={{ background: "#FFFBEB", borderBottom: "1px solid #FCD34D", padding: "12px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 15 }}>📥</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#92400E" }}>
+              Derivación recibida de {EMOJI_BY_KEY[derivationContext.fromKey]} {NAME_BY_KEY[derivationContext.fromKey] || derivationContext.fromKey}
+            </span>
+          </div>
+          {derivationContext.reason && (
+            <div style={{ fontSize: 12.5, color: "#78350F", marginBottom: 6, lineHeight: 1.4 }}>
+              <strong>Razón:</strong> {derivationContext.reason}
+            </div>
+          )}
+          <button
+            onClick={() => setShowDerivationDetails(v => !v)}
+            style={{ background: "transparent", border: "none", color: "#B45309", fontSize: 11, cursor: "pointer", padding: 0, fontFamily: "inherit", fontWeight: 600 }}
+          >
+            {showDerivationDetails ? "▾ Ocultar contexto recibido" : "▸ Mostrar contexto recibido"}
+          </button>
+          {showDerivationDetails && (
+            <div style={{ marginTop: 8, fontSize: 12, color: "#451A03", background: "#FEF3C7", border: "0.5px solid #FCD34D", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#92400E", marginBottom: 3 }}>Pregunta original del CEO</div>
+                <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{derivationContext.originalQuery || "(sin pregunta original)"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#92400E", marginBottom: 3 }}>Respuesta de {NAME_BY_KEY[derivationContext.fromKey] || derivationContext.fromKey}</div>
+                <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{derivationContext.originReply || "(sin respuesta)"}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Mensajes */}
       <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px 16px 8px", display: "flex", flexDirection: "column", gap: 10, maxHeight: 540 }}>
         {history.length === 0 && (
           <div style={{ padding: "24px 16px", textAlign: "center", color: "#9CA3AF", fontSize: 13, fontStyle: "italic" }}>
-            Pregúntale a {spec.name} lo que necesites. Asesoría directa, sin intermediarios.
+            {derivationContext
+              ? `Continúa la conversación con ${spec.name}. El contexto recibido ya está cargado.`
+              : `Pregúntale a ${spec.name} lo que necesites. Asesoría directa, sin intermediarios.`}
           </div>
         )}
         {history.map((m, i) => {
           const isUser = m.role === "user";
+          // Chip de derivación: solo en mensajes assistant con derivation
+          // parseada, destino permitido por canDerive y NO estamos ya en
+          // un chat derivado (chain cap = 1).
+          const showDeriveChip = !isUser && m.derivation && !isDerived && canDerive?.(m.derivation.toKey);
           return (
-            <div key={i} style={{ display: "flex", gap: 8, justifyContent: isUser ? "flex-end" : "flex-start" }}>
-              {!isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : spec.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{spec.emoji}</div>}
-              <div style={{
-                background: isUser ? "#7F77DD" : (m.error ? "#FEE2E2" : spec.bg),
-                color: isUser ? "#fff" : (m.error ? "#991B1B" : "#1F2937"),
-                border: m.error ? "1px solid #FCA5A5" : "0.5px solid #E5E7EB",
-                padding: "10px 14px",
-                fontSize: 13.5,
-                lineHeight: 1.5,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                maxWidth: "82%",
-              }}>
-                {m.content}
+            <div key={i} style={{ display: "flex", gap: 8, justifyContent: isUser ? "flex-end" : "flex-start", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start", maxWidth: "82%" }}>
+                {!isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : spec.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{spec.emoji}</div>}
+                <div style={{
+                  background: isUser ? "#7F77DD" : (m.error ? "#FEE2E2" : spec.bg),
+                  color: isUser ? "#fff" : (m.error ? "#991B1B" : "#1F2937"),
+                  border: m.error ? "1px solid #FCA5A5" : "0.5px solid #E5E7EB",
+                  padding: "10px 14px",
+                  fontSize: 13.5,
+                  lineHeight: 1.5,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}>
+                  {m.content}
+                </div>
               </div>
+              {showDeriveChip && (
+                <div style={{ paddingLeft: 36 }}>
+                  <button
+                    onClick={() => handleDeriveChip(m)}
+                    title={m.derivation.reason || ""}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "4px 10px",
+                      background: "#fff",
+                      border: `1px solid ${spec.accent}`,
+                      color: spec.accent,
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      marginTop: 4,
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = spec.bg; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "#fff"; }}
+                  >
+                    → Consultar a {EMOJI_BY_KEY[m.derivation.toKey]} {NAME_BY_KEY[m.derivation.toKey]}
+                  </button>
+                </div>
+              )}
             </div>
           );
         })}

@@ -10830,6 +10830,12 @@ export default function TaskFlow(){
   const [showShortcuts,setShowShortcuts] = useState(false);
   const nuevaFirstBtnRef = useRef(null);
   const [overlayTaskId,setOverlayTaskId]           = useState(null);
+  // El Consejo — derivación entre especialistas (fase 1 MVP). Cuando un
+  // especialista pulsa el chip "→ Consultar a X", aterrizamos aquí el
+  // paquete que viajará al chat destino: { fromKey, toKey, reason,
+  // originalQuery, originReply, chainDepth }. El destino lo consume en su
+  // primera carga útil y limpia este state via onSetPendingDerivation(null).
+  const [pendingDerivation,setPendingDerivation]   = useState(null);
   const [activeNegId,setActiveNegId]               = useState(null);
   const [activeSessId,setActiveSessId]             = useState(null);
   const [negFilter,setNegFilter]                   = useState("all");
@@ -12038,13 +12044,35 @@ export default function TaskFlow(){
   // Memoria del CEO sí se inyecta porque permite respuestas alineadas con
   // preferencias/decisiones ya conocidas — igual que el patrón de Héctor
   // y la rama Deal Room. Timeout 90s coherente con el resto del Consejo.
-  const buildCouncilDirect = (agentName, fallbackPrompt) => async ({ messages, extraSystem } = {}) => {
+  //
+  // Derivación entre especialistas (fase 1 MVP): cada caller acepta opcional
+  // `fromKey` con el especialista que derivó hasta aquí (si lo hubo). Los
+  // allowed targets del marker excluyen al self y al fromKey — Mario no
+  // puede derivar a Mario, ni de vuelta al que le derivó. Cap chain = 1 se
+  // aplica en la UI (CouncilChat) ocultando el chip cuando ya hay derivación.
+  const COUNCIL_KEY_BY_NAME = {
+    "Mario Legal": "mario",
+    "Jorge Finanzas": "jorge",
+    "Álvaro Inmobiliario": "alvaro",
+  };
+  const COUNCIL_ALL_KEYS = ["mario","jorge","alvaro"];
+  const buildCouncilDirect = (agentName, fallbackPrompt) => async ({ messages, extraSystem, fromKey } = {}) => {
     const ag = (dataRef.current?.agents||[]).find(a=>a.name===agentName);
     if (!ag) throw new Error(`${agentName} no está en agents`);
     const ceoMemory = dataRef.current?.ceoMemory;
     const ceoBlock  = ceoMemory ? formatCeoMemoryForPrompt(ceoMemory) : "";
+    const selfKey = COUNCIL_KEY_BY_NAME[agentName];
+    const allowedTargets = COUNCIL_ALL_KEYS.filter(k => k !== selfKey && k !== fromKey);
+    const DERIVATION_RULES = `DERIVACIÓN ENTRE ESPECIALISTAS — Si la consulta tiene una arista DECISIVA de otra disciplina que NO puedes responder con rigor profesional, al FINAL de tu respuesta y EN UNA LÍNEA APARTE, emite un ÚNICO marker:
+[DERIVAR:agente:razón_breve]
+donde agente ∈ {${allowedTargets.join(", ")}}. Reglas duras:
+- NUNCA derives por cortesía o "también podría verlo X". Si dudas, NO derives.
+- Máximo UN marker por respuesta.
+- El marker SIEMPRE en su propia línea, al final, sin texto antes ni después en esa línea.
+- razón_breve es una frase corta (máx 80 caracteres) explicando qué arista justifica la derivación.`;
     const system = (ag.promptBase || fallbackPrompt)
       + "\n\n" + PLAIN_TEXT_RULE
+      + "\n\n" + DERIVATION_RULES
       + (ceoBlock ? `\n\n${ceoBlock}` : "")
       + (extraSystem ? `\n\n${extraSystem}` : "");
     const text = await callAgentSafe(
@@ -13744,7 +13772,7 @@ export default function TaskFlow(){
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} isAdmin={isAdmin} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)} onUnarchiveTask={unarchiveTaskAnywhere}/>}
           {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)} onMoveTask={moveTaskAnywhere} onCreateTask={(pid,payload)=>addTaskToProject(pid,payload)}/>}
-          {activeTab==="consejo"   &&<ConsejoView currentMember={(data.members||[]).find(m=>m.id===activeMember)} permissions={data.permissions} onCallMario={callMarioDirect} onCallJorge={callJorgeDirect} onCallAlvaro={callAlvaroDirect} onNavigate={id=>setActiveTab(id)}/>}
+          {activeTab==="consejo"   &&<ConsejoView currentMember={(data.members||[]).find(m=>m.id===activeMember)} permissions={data.permissions} onCallMario={callMarioDirect} onCallJorge={callJorgeDirect} onCallAlvaro={callAlvaroDirect} onNavigate={id=>setActiveTab(id)} pendingDerivation={pendingDerivation} onSetPendingDerivation={setPendingDerivation}/>}
           {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
           {activeTab==="memory"    &&<MemoryPanel ceoMemory={data.ceoMemory} onAddCeo={addCeoMemoryItems} onRemoveCeo={removeCeoMemoryItem} onAddNeg={addNegMemoryItems} onRemoveNeg={removeNegMemoryItem}/>}
           {activeTab==="dealroom"&&(()=>{
