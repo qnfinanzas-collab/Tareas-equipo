@@ -12137,11 +12137,56 @@ Reglas:
       + "\n\n" + DERIVATION_RULES
       + (ceoBlock ? `\n\n${ceoBlock}` : "")
       + (extraSystem ? `\n\n${extraSystem}` : "");
-    const text = await callAgentSafe(
-      { system, messages: messages || [], max_tokens: 3000 },
-      { timeoutMs: 90000 }
+    // Anti-truncado v1 (commit dedicado):
+    //   - max_tokens: 3000 → 8000. Cubre pactos de socios completos
+    //     (~25-30K chars) sin red. Sigue por debajo del techo del modelo.
+    //   - includeMeta: leemos stop_reason para detectar truncado real.
+    //   - Continuación automática (1 retry máx): si la primera llamada
+    //     volvió con stop_reason "max_tokens", encadenamos una segunda
+    //     llamada con [...msgs, {assistant: partial}, {user: "Continúa…"}].
+    //     Concatenamos. Si la 2ª también trunca, devolvemos parcial con
+    //     aviso visible para el CEO. Si la continuación falla por red,
+    //     devolvemos parcial con aviso. Cero bucle.
+    //   - Logging consola por trazabilidad.
+    const MAX_TOKENS_PER_CALL = 8000;
+    const baseMessages = Array.isArray(messages) ? [...messages] : [];
+    const callOnce = (msgs) => callAgentSafe(
+      { system, messages: msgs, max_tokens: MAX_TOKENS_PER_CALL },
+      { timeoutMs: 90000, includeMeta: true }
     );
-    return text;
+    const first = await callOnce(baseMessages);
+    let combined = (first?.text || "");
+    if (first?.stop_reason === "max_tokens" && combined.trim()) {
+      console.warn(`✂️ [Consejo·${agentName}] respuesta truncada (max_tokens, ${combined.length} chars) — intentando continuación…`);
+      try {
+        const continuationMsgs = [
+          ...baseMessages,
+          { role: "assistant", content: combined },
+          { role: "user", content: "Continúa exactamente donde quedaste, sin repetir nada de lo anterior. Mantén el formato y la estructura. No introduzcas, ve directo al siguiente carácter." },
+        ];
+        const second = await callOnce(continuationMsgs);
+        const tail = String(second?.text || "").trim();
+        if (tail) {
+          // Separador suave para evitar pegar palabra final con primera
+          // palabra de la continuación. Doble newline si el corte ocurrió
+          // a mitad de frase abierta — el modelo se reorienta.
+          const joiner = combined.endsWith("\n") ? "" : "\n";
+          combined = combined + joiner + tail;
+          console.log(`✂️ [Consejo·${agentName}] continuación OK · +${tail.length} chars (total ${combined.length})`);
+          if (second.stop_reason === "max_tokens") {
+            console.warn(`✂️ [Consejo·${agentName}] continuación TAMBIÉN truncada — entregamos parcial con aviso`);
+            combined += "\n\n[Aviso: la respuesta superó el límite de tokens también en la continuación. Pídeme que continúe si necesitas más.]";
+          }
+        } else {
+          console.warn(`✂️ [Consejo·${agentName}] continuación vacía — entregamos parcial sin concatenar`);
+          combined += "\n\n[Aviso: la respuesta llegó al límite de tokens. Pídeme que continúe.]";
+        }
+      } catch (e) {
+        console.warn(`✂️ [Consejo·${agentName}] fallo en continuación:`, e?.message);
+        combined += "\n\n[Aviso: la respuesta llegó al límite de tokens y la continuación falló. Pídeme que continúe.]";
+      }
+    }
+    return combined;
   };
   const callMarioDirect  = buildCouncilDirect("Mario Legal",          "Eres Mario, abogado mercantil. Asesoramiento legal directo y accionable.");
   const callJorgeDirect  = buildCouncilDirect("Jorge Finanzas",       "Eres Jorge, analista de inversión. Análisis financiero directo y accionable.");

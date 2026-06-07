@@ -112,7 +112,11 @@ export default async function handler(req, res){
       seen.add(c.url);
       citations.push(c);
     });
-    res.status(200).json({ text, citations });
+    // stop_reason propagado para que el caller (buildCouncilDirect, etc.)
+    // pueda detectar truncado por max_tokens y disparar continuación
+    // automática. Valores típicos: "end_turn", "max_tokens", "stop_sequence",
+    // "tool_use". Null si la API no lo expone.
+    res.status(200).json({ text, citations, stop_reason: data?.stop_reason || null });
   } catch(e){
     res.status(500).json({ error: e.message || "Error desconocido" });
   }

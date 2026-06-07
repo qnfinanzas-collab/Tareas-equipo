@@ -85,6 +85,14 @@ export async function callAgentSafe(body, opts = {}){
   // Citaciones — solo se devuelven si el caller pasa opts.includeCitations.
   // Compatibilidad: todos los callers existentes siguen recibiendo string;
   // solo el piloto Normativa Viva (Gonzalo) opt-in al shape {text,citations}.
+  if (opts && opts.includeMeta) {
+    // Opt-in para callers que necesitan detectar truncado por max_tokens
+    // (buildCouncilDirect, continuación automática). Subsume includeCitations
+    // y añade stop_reason. Cero impacto sobre callers que no la pidan.
+    const citations = Array.isArray(data?.citations) ? data.citations : [];
+    const stop_reason = data?.stop_reason || null;
+    return { text, citations, stop_reason };
+  }
   if (opts && opts.includeCitations) {
     const citations = Array.isArray(data?.citations) ? data.citations : [];
     return { text, citations };
