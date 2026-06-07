@@ -13,6 +13,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import { parseAgentActions, cleanAgentResponse, classifyReply } from "../../lib/agentActions.js";
+import { parseAsientos } from "../../lib/parseAsientos.js";
+import AsientoCard from "../Shared/AsientoCard.jsx";
 import { blobToBase64 } from "../../lib/storage.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
 import { ProposalExecutedBanner } from "../Shared/ChatBubble.jsx";
@@ -245,9 +247,27 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
       }
       const reply = await onCallAgent(callPayload);
       const rawReply = (reply || "").trim() || "(sin respuesta)";
-      const proposal = parseAgentActions(rawReply);
-      const finalReply = proposal ? (cleanAgentResponse(rawReply) || "(sin texto)") : rawReply;
-      const updated = [...next, { role: "assistant", content: finalReply, proposal, ts: Date.now() }].slice(-CHAT_MAX);
+      // Parseo [ASIENTOS] PRIMERO — quita el bloque de la prosa para que
+      // parseAgentActions trabaje sobre texto limpio y no choque con un
+      // hipotético segundo marker. Devuelve {asientos, cleanText, debug}.
+      const asientosParse = parseAsientos(rawReply);
+      if (asientosParse.debug === "ok") {
+        console.log(`📒 [Diego] ${asientosParse.asientos.length} asiento(s) parseados — render como libro diario.`);
+      } else if (asientosParse.debug === "marker-malformed" || asientosParse.debug === "json-invalid" || asientosParse.debug === "schema-empty") {
+        console.warn(`📒 [Diego] [ASIENTOS] presente pero no parseable · debug=${asientosParse.debug}`);
+      }
+      const textAfterAsientos = asientosParse.cleanText || rawReply;
+      const proposal = parseAgentActions(textAfterAsientos);
+      const finalReply = proposal
+        ? (cleanAgentResponse(textAfterAsientos) || "(sin texto)")
+        : textAfterAsientos;
+      const updated = [...next, {
+        role: "assistant",
+        content: finalReply,
+        proposal,
+        asientos: asientosParse.asientos,   // null si no hay; AsientoCard sólo se monta si truthy
+        ts: Date.now(),
+      }].slice(-CHAT_MAX);
       setHistory(updated);
       speakIfUnmuted(finalReply);
     } catch (e) {
@@ -334,7 +354,20 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
         )}
         {history.map((m, i) => {
           const isUser = m.role === "user";
-          const visible = isUser ? (m.displayContent || m.content) : m.content;
+          // Re-parseo retroactivo de [ASIENTOS] para mensajes históricos
+          // (anteriores al deploy, o tras recargar la app sin pasar por
+          // send()). Si m.content tiene el marker pero m.asientos no está
+          // poblado, lo parseamos al vuelo. NUNCA muta history.
+          let asientosForRender = m.asientos;
+          let visible = isUser ? (m.displayContent || m.content) : m.content;
+          if (!isUser && (!Array.isArray(asientosForRender) || asientosForRender.length === 0)
+              && typeof m.content === "string" && /\[ASIENTOS\]/i.test(m.content)) {
+            const re = parseAsientos(m.content);
+            if (re.asientos && re.asientos.length > 0) {
+              asientosForRender = re.asientos;
+              visible = re.cleanText || visible;
+            }
+          }
           // Clasificación de fiabilidad: solo en mensajes del agente (no
           // del usuario) y solo si no es un error. Sin label = no
           // pintamos badge para no saturar mensajes neutros.
@@ -415,6 +448,68 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
               {!isUser && m.proposal && !canEdit && (
                 <div style={{ alignSelf: "stretch", paddingLeft: 36, fontSize: 11, color: "#92400E", fontStyle: "italic" }}>
                   Diego propuso acciones, pero solo usuarios con permiso de edición en Finanzas pueden ejecutarlas.
+                </div>
+              )}
+              {/* Libro diario propuesto por Diego (marker [ASIENTOS]).
+                  Display + validación cuadre + acción "Crear todos" que
+                  delega en onRunAgentActions con add_accounting_entry
+                  por cada asiento cuadrado. Filtra descuadrados antes
+                  de mandarlos (addAccountingEntry los rechazaría igual). */}
+              {!isUser && Array.isArray(asientosForRender) && asientosForRender.length > 0 && canEdit && !m.asientosExecuted && (
+                <div style={{ alignSelf: "stretch", paddingLeft: 36 }}>
+                  <AsientoCard
+                    asientos={asientosForRender}
+                    companyResolver={(cid) => {
+                      const c = (data?.governance?.companies || []).find(x => x.id === cid);
+                      return c?.name || null;
+                    }}
+                    disabled={!!m.asientosExecuting}
+                    executed={false}
+                    onCreateEntries={async (cuadrados) => {
+                      if (!onRunAgentActions) return;
+                      setHistory(prev => prev.map((x, idx) => idx === i ? { ...x, asientosExecuting: true } : x));
+                      const fallbackCompanyId = (selectedCompanyId && selectedCompanyId !== "all") ? selectedCompanyId : null;
+                      const actions = cuadrados.map(a => ({
+                        type: "add_accounting_entry",
+                        date: a.fecha,
+                        description: a.concepto,
+                        companyId: a.companyId || fallbackCompanyId,
+                        lines: a.lineas.map(l => ({
+                          account: l.cuenta,
+                          accountName: l.nombre,
+                          debit: l.debe,
+                          credit: l.haber,
+                        })),
+                      }));
+                      const opts = fallbackCompanyId ? { defaultCompanyId: fallbackCompanyId } : {};
+                      try {
+                        await onRunAgentActions(actions, opts);
+                        setHistory(prev => prev.map((x, idx) => idx === i
+                          ? { ...x, asientosExecuting: false, asientosExecuted: true, asientosExecutedAt: Date.now() }
+                          : x));
+                      } catch (e) {
+                        setHistory(prev => prev.map((x, idx) => idx === i ? { ...x, asientosExecuting: false } : x));
+                      }
+                    }}
+                    onCancel={() => setHistory(prev => prev.map((x, idx) => idx === i ? { ...x, asientos: null, asientosDiscarded: true } : x))}
+                  />
+                </div>
+              )}
+              {!isUser && Array.isArray(asientosForRender) && asientosForRender.length > 0 && m.asientosExecuted && (
+                <div style={{ alignSelf: "stretch", paddingLeft: 36 }}>
+                  <AsientoCard
+                    asientos={asientosForRender}
+                    companyResolver={(cid) => {
+                      const c = (data?.governance?.companies || []).find(x => x.id === cid);
+                      return c?.name || null;
+                    }}
+                    executed={true}
+                  />
+                </div>
+              )}
+              {!isUser && Array.isArray(asientosForRender) && asientosForRender.length > 0 && !canEdit && (
+                <div style={{ alignSelf: "stretch", paddingLeft: 36, fontSize: 11, color: "#92400E", fontStyle: "italic" }}>
+                  Diego propuso un libro diario, pero solo usuarios con permiso de edición en Finanzas pueden registrarlo.
                 </div>
               )}
             </div>
