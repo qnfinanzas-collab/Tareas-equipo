@@ -4522,6 +4522,152 @@ function CitationMini() {
     </div>
   );
 }
+// Pictogramas SVG de líneas finas oro para las cards de la zona operativa.
+// Diseño coherente: stroke 1.25 oro #C9A84C, round caps, viewBox 28×28.
+// Sustituyen a los numerales romanos (estética demasiado seca) por
+// iconografía editorial sobria — líneas únicas, ningún relleno fuerte.
+function HomePictogram({ name }) {
+  const P = { width: 26, height: 26, viewBox: "0 0 28 28", fill: "none", stroke: "#C9A84C", strokeWidth: 1.25, strokeLinecap: "round", strokeLinejoin: "round" };
+  switch (name) {
+    case "consejo": // Cinco satélites alrededor de un centro: el Consejo.
+      return (<svg {...P}>
+        <circle cx="14" cy="14" r="3"/>
+        <circle cx="14" cy="5" r="1.6"/>
+        <circle cx="22.5" cy="9.5" r="1.6"/>
+        <circle cx="20.5" cy="21" r="1.6"/>
+        <circle cx="7.5" cy="21" r="1.6"/>
+        <circle cx="5.5" cy="9.5" r="1.6"/>
+      </svg>);
+    case "command": // Mirilla: foco del día.
+      return (<svg {...P}>
+        <circle cx="14" cy="14" r="9"/>
+        <circle cx="14" cy="14" r="4.5"/>
+        <circle cx="14" cy="14" r="1" fill="#C9A84C"/>
+        <line x1="14" y1="2" x2="14" y2="5"/>
+        <line x1="14" y1="23" x2="14" y2="26"/>
+        <line x1="2" y1="14" x2="5" y2="14"/>
+        <line x1="23" y1="14" x2="26" y2="14"/>
+      </svg>);
+    case "midia": // Sol / día con rayos: la agenda del día.
+      return (<svg {...P}>
+        <circle cx="14" cy="14" r="4.5"/>
+        <line x1="14" y1="3" x2="14" y2="5.5"/>
+        <line x1="14" y1="22.5" x2="14" y2="25"/>
+        <line x1="3" y1="14" x2="5.5" y2="14"/>
+        <line x1="22.5" y1="14" x2="25" y2="14"/>
+        <line x1="6.2" y1="6.2" x2="8" y2="8"/>
+        <line x1="20" y1="20" x2="21.8" y2="21.8"/>
+        <line x1="21.8" y1="6.2" x2="20" y2="8"/>
+        <line x1="8" y1="20" x2="6.2" y2="21.8"/>
+      </svg>);
+    case "dealroom": // Dos arcos entrelazados: la negociación.
+      return (<svg {...P}>
+        <circle cx="10.5" cy="14" r="6"/>
+        <circle cx="17.5" cy="14" r="6"/>
+      </svg>);
+    case "mytasks": // Tres líneas + tilde: lista de tareas.
+      return (<svg {...P}>
+        <line x1="9" y1="8" x2="22" y2="8"/>
+        <line x1="9" y1="14" x2="22" y2="14"/>
+        <line x1="9" y1="20" x2="22" y2="20"/>
+        <polyline points="3.5,8 5,9.5 7,7"/>
+        <polyline points="3.5,14 5,15.5 7,13"/>
+        <polyline points="3.5,20 5,21.5 7,19"/>
+      </svg>);
+    case "projects": // Tres columnas: tableros kanban.
+      return (<svg {...P}>
+        <rect x="4" y="6" width="5.5" height="16"/>
+        <rect x="11.25" y="6" width="5.5" height="11"/>
+        <rect x="18.5" y="6" width="5.5" height="14"/>
+      </svg>);
+    case "workspaces": // Cuatro cuadrantes: espacios.
+      return (<svg {...P}>
+        <rect x="4" y="4" width="9" height="9"/>
+        <rect x="15" y="4" width="9" height="9"/>
+        <rect x="4" y="15" width="9" height="9"/>
+        <rect x="15" y="15" width="9" height="9"/>
+      </svg>);
+    case "finance": // Balanza romana: finanzas.
+      return (<svg {...P}>
+        <line x1="14" y1="4" x2="14" y2="24"/>
+        <line x1="5" y1="9" x2="23" y2="9"/>
+        <path d="M 5 9 L 2.5 17 L 7.5 17 Z"/>
+        <path d="M 23 9 L 20.5 17 L 25.5 17 Z"/>
+        <line x1="10" y1="24" x2="18" y2="24"/>
+      </svg>);
+    case "gobernanza": // Columna clásica: gobernanza, estructura.
+      return (<svg {...P}>
+        <line x1="5" y1="5" x2="23" y2="5"/>
+        <line x1="6" y1="8" x2="22" y2="8"/>
+        <line x1="9" y1="8" x2="9" y2="21"/>
+        <line x1="14" y1="8" x2="14" y2="21"/>
+        <line x1="19" y1="8" x2="19" y2="21"/>
+        <line x1="6" y1="21" x2="22" y2="21"/>
+        <line x1="5" y1="24" x2="23" y2="24"/>
+      </svg>);
+    case "dashboard": // Cuatro barras crecientes: el dashboard.
+      return (<svg {...P}>
+        <line x1="4" y1="24" x2="4" y2="18"/>
+        <line x1="10.5" y1="24" x2="10.5" y2="12"/>
+        <line x1="17" y1="24" x2="17" y2="15"/>
+        <line x1="23.5" y1="24" x2="23.5" y2="6"/>
+        <line x1="2" y1="24" x2="26" y2="24"/>
+      </svg>);
+    case "briefings": // Documento con líneas: informes.
+      return (<svg {...P}>
+        <path d="M 7 4 L 18 4 L 22 8 L 22 24 L 7 24 Z"/>
+        <polyline points="18,4 18,8 22,8"/>
+        <line x1="10" y1="13" x2="19" y2="13"/>
+        <line x1="10" y1="17" x2="19" y2="17"/>
+        <line x1="10" y1="21" x2="16" y2="21"/>
+      </svg>);
+    case "memory": // Lazo infinito: la memoria que persiste.
+      return (<svg {...P}>
+        <path d="M 8 14 C 8 10, 12 10, 14 14 C 16 18, 20 18, 20 14 C 20 10, 16 10, 14 14 C 12 18, 8 18, 8 14 Z"/>
+      </svg>);
+    case "planner": // Calendario con grid: planificación.
+      return (<svg {...P}>
+        <rect x="4" y="6" width="20" height="18"/>
+        <line x1="4" y1="11" x2="24" y2="11"/>
+        <line x1="9" y1="4" x2="9" y2="8"/>
+        <line x1="19" y1="4" x2="19" y2="8"/>
+        <line x1="11" y1="11" x2="11" y2="24"/>
+        <line x1="17" y1="11" x2="17" y2="24"/>
+        <line x1="4" y1="17" x2="24" y2="17"/>
+      </svg>);
+    case "vault": // Llave: vault personal.
+      return (<svg {...P}>
+        <circle cx="8" cy="14" r="4.5"/>
+        <line x1="12.5" y1="14" x2="25" y2="14"/>
+        <line x1="20.5" y1="14" x2="20.5" y2="18"/>
+        <line x1="23.5" y1="14" x2="23.5" y2="17"/>
+      </svg>);
+    case "users": // Tres figuras: el equipo.
+      return (<svg {...P}>
+        <circle cx="14" cy="9" r="3"/>
+        <path d="M 8 22 C 8 18.5, 10.5 16.5, 14 16.5 C 17.5 16.5, 20 18.5, 20 22"/>
+        <circle cx="5" cy="11" r="2"/>
+        <path d="M 2 21 C 2 18.5, 3.5 17, 5 17"/>
+        <circle cx="23" cy="11" r="2"/>
+        <path d="M 23 17 C 24.5 17, 26 18.5, 26 21"/>
+      </svg>);
+    case "mantenimiento": // Engranaje: la salud del sistema.
+      return (<svg {...P}>
+        <circle cx="14" cy="14" r="4"/>
+        <line x1="14" y1="3" x2="14" y2="6"/>
+        <line x1="14" y1="22" x2="14" y2="25"/>
+        <line x1="3" y1="14" x2="6" y2="14"/>
+        <line x1="22" y1="14" x2="25" y2="14"/>
+        <line x1="5.8" y1="5.8" x2="8" y2="8"/>
+        <line x1="20" y1="20" x2="22.2" y2="22.2"/>
+        <line x1="22.2" y1="5.8" x2="20" y2="8"/>
+        <line x1="8" y1="20" x2="5.8" y2="22.2"/>
+      </svg>);
+    default:
+      return null;
+  }
+}
+
 function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavigate,onOpenTask}){
   const me=data.members.find(m=>m.id===activeMember);
   const firstName=me?.name.split(" ")[0]||"";
@@ -4534,22 +4680,22 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
   // y anillo oro consistente con la sección negra. Tono "usted" unificado.
   const ALL_CARDS = [
     { id:"hector-direct", title:"Héctor",              valor:"Su jefe de gabinete. Pida, decida, delegue.",                                          block:"tu-dia",         agentMark:"🧙" },
-    { id:"consejo",       title:"El Consejo",          valor:"Sus especialistas, en directo: legal, inversión, inmobiliario, holdings, finanzas.",  block:"tu-dia" },
-    { id:"command",       title:"Sala de Mando",       valor:"Su foco de hoy, con sus acciones directas.",                                          block:"tu-dia" },
-    { id:"midia",         title:"Mi Día",              valor:"Su agenda por horas, edición directa.",                                               block:"tu-dia" },
-    { id:"dealroom",      title:"Deal Room",           valor:"Sus negociaciones, con su memoria y documentos.",                                     block:"operacion" },
-    { id:"mytasks",       title:"Mis tareas",          valor:"Todo lo suyo, de todos los proyectos.",                                               block:"operacion" },
-    { id:"projects",      title:"Proyectos",           valor:"Sus tableros por categorías, favoritos arriba.",                                      block:"operacion" },
-    { id:"workspaces",    title:"Workspaces",          valor:"Sus espacios por cliente: enlaces, contactos, credenciales.",                         block:"operacion",      requiresPermission:"workspaces" },
-    { id:"finance",       title:"Finanzas",            valor:"Movimientos, tesorería, contabilidad y facturas, con Diego.",                         block:"patrimonio",     requiresPermission:"finance" },
-    { id:"gobernanza",    title:"Gobernanza",          valor:"Estructura societaria, documentos y compliance.",                                     block:"patrimonio",     requiresPermission:"gobernanza" },
-    { id:"dashboard",     title:"Dashboard analítico", valor:"KPIs globales y matriz de prioridades.",                                              block:"inteligencia",   requiresPermission:"dashboard" },
-    { id:"briefings",     title:"Briefings IA",        valor:"Informes de sus negociaciones y sesiones.",                                           block:"inteligencia",   requiresPermission:"briefings" },
-    { id:"memory",        title:"Memoria",             valor:"Lo que Kluxor recuerda de usted y de cada negociación.",                              block:"inteligencia",   requiresPermission:"memory" },
-    { id:"planner",       title:"Planificador IA",     valor:"Planifique el trabajo del equipo sobre su disponibilidad real.",                      block:"administracion", adminOnly:true },
-    { id:"vault",         title:"Vault Personal",      valor:"Su caja fuerte de documentos.",                                                       block:"administracion", adminOnly:true },
-    { id:"users",         title:"Usuarios",            valor:"Su equipo: miembros, IDs de socio y permisos.",                                       block:"administracion", adminOnly:true },
-    { id:"mantenimiento", title:"Mantenimiento",       valor:"La salud del sistema: incidencias y mejoras.",                                        block:"administracion", adminOnly:true },
+    { id:"consejo",       title:"El Consejo",          valor:"Sus especialistas, en directo: legal, inversión, inmobiliario, holdings, finanzas.",  block:"tu-dia",         pictogram:"consejo" },
+    { id:"command",       title:"Sala de Mando",       valor:"Su foco de hoy, con sus acciones directas.",                                          block:"tu-dia",         pictogram:"command" },
+    { id:"midia",         title:"Mi Día",              valor:"Su agenda por horas, edición directa.",                                               block:"tu-dia",         pictogram:"midia" },
+    { id:"dealroom",      title:"Deal Room",           valor:"Sus negociaciones, con su memoria y documentos.",                                     block:"operacion",      pictogram:"dealroom" },
+    { id:"mytasks",       title:"Mis tareas",          valor:"Todo lo suyo, de todos los proyectos.",                                               block:"operacion",      pictogram:"mytasks" },
+    { id:"projects",      title:"Proyectos",           valor:"Sus tableros por categorías, favoritos arriba.",                                      block:"operacion",      pictogram:"projects" },
+    { id:"workspaces",    title:"Workspaces",          valor:"Sus espacios por cliente: enlaces, contactos, credenciales.",                         block:"operacion",      pictogram:"workspaces",  requiresPermission:"workspaces" },
+    { id:"finance",       title:"Finanzas",            valor:"Movimientos, tesorería, contabilidad y facturas, con Diego.",                         block:"patrimonio",     pictogram:"finance",     requiresPermission:"finance" },
+    { id:"gobernanza",    title:"Gobernanza",          valor:"Estructura societaria, documentos y compliance.",                                     block:"patrimonio",     pictogram:"gobernanza",  requiresPermission:"gobernanza" },
+    { id:"dashboard",     title:"Dashboard analítico", valor:"KPIs globales y matriz de prioridades.",                                              block:"inteligencia",   pictogram:"dashboard",   requiresPermission:"dashboard" },
+    { id:"briefings",     title:"Briefings IA",        valor:"Informes de sus negociaciones y sesiones.",                                           block:"inteligencia",   pictogram:"briefings",   requiresPermission:"briefings" },
+    { id:"memory",        title:"Memoria",             valor:"Lo que Kluxor recuerda de usted y de cada negociación.",                              block:"inteligencia",   pictogram:"memory",      requiresPermission:"memory" },
+    { id:"planner",       title:"Planificador IA",     valor:"Planifique el trabajo del equipo sobre su disponibilidad real.",                      block:"administracion", pictogram:"planner",     adminOnly:true },
+    { id:"vault",         title:"Vault Personal",      valor:"Su caja fuerte de documentos.",                                                       block:"administracion", pictogram:"vault",       adminOnly:true },
+    { id:"users",         title:"Usuarios",            valor:"Su equipo: miembros, IDs de socio y permisos.",                                       block:"administracion", pictogram:"users",       adminOnly:true },
+    { id:"mantenimiento", title:"Mantenimiento",       valor:"La salud del sistema: incidencias y mejoras.",                                        block:"administracion", pictogram:"mantenimiento", adminOnly:true },
   ];
   const VISIBLE_CARDS = ALL_CARDS.filter(c=>{
     if(isAdmin) return true;
@@ -4565,8 +4711,6 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
     { key:"inteligencia",   title:"Inteligencia",    subtitle:"Lectura del estado, decisiones y memoria." },
     { key:"administracion", title:"Administración",  subtitle:"Los mandos internos de la casa." },
   ];
-  // Numerales romanos como marca tipográfica del orden dentro del bloque.
-  const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
 
   // Banners alternados — novedades como piezas de deseo, no fila de cards.
   // Mezclamos NUEVO (capacidad ya viva) con PRÓXIMAMENTE (anuncio honesto).
@@ -5247,36 +5391,25 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
                           const t = e.currentTarget.querySelector("[data-title]"); if (t) t.style.color = "#1A1A1A";
                         }}
                       >
-                        {/* Cabecera de la card: marca tipográfica
-                            (numeral romano oro o avatar de Héctor) +
-                            título grande. */}
+                        {/* Cabecera: pictograma SVG oro de líneas finas
+                            dentro de círculo con anillo oro (mismo
+                            estilo que el avatar de Héctor, consistencia
+                            visual total). Excepción: card de Héctor
+                            conserva 🧙 dentro del mismo círculo. */}
                         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                          {isHectorCard ? (
-                            <div style={{
-                              width: 52, height: 52,
-                              borderRadius: "50%",
-                              background: "#FAFAF7",
-                              border: "1px solid rgba(201,168,76,0.55)",
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              fontSize: 24,
-                              flexShrink: 0,
-                            }}>
-                              {c.agentMark}
-                            </div>
-                          ) : (
-                            <div style={{
-                              fontFamily: KX_SERIF,
-                              fontSize: 30,
-                              color: "#C9A84C",
-                              fontWeight: 500,
-                              minWidth: 36,
-                              lineHeight: 1,
-                              letterSpacing: "0.05em",
-                              flexShrink: 0,
-                            }}>
-                              {ROMAN[ci] || (ci + 1)}
-                            </div>
-                          )}
+                          <div style={{
+                            width: 52, height: 52,
+                            borderRadius: "50%",
+                            background: "#FAFAF7",
+                            border: "1px solid rgba(201,168,76,0.55)",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            flexShrink: 0,
+                            fontSize: isHectorCard ? 24 : 0, // emoji size cuando aplica
+                          }}>
+                            {isHectorCard
+                              ? c.agentMark
+                              : <HomePictogram name={c.pictogram}/>}
+                          </div>
                           <h4 data-title style={{
                             fontFamily: KX_SERIF,
                             fontSize: "clamp(22px, 2.2vw, 28px)",
