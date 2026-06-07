@@ -4528,24 +4528,28 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
 
   // Definición de cards por bloque. Microcopy operativa. requiresPermission
   // y adminOnly se reutilizan tal cual del sidebar para no duplicar visibility.
+  // Cards de la zona operativa. Sin emojis decorativos (la marca de
+  // cada bloque es tipográfica — un numeral romano oro). Única excepción:
+  // hector-direct conserva 🧙 porque es identidad del agente, con avatar
+  // y anillo oro consistente con la sección negra. Tono "usted" unificado.
   const ALL_CARDS = [
-    { id:"hector-direct", emoji:"🧙", title:"Héctor",              tagline:"Tu jefe de gabinete. Pide, decide, delega.",                                       block:"tu-dia" },
-    { id:"consejo",       emoji:"💼", title:"El Consejo",          tagline:"Sus especialistas, en directo: legal, inversión, inmobiliario, holdings y finanzas.", block:"tu-dia" },
-    { id:"command",       emoji:"🎯", title:"Sala de Mando",       tagline:"El foco de hoy, con sus acciones directas.",                                       block:"tu-dia" },
-    { id:"midia",         emoji:"📅", title:"Mi Día",              tagline:"Tu agenda por horas, edición directa.",                                            block:"tu-dia" },
-    { id:"dealroom",      emoji:"🤝", title:"Deal Room",           tagline:"Tus negociaciones, con su memoria y documentos.",                                  block:"operacion" },
-    { id:"mytasks",       emoji:"✅", title:"Mis tareas",          tagline:"Todo lo tuyo, de todos los proyectos.",                                            block:"operacion" },
-    { id:"projects",      emoji:"📁", title:"Proyectos",           tagline:"Tableros por categorías, favoritos arriba.",                                       block:"operacion" },
-    { id:"workspaces",    emoji:"🏢", title:"Workspaces",          tagline:"Espacios por cliente: enlaces, contactos, credenciales.",                          block:"operacion",    requiresPermission:"workspaces" },
-    { id:"finance",       emoji:"💰", title:"Finanzas",            tagline:"Movimientos, tesorería, contabilidad y facturas, con Diego.",                      block:"patrimonio",   requiresPermission:"finance" },
-    { id:"gobernanza",    emoji:"🏛️", title:"Gobernanza",          tagline:"Estructura societaria, documentos y compliance.",                                  block:"patrimonio",   requiresPermission:"gobernanza" },
-    { id:"dashboard",     emoji:"📊", title:"Dashboard analítico", tagline:"KPIs globales y matriz de prioridades.",                                           block:"inteligencia", requiresPermission:"dashboard" },
-    { id:"briefings",     emoji:"🧠", title:"Briefings IA",        tagline:"Informes de tus negociaciones y sesiones.",                                        block:"inteligencia", requiresPermission:"briefings" },
-    { id:"memory",        emoji:"🧩", title:"Memoria",             tagline:"Lo que Kluxor recuerda de ti y de cada negociación.",                              block:"inteligencia", requiresPermission:"memory" },
-    { id:"planner",       emoji:"⚡", title:"Planificador IA",     tagline:"Planifica el trabajo del equipo sobre su disponibilidad real.",                    block:"administracion", adminOnly:true },
-    { id:"vault",         emoji:"🔐", title:"Vault Personal",      tagline:"Tu caja fuerte de documentos.",                                                    block:"administracion", adminOnly:true },
-    { id:"users",         emoji:"👥", title:"Usuarios",            tagline:"Tu equipo: miembros, IDs de socio y permisos.",                                    block:"administracion", adminOnly:true },
-    { id:"mantenimiento", emoji:"🛠️", title:"Mantenimiento",       tagline:"La salud del sistema: incidencias y mejoras.",                                    block:"administracion", adminOnly:true },
+    { id:"hector-direct", title:"Héctor",              valor:"Su jefe de gabinete. Pida, decida, delegue.",                                          block:"tu-dia",         agentMark:"🧙" },
+    { id:"consejo",       title:"El Consejo",          valor:"Sus especialistas, en directo: legal, inversión, inmobiliario, holdings, finanzas.",  block:"tu-dia" },
+    { id:"command",       title:"Sala de Mando",       valor:"Su foco de hoy, con sus acciones directas.",                                          block:"tu-dia" },
+    { id:"midia",         title:"Mi Día",              valor:"Su agenda por horas, edición directa.",                                               block:"tu-dia" },
+    { id:"dealroom",      title:"Deal Room",           valor:"Sus negociaciones, con su memoria y documentos.",                                     block:"operacion" },
+    { id:"mytasks",       title:"Mis tareas",          valor:"Todo lo suyo, de todos los proyectos.",                                               block:"operacion" },
+    { id:"projects",      title:"Proyectos",           valor:"Sus tableros por categorías, favoritos arriba.",                                      block:"operacion" },
+    { id:"workspaces",    title:"Workspaces",          valor:"Sus espacios por cliente: enlaces, contactos, credenciales.",                         block:"operacion",      requiresPermission:"workspaces" },
+    { id:"finance",       title:"Finanzas",            valor:"Movimientos, tesorería, contabilidad y facturas, con Diego.",                         block:"patrimonio",     requiresPermission:"finance" },
+    { id:"gobernanza",    title:"Gobernanza",          valor:"Estructura societaria, documentos y compliance.",                                     block:"patrimonio",     requiresPermission:"gobernanza" },
+    { id:"dashboard",     title:"Dashboard analítico", valor:"KPIs globales y matriz de prioridades.",                                              block:"inteligencia",   requiresPermission:"dashboard" },
+    { id:"briefings",     title:"Briefings IA",        valor:"Informes de sus negociaciones y sesiones.",                                           block:"inteligencia",   requiresPermission:"briefings" },
+    { id:"memory",        title:"Memoria",             valor:"Lo que Kluxor recuerda de usted y de cada negociación.",                              block:"inteligencia",   requiresPermission:"memory" },
+    { id:"planner",       title:"Planificador IA",     valor:"Planifique el trabajo del equipo sobre su disponibilidad real.",                      block:"administracion", adminOnly:true },
+    { id:"vault",         title:"Vault Personal",      valor:"Su caja fuerte de documentos.",                                                       block:"administracion", adminOnly:true },
+    { id:"users",         title:"Usuarios",            valor:"Su equipo: miembros, IDs de socio y permisos.",                                       block:"administracion", adminOnly:true },
+    { id:"mantenimiento", title:"Mantenimiento",       valor:"La salud del sistema: incidencias y mejoras.",                                        block:"administracion", adminOnly:true },
   ];
   const VISIBLE_CARDS = ALL_CARDS.filter(c=>{
     if(isAdmin) return true;
@@ -4553,14 +4557,16 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
     if(c.requiresPermission && !hasPermission(me, c.requiresPermission, "view", data.permissions)) return false;
     return true;
   });
-  // Bloques con título de marca (Cormorant) + frase de valor sobria.
+  // Bloques con título grande Cormorant + frase de valor en usted.
   const BLOCKS = [
-    { key:"tu-dia",         title:"Tu día",          subtitle:"El foco de hoy y los aliados que necesita." },
+    { key:"tu-dia",         title:"Su día",          subtitle:"El foco de hoy y quienes lo hacen posible." },
     { key:"operacion",      title:"Operación",       subtitle:"Sus negociaciones, tareas y proyectos." },
     { key:"patrimonio",     title:"Patrimonio",      subtitle:"Finanzas y gobernanza del grupo." },
     { key:"inteligencia",   title:"Inteligencia",    subtitle:"Lectura del estado, decisiones y memoria." },
     { key:"administracion", title:"Administración",  subtitle:"Los mandos internos de la casa." },
   ];
+  // Numerales romanos como marca tipográfica del orden dentro del bloque.
+  const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
 
   // Banners alternados — novedades como piezas de deseo, no fila de cards.
   // Mezclamos NUEVO (capacidad ya viva) con PRÓXIMAMENTE (anuncio honesto).
@@ -4617,9 +4623,32 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
     return <><strong>{who}</strong> {verbFor[a.type]} "<em>{a.task.title}</em>" · <span style={{color:"#9CA3AF"}}>{when}</span></>;
   };
 
-  const statsLine = critMineCount>0
-    ? `Tiene ${critMineCount} tarea${critMineCount!==1?"s":""} crítica${critMineCount!==1?"s":""} hoy · ${alertMineCount>0?`${alertMineCount} alerta${alertMineCount!==1?"s":""} pendiente${alertMineCount!==1?"s":""}`:"sin alertas pendientes"}`
-    : `Sin tareas críticas hoy · todo bajo control.`;
+  // Métricas vivas — solo para cards donde el dato existe en estado y
+  // aporta señal. Si no hay dato o es 0, devolvemos null y la card no
+  // pinta línea de métrica. Tono usted.
+  const activeNegs = (data.negotiations || []).filter(n => !n.archived && n.status !== "cerrado").length;
+  const myOpenTasks = (() => {
+    let n = 0;
+    Object.values(data.boards || {}).forEach(cols => cols.forEach(col => {
+      if (col.name === "Hecho") return;
+      col.tasks.forEach(t => { if (!t.archived && (t.assignees||[]).includes(activeMember)) n++; });
+    }));
+    return n;
+  })();
+  const projectsCount = (data.projects || []).filter(p => !p.archived).length;
+  const workspacesCount = (data.workspaces || []).length;
+  const companiesCount = (data.governance?.companies || []).length;
+  const membersCount = (data.members || []).length;
+  const metricFor = (id) => {
+    if (id === "dealroom"  && activeNegs > 0)     return `${activeNegs} negociaci${activeNegs!==1?"ones":"ón"} activa${activeNegs!==1?"s":""}`;
+    if (id === "mytasks"   && myOpenTasks > 0)    return `${myOpenTasks} tarea${myOpenTasks!==1?"s":""} abierta${myOpenTasks!==1?"s":""}`;
+    if (id === "projects"  && projectsCount > 0)  return `${projectsCount} proyecto${projectsCount!==1?"s":""}`;
+    if (id === "workspaces"&& workspacesCount>0)  return `${workspacesCount} workspace${workspacesCount!==1?"s":""}`;
+    if (id === "gobernanza"&& companiesCount > 0) return `${companiesCount} empresa${companiesCount!==1?"s":""} en cartera`;
+    if (id === "users"     && membersCount > 0)   return `${membersCount} miembro${membersCount!==1?"s":""} en el círculo`;
+    if (id === "dashboard" && critMineCount > 0)  return `${critMineCount} tarea${critMineCount!==1?"s":""} crítica${critMineCount!==1?"s":""}`;
+    return null;
+  };
 
   const memberCode = me?.code || "";
   const memberFullName = me?.name || "";
@@ -5150,88 +5179,153 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
         </div>
       </section>
 
-      {/* ── 3. ZONA OPERATIVA ──────────────────────────────────────────── */}
-      <section style={{ padding: "44px 24px 56px", background: "#FAFAF7" }}>
+      {/* ── 3. ZONA OPERATIVA — piezas con peso, tono usted, sin
+              emojis decorativos. Marcas tipográficas (numerales romanos
+              en Cormorant oro) sustituyen a los íconos de sistema.
+              Única excepción: 🧙 en la card de Héctor con avatar
+              circular y anillo oro (consistencia con la sección negra). */}
+      <section style={{ padding: "56px 24px 64px", background: "#FAFAF7" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          {/* Stats sobrias arriba — frase de estado del día. */}
-          <div style={{ marginBottom: 36 }}>
-            <div style={{ fontSize: 13.5, color: "#6B7280", letterSpacing: "0.01em" }}>{statsLine}</div>
-          </div>
-
-          {/* Bloques operativos — un grupo por bloque, oculto si vacío. */}
+          {/* Bloques operativos — un grupo por bloque, oculto si vacío.
+              La línea de contadores ("Tiene N tareas críticas hoy…")
+              fue retirada por orden del CEO. */}
           {BLOCKS.map(({key, title, subtitle}) => {
             const cards = VISIBLE_CARDS.filter(c => c.block === key);
             if (cards.length === 0) return null;
             return (
-              <div key={key} style={{ marginBottom: 36 }}>
+              <div key={key} style={{ marginBottom: 52 }}>
+                {/* Título de bloque — presencia editorial. */}
                 <h3 style={{
                   fontFamily: KX_SERIF,
-                  fontSize: 24,
+                  fontSize: "clamp(34px, 4vw, 42px)",
                   fontWeight: 500,
-                  color: "#1F1A0F",
-                  margin: "0 0 4px",
+                  color: "#1A1A1A",
+                  margin: "0 0 8px",
                   letterSpacing: "0.005em",
+                  lineHeight: 1.05,
                 }}>
                   {title}
                 </h3>
-                <div style={{ fontSize: 13, color: "#8B6914", marginBottom: 10, fontStyle: "italic" }}>{subtitle}</div>
-                <div style={{ width: 32, height: 0.5, background: "#C9A84C", marginBottom: 18 }}/>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
-                  {cards.map(c => (
-                    <div
-                      key={c.id}
-                      onClick={() => onNavigate(c.id)}
-                      style={{
-                        background: "#fff",
-                        border: "0.5px solid #E5E0D5",
-                        padding: "18px 20px",
-                        cursor: "pointer",
-                        transition: "transform .25s ease, box-shadow .25s ease, border-color .25s ease",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 8,
-                        position: "relative",
-                        overflow: "hidden",
-                      }}
-                      onMouseEnter={e => {
-                        // Hover premium: elevación + sombra cálida +
-                        // título a oro oscuro + underline oro que se
-                        // dibuja de izquierda a derecha.
-                        e.currentTarget.style.transform = "translateY(-3px)";
-                        e.currentTarget.style.boxShadow = "0 10px 26px rgba(120,90,30,0.14), 0 2px 6px rgba(120,90,30,0.08)";
-                        e.currentTarget.style.borderColor = "#E5D8B8";
-                        const u = e.currentTarget.querySelector("[data-underline]");
-                        if (u) u.style.width = "100%";
-                        const t = e.currentTarget.querySelector("[data-title]");
-                        if (t) t.style.color = "#8B6914";
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.transform = "translateY(0)";
-                        e.currentTarget.style.boxShadow = "none";
-                        e.currentTarget.style.borderColor = "#E5E0D5";
-                        const u = e.currentTarget.querySelector("[data-underline]");
-                        if (u) u.style.width = "0%";
-                        const t = e.currentTarget.querySelector("[data-title]");
-                        if (t) t.style.color = "#111827";
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{c.emoji}</span>
-                        <h4 data-title style={{ fontSize: 15, fontWeight: 600, color: "#111827", margin: 0, transition: "color .25s ease" }}>{c.title}</h4>
+                <div style={{ fontSize: 15, color: "#8B6914", marginBottom: 14, fontStyle: "italic", letterSpacing: "0.005em" }}>
+                  {subtitle}
+                </div>
+                <div style={{ width: 48, height: 1, background: "#C9A84C", marginBottom: 26 }}/>
+                {/* Grid: 1 col móvil, 2 col desktop (piezas con peso). */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 360px), 1fr))", gap: 18 }}>
+                  {cards.map((c, ci) => {
+                    const metric = metricFor(c.id);
+                    const isHectorCard = c.id === "hector-direct";
+                    return (
+                      <div
+                        key={c.id}
+                        onClick={() => onNavigate(c.id)}
+                        style={{
+                          background: "#fff",
+                          border: "0.5px solid #E5E0D5",
+                          padding: "26px 28px 24px",
+                          cursor: "pointer",
+                          transition: "transform .25s ease, box-shadow .25s ease, border-color .25s ease",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 10,
+                          position: "relative",
+                          overflow: "hidden",
+                          minHeight: 150,
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.transform = "translateY(-3px)";
+                          e.currentTarget.style.boxShadow = "0 10px 26px rgba(120,90,30,0.14), 0 2px 6px rgba(120,90,30,0.08)";
+                          e.currentTarget.style.borderColor = "#E5D8B8";
+                          const u = e.currentTarget.querySelector("[data-underline]"); if (u) u.style.width = "100%";
+                          const t = e.currentTarget.querySelector("[data-title]"); if (t) t.style.color = "#8B6914";
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.transform = "translateY(0)";
+                          e.currentTarget.style.boxShadow = "none";
+                          e.currentTarget.style.borderColor = "#E5E0D5";
+                          const u = e.currentTarget.querySelector("[data-underline]"); if (u) u.style.width = "0%";
+                          const t = e.currentTarget.querySelector("[data-title]"); if (t) t.style.color = "#1A1A1A";
+                        }}
+                      >
+                        {/* Cabecera de la card: marca tipográfica
+                            (numeral romano oro o avatar de Héctor) +
+                            título grande. */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                          {isHectorCard ? (
+                            <div style={{
+                              width: 52, height: 52,
+                              borderRadius: "50%",
+                              background: "#FAFAF7",
+                              border: "1px solid rgba(201,168,76,0.55)",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 24,
+                              flexShrink: 0,
+                            }}>
+                              {c.agentMark}
+                            </div>
+                          ) : (
+                            <div style={{
+                              fontFamily: KX_SERIF,
+                              fontSize: 30,
+                              color: "#C9A84C",
+                              fontWeight: 500,
+                              minWidth: 36,
+                              lineHeight: 1,
+                              letterSpacing: "0.05em",
+                              flexShrink: 0,
+                            }}>
+                              {ROMAN[ci] || (ci + 1)}
+                            </div>
+                          )}
+                          <h4 data-title style={{
+                            fontFamily: KX_SERIF,
+                            fontSize: "clamp(22px, 2.2vw, 28px)",
+                            fontWeight: 500,
+                            color: "#1A1A1A",
+                            margin: 0,
+                            transition: "color .25s ease",
+                            letterSpacing: "0.005em",
+                            lineHeight: 1.15,
+                          }}>
+                            {c.title}
+                          </h4>
+                        </div>
+                        {/* Frase de valor — usted, peso, una línea. */}
+                        <p style={{
+                          fontSize: 15,
+                          color: "#3D3528",
+                          margin: "4px 0 0",
+                          lineHeight: 1.55,
+                          letterSpacing: "0.005em",
+                        }}>
+                          {c.valor}
+                        </p>
+                        {/* Métrica viva — solo si hay dato real. */}
+                        {metric && (
+                          <div style={{
+                            fontSize: 13,
+                            color: "#8B6914",
+                            fontWeight: 600,
+                            letterSpacing: "0.04em",
+                            marginTop: "auto",
+                            paddingTop: 12,
+                          }}>
+                            {metric}
+                          </div>
+                        )}
+                        {/* Underline oro: línea inferior absoluta que se
+                            dibuja en .25s al entrar en hover. */}
+                        <div data-underline style={{
+                          position: "absolute",
+                          bottom: 0, left: 0,
+                          height: 2,
+                          width: 0,
+                          background: "#C9A84C",
+                          transition: "width .25s ease",
+                        }}/>
                       </div>
-                      <p style={{ fontSize: 13, color: "#6B7280", margin: 0, lineHeight: 1.5 }}>{c.tagline}</p>
-                      {/* Underline oro: línea inferior absoluta que se
-                          dibuja en .25s al entrar en hover. */}
-                      <div data-underline style={{
-                        position: "absolute",
-                        bottom: 0, left: 0,
-                        height: 2,
-                        width: 0,
-                        background: "#C9A84C",
-                        transition: "width .25s ease",
-                      }}/>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
