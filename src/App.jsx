@@ -12191,6 +12191,72 @@ Reglas:
   const callMarioDirect  = buildCouncilDirect("Mario Legal",          "Eres Mario, abogado mercantil. Asesoramiento legal directo y accionable.");
   const callJorgeDirect  = buildCouncilDirect("Jorge Finanzas",       "Eres Jorge, analista de inversión. Análisis financiero directo y accionable.");
   const callAlvaroDirect = buildCouncilDirect("Álvaro Inmobiliario",  "Eres Álvaro, especialista en inmobiliario y fiscalidad. Asesoramiento directo y accionable.");
+  // El Consejo → guardar como documento. Toma el texto íntegro de la
+  // burbuja del especialista y lo persiste como entry {kind:"inline"} en
+  // <contenedor>.documents[]. Reutiliza setters existentes (setNegDocuments
+  // / updateTaskAnywhere). Devuelve bool indicando éxito para que el modal
+  // pueda cerrarse limpiamente. Los toasts de éxito viven aquí; los de
+  // error sin permiso los emite ensureCanEditDeal vía setNegDocuments.
+  const saveCouncilDocument = useCallback(({ targetType, targetId, doc }) => {
+    const d = dataRef.current || data;
+    if (!doc || !doc.text || !doc.name) {
+      addToast("Documento sin nombre o contenido", "error");
+      return false;
+    }
+    if (targetType === "negotiation") {
+      const neg = (d.negotiations || []).find(n => n.id === targetId);
+      if (!neg) { addToast("Negociación no encontrada", "error"); return false; }
+      setNegDocuments(targetId, [...(neg.documents || []), doc]);
+      addToast(`✓ Documento guardado en ${neg.title}`);
+      return true;
+    }
+    if (targetType === "task") {
+      let foundTask = null;
+      for (const pid in (d.boards || {})) {
+        for (const col of d.boards[pid]) {
+          const t = (col.tasks || []).find(x => x.id === targetId);
+          if (t) { foundTask = t; break; }
+        }
+        if (foundTask) break;
+      }
+      if (!foundTask) { addToast("Tarea no encontrada", "error"); return false; }
+      updateTaskAnywhere(targetId, { ...foundTask, documents: [...(foundTask.documents || []), doc] });
+      addToast(`✓ Documento guardado en "${foundTask.title}"`);
+      return true;
+    }
+    addToast("Destino no soportado", "error");
+    return false;
+  }, [data, addToast, setNegDocuments, updateTaskAnywhere]);
+  // Listas pre-filtradas para el modal del Consejo. Computadas en App.jsx
+  // para que ConsejoView reciba ya el shape mínimo que el modal necesita
+  // y no requiera conocer el resto de data.boards / data.projects.
+  const consejoNegTargets = React.useMemo(() =>
+    (data.negotiations || []).filter(n => !n.archived).map(n => ({
+      id: n.id,
+      title: n.title,
+      code: n.code || "",
+    })),
+    [data.negotiations]
+  );
+  const consejoTaskTargets = React.useMemo(() => {
+    const out = [];
+    Object.entries(data.boards || {}).forEach(([pid, cols]) => {
+      const proj = (data.projects || []).find(p => p.id === Number(pid));
+      cols.forEach(col => col.tasks.forEach(t => {
+        if (t.archived) return;
+        if (col.name === "Hecho") return; // No saturar con tareas cerradas.
+        out.push({
+          id: t.id,
+          title: t.title,
+          projectName: proj?.name || "",
+          projectEmoji: proj?.emoji || "📋",
+          _ts: t.startDate || "",
+        });
+      }));
+    });
+    out.sort((a, b) => (b._ts || "").localeCompare(a._ts || ""));
+    return out;
+  }, [data.boards, data.projects]);
   // Setter dedicado para permisos de agentes IA. Toggle binario por
   // (memberId, agentKey). Llamado desde la PermissionsTable (columna
   // "Agentes"). El admin global no necesita esto.
@@ -13879,7 +13945,7 @@ Reglas:
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} isAdmin={isAdmin} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)} onUnarchiveTask={unarchiveTaskAnywhere}/>}
           {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)} onMoveTask={moveTaskAnywhere} onCreateTask={(pid,payload)=>addTaskToProject(pid,payload)}/>}
-          {activeTab==="consejo"   &&<ConsejoView currentMember={(data.members||[]).find(m=>m.id===activeMember)} permissions={data.permissions} onCallMario={callMarioDirect} onCallJorge={callJorgeDirect} onCallAlvaro={callAlvaroDirect} onNavigate={id=>setActiveTab(id)} pendingDerivation={pendingDerivation} onSetPendingDerivation={setPendingDerivation} onBridgeToHector={(payload)=>{setPendingExecBridge(payload);setActiveTab("hector-direct");}}/>}
+          {activeTab==="consejo"   &&<ConsejoView currentMember={(data.members||[]).find(m=>m.id===activeMember)} permissions={data.permissions} onCallMario={callMarioDirect} onCallJorge={callJorgeDirect} onCallAlvaro={callAlvaroDirect} onNavigate={id=>setActiveTab(id)} pendingDerivation={pendingDerivation} onSetPendingDerivation={setPendingDerivation} onBridgeToHector={(payload)=>{setPendingExecBridge(payload);setActiveTab("hector-direct");}} negTargets={consejoNegTargets} taskTargets={consejoTaskTargets} onSaveCouncilDocument={saveCouncilDocument}/>}
           {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
           {activeTab==="memory"    &&<MemoryPanel ceoMemory={data.ceoMemory} onAddCeo={addCeoMemoryItems} onRemoveCeo={removeCeoMemoryItem} onAddNeg={addNegMemoryItems} onRemoveNeg={removeNegMemoryItem}/>}
           {activeTab==="dealroom"&&(()=>{
