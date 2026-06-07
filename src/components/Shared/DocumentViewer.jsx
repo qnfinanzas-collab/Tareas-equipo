@@ -144,7 +144,9 @@ function pdfSanitize(t) {
 // Genera el PDF de un documento markdown. A4 portrait, márgenes 22mm,
 // Times (serif clásico) por defecto, negritas en títulos. Página numerada
 // al pie. Si ocupa varias páginas, salto automático.
-function downloadAsPdf(doc) {
+// Exportado para que DocumentCard del Consejo pueda reutilizarlo sin
+// duplicar lógica (commit 2 de Opción B).
+export function downloadAsPdf(doc) {
   const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
   const PAGE_W = 210, PAGE_H = 297;
   const M = 22;
@@ -229,7 +231,8 @@ function downloadAsPdf(doc) {
 
 // Descarga .md — Blob explícito con charset utf-8 para evitar el mismo
 // mojibake del visor antiguo cuando el browser decodifica el archivo.
-function downloadAsMd(doc) {
+// Exportado para reutilización (commit 2 de Opción B).
+export function downloadAsMd(doc) {
   const blob = new Blob([doc.text || ""], { type: "text/markdown;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const safeName = String(doc.name || "documento").replace(/[^a-z0-9_\-]+/gi, "_").slice(0, 60);

@@ -17,6 +17,7 @@
 // es operativamente alto (y los specialists no están pensados para eso).
 import React, { useState, useRef, useEffect } from "react";
 import { canUseAgent } from "../lib/auth.js";
+import DocumentViewer, { downloadAsPdf, downloadAsMd } from "./Shared/DocumentViewer.jsx";
 
 const CHAT_MAX = 50;
 const NAME_BY_KEY = { mario: "Mario", jorge: "Jorge", alvaro: "Álvaro", gonzalo: "Gonzalo", diego: "Diego" };
@@ -53,6 +54,82 @@ function parseDerivation(text) {
     cleanText,
     derivation: { toKey: last[1].toLowerCase(), reason: (last[2] || "").trim() },
     debug: "ok",
+  };
+}
+
+// Parser de [DOCUMENT:tipo:nombre]…contenido…[/DOCUMENT].
+// Namespace propio, paralelo a [DERIVAR:] — NO toca [ACTIONS] ni el
+// pipeline de Héctor. Segmenta la respuesta en chunks ordenados: prosa
+// suelta como {kind:"text"}; cada bloque cerrado como {kind:"document"}.
+//
+// Tolerancia (regla dura del CEO: NUNCA romper el chat):
+//   - Si abre [DOCUMENT:…] y nunca cierra → no se parsea como documento,
+//     el texto sale literal (markers visibles). Log warning.
+//   - Si el cierre [/DOCUMENT] aparece sin apertura previa → ignorado,
+//     queda en la prosa (caso edge).
+//   - Anidación: regex no-greedy → toma el cierre MÁS CERCANO al inicio.
+//     Documentos anidados quedan aplanados al primero (no soportado).
+//   - tipo: solo lowercase + guion. nombre: cualquier char salvo "]" y "\n".
+const DOCUMENT_RE = /\[DOCUMENT:([a-z][a-z_\-]{0,30}):([^\]\n]{1,120})\]\s*\n([\s\S]*?)\n?\[\/DOCUMENT\]/gi;
+function parseDocuments(text) {
+  if (!text) return { segments: [{ kind: "text", content: text || "" }], documents: [], debug: "no-text" };
+  const str = String(text);
+  const segments = [];
+  const documents = [];
+  let lastIndex = 0;
+  const re = new RegExp(DOCUMENT_RE.source, "gi");
+  let m;
+  while ((m = re.exec(str)) !== null) {
+    if (m.index > lastIndex) {
+      const before = str.slice(lastIndex, m.index).trim();
+      if (before) segments.push({ kind: "text", content: before });
+    }
+    const doc = {
+      docType: m[1].toLowerCase(),
+      name: m[2].trim(),
+      content: m[3].trim(),
+    };
+    segments.push({ kind: "document", ...doc });
+    documents.push(doc);
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < str.length) {
+    const tail = str.slice(lastIndex).trim();
+    if (tail) segments.push({ kind: "text", content: tail });
+  }
+  // Detección de apertura sin cierre (caso de truncado parcial que
+  // sobrevivió a la continuación, o emisión malformada del modelo).
+  // No rompemos el render — la prosa sale literal con el marker visible
+  // para que el CEO lo vea — pero logueamos para auditoría.
+  const opens = (str.match(/\[DOCUMENT:/gi) || []).length;
+  const closes = (str.match(/\[\/DOCUMENT\]/gi) || []).length;
+  let debug = documents.length > 0 ? "ok" : (opens > 0 ? "marker-unclosed" : "marker-absent");
+  if (opens !== closes) debug = "marker-unclosed";
+  // Si no encontramos ninguno y no hay markers en absoluto, devolvemos
+  // el texto íntegro como un único segmento.
+  if (segments.length === 0) segments.push({ kind: "text", content: str });
+  return { segments, documents, debug, opens, closes };
+}
+
+// Helper para convertir un segment {kind:"document", ...} en el shape
+// que esperan downloadAsPdf / downloadAsMd / DocumentViewer (igual que
+// el "doc inline" del DocumentUploader). Centraliza el mapping para no
+// duplicarlo en cada handler de la card.
+function _docFromSegment(seg, spec) {
+  return {
+    id: "doc_chat_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    name: seg.name || `Documento de ${spec?.name || "especialista"}`,
+    type: "text/markdown",
+    size: (seg.content || "").length,
+    storagePath: null,
+    url: null,
+    text: seg.content || "",
+    kind: "inline",
+    uploadedAt: new Date().toISOString(),
+    analyzedBy: null,
+    analyzedAt: null,
+    report: null,
+    _origin: { source: "consejo", specKey: spec?.key, specName: spec?.name, docType: seg.docType },
   };
 }
 
@@ -314,11 +391,27 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
         console.log(`🔀 [Consejo·${spec.key}] derivación parseada →`, derivation);
       } else if (debug === "marker-malformed") {
         console.warn(`🔀 [Consejo·${spec.key}] marker presente pero malformado · cola del texto:`, String(rawText).slice(-300));
-      } else {
-        console.log(`🔀 [Consejo·${spec.key}] sin derivación (marker-absent)`);
+      }
+      // Parseo del marker [DOCUMENT:tipo:nombre] — segmenta la respuesta
+      // en chunks ordenados (prosa + documentos). Si malformado, queda
+      // como texto plano sin romper el chat.
+      const docParse = parseDocuments(cleanText || "");
+      if (docParse.debug === "ok") {
+        console.log(`📄 [Consejo·${spec.key}] ${docParse.documents.length} documento(s) entregados:`, docParse.documents.map(d => `${d.docType}/${d.name}`));
+      } else if (docParse.debug === "marker-unclosed") {
+        console.warn(`📄 [Consejo·${spec.key}] [DOCUMENT] sin cierre · opens=${docParse.opens} closes=${docParse.closes} · render como texto plano`);
       }
       const finalReply = (cleanText || "").trim() || "(sin respuesta)";
-      setHistory(h => [...h, { role: "assistant", content: finalReply, derivation, ts: Date.now() }].slice(-CHAT_MAX));
+      setHistory(h => [...h, {
+        role: "assistant",
+        content: finalReply,
+        derivation,
+        // segments y documents solo se guardan si parser encontró
+        // documentos válidos; el render decide a partir de la presencia.
+        segments: docParse.documents.length > 0 ? docParse.segments : null,
+        documents: docParse.documents.length > 0 ? docParse.documents : null,
+        ts: Date.now(),
+      }].slice(-CHAT_MAX));
       if (derivationContext && !derivationInjected) setDerivationInjected(true);
     } catch (e) {
       setHistory(h => [...h, { role: "assistant", content: `⚠ Error consultando a ${spec.name}: ${e.message || e}`, ts: Date.now(), error: true }].slice(-CHAT_MAX));
@@ -378,6 +471,10 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
   // como contenido del documento. El modal pide nombre + destino y delega
   // en onSaveCouncilDocument que vive en App.jsx.
   const [saveDocFor, setSaveDocFor] = useState(null);
+  // viewerDoc — cuando el CEO pulsa "👁 Ver" sobre una DocumentCard del
+  // chat, montamos el visor profesional (mismo DocumentViewer que abre
+  // los docs guardados en negociación/tarea). Cero duplicación.
+  const [viewerDoc, setViewerDoc] = useState(null);
   const handleSaveDocClick = (msg) => {
     if (!onSaveCouncilDocument) return;
     setSaveDocFor(msg);
@@ -400,10 +497,25 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
         break;
       }
     }
+    // Si el mensaje incluye un documento parseado, lo pasamos íntegro
+    // como originDocument (adiós recorte de 2000 chars en HectorDirect).
+    // Tomamos el primer documento — la regla es máximo 1 por respuesta.
+    // Fallback: re-parseo retroactivo sobre msg.content por si el mensaje
+    // es histórico (anterior al deploy) y aún no tiene documents en jsonb.
+    let firstDoc = Array.isArray(msg.documents) && msg.documents.length > 0 ? msg.documents[0] : null;
+    if (!firstDoc && typeof msg.content === "string" && /\[DOCUMENT:/i.test(msg.content)) {
+      const dp = parseDocuments(msg.content);
+      if (dp.documents.length > 0) firstDoc = dp.documents[0];
+    }
     onBridgeToHector({
       fromKey: spec.key,
       originalQuery,
       originReply: msg.content,
+      originDocument: firstDoc ? {
+        name: firstDoc.name,
+        docType: firstDoc.docType,
+        content: firstDoc.content,
+      } : null,
     });
   };
 
@@ -472,23 +584,80 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
           // parseada, destino permitido por canDerive y NO estamos ya en
           // un chat derivado (chain cap = 1).
           const showDeriveChip = !isUser && m.derivation && !isDerived && canDerive?.(m.derivation.toKey);
+          // Re-parseo retroactivo: mensajes assistant anteriores al deploy
+          // pueden contener markers [DOCUMENT] sin segments computados.
+          // Si el contenido sigue teniendo markers válidos, parseamos al
+          // vuelo para que la card aparezca igualmente. NUNCA muta history.
+          let segments = m.segments;
+          let documents = m.documents;
+          if (!isUser && (!Array.isArray(segments) || segments.length === 0) && typeof m.content === "string" && /\[DOCUMENT:[a-z][a-z_\-]{0,30}:[^\]\n]+\]/i.test(m.content)) {
+            const dp = parseDocuments(m.content);
+            if (dp.documents.length > 0) {
+              segments = dp.segments;
+              documents = dp.documents;
+            }
+          }
+          const mWithSegs = (segments && documents) ? { ...m, segments, documents } : m;
           return (
             <div key={i} style={{ display: "flex", gap: 8, justifyContent: isUser ? "flex-end" : "flex-start", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-start", maxWidth: "82%" }}>
-                {!isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : spec.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{spec.emoji}</div>}
-                <div style={{
-                  background: isUser ? "#7F77DD" : (m.error ? "#FEE2E2" : spec.bg),
-                  color: isUser ? "#fff" : (m.error ? "#991B1B" : "#1F2937"),
-                  border: m.error ? "1px solid #FCA5A5" : "0.5px solid #E5E7EB",
-                  padding: "10px 14px",
-                  fontSize: 13.5,
-                  lineHeight: 1.5,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}>
-                  {m.content}
+              {/* Render: segments (cuando hay documentos parseados) o
+                  contenido plano. Los segments alternan burbujas de
+                  prosa con DocumentCards visualmente distintas — la
+                  prosa explica/acota, la card señala entrega de valor. */}
+              {Array.isArray(mWithSegs.segments) && mWithSegs.segments.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: "82%", width: "82%" }}>
+                  {mWithSegs.segments.map((seg, si) => {
+                    if (seg.kind === "document") {
+                      return (
+                        <DocumentCard
+                          key={si}
+                          spec={spec}
+                          doc={seg}
+                          onView={() => setViewerDoc(seg)}
+                          onAttach={() => handleSaveDocClick({ content: seg.content, ts: m.ts || Date.now(), _docMeta: seg })}
+                          onPdf={() => downloadAsPdf(_docFromSegment(seg, spec))}
+                          onMd={() => downloadAsMd(_docFromSegment(seg, spec))}
+                        />
+                      );
+                    }
+                    return (
+                      <div key={si} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                        {si === 0 && !isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : spec.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{spec.emoji}</div>}
+                        {si > 0 && !isUser && <div style={{ width: 28, flexShrink: 0 }}/>}
+                        <div style={{
+                          background: m.error ? "#FEE2E2" : spec.bg,
+                          color: m.error ? "#991B1B" : "#1F2937",
+                          border: m.error ? "1px solid #FCA5A5" : "0.5px solid #E5E7EB",
+                          padding: "10px 14px",
+                          fontSize: 13.5,
+                          lineHeight: 1.5,
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                          flex: 1,
+                        }}>
+                          {seg.content}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
+              ) : (
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-start", maxWidth: "82%" }}>
+                  {!isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : spec.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{spec.emoji}</div>}
+                  <div style={{
+                    background: isUser ? "#7F77DD" : (m.error ? "#FEE2E2" : spec.bg),
+                    color: isUser ? "#fff" : (m.error ? "#991B1B" : "#1F2937"),
+                    border: m.error ? "1px solid #FCA5A5" : "0.5px solid #E5E7EB",
+                    padding: "10px 14px",
+                    fontSize: 13.5,
+                    lineHeight: 1.5,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}>
+                    {m.content}
+                  </div>
+                </div>
+              )}
               {/* Footer de acciones bajo la burbuja del especialista.
                   El botón "Accionar con Héctor" está SIEMPRE disponible
                   (sin gating, sin chain cap) — es la salida ejecutiva
@@ -610,8 +779,101 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
           onCancel={() => setSaveDocFor(null)}
         />
       )}
+      {/* Visor profesional para previsualizar el documento del chat
+          ANTES de adjuntarlo. Mismo componente que el visor del
+          DocumentUploader (consistencia visual + cero duplicación). */}
+      {viewerDoc && (
+        <DocumentViewer
+          doc={_docFromSegment(viewerDoc, spec)}
+          onClose={() => setViewerDoc(null)}
+        />
+      )}
     </div>
   );
+}
+
+// DocumentCard — render visualmente distinto a una burbuja: borde oro
+// como "entrega de valor". Acciones para Ver, Adjuntar a destino,
+// descargar PDF/MD. Tipografía serif en el título para anclar la
+// percepción "documento" desde el primer vistazo. Identidad Kluxor:
+// papel #FAFAF7, oro #C9A84C, border-radius 0.
+function DocumentCard({ spec, doc, onView, onAttach, onPdf, onMd }) {
+  const SERIF = 'Georgia, "Times New Roman", Garamond, serif';
+  const chars = (doc.content || "").length;
+  const lines = (doc.content || "").split(/\r?\n/).filter(l => l.trim()).length;
+  return (
+    <div style={{
+      background: "#FAFAF7",
+      border: "1.5px solid #C9A84C",
+      padding: "14px 16px 12px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      boxShadow: "0 1px 4px rgba(201,168,76,0.18)",
+    }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 18, lineHeight: 1, flexShrink: 0 }}>📄</span>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontFamily: SERIF, fontSize: 16, fontWeight: 600, color: "#1F1A0F", lineHeight: 1.25 }}>{doc.name || "Documento sin nombre"}</div>
+          <div style={{ fontSize: 11, color: "#8B6914", letterSpacing: "0.04em", marginTop: 2, fontStyle: "italic" }}>
+            {doc.docType ? doc.docType.toUpperCase() : "DOCUMENTO"} · {chars.toLocaleString("es-ES")} chars · {lines} líneas · redactado por {spec?.name || "especialista"}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {onView && (
+          <button
+            onClick={onView}
+            title="Ver el documento con formato"
+            style={_cardBtn("#fff", "#C9A84C", "#8B6914")}
+            onMouseEnter={e => { e.currentTarget.style.background = "#FFFBEB"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "#fff"; }}
+          >
+            👁 Ver
+          </button>
+        )}
+        {onAttach && (
+          <button
+            onClick={onAttach}
+            title="Adjuntar a una negociación o tarea"
+            style={_cardBtn("#fff", "#E5E0D5", "#3D2E12")}
+            onMouseEnter={e => { e.currentTarget.style.background = "#FAFAF7"; e.currentTarget.style.borderColor = "#C9A84C"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#E5E0D5"; }}
+          >
+            📎 Adjuntar a…
+          </button>
+        )}
+        {onPdf && (
+          <button onClick={onPdf} title="Descargar PDF" style={_cardBtn("#fff", "#E5E0D5", "#3D2E12")}
+            onMouseEnter={e => { e.currentTarget.style.background = "#FAFAF7"; e.currentTarget.style.borderColor = "#C9A84C"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#E5E0D5"; }}
+          >⬇ PDF</button>
+        )}
+        {onMd && (
+          <button onClick={onMd} title="Descargar Markdown" style={_cardBtn("#fff", "#E5E0D5", "#3D2E12")}
+            onMouseEnter={e => { e.currentTarget.style.background = "#FAFAF7"; e.currentTarget.style.borderColor = "#C9A84C"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#E5E0D5"; }}
+          >⬇ .md</button>
+        )}
+      </div>
+    </div>
+  );
+}
+function _cardBtn(bg, border, color) {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "6px 12px",
+    minHeight: 34,
+    background: bg,
+    border: `1px solid ${border}`,
+    color,
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  };
 }
 
 // SaveDocumentModal — captura el texto íntegro de la burbuja del especialista
@@ -622,6 +884,12 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
 // Kluxor (#FAFAF7, oro acento, borde #E5E0D5, border-radius 0).
 function SaveDocumentModal({ msg, spec, negTargets, taskTargets, onSave, onCancel }) {
   const [name, setName] = useState(() => {
+    // Si el mensaje viene de una DocumentCard del chat (msg._docMeta),
+    // pre-rellenamos con el nombre real del documento. Para mensajes de
+    // chat sueltos (sin marker [DOCUMENT]) seguimos con el patrón
+    // "Documento de <Spec> · DD/MM/YYYY".
+    const docName = msg && msg._docMeta && msg._docMeta.name;
+    if (docName) return docName;
     const dateShort = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
     return `Documento de ${spec.name} · ${dateShort}`;
   });

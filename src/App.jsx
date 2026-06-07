@@ -12149,9 +12149,54 @@ Reglas:
   «[análisis financiero del impacto en capital y dilución]
   ¿Quieres que prepare un escenario alternativo?
   [DERIVAR:mario:vesting y pactos parasociales requieren mercantilista]»`;
+    // ── ENTREGA DE DOCUMENTOS — marker [DOCUMENT:tipo:nombre] ──────────
+    // Cuando produces un documento FORMAL COMPLETO, lo envuelves en un
+    // bloque [DOCUMENT]…[/DOCUMENT]. El sistema lo renderiza como una
+    // card distinta de tu prosa, con acciones para verlo, adjuntarlo,
+    // descargarlo. Si NO lo emites, todo sale como texto suelto y el
+    // CEO tiene que copiar a mano. Si lo emites de más (en respuestas
+    // conversacionales o párrafos sueltos), inflas la UI sin valor.
+    // Por tanto: regla DURA — solo documentos formales completos.
+    const DOCUMENT_RULES = `ENTREGA DE DOCUMENTOS — Cuando produzcas un DOCUMENTO FORMAL COMPLETO (no un párrafo, no una lista, no una explicación), envuélvelo entre estos markers en líneas propias:
+[DOCUMENT:tipo:nombre]
+…contenido del documento, multilínea, con títulos y estructura en Markdown ligero…
+[/DOCUMENT]
+
+DISPARADORES (emite el marker SOLO si la salida es algo así):
+- Contratos completos (arrendamiento, prestación de servicios, NDA, compraventa).
+- Pactos de socios y estatutos.
+- Cartas formales con destinatario, asunto, cuerpo y cierre.
+- Informes completos con secciones (resumen ejecutivo, análisis, recomendaciones).
+- Documentos parasocietarios listos para firmar.
+- Escrituras o borradores notariales.
+
+NO emitas el marker para:
+- Respuestas conversacionales o explicaciones.
+- Listas breves, puntos sueltos o resúmenes de menos de ~10 líneas.
+- Esbozos sin cláusulas/secciones articuladas.
+- Citas de normativa o referencias.
+En caso de duda: NO marques. La prosa suelta funciona perfectamente.
+
+Formato del marker:
+- tipo: una palabra en minúsculas con guiones (contrato, pacto, informe, carta, escritura, nda, estatutos, acta…).
+- nombre: título breve del documento, máx 120 caracteres.
+- contenido: Markdown ligero (## títulos, **negrita**, listas con - o numeradas).
+- IMPORTANTE: la regla "FORMATO OBLIGATORIO texto plano" arriba se REFIERE A LA PROSA DEL CHAT. DENTRO del bloque [DOCUMENT] sí debes usar Markdown ligero — es una excepción explícita, porque el documento se renderiza con tipografía profesional.
+- Las etiquetas [DOCUMENT:…] y [/DOCUMENT] van SIEMPRE en líneas propias.
+- Máximo UN bloque por respuesta (si necesitas más, divide en respuestas sucesivas).
+
+Estructura recomendada de una respuesta con documento:
+  «He preparado el pacto de socios siguiendo los criterios habituales.
+  [DOCUMENT:pacto:Pacto de socios — Luis 20%]
+  # PACTO DE SOCIOS
+  ## CLÁUSULA PRIMERA. — Partes
+  …
+  [/DOCUMENT]
+  ¿Quieres que ajuste alguna cláusula antes de firmar?»`;
     const system = (ag.promptBase || fallbackPrompt)
       + "\n\n" + PLAIN_TEXT_RULE
       + "\n\n" + DERIVATION_RULES
+      + "\n\n" + DOCUMENT_RULES
       + (ceoBlock ? `\n\n${ceoBlock}` : "")
       + (extraSystem ? `\n\n${extraSystem}` : "");
     // Anti-truncado v1 (commit dedicado):
@@ -12175,11 +12220,21 @@ Reglas:
     let combined = (first?.text || "");
     if (first?.stop_reason === "max_tokens" && combined.trim()) {
       console.warn(`✂️ [Consejo·${agentName}] respuesta truncada (max_tokens, ${combined.length} chars) — intentando continuación…`);
+      // Detección: ¿se cortó DENTRO de un bloque [DOCUMENT]? Si hay más
+      // aperturas que cierres, el modelo estaba escribiendo el documento
+      // cuando se quedó sin tokens. La continuación debe cerrar el bloque
+      // existente, NO abrir uno nuevo.
+      const opens = (combined.match(/\[DOCUMENT:/gi) || []).length;
+      const closes = (combined.match(/\[\/DOCUMENT\]/gi) || []).length;
+      const inDocBlock = opens > closes;
+      const continueInstruction = inDocBlock
+        ? "Continúa exactamente donde quedaste DENTRO del bloque [DOCUMENT] abierto, sin repetir nada de lo anterior. NO abras un nuevo [DOCUMENT]. Cuando termines el contenido del documento, cierra con [/DOCUMENT] en línea aparte y, si procede, añade tu pregunta de cierre al CEO."
+        : "Continúa exactamente donde quedaste, sin repetir nada de lo anterior. Mantén el formato y la estructura. No introduzcas, ve directo al siguiente carácter.";
       try {
         const continuationMsgs = [
           ...baseMessages,
           { role: "assistant", content: combined },
-          { role: "user", content: "Continúa exactamente donde quedaste, sin repetir nada de lo anterior. Mantén el formato y la estructura. No introduzcas, ve directo al siguiente carácter." },
+          { role: "user", content: continueInstruction },
         ];
         const second = await callOnce(continuationMsgs);
         const tail = String(second?.text || "").trim();

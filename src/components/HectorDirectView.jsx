@@ -156,16 +156,42 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
     if (!pendingExecBridge) return;
     const FROM_NAME = { mario: "Mario", jorge: "Jorge", alvaro: "Álvaro" }[pendingExecBridge.fromKey] || pendingExecBridge.fromKey;
     const FROM_EMOJI = { mario: "⚖️", jorge: "📊", alvaro: "🏠" }[pendingExecBridge.fromKey] || "💼";
-    const truncated = String(pendingExecBridge.originReply || "").slice(0, 2000);
-    const prompt = `Contexto recibido desde El Consejo (${FROM_NAME}):
+    // Si el especialista entregó un documento (marker [DOCUMENT]), lo
+    // mandamos ÍNTEGRO a Héctor. Sin recortes: el documento es el
+    // contexto principal. Si no hay documento, mantenemos el recorte
+    // legacy de la prosa a 2000 chars (no se infla por hipotéticas
+    // respuestas conversacionales largas).
+    const doc = pendingExecBridge.originDocument;
+    const proseTruncated = String(pendingExecBridge.originReply || "").slice(0, 2000);
+    const prompt = doc
+      ? `Contexto recibido desde El Consejo (${FROM_NAME}):
 
 CONSULTA ORIGINAL DEL CEO: "${pendingExecBridge.originalQuery || ""}"
 
-ANÁLISIS DE ${FROM_NAME.toUpperCase()}: "${truncated}"
+NOTA DE ${FROM_NAME.toUpperCase()}: "${proseTruncated}"
+
+DOCUMENTO ENTREGADO POR ${FROM_NAME.toUpperCase()} (tipo: ${doc.docType || "documento"} · "${doc.name || "sin nombre"}"):
+"""
+${doc.content || ""}
+"""
+
+ACCIÓN: Convierte este documento y su contexto en acciones operativas. Si procede, propón tareas (revisión, firma, registro), adjunta el documento a la negociación o proyecto relevante, y vincula los pasos siguientes. Si no hay acciones claras, dilo explícitamente.`
+      : `Contexto recibido desde El Consejo (${FROM_NAME}):
+
+CONSULTA ORIGINAL DEL CEO: "${pendingExecBridge.originalQuery || ""}"
+
+ANÁLISIS DE ${FROM_NAME.toUpperCase()}: "${proseTruncated}"
 
 ACCIÓN: Convierte este análisis en acciones operativas. Si procede, propón tareas concretas con responsable, fecha estimada y prioridad, y vincula a un proyecto o negociación existente si corresponde. Si no hay acciones claras, dilo explícitamente.`;
     setInputText(prompt);
-    setBridgeBanner({ fromKey: pendingExecBridge.fromKey, fromName: FROM_NAME, fromEmoji: FROM_EMOJI, originalQuery: pendingExecBridge.originalQuery, originReply: pendingExecBridge.originReply });
+    setBridgeBanner({
+      fromKey: pendingExecBridge.fromKey,
+      fromName: FROM_NAME,
+      fromEmoji: FROM_EMOJI,
+      originalQuery: pendingExecBridge.originalQuery,
+      originReply: pendingExecBridge.originReply,
+      originDocument: doc || null,
+    });
     setShowBridgeDetails(false);
     // Foco al textarea para que el CEO pueda editar o pulsar Enter directo.
     setTimeout(() => { try { textareaRef.current?.focus(); } catch {} }, 50);
@@ -1114,7 +1140,9 @@ Reglas:
             >×</button>
           </div>
           <div style={{ fontSize: 12, color: "#78350F", marginBottom: 6, lineHeight: 1.4 }}>
-            El input lleva ya la consulta original del CEO y el análisis de {bridgeBanner.fromName}. Revisa, edita si quieres, y pulsa Enviar.
+            {bridgeBanner.originDocument
+              ? <>El input lleva la consulta original, una nota de {bridgeBanner.fromName} y el <strong>documento "{bridgeBanner.originDocument.name}" íntegro</strong>. Revisa y pulsa Enviar.</>
+              : <>El input lleva ya la consulta original del CEO y el análisis de {bridgeBanner.fromName}. Revisa, edita si quieres, y pulsa Enviar.</>}
           </div>
           <button
             onClick={() => setShowBridgeDetails(v => !v)}
@@ -1132,6 +1160,14 @@ Reglas:
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#92400E", marginBottom: 3 }}>Análisis de {bridgeBanner.fromName}</div>
                 <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{bridgeBanner.originReply || "(sin respuesta)"}</div>
               </div>
+              {bridgeBanner.originDocument && (
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#92400E", marginBottom: 3 }}>
+                    Documento adjunto · {bridgeBanner.originDocument.docType || "documento"} · {bridgeBanner.originDocument.name}
+                  </div>
+                  <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 200, overflowY: "auto", padding: 8, background: "#fff", border: "0.5px solid #FCD34D" }}>{bridgeBanner.originDocument.content || "(vacío)"}</div>
+                </div>
+              )}
             </div>
           )}
         </div>
