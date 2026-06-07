@@ -31,6 +31,7 @@ import ConsejoView from "./components/ConsejoView.jsx";
 import MantenimientoView from "./components/MantenimientoView.jsx";
 import { CHAT_PALETTE } from "./components/Shared/ChatBubble.jsx";
 import AgentAvatar from "./components/Shared/AgentAvatar.jsx";
+import DocumentViewer from "./components/Shared/DocumentViewer.jsx";
 import FinanceView from "./components/Finanzas/FinanceView.jsx";
 import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
@@ -2038,6 +2039,11 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
   const [textName,setTextName]   = useState("");
   const [textType,setTextType]   = useState("text/markdown");
   const [textBody,setTextBody]   = useState("");
+  // viewerDoc — documento inline abierto en el visor profesional (modal
+  // Markdown con render serif + descarga PDF/MD). Reemplaza el flujo
+  // antiguo de Blob URL para text/markdown y text/plain inline. Resuelve
+  // el mojibake "Díaz → DÃ­az" que provocaba el blob sin charset.
+  const [viewerDoc,setViewerDoc] = useState(null);
   const fileInputRef      = useRef(null);
 
   if(!storageEnabled()){
@@ -2238,15 +2244,22 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
 
   const openDoc = async (doc)=>{
     try {
-      // Inline (text/html, text/markdown, text/plain con contenido pegado
-      // por el CEO o generado por Héctor): rendereamos un Blob URL para
-      // que el navegador muestre el HTML / texto plano en pestaña nueva.
+      // Inline (text/markdown, text/plain): visor profesional con render
+      // Markdown + descargas. El visor renderiza el string JS directamente
+      // (sin Blob), eliminando el mojibake UTF-8↔Latin-1 que producía el
+      // flujo antiguo cuando el browser decodificaba el Blob sin charset.
       if(doc.text != null && !doc.storagePath && !doc.url){
-        const blob = new Blob([doc.text || ""], { type: doc.type || "text/plain" });
+        const t = (doc.type || "text/plain").toLowerCase();
+        if (t.startsWith("text/markdown") || t.startsWith("text/plain") || t === "" ) {
+          setViewerDoc(doc);
+          return;
+        }
+        // text/html (informes con marcado HTML) sigue por Blob, pero
+        // ahora con charset utf-8 declarado — corrige mojibake de tildes
+        // también en este camino.
+        const blob = new Blob([doc.text || ""], { type: `${doc.type || "text/plain"};charset=utf-8` });
         const url = URL.createObjectURL(blob);
         const w = window.open(url, "_blank", "noopener");
-        // Revoca la URL temporal tras 60s — tiempo de sobra para que el
-        // navegador la cargue. Sin esto se acumulan en memoria.
         setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch{} }, 60000);
         if(!w) setError("El navegador bloqueó la nueva pestaña. Permite popups para previsualizar.");
         return;
@@ -2466,6 +2479,10 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
           })}
         </div>
       )}
+      {/* Visor profesional para documentos inline (markdown / texto).
+          Reemplaza el blob-in-new-tab para corregir el mojibake UTF-8 y
+          ofrecer render Markdown + descargas PDF/MD. */}
+      {viewerDoc && <DocumentViewer doc={viewerDoc} onClose={()=>setViewerDoc(null)}/>}
     </div>
   );
 }
