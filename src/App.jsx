@@ -10836,6 +10836,13 @@ export default function TaskFlow(){
   // originalQuery, originReply, chainDepth }. El destino lo consume en su
   // primera carga útil y limpia este state via onSetPendingDerivation(null).
   const [pendingDerivation,setPendingDerivation]   = useState(null);
+  // El Consejo — puente a Héctor. Cuando el CEO pulsa "Accionar con Héctor"
+  // en una respuesta de Mario/Jorge/Álvaro, aquí aterriza el paquete
+  // { fromKey, originalQuery, originReply } que viaja a HectorDirectView
+  // para precargar el input con la instrucción de convertir el análisis
+  // del especialista en acciones operativas. Héctor procesa el resultado
+  // con su pipeline NORMAL de [ACTIONS] → ActionProposal.
+  const [pendingExecBridge,setPendingExecBridge]   = useState(null);
   const [activeNegId,setActiveNegId]               = useState(null);
   const [activeSessId,setActiveSessId]             = useState(null);
   const [negFilter,setNegFilter]                   = useState("all");
@@ -13772,7 +13779,7 @@ donde agente ∈ {${allowedTargets.join(", ")}}. Reglas duras:
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} isAdmin={isAdmin} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)} onUnarchiveTask={unarchiveTaskAnywhere}/>}
           {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)} onMoveTask={moveTaskAnywhere} onCreateTask={(pid,payload)=>addTaskToProject(pid,payload)}/>}
-          {activeTab==="consejo"   &&<ConsejoView currentMember={(data.members||[]).find(m=>m.id===activeMember)} permissions={data.permissions} onCallMario={callMarioDirect} onCallJorge={callJorgeDirect} onCallAlvaro={callAlvaroDirect} onNavigate={id=>setActiveTab(id)} pendingDerivation={pendingDerivation} onSetPendingDerivation={setPendingDerivation}/>}
+          {activeTab==="consejo"   &&<ConsejoView currentMember={(data.members||[]).find(m=>m.id===activeMember)} permissions={data.permissions} onCallMario={callMarioDirect} onCallJorge={callJorgeDirect} onCallAlvaro={callAlvaroDirect} onNavigate={id=>setActiveTab(id)} pendingDerivation={pendingDerivation} onSetPendingDerivation={setPendingDerivation} onBridgeToHector={(payload)=>{setPendingExecBridge(payload);setActiveTab("hector-direct");}}/>}
           {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
           {activeTab==="memory"    &&<MemoryPanel ceoMemory={data.ceoMemory} onAddCeo={addCeoMemoryItems} onRemoveCeo={removeCeoMemoryItem} onAddNeg={addNegMemoryItems} onRemoveNeg={removeNegMemoryItem}/>}
           {activeTab==="dealroom"&&(()=>{
@@ -13858,7 +13865,7 @@ donde agente ∈ {${allowedTargets.join(", ")}}. Reglas duras:
               onToggleFavorite={toggleFavoriteNegotiation}
             />;
           })()}
-          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext}/>}
+          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext} pendingExecBridge={pendingExecBridge} onConsumePendingExecBridge={()=>setPendingExecBridge(null)}/>}
           {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} authSession={authSession} onNavigate={setActiveTab} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onApplyTaskChanges={applyTaskChanges} onOpenNegotiation={openNegotiationById} onOpenProject={pid=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); } }} onToggleFavorite={toggleFavoriteProject} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} favoriteProjectIds={data.favoriteProjectIds||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject} onArchiveProject={archiveProject} onUnarchiveProject={unarchiveProject} onToggleFavorite={toggleFavoriteProject}/>}

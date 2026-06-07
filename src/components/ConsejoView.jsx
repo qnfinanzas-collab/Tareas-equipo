@@ -57,7 +57,7 @@ const COUNCIL = [
   { key: "diego",   emoji: "💰", name: "Diego",   role: "Analista financiero",                  accent: "#B91C1C", bg: "#FEF2F2", border: "#FCA5A5", mode: "navigate", target: "finance" },
 ];
 
-export default function ConsejoView({ currentMember, permissions, onCallMario, onCallJorge, onCallAlvaro, onNavigate, pendingDerivation, onSetPendingDerivation }) {
+export default function ConsejoView({ currentMember, permissions, onCallMario, onCallJorge, onCallAlvaro, onNavigate, pendingDerivation, onSetPendingDerivation, onBridgeToHector }) {
   // Filtramos por canUseAgent. Si el miembro no tiene permiso sobre un
   // agente, su card no aparece — admin global pasa libre.
   const visible = COUNCIL.filter(c => canUseAgent(currentMember, c.key, permissions));
@@ -156,6 +156,7 @@ export default function ConsejoView({ currentMember, permissions, onCallMario, o
           onConsumePendingDerivation={() => onSetPendingDerivation?.(null)}
           onDerive={handleDerive}
           canDerive={canDerive}
+          onBridgeToHector={onBridgeToHector}
         />
       ))}
     </div>
@@ -170,7 +171,7 @@ export default function ConsejoView({ currentMember, permissions, onCallMario, o
 //   - SIN proposal/banner banners.
 // Persistencia localStorage por (specKey, userId) para que cada miembro
 // tenga su propia conversación con cada especialista.
-function CouncilChat({ spec, currentMember, onCall, pendingDerivation, onConsumePendingDerivation, onDerive, canDerive }) {
+function CouncilChat({ spec, currentMember, onCall, pendingDerivation, onConsumePendingDerivation, onDerive, canDerive, onBridgeToHector }) {
   const userId = currentMember?.id ?? "anon";
   const storageKey = `kluxor.consejo.${spec.key}.chat.${userId}`;
   const [history, setHistory] = useState(() => {
@@ -287,6 +288,24 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
   // fases posteriores.
   const isDerived = !!derivationContext;
 
+  // Puente a Héctor: el botón al pie de cada respuesta del especialista
+  // empuja a Héctor el paquete {fromKey, originalQuery, originReply} para
+  // que precargue el input con "Convierte este análisis en acciones…".
+  // Héctor responde con su pipeline normal [ACTIONS] → ActionProposal.
+  const handleBridgeClick = (msg) => {
+    if (!onBridgeToHector) return;
+    const idx = history.indexOf(msg);
+    let originalQuery = "";
+    for (let i = idx - 1; i >= 0; i--) {
+      if (history[i].role === "user") { originalQuery = history[i].content; break; }
+    }
+    onBridgeToHector({
+      fromKey: spec.key,
+      originalQuery,
+      originReply: msg.content,
+    });
+  };
+
   return (
     <div style={{ background: "#fff", border: "1px solid #E5E7EB", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 480 }}>
       {/* Header */}
@@ -367,30 +386,59 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
                   {m.content}
                 </div>
               </div>
-              {showDeriveChip && (
-                <div style={{ paddingLeft: 36 }}>
-                  <button
-                    onClick={() => handleDeriveChip(m)}
-                    title={m.derivation.reason || ""}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "4px 10px",
-                      background: "#fff",
-                      border: `1px solid ${spec.accent}`,
-                      color: spec.accent,
-                      fontSize: 11.5,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      marginTop: 4,
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = spec.bg; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = "#fff"; }}
-                  >
-                    → Consultar a {EMOJI_BY_KEY[m.derivation.toKey]} {NAME_BY_KEY[m.derivation.toKey]}
-                  </button>
+              {/* Footer de acciones bajo la burbuja del especialista.
+                  El botón "Accionar con Héctor" está SIEMPRE disponible
+                  (sin gating, sin chain cap) — es la salida ejecutiva
+                  desde cualquier respuesta del Consejo. El chip de
+                  derivación queda gated por canDerive + chain cap. */}
+              {!isUser && !m.error && (
+                <div style={{ paddingLeft: 36, display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                  {showDeriveChip && (
+                    <button
+                      onClick={() => handleDeriveChip(m)}
+                      title={m.derivation.reason || ""}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "4px 10px",
+                        background: "#fff",
+                        border: `1px solid ${spec.accent}`,
+                        color: spec.accent,
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = spec.bg; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = "#fff"; }}
+                    >
+                      → Consultar a {EMOJI_BY_KEY[m.derivation.toKey]} {NAME_BY_KEY[m.derivation.toKey]}
+                    </button>
+                  )}
+                  {onBridgeToHector && (
+                    <button
+                      onClick={() => handleBridgeClick(m)}
+                      title="Pedir a Héctor que convierta este análisis en acciones"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "4px 10px",
+                        background: "#fff",
+                        border: "1px solid #C9A84C",
+                        color: "#8B6914",
+                        fontSize: 11.5,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = "#FFFBEB"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = "#fff"; }}
+                    >
+                      🧙 Accionar con Héctor
+                    </button>
+                  )}
                 </div>
               )}
             </div>

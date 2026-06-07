@@ -124,7 +124,7 @@ async function flushChatToSupabase(authUid, messages) {
   }
 }
 
-export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, financeContext }) {
+export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, financeContext, pendingExecBridge, onConsumePendingExecBridge }) {
   const userKey = userId != null ? userId : "anon";
   // Misma clave que usa HectorPanel.jsx → conversación compartida.
   const CHAT_KEY = `kluxor.hector.chat.${userKey}`;
@@ -143,8 +143,34 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
   const [inputText, setInputText]     = useState("");
   const [isLoading, setIsLoading]     = useState(false);
   const [showApertura, setShowApertura] = useState(true);
+  // Puente desde El Consejo. Cuando el CEO pulsa "Accionar con Héctor" en
+  // un chat de especialista, App.jsx aterriza el paquete en pendingExecBridge
+  // y navega aquí. Lo consumimos: precargamos el input con instrucción +
+  // contexto, mostramos banner oro arriba con resumen colapsable, y dejamos
+  // que el CEO pulse Enviar. Pipeline normal de Héctor [ACTIONS] → ActionProposal.
+  const [bridgeBanner, setBridgeBanner] = useState(null);
+  const [showBridgeDetails, setShowBridgeDetails] = useState(false);
   const endRef       = useRef(null);
   const textareaRef  = useRef(null);
+  useEffect(() => {
+    if (!pendingExecBridge) return;
+    const FROM_NAME = { mario: "Mario", jorge: "Jorge", alvaro: "Álvaro" }[pendingExecBridge.fromKey] || pendingExecBridge.fromKey;
+    const FROM_EMOJI = { mario: "⚖️", jorge: "📊", alvaro: "🏠" }[pendingExecBridge.fromKey] || "💼";
+    const truncated = String(pendingExecBridge.originReply || "").slice(0, 2000);
+    const prompt = `Contexto recibido desde El Consejo (${FROM_NAME}):
+
+CONSULTA ORIGINAL DEL CEO: "${pendingExecBridge.originalQuery || ""}"
+
+ANÁLISIS DE ${FROM_NAME.toUpperCase()}: "${truncated}"
+
+ACCIÓN: Convierte este análisis en acciones operativas. Si procede, propón tareas concretas con responsable, fecha estimada y prioridad, y vincula a un proyecto o negociación existente si corresponde. Si no hay acciones claras, dilo explícitamente.`;
+    setInputText(prompt);
+    setBridgeBanner({ fromKey: pendingExecBridge.fromKey, fromName: FROM_NAME, fromEmoji: FROM_EMOJI, originalQuery: pendingExecBridge.originalQuery, originReply: pendingExecBridge.originReply });
+    setShowBridgeDetails(false);
+    // Foco al textarea para que el CEO pueda editar o pulsar Enter directo.
+    setTimeout(() => { try { textareaRef.current?.focus(); } catch {} }, 50);
+    onConsumePendingExecBridge?.();
+  }, [pendingExecBridge]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Refs para sync Supabase. lastFlushedLengthRef rastrea cuántos
   // mensajes ya se enviaron a Supabase (para el umbral cada-5).
@@ -1066,6 +1092,48 @@ Reglas:
           >
             Ver Sala de Mando →
           </span>
+        </div>
+      )}
+
+      {/* ZONA 1c — BANNER PUENTE DESDE EL CONSEJO. Aparece tras pulsar
+          "Accionar con Héctor" en un chat de especialista. El input ya
+          viene precargado con la instrucción + contexto; el CEO revisa,
+          edita si quiere, y pulsa Enviar. Se descarta manualmente o tras
+          enviar. */}
+      {bridgeBanner && (
+        <div style={{ background: "#FFFBEB", borderBottom: "1px solid #C9A84C", padding: "12px 20px", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 14 }}>🧙</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#8B6914" }}>
+              Contexto cargado desde El Consejo · {bridgeBanner.fromEmoji} {bridgeBanner.fromName}
+            </span>
+            <button
+              onClick={() => { setBridgeBanner(null); setInputText(""); }}
+              title="Descartar contexto"
+              style={{ marginLeft: "auto", background: "transparent", border: "none", color: "#8B6914", fontSize: 16, cursor: "pointer", padding: 0, fontFamily: "inherit" }}
+            >×</button>
+          </div>
+          <div style={{ fontSize: 12, color: "#78350F", marginBottom: 6, lineHeight: 1.4 }}>
+            El input lleva ya la consulta original del CEO y el análisis de {bridgeBanner.fromName}. Revisa, edita si quieres, y pulsa Enviar.
+          </div>
+          <button
+            onClick={() => setShowBridgeDetails(v => !v)}
+            style={{ background: "transparent", border: "none", color: "#B45309", fontSize: 11, cursor: "pointer", padding: 0, fontFamily: "inherit", fontWeight: 600 }}
+          >
+            {showBridgeDetails ? "▾ Ocultar contexto" : "▸ Mostrar contexto"}
+          </button>
+          {showBridgeDetails && (
+            <div style={{ marginTop: 8, fontSize: 12, color: "#451A03", background: "#FEF3C7", border: "0.5px solid #FCD34D", padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#92400E", marginBottom: 3 }}>Pregunta original del CEO</div>
+                <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{bridgeBanner.originalQuery || "(sin pregunta original)"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#92400E", marginBottom: 3 }}>Análisis de {bridgeBanner.fromName}</div>
+                <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{bridgeBanner.originReply || "(sin respuesta)"}</div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
