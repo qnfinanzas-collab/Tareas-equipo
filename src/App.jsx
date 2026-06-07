@@ -10561,7 +10561,36 @@ export default function TaskFlow(){
   const isRemoteUpdate             = useRef(false);
   const [syncReady,setSyncReady]   = useState(!syncEnabled);
   const [syncStatus,setSyncStatus] = useState(syncEnabled?"connecting":"off");
-  const [activeProject,setAP]      = useState(0);
+  // activeProject — índice en data.projects. null = ningún proyecto activo
+  // (la cabecera y los tabs de proyecto NO se renderizan). Persistimos el
+  // ID (no el índice, porque los índices se desplazan al borrar proyectos)
+  // bajo "kluxor.activeProjectId". Al montar resolvemos el ID guardado al
+  // índice actual; si no existe (proyecto borrado o sin guardar), null.
+  // Test esperado por el CEO: tras hard reload sin selección previa → null,
+  // cabecera ausente. Selección → persiste y vuelve tras recargar.
+  const [activeProject,setAP]      = useState(() => {
+    try {
+      const storedId = localStorage.getItem("kluxor.activeProjectId");
+      if (!storedId) return null;
+      const projects = _saved?.projects || [];
+      const idx = projects.findIndex(p => String(p.id) === storedId);
+      return idx >= 0 ? idx : null;
+    } catch { return null; }
+  });
+  // Persistencia: cada vez que cambia activeProject, escribimos el ID del
+  // proyecto seleccionado. Si pasa a null, limpiamos la clave. Resolvemos
+  // contra data (en tiempo de efecto) para que un proyecto creado/borrado
+  // entre renders mantenga la coherencia ID↔índice.
+  useEffect(() => {
+    try {
+      if (activeProject == null) {
+        localStorage.removeItem("kluxor.activeProjectId");
+        return;
+      }
+      const p = data.projects[activeProject];
+      if (p?.id != null) localStorage.setItem("kluxor.activeProjectId", String(p.id));
+    } catch {}
+  }, [activeProject, data.projects]);
   // URL routing — Fase 1 (MNT-009). Lee la URL al montar y deriva el tab.
   // Si la URL no matchea ningún slug (caso "/" inicial), defaulta a
   // "hector-direct". Excepción: el guest del Vault (/vault/<token>) se
@@ -10962,7 +10991,14 @@ export default function TaskFlow(){
     return()=>window.removeEventListener("keydown",onKey);
   },[showUserModal,toggleSidebarCollapsed]);
 
-  const proj  = data.projects[activeProject];
+  // hasSelectedProject — el CEO seleccionó un proyecto activamente. Solo
+  // entonces renderizamos la barra de cabecera del proyecto. Para que los
+  // callbacks internos (addTask, moveTask…) no exploten por null en sus
+  // deps cuando no hay selección, proj cae al primer proyecto disponible
+  // como fallback inerte: esos callbacks NO disparan sin la UI del board,
+  // que a su vez solo se monta tras una selección explícita.
+  const hasSelectedProject = activeProject != null && !!data.projects[activeProject];
+  const proj  = hasSelectedProject ? data.projects[activeProject] : data.projects[0];
   // Tablero derivado: incluye tareas vinculadas desde otros proyectos cuyo
   // linkedProjects incluya este proyecto. Se mapean a la columna que
   // coincida por nombre con la columna primaria de la tarea; si no hay
@@ -13767,7 +13803,7 @@ Reglas:
             <button onClick={()=>{setSidebarOpen(true);setUserMenuOpen(o=>!o);}} title={me?.name||"Usuario"} style={{width:34,height:34,borderRadius:"50%",background:mp.solid,color:"#fff",border:"none",fontSize:11,fontWeight:700,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>{me?.initials}</button>
           );})()}
         </div>
-        {activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="midia"&&activeTab!=="briefings"&&(
+        {hasSelectedProject&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="midia"&&activeTab!=="briefings"&&(
           <div data-tf-bar="project-header" style={{background:"#fff",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px",height:52,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <span style={{fontSize:16}}>{proj.emoji||"📋"}</span>
@@ -13788,7 +13824,7 @@ Reglas:
             </div>
           </div>
         )}
-        {activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="midia"&&activeTab!=="briefings"&&(
+        {hasSelectedProject&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="midia"&&activeTab!=="briefings"&&(
           <div data-tf-bar="project-tabs" style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",background:"#fff",padding:"0 20px",flexShrink:0,overflowX:"auto"}}>
             {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #7F77DD":"2px solid transparent",color:activeTab===tab.key?"#7F77DD":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
           </div>
