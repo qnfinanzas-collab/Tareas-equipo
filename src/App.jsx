@@ -4415,16 +4415,84 @@ function timeAgoDate(dateStr){
   return `hace ${Math.floor(days/30)} mes${days>=60?"es":""}`;
 }
 
-// ── Home View · "El Vestíbulo" ───────────────────────────────────────────────
-// Antesala del club. Filosofía Kluxor: negro por fuera (marca, anuncios),
-// claro por dentro (operativa). Tres zonas verticales:
-//   1. Portada negra "Lo nuevo en el círculo" — anuncios de capacidades.
-//   2. Banda perla "Próximamente" — roadmap honesto, sin botones falsos.
-//   3. Zona operativa — saludo + stats + 5 bloques + actividad reciente.
-// Fundido suave al cargar (sin parallax, sin carruseles, sin animaciones de
-// juguete). Cormorant Garamond para títulos de marca; system sans para
-// cuerpo operativo.
+// ── Home View · "El Vestíbulo" v3 ────────────────────────────────────────────
+// Antesala del club + escaparate que genera deseo. Filosofía Kluxor: negro
+// por fuera (marca + agentes + anuncios), claro por dentro (operativa).
+// Estructura:
+//   1. Hero negro: saludo + El Consejo (5 avatares protagonistas).
+//   2. Banners alternados (dark/perla/dark): novedades como piezas de deseo
+//      con jerarquía editorial — culminando en una tarjeta de invitación
+//      de lujo para anunciar "Invitar a un miembro" (sin funcionalidad).
+//   3. Zona operativa: stats + 5 bloques con hover premium (elevación +
+//      underline oro que se dibuja + título a oro oscuro) + actividad.
+// Fade-in suave al cargar. Sin parallax, sin carruseles JS, sin animaciones
+// de juguete. Cormorant Garamond para títulos editoriales; system sans
+// para cuerpo operativo.
 const KX_SERIF = "'Cormorant Garamond', Georgia, 'Times New Roman', serif";
+// Definición de los 5 agentes del Consejo + su frase de valor comercial
+// (trato de usted). Mismo orden y emojis que ConsejoView.
+const HOME_AGENTS = [
+  { key: "mario",   emoji: "⚖️", name: "Mario",   role: "Abogado mercantil",          value: "Pactos y contratos listos para la firma, sin recados." },
+  { key: "jorge",   emoji: "📊", name: "Jorge",   role: "Analista de inversión",      value: "Análisis y valoraciones con criterio CEO." },
+  { key: "alvaro",  emoji: "🏠", name: "Álvaro",  role: "Inmobiliario y fiscalidad",  value: "Operaciones inmobiliarias sin sorpresas fiscales." },
+  { key: "gonzalo", emoji: "🏛️", name: "Gonzalo", role: "Holdings y gobernanza",      value: "La estructura del grupo, siempre en orden." },
+  { key: "diego",   emoji: "💰", name: "Diego",   role: "Analista financiero",        value: "Tesorería y contabilidad bajo control diario." },
+];
+
+// PdfMini — miniatura estilizada de documento PDF construida 100% en CSS
+// puro: hoja crema con cabecera oro, líneas de cuerpo decreciendo.
+// Sugiere el PDF real sin necesidad de imagen / asset externo.
+function PdfMini() {
+  return (
+    <div style={{
+      width: 110,
+      height: 140,
+      background: "#FAFAF7",
+      border: "0.5px solid #E5E0D5",
+      boxShadow: "0 4px 14px rgba(20,14,4,0.18)",
+      padding: "12px 12px 14px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 7,
+      flexShrink: 0,
+    }}>
+      <div style={{ height: 6, background: "#C9A84C", width: "60%", marginBottom: 4 }}/>
+      {[78, 92, 88, 70, 95, 82, 64].map((w, i) => (
+        <div key={i} style={{ height: 2.5, background: "#D8D2C5", width: `${w}%` }}/>
+      ))}
+      <div style={{ marginTop: "auto", height: 3, background: "#E5E0D5", width: "40%" }}/>
+    </div>
+  );
+}
+
+// CitationMini — pieza visual para el banner Normativa Viva: bloque
+// compacto con etiqueta BOE/AEAT/UE y un "fragmento citado" estilizado.
+function CitationMini() {
+  return (
+    <div style={{
+      width: 150,
+      padding: "14px 14px 12px",
+      background: "#FAF6EE",
+      border: "0.5px solid #E5D8B8",
+      boxShadow: "0 4px 14px rgba(120,90,30,0.10)",
+      flexShrink: 0,
+    }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        {["BOE", "AEAT", "UE"].map(l => (
+          <div key={l} style={{ fontSize: 8.5, padding: "2px 6px", background: "#fff", border: "0.5px solid #C9A84C", color: "#8B6914", letterSpacing: "0.06em", fontWeight: 600 }}>
+            {l}
+          </div>
+        ))}
+      </div>
+      {[88, 96, 82, 64, 90].map((w, i) => (
+        <div key={i} style={{ height: 2.2, background: "#D8D2C5", width: `${w}%`, marginBottom: 5 }}/>
+      ))}
+      <div style={{ marginTop: 6, fontSize: 9, color: "#8B6914", letterSpacing: "0.1em", fontStyle: "italic" }}>
+        — fuente
+      </div>
+    </div>
+  );
+}
 function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavigate,onOpenTask}){
   const me=data.members.find(m=>m.id===activeMember);
   const firstName=me?.name.split(" ")[0]||"";
@@ -4465,28 +4533,30 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
     { key:"administracion", title:"Administración",  subtitle:"Los mandos internos de la casa." },
   ];
 
-  // PORTADA NEGRA — "Lo nuevo en el círculo". Capacidades, no parches.
-  // Tono usted, pertenencia. Sin emojis (lujo silencioso).
-  const PORTADA_ANUNCIOS = [
+  // Banners alternados — novedades como piezas de deseo, no fila de cards.
+  // Mezclamos NUEVO (capacidad ya viva) con PRÓXIMAMENTE (anuncio honesto).
+  // El último es la tarjeta de invitación, pieza visual diferenciada.
+  const HOME_BANNERS = [
     {
-      title: "El Consejo",
-      body:  "Cinco especialistas a su servicio: mercantil, inversión, inmobiliario, holdings y finanzas. Consulte, derive entre ellos y reciba documentos listos para la firma.",
-    },
-    {
+      kind: "nuevo",
+      bg: "dark",
       title: "Documentos del Consejo",
-      body:  "Sus especialistas entregan pactos, contratos e informes como documentos formales: visualícelos, descárguelos en PDF y adjúntelos a sus negociaciones.",
+      body:  "Sus especialistas entregan pactos, contratos e informes como documentos formales. Visualícelos con tipografía editorial, descárguelos en PDF y adjúntelos a sus negociaciones con un toque.",
+      visual: "pdf",
     },
-  ];
-
-  // PRÓXIMAMENTE — anuncio honesto. NO clicable, NO funcional.
-  const PROXIMA = [
     {
+      kind: "proxima",
+      bg: "perla",
       title: "Normativa Viva",
-      body:  "Sus especialistas, citando fuentes oficiales en cada respuesta.",
+      body:  "Sus especialistas, citando fuentes oficiales en cada respuesta. Asesoría al día, verificable.",
+      visual: "citation",
     },
     {
+      kind: "proxima",
+      bg: "invitation",
       title: "Invitar a un miembro",
-      body:  "Cada socio podrá enviar su tarjeta de invitación personal a otro primer ejecutivo. El invitado llega avalado con su nombre, conoce el círculo en una antesala privada, y la administración aprueba su entrada. El acceso se concede, nunca se abre.",
+      body:  "Cada socio podrá enviar su tarjeta de invitación personal a otro primer ejecutivo. El invitado llega avalado con su nombre.",
+      visual: "card",
     },
   ];
 
@@ -4522,127 +4592,378 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
     ? `Tiene ${critMineCount} tarea${critMineCount!==1?"s":""} crítica${critMineCount!==1?"s":""} hoy · ${alertMineCount>0?`${alertMineCount} alerta${alertMineCount!==1?"s":""} pendiente${alertMineCount!==1?"s":""}`:"sin alertas pendientes"}`
     : `Sin tareas críticas hoy · todo bajo control.`;
 
+  const memberCode = me?.code || "";
+  const memberFullName = me?.name || "";
   return(
     <div style={{ display: "flex", flexDirection: "column", background: "#FAFAF7", minHeight: "100%", animation: "tf-fade-in .5s ease both" }}>
+      {/* Estilos locales del Vestíbulo v3: snap horizontal del row de
+          agentes en móvil + override hover en táctiles (sin :hover real,
+          el valor de cada agente aparece siempre). */}
+      <style>{`
+        .kx-consejo-row { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; align-items: flex-start; }
+        @media (max-width: 768px) {
+          .kx-consejo-row {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            scroll-snap-type: x mandatory;
+            -webkit-overflow-scrolling: touch;
+            justify-content: flex-start;
+            padding: 0 20px 8px;
+            margin: 0 -20px;
+          }
+          .kx-consejo-row > * { flex: 0 0 auto; scroll-snap-align: center; min-width: 220px; }
+        }
+        @media (hover: none) {
+          .kx-agent [data-value] { opacity: 1 !important; }
+        }
+        .kx-banner-grid { display: grid; gap: 28px; grid-template-columns: 1fr; }
+      `}</style>
 
-      {/* ── 1. PORTADA NEGRA ──────────────────────────────────────────── */}
+      {/* ── 1. HERO NEGRO — saludo + El Consejo + firma Séneca ──────────── */}
       <section style={{
         background: "#0A0A0A",
         color: "#EDE4D0",
-        padding: "56px 24px 64px",
+        padding: "56px 24px 60px",
         borderBottom: "1px solid #1A1612",
       }}>
-        <div style={{ maxWidth: 980, margin: "0 auto" }}>
-          {/* Saludo discreto, en oro muy pálido. */}
+        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+          {/* Saludo discreto en oro pálido + identidad del socio. */}
           <div style={{
             fontSize: 11,
             fontWeight: 500,
             color: "#C9A84C",
             letterSpacing: "0.28em",
             textTransform: "uppercase",
-            marginBottom: 18,
+            marginBottom: 8,
+            textAlign: "center",
           }}>
             {firstName ? `Bienvenido de nuevo, ${firstName}` : "Bienvenido de nuevo"}
           </div>
-          {/* Título de sección — Cormorant Garamond, presencia editorial. */}
+          {memberFullName && (
+            <div style={{
+              fontFamily: KX_SERIF,
+              fontSize: 18,
+              color: "#A8A095",
+              textAlign: "center",
+              marginBottom: 4,
+              letterSpacing: "0.01em",
+            }}>
+              {memberFullName}
+              {memberCode && <span style={{ color: "#6F6960", marginLeft: 10, fontSize: 14, letterSpacing: "0.2em" }}>{memberCode}</span>}
+            </div>
+          )}
+
+          {/* Espaciado generoso antes de El Consejo. */}
+          <div style={{ height: 44 }}/>
+
+          {/* El Consejo — protagonista. */}
           <h2 style={{
             fontFamily: KX_SERIF,
-            fontSize: 38,
+            fontSize: 44,
             fontWeight: 500,
             color: "#EDE4D0",
-            margin: "0 0 8px",
+            margin: "0 0 10px",
             lineHeight: 1.1,
             letterSpacing: "0.005em",
+            textAlign: "center",
           }}>
-            Lo nuevo en el círculo
+            El Consejo
           </h2>
-          {/* Cordón dorado — línea fina horizontal como separador formal. */}
+          {/* Subtítulo manifiesto — declaración (no descripción).
+              Cormorant perla, mayor que texto normal, con aire arriba
+              y abajo. */}
           <div style={{
-            width: 56,
-            height: 1,
-            background: "#C9A84C",
-            margin: "20px 0 28px",
-          }}/>
-          {/* Anuncios — separados por línea oro fina. Tipografía editorial. */}
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {PORTADA_ANUNCIOS.map((a, i) => (
-              <div key={i} style={{
-                padding: i === 0 ? "0 0 22px" : "22px 0",
-                borderTop: i === 0 ? "none" : "0.5px solid #2A241A",
-              }}>
-                <div style={{
-                  fontFamily: KX_SERIF,
-                  fontSize: 22,
-                  fontWeight: 500,
-                  color: "#EDE4D0",
-                  marginBottom: 8,
-                  letterSpacing: "0.005em",
+            fontFamily: KX_SERIF,
+            fontSize: 19,
+            color: "#F5F0E8",
+            letterSpacing: "0.012em",
+            textAlign: "center",
+            margin: "18px auto 30px",
+            maxWidth: 680,
+            fontStyle: "italic",
+            lineHeight: 1.4,
+          }}>
+            Su pensamiento ya no espera a su estructura.
+          </div>
+          <div style={{ width: 56, height: 1, background: "#C9A84C", margin: "0 auto 38px" }}/>
+
+          {/* Row de 5 agentes con snap horizontal en móvil. */}
+          <div className="kx-consejo-row">
+            {HOME_AGENTS.map(ag => (
+              <div
+                key={ag.key}
+                className="kx-agent"
+                onClick={() => onNavigate("consejo")}
+                style={{
+                  width: 200,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  textAlign: "center",
+                  cursor: "pointer",
+                  padding: "8px 6px 12px",
+                  transition: "transform .25s ease",
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.transform = "translateY(-3px)";
+                  const av = e.currentTarget.querySelector("[data-avatar]");
+                  if (av) {
+                    av.style.borderColor = "#C9A84C";
+                    av.style.boxShadow = "0 0 0 4px rgba(201,168,76,0.12)";
+                  }
+                  const v = e.currentTarget.querySelector("[data-value]");
+                  if (v) v.style.opacity = "1";
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  const av = e.currentTarget.querySelector("[data-avatar]");
+                  if (av) {
+                    av.style.borderColor = "rgba(201,168,76,0.35)";
+                    av.style.boxShadow = "none";
+                  }
+                  const v = e.currentTarget.querySelector("[data-value]");
+                  if (v) v.style.opacity = "0";
+                }}
+              >
+                {/* Avatar circular — única excepción a la regla border-radius 0
+                    (per spec: "avatar circular grande con su emoji"). */}
+                <div data-avatar style={{
+                  width: 88, height: 88,
+                  borderRadius: "50%",
+                  background: "#1A1A1A",
+                  border: "1px solid rgba(201,168,76,0.35)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 38,
+                  marginBottom: 14,
+                  transition: "border-color .25s ease, box-shadow .25s ease",
                 }}>
-                  {a.title}
+                  {ag.emoji}
                 </div>
                 <div style={{
-                  fontSize: 14,
-                  color: "#A8A095",
-                  lineHeight: 1.65,
-                  maxWidth: 760,
+                  fontFamily: KX_SERIF,
+                  fontSize: 20,
+                  fontWeight: 500,
+                  color: "#EDE4D0",
+                  marginBottom: 2,
+                  letterSpacing: "0.005em",
                 }}>
-                  {a.body}
+                  {ag.name}
+                </div>
+                <div style={{
+                  fontSize: 11,
+                  color: "#8B7B5C",
+                  letterSpacing: "0.04em",
+                }}>
+                  {ag.role}
+                </div>
+                <div data-value style={{
+                  fontSize: 12,
+                  color: "#C9A84C",
+                  marginTop: 10,
+                  lineHeight: 1.5,
+                  opacity: 0,
+                  transition: "opacity .25s ease",
+                  fontStyle: "italic",
+                  minHeight: 36,
+                }}>
+                  {ag.value}
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Firma del hero — cita de Séneca, discreta, perla con
+              opacidad suave. Estaba ausente en el código de Home v2 y
+              v3; restaurada explícitamente como firma del hero. */}
+          <div style={{ marginTop: 56, textAlign: "center" }}>
+            <div style={{
+              fontFamily: KX_SERIF,
+              fontSize: 14,
+              fontStyle: "italic",
+              color: "#F5F0E8",
+              opacity: 0.7,
+              letterSpacing: "0.01em",
+              lineHeight: 1.5,
+              padding: "0 12px",
+            }}>
+              "No tenemos poco tiempo: perdemos mucho." <span style={{ marginLeft: 6, opacity: 0.8 }}>— Séneca</span>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ── 2. PRÓXIMAMENTE — banda perla ──────────────────────────────── */}
-      <section style={{
-        background: "#F5F0E8",
-        padding: "44px 24px 48px",
-        borderBottom: "1px solid #EAE2D2",
-      }}>
-        <div style={{ maxWidth: 980, margin: "0 auto" }}>
-          <h3 style={{
-            fontFamily: KX_SERIF,
-            fontSize: 26,
-            fontWeight: 500,
-            color: "#8B6914",
-            margin: "0 0 6px",
-            letterSpacing: "0.005em",
-          }}>
-            Próximamente
-          </h3>
-          <div style={{ width: 40, height: 0.5, background: "#C9A84C", margin: "14px 0 26px" }}/>
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-            gap: 18,
-          }}>
-            {PROXIMA.map((p, i) => (
+      {/* ── 2. BANNERS — novedades como piezas de deseo ─────────────────── */}
+      <section style={{ background: "#FAFAF7" }}>
+        <div className="kx-banner-grid" style={{ padding: 0 }}>
+          {HOME_BANNERS.map((b, i) => {
+            const isDark = b.bg === "dark" || b.bg === "invitation";
+            const sectionBg = b.bg === "dark" ? "#141414" : b.bg === "invitation" ? "#0A0A0A" : "#F5F0E8";
+            return (
               <div key={i} style={{
-                background: "#FAF6EE",
-                border: "0.5px solid #E5D8B8",
-                padding: "20px 22px",
+                background: sectionBg,
+                padding: b.bg === "invitation" ? "56px 24px" : "44px 24px 48px",
+                borderBottom: i < HOME_BANNERS.length - 1 ? (isDark ? "1px solid #1A1612" : "1px solid #EAE2D2") : "none",
               }}>
-                <div style={{
-                  fontFamily: KX_SERIF,
-                  fontSize: 19,
-                  fontWeight: 500,
-                  color: "#3D2E12",
-                  marginBottom: 8,
-                  letterSpacing: "0.005em",
-                }}>
-                  {p.title}
-                </div>
-                <div style={{
-                  fontSize: 13,
-                  color: "#6B6B6B",
-                  lineHeight: 1.6,
-                }}>
-                  {p.body}
-                </div>
+                {b.visual === "card" ? (
+                  // ── Tarjeta de invitación de lujo ────────────────────
+                  <div style={{ maxWidth: 720, margin: "0 auto", textAlign: "center" }}>
+                    {/* Etiqueta PRÓXIMAMENTE discreta ENCIMA del banner. */}
+                    <div style={{
+                      fontSize: 10,
+                      color: "#8B6914",
+                      letterSpacing: "0.32em",
+                      textTransform: "uppercase",
+                      marginBottom: 8,
+                      fontWeight: 600,
+                    }}>
+                      Próximamente
+                    </div>
+                    {/* Título de sección sobre la tarjeta. */}
+                    <h3 style={{
+                      fontFamily: KX_SERIF,
+                      fontSize: 28,
+                      fontWeight: 500,
+                      color: "#EDE4D0",
+                      margin: "0 0 22px",
+                      letterSpacing: "0.005em",
+                      lineHeight: 1.15,
+                    }}>
+                      {b.title}
+                    </h3>
+                    {/* La tarjeta. Doble borde oro vía box-shadow inset.
+                        Proporción de tarjeta de visita (~1.7:1). */}
+                    <div style={{
+                      background: "#0A0A0A",
+                      padding: "44px 36px 36px",
+                      border: "1px solid #C9A84C",
+                      boxShadow: "inset 0 0 0 5px #0A0A0A, inset 0 0 0 6px rgba(201,168,76,0.45)",
+                      position: "relative",
+                      maxWidth: 560,
+                      margin: "0 auto",
+                    }}>
+                      <div style={{
+                        fontSize: 11,
+                        color: "#C9A84C",
+                        letterSpacing: "0.35em",
+                        fontWeight: 500,
+                        marginBottom: 28,
+                      }}>
+                        KLUXOR
+                      </div>
+                      <div style={{
+                        fontFamily: KX_SERIF,
+                        fontSize: 14,
+                        color: "#A8A095",
+                        marginBottom: 6,
+                        fontStyle: "italic",
+                      }}>
+                        De parte de
+                      </div>
+                      <div style={{
+                        fontFamily: KX_SERIF,
+                        fontSize: 26,
+                        color: "#EDE4D0",
+                        marginBottom: 28,
+                        letterSpacing: "0.01em",
+                        fontWeight: 500,
+                      }}>
+                        {memberFullName || "—"}
+                      </div>
+                      <div style={{
+                        fontFamily: KX_SERIF,
+                        fontSize: 15,
+                        color: "#EDE4D0",
+                        opacity: 0.85,
+                        lineHeight: 1.5,
+                        fontStyle: "italic",
+                        maxWidth: 360,
+                        margin: "0 auto",
+                      }}>
+                        El acceso se concede, nunca se abre.
+                      </div>
+                      {/* KX del socio en la esquina inferior derecha. */}
+                      <div style={{
+                        position: "absolute",
+                        bottom: 14,
+                        right: 18,
+                        fontSize: 10,
+                        color: "#8B7B5C",
+                        letterSpacing: "0.2em",
+                        fontWeight: 500,
+                      }}>
+                        {memberCode || "KX-___"}
+                      </div>
+                    </div>
+                    {/* Descripción debajo, para contexto. */}
+                    <div style={{
+                      fontSize: 13,
+                      color: "#A8A095",
+                      lineHeight: 1.65,
+                      marginTop: 24,
+                      maxWidth: 520,
+                      marginLeft: "auto",
+                      marginRight: "auto",
+                    }}>
+                      {b.body}
+                    </div>
+                  </div>
+                ) : (
+                  // ── Banner horizontal estándar (dark o perla) ────────
+                  <div style={{
+                    maxWidth: 1100,
+                    margin: "0 auto",
+                    display: "grid",
+                    gridTemplateColumns: b.visual ? "1fr auto" : "1fr",
+                    gap: 32,
+                    alignItems: "center",
+                  }}>
+                    <div>
+                      <div style={{
+                        fontSize: 10,
+                        color: b.kind === "nuevo" ? "#C9A84C" : (isDark ? "#8B7B5C" : "#8B6914"),
+                        letterSpacing: "0.32em",
+                        textTransform: "uppercase",
+                        marginBottom: 14,
+                        fontWeight: 600,
+                      }}>
+                        {b.kind === "nuevo" ? "Nuevo" : "Próximamente"}
+                      </div>
+                      <h3 style={{
+                        fontFamily: KX_SERIF,
+                        fontSize: 32,
+                        fontWeight: 500,
+                        color: isDark ? "#EDE4D0" : "#1F1A0F",
+                        margin: "0 0 12px",
+                        lineHeight: 1.15,
+                        letterSpacing: "0.005em",
+                      }}>
+                        {b.title}
+                      </h3>
+                      <div style={{
+                        fontSize: 14.5,
+                        color: isDark ? "#A8A095" : "#5C5448",
+                        lineHeight: 1.65,
+                        maxWidth: 620,
+                      }}>
+                        {b.body}
+                      </div>
+                    </div>
+                    {/* Visual a la derecha del banner. */}
+                    {b.visual === "pdf" && (
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <PdfMini/>
+                      </div>
+                    )}
+                    {b.visual === "citation" && (
+                      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <CitationMini/>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       </section>
 
@@ -4682,19 +5003,50 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
                         border: "0.5px solid #E5E0D5",
                         padding: "18px 20px",
                         cursor: "pointer",
-                        transition: "border-color .15s ease, box-shadow .15s ease",
+                        transition: "transform .25s ease, box-shadow .25s ease, border-color .25s ease",
                         display: "flex",
                         flexDirection: "column",
                         gap: 8,
+                        position: "relative",
+                        overflow: "hidden",
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = "#C9A84C"; e.currentTarget.style.boxShadow = "0 2px 12px rgba(201,168,76,0.12)"; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = "#E5E0D5"; e.currentTarget.style.boxShadow = "none"; }}
+                      onMouseEnter={e => {
+                        // Hover premium: elevación + sombra cálida +
+                        // título a oro oscuro + underline oro que se
+                        // dibuja de izquierda a derecha.
+                        e.currentTarget.style.transform = "translateY(-3px)";
+                        e.currentTarget.style.boxShadow = "0 10px 26px rgba(120,90,30,0.14), 0 2px 6px rgba(120,90,30,0.08)";
+                        e.currentTarget.style.borderColor = "#E5D8B8";
+                        const u = e.currentTarget.querySelector("[data-underline]");
+                        if (u) u.style.width = "100%";
+                        const t = e.currentTarget.querySelector("[data-title]");
+                        if (t) t.style.color = "#8B6914";
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.boxShadow = "none";
+                        e.currentTarget.style.borderColor = "#E5E0D5";
+                        const u = e.currentTarget.querySelector("[data-underline]");
+                        if (u) u.style.width = "0%";
+                        const t = e.currentTarget.querySelector("[data-title]");
+                        if (t) t.style.color = "#111827";
+                      }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{c.emoji}</span>
-                        <h4 style={{ fontSize: 15, fontWeight: 600, color: "#111827", margin: 0 }}>{c.title}</h4>
+                        <h4 data-title style={{ fontSize: 15, fontWeight: 600, color: "#111827", margin: 0, transition: "color .25s ease" }}>{c.title}</h4>
                       </div>
                       <p style={{ fontSize: 13, color: "#6B7280", margin: 0, lineHeight: 1.5 }}>{c.tagline}</p>
+                      {/* Underline oro: línea inferior absoluta que se
+                          dibuja en .25s al entrar en hover. */}
+                      <div data-underline style={{
+                        position: "absolute",
+                        bottom: 0, left: 0,
+                        height: 2,
+                        width: 0,
+                        background: "#C9A84C",
+                        transition: "width .25s ease",
+                      }}/>
                     </div>
                   ))}
                 </div>
