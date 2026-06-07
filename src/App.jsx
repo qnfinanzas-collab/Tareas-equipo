@@ -4415,17 +4415,22 @@ function timeAgoDate(dateStr){
   return `hace ${Math.floor(days/30)} mes${days>=60?"es":""}`;
 }
 
-// ── Home View (panel de mandos tras login) ────────────────────────────────────
-// Escaparate completo del sistema. Cards agrupadas en 5 bloques con la misma
-// estructura que el menú lateral. Microcopy operativa, paleta sobria, oro
-// como acento. Filtrado por permisos idéntico al sidebar.
+// ── Home View · "El Vestíbulo" ───────────────────────────────────────────────
+// Antesala del club. Filosofía Kluxor: negro por fuera (marca, anuncios),
+// claro por dentro (operativa). Tres zonas verticales:
+//   1. Portada negra "Lo nuevo en el círculo" — anuncios de capacidades.
+//   2. Banda perla "Próximamente" — roadmap honesto, sin botones falsos.
+//   3. Zona operativa — saludo + stats + 5 bloques + actividad reciente.
+// Fundido suave al cargar (sin parallax, sin carruseles, sin animaciones de
+// juguete). Cormorant Garamond para títulos de marca; system sans para
+// cuerpo operativo.
+const KX_SERIF = "'Cormorant Garamond', Georgia, 'Times New Roman', serif";
 function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavigate,onOpenTask}){
   const me=data.members.find(m=>m.id===activeMember);
   const firstName=me?.name.split(" ")[0]||"";
 
-  // Definición de cards por bloque. Microcopy EXACTO según spec del CEO.
-  // requiresPermission/adminOnly se reutilizan tal cual del sidebar para no
-  // duplicar la lógica de visibilidad.
+  // Definición de cards por bloque. Microcopy operativa. requiresPermission
+  // y adminOnly se reutilizan tal cual del sidebar para no duplicar visibility.
   const ALL_CARDS = [
     { id:"hector-direct", emoji:"🧙", title:"Héctor",              tagline:"Tu jefe de gabinete. Pide, decide, delega.",                                       block:"tu-dia" },
     { id:"consejo",       emoji:"💼", title:"El Consejo",          tagline:"Sus especialistas, en directo: legal, inversión, inmobiliario, holdings y finanzas.", block:"tu-dia" },
@@ -4451,27 +4456,38 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
     if(c.requiresPermission && !hasPermission(me, c.requiresPermission, "view", data.permissions)) return false;
     return true;
   });
+  // Bloques con título de marca (Cormorant) + frase de valor sobria.
   const BLOCKS = [
-    { key:"tu-dia",         title:"TU DÍA" },
-    { key:"operacion",      title:"OPERACIÓN" },
-    { key:"patrimonio",     title:"PATRIMONIO" },
-    { key:"inteligencia",   title:"INTELIGENCIA" },
-    { key:"administracion", title:"ADMINISTRACIÓN" },
+    { key:"tu-dia",         title:"Tu día",          subtitle:"El foco de hoy y los aliados que necesita." },
+    { key:"operacion",      title:"Operación",       subtitle:"Sus negociaciones, tareas y proyectos." },
+    { key:"patrimonio",     title:"Patrimonio",      subtitle:"Finanzas y gobernanza del grupo." },
+    { key:"inteligencia",   title:"Inteligencia",    subtitle:"Lectura del estado, decisiones y memoria." },
+    { key:"administracion", title:"Administración",  subtitle:"Los mandos internos de la casa." },
   ];
 
-  // Bloque "Lo nuevo en Kluxor" — releases recientes con ★ oro.
-  const NEWS = [
-    { title:"Normativa Viva",        text:"Tus especialistas consultan la normativa vigente (BOE, AEAT, EUR-Lex) antes de responder, y citan la fuente. Asesoría al día, verificable." },
-    { title:"El Umbral",             text:"El nuevo sistema de accesos de Kluxor. Todo privado por defecto: cada proyecto o negociación solo lo ve quien tú añades. Cada miembro, con su ID de socio permanente (KX-001). Y pronto: invitaciones al círculo desde la propia plataforma." },
-    { title:"Mi Día",                text:"Agenda por horas: crea desde una franja, edita sin abrir nada." },
-    { title:"Favoritos y categorías", text:"En proyectos y negociaciones. Lo importante, arriba." },
+  // PORTADA NEGRA — "Lo nuevo en el círculo". Capacidades, no parches.
+  // Tono usted, pertenencia. Sin emojis (lujo silencioso).
+  const PORTADA_ANUNCIOS = [
+    {
+      title: "El Consejo",
+      body:  "Cinco especialistas a su servicio: mercantil, inversión, inmobiliario, holdings y finanzas. Consulte, derive entre ellos y reciba documentos listos para la firma.",
+    },
+    {
+      title: "Documentos del Consejo",
+      body:  "Sus especialistas entregan pactos, contratos e informes como documentos formales: visualícelos, descárguelos en PDF y adjúntelos a sus negociaciones.",
+    },
   ];
-  // Bloque "Próximamente" — roadmap visible con ◇ y tono más tenue.
-  const SOON = [
-    { title:"El Círculo",         text:"Invitaciones de CEO a CEO desde la propia plataforma. Cada nuevo miembro, avalado por quien ya pertenece y aprobado por la casa." },
-    { title:"Salas compartidas",  text:"Invite a un cliente o colaborador externo a una negociación o proyecto concreto. Él ve esa sala; usted conserva el control." },
-    { title:"Héctor Intérprete",  text:"Traducción en tiempo real en sus reuniones, con el contexto de su negociación cargado." },
-    { title:"Manual integrado",   text:"La guía completa de Kluxor, accesible desde cada sección con un toque." },
+
+  // PRÓXIMAMENTE — anuncio honesto. NO clicable, NO funcional.
+  const PROXIMA = [
+    {
+      title: "Normativa Viva",
+      body:  "Sus especialistas, citando fuentes oficiales en cada respuesta.",
+    },
+    {
+      title: "Invitar a un miembro",
+      body:  "Cada socio podrá enviar su tarjeta de invitación personal a otro primer ejecutivo. El invitado llega avalado con su nombre, conoce el círculo en una antesala privada, y la administración aprueba su entrada. El acceso se concede, nunca se abre.",
+    },
   ];
 
   // Actividad reciente — time logs, hechos y creados, granularidad diaria.
@@ -4503,94 +4519,214 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
   };
 
   const statsLine = critMineCount>0
-    ? `Tienes ${critMineCount} tarea${critMineCount!==1?"s":""} crítica${critMineCount!==1?"s":""} hoy · ${alertMineCount>0?`${alertMineCount} alerta${alertMineCount!==1?"s":""} pendiente${alertMineCount!==1?"s":""}`:"sin alertas pendientes"}`
-    : `Tienes 0 tareas críticas hoy · Todo bajo control ✓`;
-
-  // Estilos compartidos para títulos de sección oro.
-  const sectionTitleStyle = {fontSize:11,fontWeight:600,color:"#8B6914",textTransform:"uppercase",letterSpacing:"0.25em",marginBottom:14,lineHeight:1};
-  const containerStyle = {background:"#fff",border:"1px solid #E5E7EB",padding:"22px 24px",marginBottom:20};
+    ? `Tiene ${critMineCount} tarea${critMineCount!==1?"s":""} crítica${critMineCount!==1?"s":""} hoy · ${alertMineCount>0?`${alertMineCount} alerta${alertMineCount!==1?"s":""} pendiente${alertMineCount!==1?"s":""}`:"sin alertas pendientes"}`
+    : `Sin tareas críticas hoy · todo bajo control.`;
 
   return(
-    <div style={{maxWidth:1200,margin:"0 auto",padding:"40px 20px"}}>
-      <div style={{marginBottom:32}}>
-        <div style={{fontSize:32,fontWeight:700,color:"#111827",marginBottom:8,lineHeight:1.2}}>Bienvenido de nuevo, {firstName} 👋</div>
-        <div style={{fontSize:15,color:"#6B7280"}}>{statsLine}</div>
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", background: "#FAFAF7", minHeight: "100%", animation: "tf-fade-in .5s ease both" }}>
 
-      {/* Bloques de cards — un grupo por bloque, oculto si vacío tras filtro. */}
-      {BLOCKS.map(({key,title})=>{
-        const cards = VISIBLE_CARDS.filter(c=>c.block===key);
-        if(cards.length===0) return null;
-        return(
-          <div key={key} style={{marginBottom:32}}>
-            <div style={sectionTitleStyle}>{title}</div>
-            <div className="tf-home-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:14}}>
-              {cards.map(c=>(
-                <div
-                  key={c.id}
-                  onClick={()=>onNavigate(c.id)}
-                  style={{background:"#fff",border:"1px solid #E5E7EB",padding:"18px 20px",cursor:"pointer",transition:"border-color .15s ease, box-shadow .15s ease",display:"flex",flexDirection:"column",gap:8}}
-                  onMouseEnter={e=>{e.currentTarget.style.borderColor="#C9A84C";e.currentTarget.style.boxShadow="0 2px 12px rgba(201,168,76,0.15)";}}
-                  onMouseLeave={e=>{e.currentTarget.style.borderColor="#E5E7EB";e.currentTarget.style.boxShadow="none";}}
-                >
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <span style={{fontSize:22,lineHeight:1,flexShrink:0}}>{c.emoji}</span>
-                    <h3 style={{fontSize:15,fontWeight:600,color:"#111827",margin:0}}>{c.title}</h3>
-                  </div>
-                  <p style={{fontSize:13,color:"#6B7280",margin:0,lineHeight:1.5}}>{c.tagline}</p>
-                </div>
-              ))}
-            </div>
+      {/* ── 1. PORTADA NEGRA ──────────────────────────────────────────── */}
+      <section style={{
+        background: "#0A0A0A",
+        color: "#EDE4D0",
+        padding: "56px 24px 64px",
+        borderBottom: "1px solid #1A1612",
+      }}>
+        <div style={{ maxWidth: 980, margin: "0 auto" }}>
+          {/* Saludo discreto, en oro muy pálido. */}
+          <div style={{
+            fontSize: 11,
+            fontWeight: 500,
+            color: "#C9A84C",
+            letterSpacing: "0.28em",
+            textTransform: "uppercase",
+            marginBottom: 18,
+          }}>
+            {firstName ? `Bienvenido de nuevo, ${firstName}` : "Bienvenido de nuevo"}
           </div>
-        );
-      })}
-
-      {/* Lo nuevo en Kluxor */}
-      <div style={containerStyle}>
-        <div style={sectionTitleStyle}>LO NUEVO EN KLUXOR</div>
-        <ul style={{listStyle:"none",padding:0,margin:0}}>
-          {NEWS.map((n,i)=>(
-            <li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i===NEWS.length-1?"none":"0.5px solid #F3F4F6"}}>
-              <span style={{color:"#C9A84C",fontSize:14,lineHeight:1.5,flexShrink:0}}>★</span>
-              <div style={{flex:1}}>
-                <div style={{fontSize:14,fontWeight:600,color:"#111827",marginBottom:4}}>{n.title}</div>
-                <div style={{fontSize:13,color:"#4B5563",lineHeight:1.5}}>{n.text}</div>
+          {/* Título de sección — Cormorant Garamond, presencia editorial. */}
+          <h2 style={{
+            fontFamily: KX_SERIF,
+            fontSize: 38,
+            fontWeight: 500,
+            color: "#EDE4D0",
+            margin: "0 0 8px",
+            lineHeight: 1.1,
+            letterSpacing: "0.005em",
+          }}>
+            Lo nuevo en el círculo
+          </h2>
+          {/* Cordón dorado — línea fina horizontal como separador formal. */}
+          <div style={{
+            width: 56,
+            height: 1,
+            background: "#C9A84C",
+            margin: "20px 0 28px",
+          }}/>
+          {/* Anuncios — separados por línea oro fina. Tipografía editorial. */}
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {PORTADA_ANUNCIOS.map((a, i) => (
+              <div key={i} style={{
+                padding: i === 0 ? "0 0 22px" : "22px 0",
+                borderTop: i === 0 ? "none" : "0.5px solid #2A241A",
+              }}>
+                <div style={{
+                  fontFamily: KX_SERIF,
+                  fontSize: 22,
+                  fontWeight: 500,
+                  color: "#EDE4D0",
+                  marginBottom: 8,
+                  letterSpacing: "0.005em",
+                }}>
+                  {a.title}
+                </div>
+                <div style={{
+                  fontSize: 14,
+                  color: "#A8A095",
+                  lineHeight: 1.65,
+                  maxWidth: 760,
+                }}>
+                  {a.body}
+                </div>
               </div>
-            </li>
-          ))}
-        </ul>
-      </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
-      {/* Próximamente */}
-      <div style={{...containerStyle,background:"#FAFAF7",border:"1px solid #EFEFE8"}}>
-        <div style={sectionTitleStyle}>PRÓXIMAMENTE</div>
-        <ul style={{listStyle:"none",padding:0,margin:0}}>
-          {SOON.map((n,i)=>(
-            <li key={i} style={{display:"flex",gap:12,padding:"12px 0",borderBottom:i===SOON.length-1?"none":"0.5px solid #EFEFE8"}}>
-              <span style={{color:"#C9A84C",fontSize:14,lineHeight:1.5,flexShrink:0}}>◇</span>
-              <div style={{flex:1}}>
-                <div style={{fontSize:14,fontWeight:600,color:"#8B6914",marginBottom:4}}>{n.title}</div>
-                <div style={{fontSize:13,color:"#6B6B6B",lineHeight:1.5}}>{n.text}</div>
+      {/* ── 2. PRÓXIMAMENTE — banda perla ──────────────────────────────── */}
+      <section style={{
+        background: "#F5F0E8",
+        padding: "44px 24px 48px",
+        borderBottom: "1px solid #EAE2D2",
+      }}>
+        <div style={{ maxWidth: 980, margin: "0 auto" }}>
+          <h3 style={{
+            fontFamily: KX_SERIF,
+            fontSize: 26,
+            fontWeight: 500,
+            color: "#8B6914",
+            margin: "0 0 6px",
+            letterSpacing: "0.005em",
+          }}>
+            Próximamente
+          </h3>
+          <div style={{ width: 40, height: 0.5, background: "#C9A84C", margin: "14px 0 26px" }}/>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: 18,
+          }}>
+            {PROXIMA.map((p, i) => (
+              <div key={i} style={{
+                background: "#FAF6EE",
+                border: "0.5px solid #E5D8B8",
+                padding: "20px 22px",
+              }}>
+                <div style={{
+                  fontFamily: KX_SERIF,
+                  fontSize: 19,
+                  fontWeight: 500,
+                  color: "#3D2E12",
+                  marginBottom: 8,
+                  letterSpacing: "0.005em",
+                }}>
+                  {p.title}
+                </div>
+                <div style={{
+                  fontSize: 13,
+                  color: "#6B6B6B",
+                  lineHeight: 1.6,
+                }}>
+                  {p.body}
+                </div>
               </div>
-            </li>
-          ))}
-        </ul>
-      </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
-      {/* Actividad reciente */}
-      <div style={{background:"#F9FAFB",border:"1px solid #E5E7EB",padding:"20px 24px"}}>
-        <h3 style={{fontSize:12,fontWeight:700,color:"#6B7280",textTransform:"uppercase",letterSpacing:"0.08em",marginTop:0,marginBottom:14}}>Actividad reciente</h3>
-        {recent.length===0
-          ? <div style={{fontSize:13,color:"#9CA3AF"}}>No hay actividad reciente<div style={{fontSize:12,marginTop:4,color:"#B9BEC6"}}>Las acciones de tu equipo aparecerán aquí</div></div>
-          : <ul style={{listStyle:"none",padding:0,margin:0}}>
-              {recent.map((a,i)=>(
-                <li key={`${a.type}-${a.task.id}-${i}`} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 0",borderBottom:i===recent.length-1?"none":"1px solid #E5E7EB"}}>
-                  <span style={{fontSize:14,flexShrink:0,marginTop:1}}>{iconFor[a.type]}</span>
-                  <span style={{fontSize:13,color:"#4B5563",lineHeight:1.5}}>{activityText(a)}</span>
-                </li>
-              ))}
-            </ul>}
-      </div>
+      {/* ── 3. ZONA OPERATIVA ──────────────────────────────────────────── */}
+      <section style={{ padding: "44px 24px 56px", background: "#FAFAF7" }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+          {/* Stats sobrias arriba — frase de estado del día. */}
+          <div style={{ marginBottom: 36 }}>
+            <div style={{ fontSize: 13.5, color: "#6B7280", letterSpacing: "0.01em" }}>{statsLine}</div>
+          </div>
+
+          {/* Bloques operativos — un grupo por bloque, oculto si vacío. */}
+          {BLOCKS.map(({key, title, subtitle}) => {
+            const cards = VISIBLE_CARDS.filter(c => c.block === key);
+            if (cards.length === 0) return null;
+            return (
+              <div key={key} style={{ marginBottom: 36 }}>
+                <h3 style={{
+                  fontFamily: KX_SERIF,
+                  fontSize: 24,
+                  fontWeight: 500,
+                  color: "#1F1A0F",
+                  margin: "0 0 4px",
+                  letterSpacing: "0.005em",
+                }}>
+                  {title}
+                </h3>
+                <div style={{ fontSize: 13, color: "#8B6914", marginBottom: 10, fontStyle: "italic" }}>{subtitle}</div>
+                <div style={{ width: 32, height: 0.5, background: "#C9A84C", marginBottom: 18 }}/>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
+                  {cards.map(c => (
+                    <div
+                      key={c.id}
+                      onClick={() => onNavigate(c.id)}
+                      style={{
+                        background: "#fff",
+                        border: "0.5px solid #E5E0D5",
+                        padding: "18px 20px",
+                        cursor: "pointer",
+                        transition: "border-color .15s ease, box-shadow .15s ease",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 8,
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = "#C9A84C"; e.currentTarget.style.boxShadow = "0 2px 12px rgba(201,168,76,0.12)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = "#E5E0D5"; e.currentTarget.style.boxShadow = "none"; }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{c.emoji}</span>
+                        <h4 style={{ fontSize: 15, fontWeight: 600, color: "#111827", margin: 0 }}>{c.title}</h4>
+                      </div>
+                      <p style={{ fontSize: 13, color: "#6B7280", margin: 0, lineHeight: 1.5 }}>{c.tagline}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Actividad reciente — al pie, sobria. */}
+          <div style={{ background: "#fff", border: "0.5px solid #E5E0D5", padding: "22px 24px", marginTop: 12 }}>
+            <h4 style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#8B6914",
+              textTransform: "uppercase",
+              letterSpacing: "0.22em",
+              margin: "0 0 14px",
+            }}>
+              Actividad reciente
+            </h4>
+            {recent.length === 0
+              ? <div style={{ fontSize: 13, color: "#9CA3AF" }}>No hay actividad reciente<div style={{ fontSize: 12, marginTop: 4, color: "#B9BEC6" }}>Las acciones de su equipo aparecerán aquí.</div></div>
+              : <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                  {recent.map((a, i) => (
+                    <li key={`${a.type}-${a.task.id}-${i}`} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0", borderBottom: i === recent.length - 1 ? "none" : "0.5px solid #F0EBE0" }}>
+                      <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>{iconFor[a.type]}</span>
+                      <span style={{ fontSize: 13, color: "#4B5563", lineHeight: 1.5 }}>{activityText(a)}</span>
+                    </li>
+                  ))}
+                </ul>}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

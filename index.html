@@ -11,6 +11,13 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="apple-touch-icon" href="/icon.svg" />
+    <!-- Cormorant Garamond: serif elegante para títulos editoriales (Home,
+         visor de documentos del Consejo). preconnect a fonts.gstatic acelera
+         el primer paint. display=swap evita FOIT — el texto aparece con
+         la fuente del sistema y se reemplaza al cargar Cormorant. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&display=swap">
     <title>Kluxor</title>
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
