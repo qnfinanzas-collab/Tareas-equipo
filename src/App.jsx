@@ -783,8 +783,64 @@ REGLAS:
 - Sé preciso con números, nunca redondees sin avisar
 - Si no tienes datos suficientes, pide que suban el documento
 
-CONTABILIDAD:
-- Puedes crear asientos contables con add_accounting_entry. Cada asiento debe cuadrar (total debe = total haber). Usa cuentas del PGC pyme español. Para subcuentas usa el formato XXXNNNN (ej: 2130001 para primera cámara hiperbárica).
+CONTABILIDAD — FORMATO OFICIAL LIBRO DIARIO PGC:
+Cuando el CEO te pida elaborar o registrar asientos contables (compra, factura, nómina, traspaso, devengos, amortización, cierre…), EMITE EL FORMATO ESTRUCTURADO [ASIENTOS] para que el sistema pinte el libro diario oficial. No respondas con prosa libre describiendo los asientos: usa el bloque.
+
+SCHEMA del bloque (JSON):
+[ASIENTOS]
+{
+  "asientos": [
+    {
+      "fecha": "YYYY-MM-DD",
+      "concepto": "Descripción breve del hecho económico",
+      "companyId": "<id-empresa-o-null-si-la-vista-está-en-Todas>",
+      "lineas": [
+        {"cuenta": "21700001", "nombre": "Equipos para procesos de información", "debe": 1500.00, "haber": 0},
+        {"cuenta": "47200000", "nombre": "H.P. IVA soportado", "debe": 315.00, "haber": 0},
+        {"cuenta": "57200001", "nombre": "Banco Sabadell - cuenta corriente", "debe": 0, "haber": 1815.00}
+      ]
+    }
+  ]
+}
+[/ASIENTOS]
+
+REGLAS DURAS:
+- Cada asiento DEBE CUADRAR: suma de "debe" = suma de "haber" (tolerancia 0.01€). Verifica los importes ANTES de emitir.
+- Mínimo 2 líneas por asiento. Cada línea con cuenta + nombre + (debe O haber, nunca ambos a la vez).
+- "cuenta": 7-8 dígitos del PGC pyme español. Subcuentas formato XXXNNNN.
+- "nombre": nombre canónico de la cuenta PGC.
+- Importes en número (no string). Decimales con punto, dos posiciones.
+- "companyId": si la vista está en "Todas las empresas", emite null y el sistema delegará al fallback. Si está filtrada por empresa concreta, usa SIEMPRE ese companyId.
+- NO emitas más de UN bloque [ASIENTOS] por respuesta. Si necesitas más, propónlo en respuestas sucesivas.
+
+REGLA ANTI-DOBLE EMISIÓN:
+Si emites [ASIENTOS], NO emitas add_accounting_entry en [ACTIONS] del mismo turno. El sistema ya muestra una card de libro diario con su propio botón de confirmación; el CEO decide cuándo registrarlos desde ahí. Doble emisión crea duplicados y se filtra como red de seguridad.
+
+DISPARADORES (emite [ASIENTOS] SOLO si la salida es algo así):
+- "Diego, registra la compra del ordenador" → emite.
+- "Asienta esta factura" → emite.
+- "Genérame los asientos del cierre de mes" → emite.
+- "Pasa esta nómina a contabilidad" → emite.
+- "¿Cómo registro un traspaso entre cuentas?" → emite (con el asiento concreto del caso).
+
+NO emitas [ASIENTOS] para:
+- Consultas narrativas sobre contabilidad sin datos concretos ("explícame los asientos del IVA").
+- Análisis sobre asientos existentes ("¿cuánto llevamos gastado en suministros?").
+- Categorización de movimientos bancarios (eso es add_bank_movement, no asientos).
+- Resúmenes financieros, previsiones, alertas — usa prosa normal.
+
+EJEMPLO CORRECTO (CEO: "Diego, registra la compra del portátil para administración: 1.500€ + IVA 21% pagado con tarjeta Sabadell"):
+He preparado el asiento de inmovilizado por la compra del equipo administrativo. Te dejo el libro diario para que lo revises antes de registrarlo.
+
+[ASIENTOS]
+{"asientos":[{"fecha":"2026-01-15","concepto":"Compra portátil administración","companyId":null,"lineas":[
+  {"cuenta":"21700001","nombre":"Equipos para procesos de información","debe":1500.00,"haber":0},
+  {"cuenta":"47200000","nombre":"H.P. IVA soportado","debe":315.00,"haber":0},
+  {"cuenta":"57200001","nombre":"Banco Sabadell - cuenta corriente","debe":0,"haber":1815.00}
+]}]}
+[/ASIENTOS]
+
+¿Quieres que añada alguna referencia adicional al concepto antes de registrarlo?
 
 ANÁLISIS DE DOCUMENTOS:
 IMPORTANTE: Cuando analices un documento adjunto (PDF, imagen, factura), extrae los datos EXCLUSIVAMENTE del documento. NO uses datos de tu contexto financiero para rellenar campos que no aparecen en el documento. Si un dato no está visible en el documento, di "no visible en el documento". NUNCA inventes CIFs, números de serie, fechas ni importes. Si el documento es ilegible o ambiguo, dilo explícitamente y pide aclaración.
@@ -942,6 +998,28 @@ function _migrate(d){
       "\nCONTABILIDAD:\n- Puedes crear asientos contables con add_accounting_entry. Cada asiento debe cuadrar (total debe = total haber). Usa cuentas del PGC pyme español. Para subcuentas usa el formato XXXNNNN (ej: 2130001 para primera cámara hiperbárica).\n\nFORMATO:"
     );
     return { ...a, promptBase: inserted };
+  });
+  // Patch Diego v2: sustituye la sección CONTABILIDAD genérica por el
+  // bloque ampliado del libro diario PGC ([ASIENTOS] schema + reglas +
+  // disparadores + anti-doble emisión). Idempotente con marca
+  // "FORMATO OFICIAL LIBRO DIARIO PGC". Solo se aplica una vez por
+  // promptBase persistido — al detectar la marca, no toca.
+  d.agents = d.agents.map(a => {
+    if (a.name !== "Diego" || !a.promptBase) return a;
+    if (a.promptBase.includes("FORMATO OFICIAL LIBRO DIARIO PGC")) return a;
+    // Si tiene el bloque viejo "CONTABILIDAD:\n- Puedes crear asientos
+    // contables con add_accounting_entry…", lo reemplazamos íntegro por
+    // el nuevo. Si NO tiene esa marca (caso seed nuevo), no hacemos nada
+    // — el seed nuevo ya viene con el formato actualizado.
+    const oldBlock = /\nCONTABILIDAD:\n- Puedes crear asientos contables con add_accounting_entry\.[^\n]*\n/;
+    if (!oldBlock.test(a.promptBase)) return a;
+    const newBlock = (INITIAL_DATA.agents || []).find(x => x.name === "Diego")?.promptBase || "";
+    // Extraemos el nuevo bloque CONTABILIDAD del seed canónico.
+    const seedMatch = newBlock.match(/\nCONTABILIDAD — FORMATO OFICIAL LIBRO DIARIO PGC:[\s\S]+?(?=\nANÁLISIS DE DOCUMENTOS:|$)/);
+    if (!seedMatch) return a;
+    const replacement = seedMatch[0];
+    const replaced = a.promptBase.replace(oldBlock, replacement + "\n");
+    return { ...a, promptBase: replaced };
   });
   // Patch Diego: añade la sección ANÁLISIS DE DOCUMENTOS para evitar que
   // alucine al recibir adjuntos PDF/imagen vía multimodal. Idempotente

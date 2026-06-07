@@ -257,7 +257,25 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
         console.warn(`📒 [Diego] [ASIENTOS] presente pero no parseable · debug=${asientosParse.debug}`);
       }
       const textAfterAsientos = asientosParse.cleanText || rawReply;
-      const proposal = parseAgentActions(textAfterAsientos);
+      let proposal = parseAgentActions(textAfterAsientos);
+      // GUARD anti-doble emisión: si Diego emitió [ASIENTOS] Y además
+      // add_accounting_entry en [ACTIONS] del mismo turn, descartamos los
+      // add_accounting_entry del proposal (el AsientoCard ya pinta el
+      // libro diario con su botón "Crear" — el CEO decide desde ahí).
+      // El system prompt v2 ya lo prohíbe, pero red de seguridad por si
+      // el modelo lo ignora.
+      if (proposal && Array.isArray(proposal.actions) && asientosParse.debug === "ok") {
+        const filtered = proposal.actions.filter(a => a?.type !== "add_accounting_entry");
+        const removed = proposal.actions.length - filtered.length;
+        if (removed > 0) {
+          console.warn(`📒 [Diego] Filtradas ${removed} acción(es) add_accounting_entry — coexistían con [ASIENTOS] en el mismo turn (anti-doble emisión).`);
+          if (filtered.length === 0) {
+            proposal = null; // ya no queda nada accionable
+          } else {
+            proposal = { ...proposal, actions: filtered };
+          }
+        }
+      }
       const finalReply = proposal
         ? (cleanAgentResponse(textAfterAsientos) || "(sin texto)")
         : textAfterAsientos;
