@@ -4859,65 +4859,97 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
                     }}>
                       {b.title}
                     </h3>
-                    {/* La tarjeta. Doble borde oro vía box-shadow inset.
-                        Proporción de tarjeta de visita (~1.7:1). */}
+                    {/* La tarjeta — objeto físico de lujo. Ratio de
+                        tarjeta de visita (~1.75:1), ligeramente rotada
+                        en reposo, sombra cálida profunda que la despega
+                        del fondo, fondo de la pieza distinto al de la
+                        sección (#111 vs #0A0A0A) para existir como
+                        objeto. Hover: se endereza a 0deg y eleva 4px.
+                        Mobile: mantiene ratio bajando el ancho. */}
                     <div style={{
-                      background: "#0A0A0A",
-                      padding: "44px 36px 36px",
-                      border: "1px solid #C9A84C",
-                      boxShadow: "inset 0 0 0 5px #0A0A0A, inset 0 0 0 6px rgba(201,168,76,0.45)",
+                      width: "min(560px, 92vw)",
+                      aspectRatio: "1.75 / 1",
+                      margin: "12px auto",
+                      transform: "rotate(-2deg)",
+                      transformOrigin: "center center",
+                      transition: "transform .35s cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow .35s ease",
+                      // Sombra ancha y cálida que despega de #0A0A0A.
+                      boxShadow: "0 26px 60px rgba(120, 84, 14, 0.32), 0 10px 22px rgba(0, 0, 0, 0.55), 0 2px 4px rgba(0, 0, 0, 0.45)",
+                      cursor: "default",
+                      // Borde exterior fino oro + segundo borde interior
+                      // creado con outline (queda dentro de la pieza, no
+                      // afecta al layout).
+                      background: "#111111",
+                      border: "1px solid rgba(201,168,76,0.65)",
+                      outline: "1px solid rgba(201,168,76,0.35)",
+                      outlineOffset: "-6px",
                       position: "relative",
-                      maxWidth: 560,
-                      margin: "0 auto",
-                    }}>
+                      padding: "clamp(20px, 4.5vw, 36px) clamp(20px, 4.5vw, 36px) clamp(18px, 3.5vw, 28px)",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "space-between",
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.transform = "rotate(0deg) translateY(-4px)";
+                      e.currentTarget.style.boxShadow = "0 36px 72px rgba(120, 84, 14, 0.42), 0 14px 28px rgba(0, 0, 0, 0.6), 0 2px 4px rgba(0, 0, 0, 0.5)";
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.transform = "rotate(-2deg)";
+                      e.currentTarget.style.boxShadow = "0 26px 60px rgba(120, 84, 14, 0.32), 0 10px 22px rgba(0, 0, 0, 0.55), 0 2px 4px rgba(0, 0, 0, 0.45)";
+                    }}
+                    >
+                      {/* Cabecera: KLUXOR pequeña, letter-spaced. */}
                       <div style={{
-                        fontSize: 11,
+                        fontSize: "clamp(9px, 1.2vw, 11px)",
                         color: "#C9A84C",
-                        letterSpacing: "0.35em",
+                        letterSpacing: "0.38em",
                         fontWeight: 500,
-                        marginBottom: 28,
                       }}>
                         KLUXOR
                       </div>
-                      <div style={{
-                        fontFamily: KX_SERIF,
-                        fontSize: 14,
-                        color: "#A8A095",
-                        marginBottom: 6,
-                        fontStyle: "italic",
-                      }}>
-                        De parte de
+                      {/* Centro: "De parte de" + nombre + lema. */}
+                      <div style={{ textAlign: "center", padding: "0 4px" }}>
+                        <div style={{
+                          fontFamily: KX_SERIF,
+                          fontSize: "clamp(12px, 1.6vw, 14px)",
+                          color: "#A8A095",
+                          marginBottom: 4,
+                          fontStyle: "italic",
+                          letterSpacing: "0.02em",
+                        }}>
+                          De parte de
+                        </div>
+                        <div style={{
+                          fontFamily: KX_SERIF,
+                          fontSize: "clamp(20px, 3.8vw, 28px)",
+                          color: "#EDE4D0",
+                          marginBottom: "clamp(8px, 1.6vw, 14px)",
+                          letterSpacing: "0.012em",
+                          fontWeight: 500,
+                          lineHeight: 1.1,
+                        }}>
+                          {memberFullName || "—"}
+                        </div>
+                        <div style={{
+                          fontFamily: KX_SERIF,
+                          fontSize: "clamp(12px, 1.7vw, 15px)",
+                          color: "#EDE4D0",
+                          opacity: 0.82,
+                          lineHeight: 1.4,
+                          fontStyle: "italic",
+                          maxWidth: 340,
+                          margin: "0 auto",
+                        }}>
+                          El acceso se concede, nunca se abre.
+                        </div>
                       </div>
+                      {/* Pie: KX del socio a la derecha. */}
                       <div style={{
-                        fontFamily: KX_SERIF,
-                        fontSize: 26,
-                        color: "#EDE4D0",
-                        marginBottom: 28,
-                        letterSpacing: "0.01em",
-                        fontWeight: 500,
-                      }}>
-                        {memberFullName || "—"}
-                      </div>
-                      <div style={{
-                        fontFamily: KX_SERIF,
-                        fontSize: 15,
-                        color: "#EDE4D0",
-                        opacity: 0.85,
-                        lineHeight: 1.5,
-                        fontStyle: "italic",
-                        maxWidth: 360,
-                        margin: "0 auto",
-                      }}>
-                        El acceso se concede, nunca se abre.
-                      </div>
-                      {/* KX del socio en la esquina inferior derecha. */}
-                      <div style={{
-                        position: "absolute",
-                        bottom: 14,
-                        right: 18,
-                        fontSize: 10,
+                        display: "flex",
+                        justifyContent: "flex-end",
+                        fontSize: "clamp(8.5px, 1.1vw, 10px)",
                         color: "#8B7B5C",
-                        letterSpacing: "0.2em",
+                        letterSpacing: "0.24em",
                         fontWeight: 500,
                       }}>
                         {memberCode || "KX-___"}
