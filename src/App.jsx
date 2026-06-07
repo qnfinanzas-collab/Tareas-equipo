@@ -4658,7 +4658,7 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
         <div style={{ maxWidth: 1100, margin: "0 auto" }}>
           {/* Saludo discreto en oro pálido + identidad del socio. */}
           <div style={{
-            fontSize: 11,
+            fontSize: 12,
             fontWeight: 500,
             color: "#C9A84C",
             letterSpacing: "0.28em",
@@ -4671,14 +4671,14 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
           {memberFullName && (
             <div style={{
               fontFamily: KX_SERIF,
-              fontSize: 18,
-              color: "#A8A095",
+              fontSize: 20,
+              color: "#C7BFB0",
               textAlign: "center",
               marginBottom: 4,
               letterSpacing: "0.01em",
             }}>
               {memberFullName}
-              {memberCode && <span style={{ color: "#6F6960", marginLeft: 10, fontSize: 14, letterSpacing: "0.2em" }}>{memberCode}</span>}
+              {memberCode && <span style={{ color: "#A8A095", marginLeft: 10, fontSize: 15, letterSpacing: "0.2em" }}>{memberCode}</span>}
             </div>
           )}
 
@@ -4747,37 +4747,39 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
               Héctor
             </div>
             <div style={{
-              fontSize: 12,
-              color: "#8B7B5C",
+              fontSize: 13,
+              color: "#C9A84C",
+              opacity: 0.9,
               letterSpacing: "0.05em",
-              marginBottom: 26,
+              marginBottom: 28,
             }}>
               Su jefe de gabinete
             </div>
-            {/* Presentación en primera persona. Cormorant perla,
-                centrada, con aire. Última línea ("Usted manda. Yo no
-                olvido.") con más peso. Móvil: tamaños bajan con clamp. */}
+            {/* Presentación en primera persona. Cormorant perla pleno,
+                cuerpo legible y línea-altura generosa. La salutación
+                ("Soy Héctor, su jefe de gabinete.") va en cursiva como
+                línea de saludo; el resto del párrafo en redonda para
+                lectura cómoda. Lema final con más peso visual. */}
             <div style={{
               fontFamily: KX_SERIF,
-              fontSize: "clamp(15px, 1.9vw, 18px)",
+              fontSize: "clamp(17px, 1.7vw, 21px)",
               color: "#F5F0E8",
-              lineHeight: 1.65,
+              lineHeight: 1.75,
               letterSpacing: "0.005em",
-              maxWidth: 620,
+              maxWidth: 640,
               padding: "0 12px",
-              fontStyle: "italic",
             }}>
-              Soy Héctor, su jefe de gabinete.<br/>
+              <span style={{ fontStyle: "italic" }}>Soy Héctor, su jefe de gabinete.</span><br/>
               Aprendo cómo piensa, recuerdo lo que otros olvidan y preparo lo que está por venir. Cuanto más me confía, más ligera es su cabeza y más lejos llega su día: mis consejos nacen de su forma de decidir.
             </div>
-            {/* Lema con más peso visual: tamaño mayor + oro. */}
+            {/* Lema con MÁS peso visual: mayor que el cuerpo + oro pleno. */}
             <div style={{
               fontFamily: KX_SERIF,
-              fontSize: "clamp(18px, 2.2vw, 22px)",
+              fontSize: "clamp(22px, 2.4vw, 28px)",
               color: "#C9A84C",
-              marginTop: 22,
+              marginTop: 24,
               letterSpacing: "0.02em",
-              lineHeight: 1.4,
+              lineHeight: 1.35,
               fontStyle: "normal",
               fontWeight: 500,
             }}>
@@ -4788,12 +4790,14 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
           {/* Espaciado entre la sección Héctor y la sección Consejo. */}
           <div style={{ height: 64 }}/>
 
-          {/* Línea puente — pequeña, oro oscuro — que conecta Héctor con
-              el Consejo. Va ENCIMA del título "El Consejo". */}
+          {/* Línea puente — conecta Héctor con el Consejo. Va ENCIMA del
+              título. Oro pleno opacidad 0.85 (vs el oro oscuro apagado
+              de antes que quedaba casi invisible). */}
           <div style={{
             fontFamily: KX_SERIF,
-            fontSize: 13,
-            color: "#8B6914",
+            fontSize: 15,
+            color: "#C9A84C",
+            opacity: 0.85,
             textAlign: "center",
             letterSpacing: "0.02em",
             marginBottom: 14,
@@ -4896,21 +4900,22 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
                   {ag.name}
                 </div>
                 <div style={{
-                  fontSize: 11,
-                  color: "#8B7B5C",
+                  fontSize: 12,
+                  color: "#C9A84C",
+                  opacity: 0.9,
                   letterSpacing: "0.04em",
                 }}>
                   {ag.role}
                 </div>
                 <div data-value style={{
-                  fontSize: 12,
+                  fontSize: 13,
                   color: "#C9A84C",
                   marginTop: 10,
-                  lineHeight: 1.5,
+                  lineHeight: 1.55,
                   opacity: 0,
                   transition: "opacity .25s ease",
                   fontStyle: "italic",
-                  minHeight: 36,
+                  minHeight: 40,
                 }}>
                   {ag.value}
                 </div>
@@ -4924,15 +4929,15 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
           <div style={{ marginTop: 56, textAlign: "center" }}>
             <div style={{
               fontFamily: KX_SERIF,
-              fontSize: 14,
+              fontSize: 16,
               fontStyle: "italic",
               color: "#F5F0E8",
-              opacity: 0.7,
+              opacity: 0.85,
               letterSpacing: "0.01em",
-              lineHeight: 1.5,
+              lineHeight: 1.55,
               padding: "0 12px",
             }}>
-              "No tenemos poco tiempo: perdemos mucho." <span style={{ marginLeft: 6, opacity: 0.8 }}>— Séneca</span>
+              "No tenemos poco tiempo: perdemos mucho." <span style={{ marginLeft: 6, opacity: 0.95 }}>— Séneca</span>
             </div>
           </div>
         </div>
