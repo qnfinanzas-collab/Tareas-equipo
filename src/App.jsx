@@ -13,7 +13,7 @@ import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
 import { tabFromPath, pathFromTab } from "./lib/routing.js";
-import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents, updateUserPassword } from "./lib/auth.js";
+import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents, updateUserPassword, isAccountOwner } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME, ALLOWED_EXTENSIONS, migrateBase64DocsInData } from "./lib/storage.js";
 import { extractToText } from "./lib/extract.js";
 import jsPDF from "jspdf";
@@ -38,7 +38,7 @@ import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
 import VaultGuestView, { parseVaultGuestPath } from "./components/Vault/VaultGuestView.jsx";
 import { generatePersonalDocuments } from "./components/Vault/personalTemplates.js";
-import { AGENT_ACTIONS_ADDON, suggestNegotiationEmoji, NEGOTIATION_EMOJIS, parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, correctActionsDates } from "./lib/agentActions.js";
+import { AGENT_ACTIONS_ADDON, suggestNegotiationEmoji, NEGOTIATION_EMOJIS, parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, correctActionsDates, stripCeoProfile } from "./lib/agentActions.js";
 import ActionProposal from "./components/Shared/ActionProposal.jsx";
 import { buildFinanceSummary, renderFinanceSummaryForPrompt } from "./lib/financeSummary.js";
 import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
@@ -6247,7 +6247,13 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
             daysOverdue: t.dueDate ? -daysUntil(t.dueDate) : null,
           };
         }));
-        const ceoFacts = (data.ceoMemory?.keyFacts||[]).slice(0,3).map(f=>f.content||f.text).filter(Boolean).join("; ");
+        // GATE privacidad: ceoFacts solo si el usuario activo es el owner.
+        // Para members, ceoFacts = "" (el LLM decide la "next task" sin
+        // memoria del CEO, basándose solo en las tareas visibles para
+        // ese usuario).
+        const _legacyMode = typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1";
+        const _isOwner = isAccountOwner(me, { legacyMode: _legacyMode });
+        const ceoFacts = _isOwner ? (data.ceoMemory?.keyFacts||[]).slice(0,3).map(f=>f.content||f.text).filter(Boolean).join("; ") : "";
         const hectorAgent = (data.agents||[]).find(a=>a.name==="Héctor");
         const baseSystem = hectorAgent?.promptBase
           ? hectorAgent.promptBase + "\n\n" + PLAIN_TEXT_RULE
@@ -6371,6 +6377,7 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
               riesgos={riesgosDetectados}
               agent={(data.agents||[]).find(a=>a.name==="Héctor")}
               ceoMemory={data.ceoMemory}
+              isOwner={isAccountOwner(me, { legacyMode: typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1" })}
               userId={activeMember}
               userName={me?.name}
               authUid={authSession?.user?.id || null}
@@ -10118,10 +10125,18 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           const callAgent = async(userMessage, opts={})=>{
             if(!hector){ onAppendHectorMessage(negotiation.id,{role:"assistant",content:"⚠ No hay agente Héctor configurado. Añádelo desde Agentes IA.",timestamp:new Date().toISOString()}); return null; }
             const coherenceRule = "Mantén coherencia con toda la conversación. Si el usuario dice 'como te decía' o 'lo que te expliqué antes', busca en el historial anterior y conecta.";
-            const ceoBlock = formatCeoMemoryForPrompt(ceoMemory);
+            // GATE privacidad: ceoMemory global solo si owner.
+            // La memoria de la negociación (negotiation.memory) SÍ se
+            // inyecta para members porque el acceso a esta vista ya
+            // requirió canViewDeal (RLS implícita por miembros[]).
+            const _legacyMode = typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1";
+            const _isOwner = isAccountOwner(currentMember, { legacyMode: _legacyMode });
+            const ceoBlock = _isOwner ? formatCeoMemoryForPrompt(ceoMemory) : "";
             const negBlock = formatNegMemoryForPrompt(negotiation.memory);
             const memoryBlock = [ceoBlock, negBlock].filter(Boolean).join("\n\n");
-            const system = (hector.promptBase||"")
+            // PERFIL CEO en promptBase también lleva identidad privada.
+            const _hectorPromptBase = _isOwner ? (hector.promptBase||"") : stripCeoProfile(hector.promptBase||"");
+            const system = _hectorPromptBase
               + (memoryBlock?("\n\n---\n"+memoryBlock):"")
               + "\n\n---\nCONTEXTO DE ESTA NEGOCIACIÓN:\n" + buildContext()
               + "\n\n" + coherenceRule

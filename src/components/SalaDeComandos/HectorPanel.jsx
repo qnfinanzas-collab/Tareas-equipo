@@ -20,7 +20,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import { PLAIN_TEXT_RULE, getEnergyLevel, buildSkillsBlock, detectSkills } from "../../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, rewriteToPropositive, validateTasksAgainstDatabase, validateAndCorrectDueDate, buildOrderInterpreterSystemPrompt, parseOrderInterpreterJson } from "../../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, rewriteToPropositive, validateTasksAgainstDatabase, validateAndCorrectDueDate, buildOrderInterpreterSystemPrompt, parseOrderInterpreterJson, stripCeoProfile } from "../../lib/agentActions.js";
 import { callAgentSafe as callAgentSafeShared } from "../../lib/agent.js";
 import { supa } from "../../lib/sync.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
@@ -227,6 +227,11 @@ export default function HectorPanel({
   riesgos = [],
   agent,
   ceoMemory,
+  // GATE de privacidad (incidente fuga de contexto privado del CEO).
+  // Cuando es false, el panel NO inyecta ceoMemory, financeContext ni
+  // vaultAlerts en los prompts del LLM. App.jsx lo calcula con
+  // isAccountOwner(currentMember). Default false = falla cerrado.
+  isOwner = false,
   onRecommendationClick,
   onStateChange,
   onNewRecommendation,
@@ -853,11 +858,18 @@ export default function HectorPanel({
       // EJECUCIÓN (que enseña a Héctor a emitir [ACTIONS]). Esta llamada
       // pide JSON estricto y las acciones no aplican aquí — además
       // pesaba +600 tokens en el prompt sin valor.
-      const promptBaseNoActions = (ag?.promptBase || "").split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
+      const promptBaseRaw = ag?.promptBase || "";
+      // El bloque PERFIL CEO vive ANTES de CAPACIDAD DE EJECUCIÓN dentro de
+      // AGENT_ACTIONS_ADDON, así que el split por CAPACIDAD lo conserva.
+      // Quitamos PERFIL CEO si no es owner para no inyectar identidad
+      // privada del CEO en el system prompt de un member.
+      const promptBaseStripped = isOwner ? promptBaseRaw : stripCeoProfile(promptBaseRaw);
+      const promptBaseNoActions = promptBaseStripped.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
       const baseSystem = promptBaseNoActions
         ? promptBaseNoActions + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Chief of Staff estratégico. Conciso, directo, accionable. " + PLAIN_TEXT_RULE;
-      const memBlock = formatCeoMemoryForPrompt(mem);
+      // GATE privacidad: ceoMemory solo si owner.
+      const memBlock = isOwner ? formatCeoMemoryForPrompt(mem) : "";
       // Detecta skills relevantes a partir de títulos de tareas activas,
       // foco actual y riesgos — Héctor "carga" el framework adecuado para
       // este análisis (finanzas, comercial, etc.) sin tener que generalizar.
@@ -893,8 +905,10 @@ export default function HectorPanel({
       // Bloque financiero opcional: solo se incluye si el caller pasa
       // financeContext. Las cifras se formatean en EUR español dentro del
       // prompt para que Héctor las cite literales sin recálculo.
-      const fin = financeRef.current;
-      const vAlerts = vaultAlertsRef.current || [];
+      // GATE privacidad: finanzas + vault SOLO si owner. Para members,
+      // ambos bloques vacíos — esos datos son privados del CEO.
+      const fin = isOwner ? financeRef.current : null;
+      const vAlerts = isOwner ? (vaultAlertsRef.current || []) : [];
       const vaultBlock = vAlerts.length > 0 ? `\nDOCUMENTOS PERSONALES CON VENCIMIENTO PRÓXIMO:\n${vAlerts.slice(0, 8).map(a => `- ${a.doc} de ${a.spaceName}: ${a.type === "overdue" ? `VENCIDO hace ${a.days} días` : `vence en ${a.days} días`}`).join("\n")}\n\nMenciónalos en el análisis si están a punto de caducar (DNI, pasaporte, ITV, seguros) — el CEO debe renovarlos antes de la fecha.\n` : "";
       const fmtEur = (n)=> typeof n==="number" ? new Intl.NumberFormat("es-ES",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(n) : "—";
       const finBlock = fin ? `\nCONTEXTO FINANCIERO ACTUAL:
@@ -1246,10 +1260,12 @@ Reglas:
       const recsNow = recommendationsRef.current || [];
       const focusNow = focusRef.current;
       const now = new Date();
-      const baseSystem = ag?.promptBase
-        ? ag.promptBase + "\n\n" + PLAIN_TEXT_RULE
+      const _promptBase = isOwner ? ag?.promptBase : stripCeoProfile(ag?.promptBase);
+      const baseSystem = _promptBase
+        ? _promptBase + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE;
-      const memBlock = formatCeoMemoryForPrompt(mem);
+      // GATE privacidad: ceoMemory solo si owner.
+      const memBlock = isOwner ? formatCeoMemoryForPrompt(mem) : "";
       // Skills detectados a partir del mensaje del CEO + última recomendación
       // + foco — el chat es donde más útil resulta porque el CEO formula
       // explícitamente el dominio (ej. "prepara la negociación con X").

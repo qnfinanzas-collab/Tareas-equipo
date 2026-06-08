@@ -12,8 +12,9 @@
 // Responsive: maxWidth 680px en desktop, 600px en tablet, 100% en móvil.
 import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures } from "../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures, stripCeoProfile } from "../lib/agentActions.js";
 import { formatCeoMemoryForPrompt } from "../lib/memory.js";
+import { isAccountOwner } from "../lib/auth.js";
 import { supa } from "../lib/sync.js";
 import ActionProposal from "./Shared/ActionProposal.jsx";
 import ChatBubble, { CHAT_PALETTE, ceoAvatarStyle, hectorAvatarSmall } from "./Shared/ChatBubble.jsx";
@@ -468,13 +469,34 @@ ACCIÓN: Convierte este análisis en acciones operativas. Si procede, propón ta
       // un nombre. Se inyecta AL INICIO del system para que el modelo
       // lo lea antes que cualquier otro contexto.
       const usuarioActivo = (data?.me || data?.currentUser || (data?.members || []).find(m => m && m.id === userId)) || null;
+      // GATE DE PRIVACIDAD (incidente fuga de contexto privado del CEO):
+      // El bloque hardcodeado con identidad de Antonio y la ceoMemory
+      // global SOLO se inyectan si el usuario activo es el dueño de la
+      // cuenta (accountRole === "admin"). Para members el LLM recibe un
+      // memberBlock mínimo SIN datos sensibles. Modo demo: nunca se
+      // considera owner (precaución contra demos públicos).
+      const isOwner = isAccountOwner(usuarioActivo, { legacyMode: typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1" });
+      // memberBlock mínimo — para que Héctor sepa quién es sin filtrar
+      // datos privados. Solo si NO es owner y hay usuario activo.
+      const memberBlock = (!isOwner && usuarioActivo) ? `USUARIO ACTIVO:
+Nombre: ${usuarioActivo.name || "(sin nombre)"}
+Rol: miembro del equipo (no es el CEO ni el propietario de la cuenta).
+
+INSTRUCCIONES DE PRIVACIDAD:
+- NO eres el asesor del CEO. Eres un asistente del equipo.
+- NUNCA reveles datos personales del CEO (nombres propios privados, CIFs, decisiones privadas, preferencias del CEO, contexto de sus negociaciones privadas, finanzas, gobernanza societaria).
+- Si el usuario pregunta por algo privado del CEO, responde "no tengo acceso a esa información desde esta cuenta".
+- Limítate a ayudarle con los proyectos y tareas a los que el usuario tiene acceso explícito.
+
+---
+` : "";
       // Perfil completo de Antonio Díaz como contexto permanente.
       // Sin esto, Héctor (y especialistas vía propagación) tratan al
       // CEO como "usuario técnico genérico", repiten información que
       // ya conoce y no calibran tono ni profundidad. El bloque incluye
       // identidad legal (parte principal en contratos), proyectos
       // activos, sectores, estilo de comunicación y filosofía.
-      const ceoBlock = usuarioActivo ? `USUARIO ACTIVO — CEO Y PROPIETARIO:
+      const ceoBlock = (isOwner && usuarioActivo) ? `USUARIO ACTIVO — CEO Y PROPIETARIO:
 Nombre: Antonio Díaz
 Empresa: ALMA DIMO INVESTMENTS S.L. · CIF: B19929256
 Email: ${usuarioActivo.email || "qn.finanzas@gmail.com"}
@@ -621,19 +643,30 @@ Reglas:
 - Este formato es SOLO para consultas de lectura. Para crear, modificar, asignar o eliminar tareas sigue siendo [ACTIONS] como hasta ahora.`;
 
       // Memoria permanente del CEO (preferences/keyFacts/decisions/lessons).
-      // Misma fuente y formato que HectorPanel — propaga decisiones y
-      // preferencias entre sesiones para que Héctor no empiece a ciegas.
-      // Si data.ceoMemory no existe, memBlock = "" → comportamiento idéntico
-      // al previo. Va ANTES de membersBlock porque es contexto identitario
-      // semipermanente, no snapshot del momento.
-      const memBlock = formatCeoMemoryForPrompt(data?.ceoMemory);
+      // GATE: solo para el owner. Members reciben memBlock="".
+      const memBlock = isOwner ? formatCeoMemoryForPrompt(data?.ceoMemory) : "";
       const memBlockFormatted = memBlock ? "\n\n----\n" + memBlock : "";
 
-      const baseSystem = ceoBlock + (hector?.promptBase
-        ? hector.promptBase + "\n\n" + PLAIN_TEXT_RULE
+      // finBlock y govBlock construidos arriba usan datos privados del
+      // CEO (saldos, runway, facturas, empresas del grupo). GATE: solo
+      // owner los recibe. Para members, vacíos.
+      const finBlockGated = isOwner ? finBlock : "";
+      const govBlockGated = isOwner ? govBlock : "";
+
+      // Composición final: ceoBlock SOLO si owner; memberBlock en su
+      // lugar si NO owner (siempre uno de los dos vacíos por construcción).
+      // stripCeoProfile: AGENT_ACTIONS_ADDON, appendido al promptBase de
+      // todos los agentes en la migración v10, contiene un bloque
+      // "PERFIL CEO:" hardcodeado con identidad de Antonio (nombre, empresa).
+      // Para non-owners, lo eliminamos antes de inyectar al system prompt.
+      const hectorPromptBase = isOwner
+        ? hector?.promptBase
+        : stripCeoProfile(hector?.promptBase);
+      const baseSystem = (isOwner ? ceoBlock : memberBlock) + (hectorPromptBase
+        ? hectorPromptBase + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE)
         + memBlockFormatted
-        + membersBlock + urgentBlock + projBlock + negBlock + finBlock + govBlock + tasksListBlock;
+        + membersBlock + urgentBlock + projBlock + negBlock + finBlockGated + govBlockGated + tasksListBlock;
       // Convertimos el historial a la forma que espera la API.
       // Los mensajes "assistant" llevan el texto limpio (sin proposal).
       // Inyección de fecha actual en el USER prompt (commit 39): el system
@@ -1003,7 +1036,11 @@ Reglas:
           // memBlockFormatted del scope superior — el especialista también
           // conoce preferencias/decisiones/lecciones del CEO para
           // alinearse con criterios ya establecidos (mismo bloque que Héctor).
-          const sys = ceoBlock + (ag.promptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE + memBlockFormatted;
+          // GATE de privacidad: si NO es owner, el specialist recibe
+          // memberBlock + cero memoria (heredamos las variables ya
+          // computadas en el scope superior por el send principal).
+          const agPromptBase = isOwner ? ag.promptBase : stripCeoProfile(ag.promptBase);
+          const sys = (isOwner ? ceoBlock : memberBlock) + (agPromptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE + memBlockFormatted;
           const taskLow = inv.task.toLowerCase();
           // Todos los specialists obtienen 90s (antes: 45s salvo Mario en
           // redacción). Jorge y Gonzalo daban timeout en consultas complejas

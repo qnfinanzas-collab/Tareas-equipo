@@ -147,6 +147,34 @@ export function canUseAgent(member, agentKey, permissions = null){
   return agentPerms[agentKey] === true;
 }
 
+// ¿El miembro activo es el dueño de la cuenta (admin global)?
+// Fuente única de verdad para gatear el contexto PRIVADO del CEO que se
+// inyecta al LLM (ceoMemory, ceoBlock identidad, finanzas, gobernanza,
+// vault, decisiones, lecciones). Cualquier caller del LLM que vaya a
+// añadir esos bloques DEBE pasar primero por esta función con el
+// miembro activo y, si false, omitir el bloque.
+//
+// Reglas:
+//   - accountRole === "admin" → true (Antonio en producción).
+//   - legacyMode (Modo demo sin autenticación real) → SIEMPRE false.
+//     El demo se ve como un usuario no-dueño aunque la cuenta interna
+//     tenga rol admin. Evita que un demo público filtre datos reales.
+//   - cualquier otro caso (member, viewer, sin rol explícito) → false.
+//
+// Pensado para llamarse desde cualquier sitio que tenga el member:
+//   const isOwner = isAccountOwner(currentMember, { legacyMode });
+//   if (isOwner) prompt += ceoBlock;
+//
+// NUNCA usar esta función para gatear permisos de edición de
+// entidades (proyectos, negociaciones, tareas) — para eso están los
+// helpers canEdit/canView. isAccountOwner es EXCLUSIVAMENTE para
+// gatear el contexto privado que el LLM compone con datos del CEO.
+export function isAccountOwner(member, opts = {}) {
+  if (opts?.legacyMode) return false;
+  if (!member) return false;
+  return member.accountRole === "admin";
+}
+
 // Filtra una lista de agentes a los que el miembro tiene permiso. Cada
 // agente debe traer un campo `key` (mario | jorge | alvaro) que mapea con
 // data.permissions[member.id].agents[key].

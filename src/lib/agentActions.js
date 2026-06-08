@@ -1064,6 +1064,20 @@ Si una orden menciona un nombre que puede referirse a más de una entidad (proye
 IDENTIDAD DEL USUARIO:
 El usuario que da las órdenes es siempre la parte activa y principal. Su nombre, email y empresa vienen en el contexto bajo el bloque USUARIO ACTIVO EN SESIÓN, al inicio del system prompt. Úsalo en documentos, contratos y acciones (parte propietaria, cedente, parte contratante por defecto). Nunca asumas que el usuario es otro miembro del equipo aunque aparezcan en el listado de miembros — ese listado es para assignees y referencias, no para identificar al CEO.`;
 
+// Quita la sección "PERFIL CEO:" del promptBase de un agente. Se usa para
+// gatear la identidad privada del CEO cuando el usuario activo NO es
+// propietario de la cuenta (los miembros del equipo no deben recibirla
+// vía system prompt). El bloque CAPACIDAD DE EJECUCIÓN y el resto del
+// AGENT_ACTIONS_ADDON quedan intactos — solo se borra el párrafo
+// "Antonio Díaz · CEO ALMA DIMO INVESTMENTS S.L. · Visionario digital…".
+// Idempotente: si no hay "PERFIL CEO:", devuelve el promptBase tal cual.
+export function stripCeoProfile(promptBase){
+  if (typeof promptBase !== "string" || !promptBase) return promptBase || "";
+  // Quitar desde \n*PERFIL CEO: hasta justo antes del próximo bloque
+  // (CAPACIDAD DE EJECUCIÓN). El lookahead preserva la cabecera siguiente.
+  return promptBase.replace(/\n+PERFIL CEO:[\s\S]*?(?=\n+CAPACIDAD DE EJECUCIÓN)/g, "");
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Order Interpreter (commit 20) — intérprete de órdenes natural-language
 // sobre una tarea concreta. Diferente del flujo [ACTIONS]: aquí el LLM
