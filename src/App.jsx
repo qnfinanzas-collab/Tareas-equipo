@@ -4844,6 +4844,12 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
   // Banners alternados — novedades como piezas de deseo, no fila de cards.
   // Mezclamos NUEVO (capacidad ya viva) con PRÓXIMAMENTE (anuncio honesto).
   // El último es la tarjeta de invitación, pieza visual diferenciada.
+  //
+  // "La Sala de Reuniones" es la joya estrella de Próximamente — visual
+  // propio `sala`, más prominente que el resto (padding mayor, tipografía
+  // más grande, doble filete oro). Va inmediatamente después de la
+  // capacidad "Nuevo" y antes de los demás "Próximamente" para fijar la
+  // jerarquía: la Sala es la primicia mundial, lo demás llega después.
   const HOME_BANNERS = [
     {
       kind: "nuevo",
@@ -4851,6 +4857,11 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
       title: "Documentos del Consejo",
       body:  "Sus especialistas entregan pactos, contratos e informes como documentos formales. Visualícelos con tipografía editorial, descárguelos en PDF y adjúntelos a sus negociaciones con un toque.",
       visual: "pdf",
+    },
+    {
+      kind: "proxima",
+      bg: "sala",
+      visual: "sala",
     },
     {
       kind: "proxima",
@@ -5253,15 +5264,139 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
       <section style={{ background: "#FAFAF7" }}>
         <div className="kx-banner-grid" style={{ padding: 0 }}>
           {HOME_BANNERS.map((b, i) => {
-            const isDark = b.bg === "dark" || b.bg === "invitation";
-            const sectionBg = b.bg === "dark" ? "#141414" : b.bg === "invitation" ? "#0A0A0A" : "#F5F0E8";
+            const isDark = b.bg === "dark" || b.bg === "invitation" || b.bg === "sala";
+            const sectionBg = b.bg === "dark" ? "#141414"
+              : b.bg === "invitation" ? "#0A0A0A"
+              : b.bg === "sala" ? "#0A0A0A"
+              : "#F5F0E8";
+            const sectionPad = b.bg === "invitation" ? "56px 24px"
+              : b.bg === "sala" ? "84px 24px 92px"
+              : "44px 24px 48px";
             return (
               <div key={i} style={{
                 background: sectionBg,
-                padding: b.bg === "invitation" ? "56px 24px" : "44px 24px 48px",
+                padding: sectionPad,
                 borderBottom: i < HOME_BANNERS.length - 1 ? (isDark ? "1px solid #1A1612" : "1px solid #EAE2D2") : "none",
               }}>
-                {b.visual === "card" ? (
+                {b.visual === "sala" ? (
+                  // ── Sala de Reuniones — banner destacado de Próximamente.
+                  // Caja con doble filete oro (mismo lenguaje que la tarjeta
+                  // de invitación: border 1px + outline -6px). Tipografía
+                  // grande para que domine sobre Normativa Viva e Invitar.
+                  // Cuerpo en Montserrat perla — NO Cormorant — para
+                  // garantizar legibilidad cómoda en móvil (15-16px). El
+                  // cierre "Kluxor será la primera." en Cormorant itálica
+                  // oro destacado. Sin elementos clicables.
+                  <div style={{
+                    maxWidth: 880,
+                    margin: "0 auto",
+                    background: "#0F0F0F",
+                    border: "1px solid rgba(201,168,76,0.65)",
+                    outline: "1px solid rgba(201,168,76,0.32)",
+                    outlineOffset: "-6px",
+                    padding: "clamp(28px, 5vw, 56px) clamp(22px, 5vw, 64px)",
+                    boxShadow: "0 24px 60px rgba(120,84,14,0.18), 0 6px 18px rgba(0,0,0,0.45)",
+                  }}>
+                    {/* Etiqueta superior — letterspacing amplio, oro. */}
+                    <div style={{
+                      fontSize: 10.5,
+                      color: "#C9A84C",
+                      letterSpacing: "0.36em",
+                      textTransform: "uppercase",
+                      marginBottom: 18,
+                      fontWeight: 600,
+                      textAlign: "center",
+                    }}>
+                      Próximamente · El Círculo
+                    </div>
+                    {/* Título — Cormorant perla, dominante. */}
+                    <h3 style={{
+                      fontFamily: KX_SERIF,
+                      fontSize: "clamp(34px, 5.2vw, 52px)",
+                      fontWeight: 500,
+                      color: "#EDE4D0",
+                      margin: "0 0 10px",
+                      lineHeight: 1.1,
+                      letterSpacing: "0.005em",
+                      textAlign: "center",
+                    }}>
+                      La Sala de Reuniones
+                    </h3>
+                    {/* Subtítulo provocador en Cormorant itálica oro. */}
+                    <div style={{
+                      fontFamily: KX_SERIF,
+                      fontSize: "clamp(15px, 1.9vw, 19px)",
+                      fontStyle: "italic",
+                      color: "#C9A84C",
+                      letterSpacing: "0.015em",
+                      marginBottom: 24,
+                      textAlign: "center",
+                    }}>
+                      Lo que nadie ha hecho antes.
+                    </div>
+                    {/* Línea fina oro como separador editorial. */}
+                    <div style={{ width: 56, height: 1, background: "#C9A84C", opacity: 0.7, margin: "0 auto 28px" }}/>
+                    {/* Ilustración minimalista: dos posiciones enfrentadas
+                        a una mesa, en líneas finas oro. Sutil, no compite
+                        con la tipografía. Omitida si reduce ya con padding
+                        — aquí cabe sin ruido. */}
+                    <div aria-hidden="true" style={{
+                      display: "flex",
+                      justifyContent: "center",
+                      marginBottom: 26,
+                      opacity: 0.85,
+                    }}>
+                      <svg width="140" height="44" viewBox="0 0 140 44" fill="none"
+                        stroke="#C9A84C" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
+                        {/* Mesa central */}
+                        <line x1="38" y1="24" x2="102" y2="24"/>
+                        {/* Posición izquierda (CEO A) */}
+                        <circle cx="22" cy="20" r="5"/>
+                        <path d="M14 32 q8 -6 16 0"/>
+                        {/* Posición derecha (CEO B) */}
+                        <circle cx="118" cy="20" r="5"/>
+                        <path d="M110 32 q8 -6 16 0"/>
+                        {/* Acento oro al centro de la mesa */}
+                        <circle cx="70" cy="24" r="1.5" fill="#C9A84C"/>
+                      </svg>
+                    </div>
+                    {/* Cuerpo — Montserrat (system sans), perla, legible. */}
+                    <div style={{
+                      fontSize: "clamp(14.5px, 1.7vw, 16px)",
+                      color: "#D8D2C5",
+                      lineHeight: 1.78,
+                      maxWidth: 660,
+                      margin: "0 auto 18px",
+                      textAlign: "left",
+                    }}>
+                      Dos primeros ejecutivos sentados a una misma mesa. Y al lado de cada uno, su Consejo entero: su jefe de gabinete y sus especialistas —mercantil, inversión, fiscalidad— asesorándole en directo, mientras negocia.
+                    </div>
+                    <div style={{
+                      fontSize: "clamp(14.5px, 1.7vw, 16px)",
+                      color: "#D8D2C5",
+                      lineHeight: 1.78,
+                      maxWidth: 660,
+                      margin: "0 auto 30px",
+                      textAlign: "left",
+                    }}>
+                      El terreno común, sobre la mesa. Las cartas de cada uno, solo suyas.
+                    </div>
+                    {/* Cierre destacado en Cormorant itálica oro pleno. */}
+                    <div style={{
+                      fontFamily: KX_SERIF,
+                      fontSize: "clamp(16px, 2.2vw, 22px)",
+                      fontStyle: "italic",
+                      color: "#C9A84C",
+                      lineHeight: 1.5,
+                      letterSpacing: "0.01em",
+                      maxWidth: 700,
+                      margin: "0 auto",
+                      textAlign: "center",
+                    }}>
+                      Ninguna herramienta en el mundo sienta a dos líderes a negociar, cada uno con su gabinete privado de inteligencia. Kluxor será la primera.
+                    </div>
+                  </div>
+                ) : b.visual === "card" ? (
                   // ── Tarjeta de invitación de lujo ────────────────────
                   <div style={{ maxWidth: 720, margin: "0 auto", textAlign: "center" }}>
                     {/* Etiqueta PRÓXIMAMENTE discreta ENCIMA del banner. */}
