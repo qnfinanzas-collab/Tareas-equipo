@@ -14,7 +14,7 @@ import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
 import { tabFromPath, pathFromTab } from "./lib/routing.js";
 import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents, updateUserPassword, isAccountOwner } from "./lib/auth.js";
-import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, ALLOWED_MIME, ALLOWED_EXTENSIONS, migrateBase64DocsInData } from "./lib/storage.js";
+import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, MAX_ANALYZE_MB, isAnalyzable, ANALYZE_TOO_LARGE_MSG, ALLOWED_MIME, ALLOWED_EXTENSIONS, migrateBase64DocsInData } from "./lib/storage.js";
 import { extractToText } from "./lib/extract.js";
 import jsPDF from "jspdf";
 import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel, callAgentSafe, WEB_SEARCH_TOOL } from "./lib/agent.js";
@@ -2231,6 +2231,13 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
     const agent = explicitAgent || agents.find(a=>String(a.id)===String(agentId));
     if(!agent) return;
     if(!canAnalyze(doc)){ setError(`${doc.type||"Tipo desconocido"} no soporta análisis automático`); return; }
+    // Cap de tamaño antes de mandar al endpoint /api/agent (que viaja
+    // base64 dentro del body con techo Vercel + bodyParser de 20 MB
+    // → ~14 MB binario). isAnalyzable usa doc.size que se grabó al
+    // subir. Si supera: documento ya está guardado en bucket; solo
+    // skipeamos el análisis y avisamos.
+    const tooBig = isAnalyzable(doc);
+    if (tooBig) { setError(ANALYZE_TOO_LARGE_MSG); return; }
     setError(null);
     setAnalyzing(doc.id);
     try {

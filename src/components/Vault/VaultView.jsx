@@ -8,7 +8,7 @@
 // los dos módulos. La clasificación llama directamente a /api/agent.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PERSONAL_CATEGORY_LABELS, PERSONAL_CATEGORY_ORDER, computePersonalStats, generatePersonalDocuments, checkVaultAlerts } from "./personalTemplates.js";
-import { uploadDocument as uploadToBucket, getSignedUrlCached, storageEnabled } from "../../lib/storage.js";
+import { uploadDocument as uploadToBucket, getSignedUrlCached, storageEnabled, MAX_FILE_MB, MAX_ANALYZE_MB, isAnalyzable } from "../../lib/storage.js";
 
 const RELATIONSHIPS = [
   { key: "CEO",        label: "Yo (titular principal)" },
@@ -28,7 +28,10 @@ function genToken() {
   return (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g, "") : `tk${Date.now()}${Math.random().toString(36).slice(2,12)}`;
 }
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
+// Tope subida unificado desde lib/storage.js (antes 10*1024*1024 local
+// duplicado). Análisis tiene su propio cap más bajo: MAX_ANALYZE_MB,
+// aplicado a la clasificación con Gonzalo en processFiles.
+const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 const ACCEPTED_TYPES = "application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain";
 
 const STATUS_META = {
@@ -441,7 +444,14 @@ function SpaceContent({ space, currentMember, onUpdateVault, spaces }) {
       }
       setProcessingFile(file.name);
       try {
-        const cls = await classifyPersonalDocument(file, docs, space.name);
+        // Si excede MAX_ANALYZE_MB, skipeamos clasificación con Gonzalo
+        // (/api/agent reventaría con 413 por el body base64). El archivo
+        // SÍ se sube al bucket y queda en "otros" para clasificación
+        // manual.
+        const tooBigForAnalysis = !!isAnalyzable(file);
+        const cls = tooBigForAnalysis
+          ? { match: null, category: "otros", newDocName: file.name.replace(/\.[^.]+$/, ""), summary: `Demasiado grande para análisis automático (>${MAX_ANALYZE_MB} MB). Clasifica manualmente.`, confidence: 0, detectedExpiry: null }
+          : await classifyPersonalDocument(file, docs, space.name);
         // Subir al bucket "documents" bajo prefijo vault/{spaceId}. Si
         // Supabase no está disponible, fallback a base64 para no bloquear.
         let storagePayload;

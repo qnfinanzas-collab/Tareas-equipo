@@ -2,5 +2,10 @@
   "rewrites": [
     { "source": "/landing.html", "destination": "/landing.html" },
     { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  ],
+  "functions": {
+    "api/agent.js": {
+      "maxRequestBodySize": "20mb"
+    }
+  }
 }

@@ -5,7 +5,19 @@
 import { supa } from "./sync.js";
 
 export const STORAGE_BUCKET = "documents";
+// Subida al bucket: tope independiente del análisis. Hasta aquí se puede
+// guardar un documento en Supabase Storage (50 MB en el bucket, 10 MB
+// nuestro para no inflar el JSONB de referencias). Subir y guardar
+// SIEMPRE debe poder hacerse aunque el análisis no sea posible.
 export const MAX_FILE_MB = 10;
+// Análisis con LLM via /api/agent: tope más bajo porque el archivo
+// viaja como base64 dentro del JSON body. Vercel edge limita el body
+// a ~4,5 MB por defecto; con maxRequestBodySize:"20mb" en vercel.json
+// + bodyParser.sizeLimit:"20mb" en api/agent.js, un archivo de hasta
+// ~14 MB binario cabe (base64 +33% + JSON overhead). Cap a 12 MB con
+// margen para system prompt + prosa. Archivos por encima se SUBEN
+// igualmente, solo no son analizables automáticamente.
+export const MAX_ANALYZE_MB = 12;
 // Whitelist por MIME. Incluye xlsx/xls/csv (commit A.1) para que el
 // CEO pueda adjuntar hojas de cálculo en negociaciones — Jorge/Diego
 // las analizan vía src/lib/extract.js. Anthropic no lee xlsx nativo,
@@ -43,6 +55,28 @@ export function validateFile(file){
   if (ALLOWED_EXTENSIONS.includes(ext)) return null;
   return `Tipo no permitido: ${mime || ext || "desconocido"}`;
 }
+
+// ¿El archivo es válido para mandar a /api/agent como attachment?
+// Acepta File (con .size) o cualquier objeto con campo .size en bytes
+// (p.ej. un doc ya subido al bucket que conserva `size` en su metadata).
+// Devuelve null si OK, o un string con el motivo si no es analizable.
+// Solo CONTROL DE TAMAÑO — los formatos analizables se filtran aparte
+// con la lógica existente (canAnalyze en DocumentUploader, etc.).
+export function isAnalyzable(fileOrDoc){
+  if (!fileOrDoc) return "Sin archivo";
+  const size = Number(fileOrDoc.size) || 0;
+  if (size > MAX_ANALYZE_MB * 1024 * 1024) {
+    const mb = (size/1024/1024).toFixed(1);
+    return `Archivo de ${mb} MB · supera el máximo de ${MAX_ANALYZE_MB} MB para análisis automático`;
+  }
+  return null;
+}
+
+// Mensaje estándar para mostrar al CEO cuando un archivo se subió pero
+// NO se analiza por superar MAX_ANALYZE_MB. Mantiene tono coherente
+// across las 7 vistas que usan análisis (negociaciones, tareas, Vault,
+// Gobernanza, Diego, importación de facturas, DealRoom).
+export const ANALYZE_TOO_LARGE_MSG = `Archivo guardado. Demasiado grande para análisis automático (máx ${MAX_ANALYZE_MB} MB) — pídeselo a Héctor con un resumen tuyo si necesitas evaluación.`;
 
 export async function uploadDocument(file, ownerKey){
   if(!supa) throw new Error("Storage no disponible (sin Supabase)");

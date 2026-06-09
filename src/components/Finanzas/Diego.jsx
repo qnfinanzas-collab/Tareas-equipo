@@ -15,14 +15,18 @@ import { speak, stopSpeaking, listen } from "../../lib/voice.js";
 import { parseAgentActions, cleanAgentResponse, classifyReply } from "../../lib/agentActions.js";
 import { parseAsientos } from "../../lib/parseAsientos.js";
 import AsientoCard from "../Shared/AsientoCard.jsx";
-import { blobToBase64 } from "../../lib/storage.js";
+import { blobToBase64, MAX_ANALYZE_MB } from "../../lib/storage.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
 import { ProposalExecutedBanner } from "../Shared/ChatBubble.jsx";
 
 const DIEGO_VOICE = { gender: "male", rate: 1.05, pitch: 0.95 };
 const CHAT_MAX = 50;
 const ATTACH_MAX_CHARS = 6000; // tope del extracto de texto plano (xlsx/csv/txt)
-const ATTACH_MAX_MB = 15;      // tope archivo binario (PDF/imagen) — Vercel limita el body
+// Tope archivo binario (PDF/imagen). Reutiliza la constante única
+// MAX_ANALYZE_MB de lib/storage.js — antes 15 MB local que reventaba
+// igualmente en Vercel (~4,5 MB edge default). Con maxRequestBodySize
+// 20mb desplegado, 12 MB binario + base64 + JSON cabe holgado.
+const ATTACH_MAX_MB = MAX_ANALYZE_MB;
 
 export default function Diego({ data, currentMember, canEdit, selectedCompanyId, onCallAgent, onRunAgentActions }) {
   const userId = currentMember?.id ?? "anon";

@@ -6,7 +6,7 @@
 // La respuesta llega como JSON dentro del texto del modelo. Aquí lo
 // parseamos defensivamente (acepta envoltorio ```json...``` o trozos de
 // texto antes/después).
-import { uploadDocument, blobToBase64, storageEnabled } from "./storage.js";
+import { uploadDocument, blobToBase64, storageEnabled, isAnalyzable, ANALYZE_TOO_LARGE_MSG } from "./storage.js";
 import { callAgentSafe } from "./agent.js";
 
 // Formatos aceptados para análisis IA (PDF + imágenes comunes).
@@ -82,6 +82,10 @@ Reglas:
 export async function analyzeInvoiceFile(file, { type, companyId } = {}) {
   if (!file) throw new Error("Sin archivo");
   if (!isAnalyzableInvoiceFile(file)) throw new Error(`Formato no soportado para análisis IA: ${file.type || file.name}`);
+  // Cap tamaño para /api/agent (base64 + JSON body). Por encima de
+  // MAX_ANALYZE_MB la subida al bucket SÍ se hace, pero el análisis se
+  // omite con aviso — no llamamos al endpoint sabiendo que va a 413.
+  const tooBig = isAnalyzable(file);
 
   // Storage opcional: si falla seguimos con base64 directo.
   let storagePath = null;
@@ -93,6 +97,11 @@ export async function analyzeInvoiceFile(file, { type, companyId } = {}) {
     } catch (e) {
       console.warn("[invoiceAI] upload fallo (continuamos sin storage):", e.message);
     }
+  }
+  if (tooBig) {
+    // Archivo ya subido al bucket (si Storage estaba habilitado). Solo
+    // skipeamos el análisis automático con mensaje claro.
+    return { extracted: null, storagePath, raw: "", error: ANALYZE_TOO_LARGE_MSG };
   }
 
   // Convertimos a base64 para el endpoint /api/agent.

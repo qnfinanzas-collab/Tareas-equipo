@@ -10,7 +10,7 @@
 // legacy con fileUrl base64 siguen funcionando por compatibilidad.
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { CATEGORY_LABELS, CATEGORY_ORDER, computeDocStats } from "./documentTemplates.js";
-import { uploadDocument as uploadToBucket, getSignedUrlCached, deleteDocument as deleteFromBucket, storageEnabled } from "../../lib/storage.js";
+import { uploadDocument as uploadToBucket, getSignedUrlCached, deleteDocument as deleteFromBucket, storageEnabled, MAX_ANALYZE_MB, isAnalyzable, MAX_FILE_MB } from "../../lib/storage.js";
 
 // Sincroniza alertas de gobernanza con el estado de documentación. Por
 // cada documento required pendiente o vencido genera una entrada en
@@ -172,8 +172,14 @@ export default function DocumentacionTab({ governance, currentMember, onUpdateGo
       }
       setProcessingFile(file.name);
       try {
-        // 1. Clasificar (Gonzalo lee el archivo y propone match)
-        const cls = await classifyDocumentWithGonzalo(file, companyDocs, company);
+        // 1. Clasificar (Gonzalo lee el archivo y propone match).
+        // Si el archivo supera MAX_ANALYZE_MB, /api/agent devolvería 413.
+        // Skipeamos la clasificación con fallback genérico — el archivo
+        // sigue subiéndose al bucket en el paso 2.
+        const tooBigForAnalysis = !!isAnalyzable(file);
+        const cls = tooBigForAnalysis
+          ? { match: null, category: "otros", subcategory: null, newDocName: file.name.replace(/\.[^.]+$/, ""), summary: `Archivo demasiado grande para análisis automático (>${MAX_ANALYZE_MB} MB). Guardado en "Otros" — clasifícalo manualmente.`, confidence: 0 }
+          : await classifyDocumentWithGonzalo(file, companyDocs, company);
         // 2. Subir al bucket Supabase. Si no hay Supabase configurado,
         // caemos al modo legacy (base64 en JSON) para no romper el flujo.
         let storagePayload;
@@ -411,8 +417,10 @@ function CategorySection({ category, subgroups, onUpdate, currentMember, company
   );
 }
 
-// Lee un File como dataURL (base64). Tope 10MB para no destrozar localStorage.
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
+// Lee un File como dataURL (base64). Tope de subida = MAX_FILE_MB (10 MB)
+// de lib/storage.js, fuente única. El análisis tiene su propio cap más
+// bajo (MAX_ANALYZE_MB), aplicado a la clasificación con Gonzalo.
+const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 const ACCEPTED_TYPES = "application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain";
 
 function readFileAsDataUrl(file) {

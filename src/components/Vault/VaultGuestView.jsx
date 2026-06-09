@@ -7,11 +7,11 @@
 // callback onUpdateVault — exactamente igual que el VaultView del CEO.
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PERSONAL_CATEGORY_LABELS, PERSONAL_CATEGORY_ORDER, computePersonalStats } from "./personalTemplates.js";
-import { uploadDocument as uploadToBucket, getSignedUrlCached, storageEnabled } from "../../lib/storage.js";
+import { uploadDocument as uploadToBucket, getSignedUrlCached, storageEnabled, MAX_FILE_MB, MAX_ANALYZE_MB, isAnalyzable } from "../../lib/storage.js";
 
 // (mini-replicas de helpers — duplicación local intencionada para no
 // acoplar VaultGuestView a VaultView vía exports cruzados)
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024;
 const ACCEPTED_TYPES = "application/pdf,image/jpeg,image/png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain";
 const STATUS_META = {
   attached:       { icon: "✅", label: "Adjuntado", color: "#0E7C5A", bg: "#F0FDF4", border: "#86EFAC" },
@@ -164,23 +164,33 @@ function GuestVault({ space, data, onUpdateVault, onLogout }) {
         const dataUrl = await readFileAsDataUrl(file);
         const base64 = dataUrlToBase64(dataUrl);
         const docList = docs.map(d => `[${d.id}] ${d.name} (cat: ${d.category})`).join("\n");
-        let attachments = [];
-        if (file.type === "application/pdf") attachments = [{ kind: "pdf", media_type: "application/pdf", data: base64 }];
-        else if (file.type === "image/jpeg" || file.type === "image/png") attachments = [{ kind: "image", media_type: file.type, data: base64 }];
-        else { setRecent(r => [{ file: file.name, ok: false, msg: "Tipo no soportado", ts: Date.now() }, ...r].slice(0, 5)); setProcessing(null); continue; }
+        // Skipeamos clasificación /api/agent si el archivo supera
+        // MAX_ANALYZE_MB (el body base64 reventaría con 413). Fallback
+        // a clasificación manual en "otros". El upload al bucket SÍ se
+        // ejecuta más abajo — el guest no pierde su archivo.
+        const tooBigForAnalysis = !!isAnalyzable(file);
+        let cls;
+        if (tooBigForAnalysis) {
+          cls = { match: null, category: "otros", newDocName: file.name.replace(/\.[^.]+$/, ""), detectedExpiry: null, confidence: 0 };
+        } else {
+          let attachments = [];
+          if (file.type === "application/pdf") attachments = [{ kind: "pdf", media_type: "application/pdf", data: base64 }];
+          else if (file.type === "image/jpeg" || file.type === "image/png") attachments = [{ kind: "image", media_type: file.type, data: base64 }];
+          else { setRecent(r => [{ file: file.name, ok: false, msg: "Tipo no soportado", ts: Date.now() }, ...r].slice(0, 5)); setProcessing(null); continue; }
 
-        const res = await fetch("/api/agent", {
-          method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            system: "Clasificador documental personal. Responde SOLO con JSON.",
-            messages: [{ role: "user", content: `Clasifica este archivo (${file.name}) en el vault de ${space.name}.\n\nDOCUMENTOS (id entre corchetes, no inventes):\n${docList}\n\nResponde JSON: {"match":"<id o null>","category":"<identificacion|fiscal|propiedades|financiero|seguros|familia|vehiculos|formacion|otros>","newDocName":"<nombre si match=null>","detectedExpiry":"<YYYY-MM-DD o null>","confidence":0.0}` }],
-            attachments, max_tokens: 500,
-          }),
-        });
-        const out = await res.json();
-        if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
-        const raw = (out.text || "").trim().replace(/^```json\s*|\s*```$/g, "").replace(/^```\s*|\s*```$/g, "");
-        const cls = JSON.parse(raw);
+          const res = await fetch("/api/agent", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              system: "Clasificador documental personal. Responde SOLO con JSON.",
+              messages: [{ role: "user", content: `Clasifica este archivo (${file.name}) en el vault de ${space.name}.\n\nDOCUMENTOS (id entre corchetes, no inventes):\n${docList}\n\nResponde JSON: {"match":"<id o null>","category":"<identificacion|fiscal|propiedades|financiero|seguros|familia|vehiculos|formacion|otros>","newDocName":"<nombre si match=null>","detectedExpiry":"<YYYY-MM-DD o null>","confidence":0.0}` }],
+              attachments, max_tokens: 500,
+            }),
+          });
+          const out = await res.json();
+          if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
+          const raw = (out.text || "").trim().replace(/^```json\s*|\s*```$/g, "").replace(/^```\s*|\s*```$/g, "");
+          cls = JSON.parse(raw);
+        }
         // Subir al bucket. El invitado usa la misma anon key — la RLS del
         // bucket debe permitir uploads en vault/{spaceId} (pública o por
         // policy custom). Fallback a base64 si no hay Supabase.
