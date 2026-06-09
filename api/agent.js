@@ -9,13 +9,16 @@
 // Nota: payload base64 pesa ~33% más que el archivo. Vercel Hobby limita
 // a ~4.5MB el body — con ese margen, archivos >3MB pueden fallar.
 
-// maxDuration: 90s para alinear con el timeout cliente de los specialists
-// (Jorge, Gonzalo, Diego, Mario en redacción). Sin esta config explícita la
-// función adopta el default del plan Vercel (10s Hobby / 60s Pro), lo que
-// recorta respuestas largas antes de que llegue Anthropic. En Hobby el
-// deploy fallará con un error claro indicando que hay que pasar a Pro.
+// maxDuration: 180s. Subido desde 90s para dar margen a respuestas
+// largas de Héctor con [ACTIONS] grandes (varias tareas con descriptions
+// extensas tipo fichas médicas) — Sonnet 4.5 a ~60-80 tok/s puede tardar
+// 100-140s en producir 8000 tokens y antes la función se mataba a los 90s
+// antes de que Anthropic terminara. El cliente (lib/agent.js / HectorDirect)
+// pasa timeoutMs alineado. Pro permite hasta 300s; 180s deja holgura sin
+// disparar costes innecesarios. Hobby (60s tope) seguirá fallando deploy
+// con error claro.
 export const config = {
-  maxDuration: 90,
+  maxDuration: 180,
   api: { bodyParser: { sizeLimit: "20mb" } },
 };
 

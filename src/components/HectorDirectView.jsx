@@ -735,9 +735,16 @@ Reglas:
       //     estábamos dentro de un bloque [ACTIONS] abierto (no abrir otro)
       //     o de [TASKS_LIST] o de prosa libre. Concatenamos al texto.
       const MAX_TOKENS_PER_CALL = 8000;
+      // timeoutMs 180s: Sonnet 4.5 a ~60-80 tok/s puede tardar 100-140s en
+      // producir 8000 tokens. Antes 90s mataba la primera llamada antes de
+      // que el modelo terminara, abortando el turno entero (la continuación
+      // no se llegaba a disparar porque no había stop_reason que leer).
+      // Alineado con api/agent.js maxDuration:180. Mantenemos
+      // includeMeta:true para que la continuación automática siga siendo
+      // red de seguridad si Sonnet emite [ACTIONS] sin cerrar.
       const callOnce = (msgs) => callAgentSafe(
         { system: baseSystem, messages: msgs, max_tokens: MAX_TOKENS_PER_CALL },
-        { timeoutMs: 90000, includeMeta: true }
+        { timeoutMs: 180000, includeMeta: true }
       );
       const first = await callOnce(messages);
       let reply = (first?.text || "");
@@ -1108,12 +1115,14 @@ Reglas:
           const agPromptBase = isOwner ? ag.promptBase : stripCeoProfile(ag.promptBase);
           const sys = (isOwner ? ceoBlock : memberBlock) + (agPromptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE + memBlockFormatted;
           const taskLow = inv.task.toLowerCase();
-          // Todos los specialists obtienen 90s (antes: 45s salvo Mario en
-          // redacción). Jorge y Gonzalo daban timeout en consultas complejas
-          // (valoración empresa, estructura societaria). Mantengo la variable
-          // isRedaccion por si queremos diferenciar mensajes en el futuro.
+          // Todos los specialists obtienen 180s (subido desde 90s). Mismo
+          // criterio que el send principal: respuestas largas con
+          // max_tokens=8000 pueden necesitar 100-140s en Sonnet 4.5 y antes
+          // se mataban antes de terminar. Alineado con api/agent.js
+          // maxDuration:180. Mantengo la variable isRedaccion por si quiero
+          // diferenciar microcopy más adelante.
           const isRedaccion = inv.key === "mario" && REDACCION_KEYS.some(k => taskLow.includes(k));
-          const timeoutMs = 90000;
+          const timeoutMs = 180000;
           const userPrompt = `TAREA QUE TE ENCARGA HÉCTOR (Chief of Staff):\n${inv.task}\n\nResponde con la información concreta que pide. Sin disclaimers extensos. Frases claras y accionables.`;
           // Anti-truncado (mismo patrón que el send principal). Las
           // invocaciones a especialistas pueden producir respuestas largas
