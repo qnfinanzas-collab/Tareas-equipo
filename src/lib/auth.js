@@ -135,12 +135,27 @@ export function canViewDeal(member, deal){
   return false;
 }
 
+// Set de claves del Consejo (especialistas exclusivos del dueño hoy).
+// Sus promptBase llevan identidad privada del CEO hardcodeada (p.ej. Jorge
+// arrastra "Antonio Díaz Molina / Alma Dimo Investments" fuera del bloque
+// PERFIL CEO). Hasta que se reescriba el contexto en la fase estructural
+// (issue P1 separado), los members no acceden ni siquiera con
+// data.permissions[agents][key] = true.
+export const COUNCIL_AGENT_KEYS = new Set(["mario","jorge","alvaro","gonzalo","diego"]);
+
 // Permisos por agente IA. data.permissions[memberId].agents = {mario:bool,
 // jorge:bool, alvaro:bool}. Admin global tiene paso libre. Si no hay entrada,
 // el agente no está disponible (falla cerrado).
+//
+// Excepción Consejo: Mario, Jorge, Álvaro, Gonzalo y Diego son HOY
+// exclusivos del dueño de la cuenta (accountRole==="admin"). Ignoramos las
+// flags de permissions para esos agentes. En el FUTURO los members
+// trabajarán con especialistas pero con contexto AISLADO — esa fase
+// (refactor de promptBase) abrirá el acceso vía permissions.
 export function canUseAgent(member, agentKey, permissions = null){
   if (!member) return false;
   if (member.accountRole === "admin") return true;
+  if (COUNCIL_AGENT_KEYS.has(agentKey)) return false;
   if (!permissions || !agentKey) return false;
   const agentPerms = permissions[member.id]?.agents;
   if (!agentPerms) return false;

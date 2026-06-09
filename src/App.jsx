@@ -2133,7 +2133,7 @@ function LoginScreen({onAuthed, onLegacySkip, forceRecovery=false, onRecoveryDon
 // ownerKey = identificador del contenedor ("neg-<id>" o "task-<id>") que se
 // usa como prefijo del path en el bucket. documents se persiste en el estado
 // (negotiation.documents o task.documents) vía onChange.
-function DocumentUploader({ownerKey, documents = [], onChange, agents = [], contextLabel, onPostChatMessage, ceoMemory}){
+function DocumentUploader({ownerKey, documents = [], onChange, agents = [], contextLabel, onPostChatMessage, ceoMemory, isOwner = false}){
   const [busy,setBusy]    = useState(false);
   const [error,setError]  = useState(null);
   const [dragOver,setDragOver] = useState(false);
@@ -2235,7 +2235,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
     setAnalyzing(doc.id);
     try {
       const att = await buildAttachment(doc);
-      const report = await analyzeDocument(att, agent, contextLabel||"el caso actual", ceoMemory);
+      const report = await analyzeDocument(att, agent, contextLabel||"el caso actual", ceoMemory, { includeCeoMemory: isOwner });
       const now = new Date().toISOString();
       const next = documents.map(d=>d.id===doc.id ? {...d, analyzedBy: agent.name, analyzedAt: now, report} : d);
       onChange?.(next);
@@ -2345,7 +2345,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
           setAnalyzing(doc.id);
           try {
             const att = { kind:"text", name:doc.name, text: doc.text.slice(0,50000) };
-            const report = await analyzeDocument(att, agent, contextLabel||"el caso actual", ceoMemory);
+            const report = await analyzeDocument(att, agent, contextLabel||"el caso actual", ceoMemory, { includeCeoMemory: isOwner });
             const updated = next.map(d=>d.id===doc.id ? {...d, analyzedBy: agent.name, analyzedAt: new Date().toISOString(), report} : d);
             onChange?.(updated);
             setExpanded(doc.id);
@@ -3445,7 +3445,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
 }
 
 // ── Task Modal ────────────────────────────────────────────────────────────────
-function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,onTransferProject,onAddTimelineEntry,onToggleMilestone,onClose,onUpdate,onMove,onDelete}){
+function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents,ceoMemory,canDelete,projects,onNavigateProject,onTransferProject,onAddTimelineEntry,onToggleMilestone,onClose,onUpdate,onMove,onDelete,isOwner=false}){
   const [editing,setEditing]=useState(false);
   const [draft,setDraft]=useState({...task});
   const [comment,setComment]=useState("");
@@ -3626,7 +3626,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
             </div>
           );
         })()}
-        {avatarOpen&&<AvatarModal task={task} members={members} connectedAgents={(agents||[]).filter(a=>(task.agentIds||[]).includes(a.id))} ceoMemory={ceoMemory} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})} onMutateTask={newTask=>onUpdate(task.id,colId,newTask)}/>}
+        {avatarOpen&&<AvatarModal task={task} members={members} connectedAgents={(agents||[]).filter(a=>(task.agentIds||[]).includes(a.id))} ceoMemory={ceoMemory} isOwner={isOwner} onClose={()=>setAvatarOpen(false)} onSetCategory={cat=>onUpdate(task.id,colId,{...task,category:cat})} onMutateTask={newTask=>onUpdate(task.id,colId,newTask)}/>}
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
           {[["detail","Detalle"],["subtasks","Subtareas"],["links","Enlaces"],["time","Tiempo"],["timeline","Avance"],["documents","Documentos"]].map(([k,l])=>(
@@ -3943,6 +3943,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
               agents={agents||[]}
               contextLabel={`la tarea "${task.title}"`}
               ceoMemory={ceoMemory}
+              isOwner={isOwner}
             />
           )}
         </div>
@@ -3969,7 +3970,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
 }
 
 // ── Asesor IA (voz del navegador) ─────────────────────────────────────────────
-function AvatarModal({task,members,connectedAgents,ceoMemory,onClose,onSetCategory,onMutateTask}){
+function AvatarModal({task,members,connectedAgents,ceoMemory,isOwner=false,onClose,onSetCategory,onMutateTask}){
   const support = voiceSupported();
   const customAgents = connectedAgents||[];
   const hasCustom = customAgents.length>0;
@@ -4017,7 +4018,7 @@ function AvatarModal({task,members,connectedAgents,ceoMemory,onClose,onSetCatego
     // 2) Si hay agente custom → LLM real vía /api/agent
     if(activeAgent){
       try {
-        const reply = await llmAgentReply(text, task, activeAgent, members, messagesRef.current, ceoMemory);
+        const reply = await llmAgentReply(text, task, activeAgent, members, messagesRef.current, ceoMemory, { includeCeoMemory: isOwner });
         say(reply,"avatar");
         return;
       } catch(e){
@@ -4807,7 +4808,7 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
   // y anillo oro consistente con la sección negra. Tono "usted" unificado.
   const ALL_CARDS = [
     { id:"hector-direct", title:"Héctor",              valor:"Su jefe de gabinete. Pida, decida, delegue.",                                          block:"tu-dia",         agentMark:"🧙" },
-    { id:"consejo",       title:"El Consejo",          valor:"Sus especialistas, en directo: legal, inversión, inmobiliario, holdings, finanzas.",  block:"tu-dia",         pictogram:"consejo" },
+    { id:"consejo",       title:"El Consejo",          valor:"Sus especialistas, en directo: legal, inversión, inmobiliario, holdings, finanzas.",  block:"tu-dia",         pictogram:"consejo",     requiresOwner:true },
     { id:"command",       title:"Sala de Mando",       valor:"Su foco de hoy, con sus acciones directas.",                                          block:"tu-dia",         pictogram:"command" },
     { id:"midia",         title:"Mi Día",              valor:"Su agenda por horas, edición directa.",                                               block:"tu-dia",         pictogram:"midia" },
     { id:"dealroom",      title:"Deal Room",           valor:"Sus negociaciones, con su memoria y documentos.",                                     block:"operacion",      pictogram:"dealroom" },
@@ -4827,6 +4828,7 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
   const VISIBLE_CARDS = ALL_CARDS.filter(c=>{
     if(isAdmin) return true;
     if(c.adminOnly) return false;
+    if(c.requiresOwner) return false; // Consejo: solo dueño hoy (C2 — fase estructural abrirá members con contexto aislado)
     if(c.requiresPermission && !hasPermission(me, c.requiresPermission, "view", data.permissions)) return false;
     return true;
   });
@@ -5088,12 +5090,13 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
           </div>
 
           {/* Espaciado entre la sección Héctor y la sección Consejo. */}
-          <div style={{ height: 64 }}/>
+          {isAdmin && <div style={{ height: 64 }}/>}
 
           {/* Línea puente — conecta Héctor con el Consejo. Va ENCIMA del
               título. Oro pleno opacidad 0.85 (vs el oro oscuro apagado
-              de antes que quedaba casi invisible). */}
-          <div style={{
+              de antes que quedaba casi invisible). Sección Consejo
+              completa gateada por isAdmin (C2: exclusivo del dueño hoy). */}
+          {isAdmin && <div style={{
             fontFamily: KX_SERIF,
             fontSize: 15,
             color: "#C9A84C",
@@ -5104,7 +5107,9 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
             fontStyle: "italic",
           }}>
             Y cuando la decisión exige especialistas, convoco a su Consejo.
-          </div>
+          </div>}
+          {isAdmin && <>
+
 
           {/* El Consejo — protagonista. */}
           <h2 style={{
@@ -5222,6 +5227,7 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
               </div>
             ))}
           </div>
+          </>}
 
           {/* Firma del hero — cita de Séneca, discreta, perla con
               opacidad suave. Estaba ausente en el código de Home v2 y
@@ -9969,6 +9975,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
               contextLabel={`la negociación "${negotiation.title}" con ${negotiation.counterparty}`}
               onPostChatMessage={msg=>onAppendHectorMessage(negotiation.id,msg)}
               ceoMemory={ceoMemory}
+              isOwner={isAccountOwner(currentMember, { legacyMode: typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1" })}
             />
           </section>
 
@@ -12718,6 +12725,15 @@ export default function TaskFlow(){
   const callGonzaloDirect = async ({messages, extraSystem, selectedCompanyId}={})=>{
     const gonzalo = (dataRef.current?.agents||[]).find(a=>a.name==="Gonzalo Gobernanza");
     if(!gonzalo) throw new Error("Gonzalo no está en agents");
+    // GATE C2: el Consejo es exclusivo del dueño hoy. La UI ya filtra
+    // (sidebar oculto + canUseAgent false) — esto es defensa en
+    // profundidad para cualquier vía que invoque la función directamente.
+    const _me = (dataRef.current?.members||[]).find(m=>m.id===activeMember);
+    const _legacyMode = typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1";
+    const _isOwner = isAccountOwner(_me, { legacyMode: _legacyMode });
+    if (!_isOwner) {
+      throw new Error("Gonzalo solo está disponible para el propietario de la cuenta.");
+    }
     // Inyecta contexto vivo de gobernanza: empresas registradas + documentos
     // faltantes + alertas activas. Permite que Gonzalo razone sobre el
     // estado real sin que el usuario tenga que copiar/pegar nada.
@@ -12804,6 +12820,16 @@ export default function TaskFlow(){
   const callDiegoDirect = async ({messages, extraSystem, selectedCompanyId, attachments}={})=>{
     const diego = (dataRef.current?.agents||[]).find(a=>a.name==="Diego");
     if(!diego) throw new Error("Diego no está en agents");
+    // GATE C2: Consejo exclusivo del dueño hoy. Diego inyecta facturas,
+    // movimientos bancarios, asientos y obligaciones fiscales — todo
+    // datos privados del CEO. La UI ya gatea; esto es defensa en
+    // profundidad por si se invoca por otra vía.
+    const _me = (dataRef.current?.members||[]).find(m=>m.id===activeMember);
+    const _legacyMode = typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1";
+    const _isOwner = isAccountOwner(_me, { legacyMode: _legacyMode });
+    if (!_isOwner) {
+      throw new Error("Diego solo está disponible para el propietario de la cuenta.");
+    }
     const d = dataRef.current || {};
     const fmtEur = (n) => new Intl.NumberFormat("es-ES",{style:"currency",currency:"EUR",maximumFractionDigits:2}).format(Number(n)||0);
     const todayIso = new Date().toISOString().slice(0,10);
@@ -13168,6 +13194,17 @@ export default function TaskFlow(){
   const buildCouncilDirect = (agentName, fallbackPrompt) => async ({ messages, extraSystem, fromKey } = {}) => {
     const ag = (dataRef.current?.agents||[]).find(a=>a.name===agentName);
     if (!ag) throw new Error(`${agentName} no está en agents`);
+    // GATE C2: el Consejo (Mario, Jorge, Álvaro) es exclusivo del dueño
+    // hoy. La UI lo oculta del sidebar y ConsejoView filtra por
+    // canUseAgent. Defensa en profundidad: refusamos a nivel de llamada
+    // y, si por alguna vía pasa, no inyectamos ceoMemory y limpiamos
+    // PERFIL CEO del promptBase.
+    const _me = (dataRef.current?.members||[]).find(m=>m.id===activeMember);
+    const _legacyMode = typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1";
+    const _isOwner = isAccountOwner(_me, { legacyMode: _legacyMode });
+    if (!_isOwner) {
+      throw new Error(`${agentName} solo está disponible para el propietario de la cuenta.`);
+    }
     const ceoMemory = dataRef.current?.ceoMemory;
     const ceoBlock  = ceoMemory ? formatCeoMemoryForPrompt(ceoMemory) : "";
     const selfKey = COUNCIL_KEY_BY_NAME[agentName];
@@ -14769,6 +14806,7 @@ Estructura recomendada de una respuesta con documento:
                 ceoMemory={data.ceoMemory}
                 canDelete={isAdmin}
                 projects={data.projects}
+                isOwner={isAccountOwner(me, { legacyMode: typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1" })}
                 onNavigateProject={pid=>{const i=data.projects.findIndex(x=>x.id===pid); if(i>=0){setAP(i);setActiveTab("board");}}}
                 onTransferProject={newPid=>{ transferTaskToProject(t.id, newPid); setOverlayTaskId(null); }}
                 onAddTimelineEntry={(taskId,entry)=>addTimelineEntry(taskId,{...entry,authorId:entry.authorId??activeMember,author:entry.author||(data.members.find(m=>m.id===activeMember)?.name)})}
@@ -14809,7 +14847,7 @@ Estructura recomendada de una respuesta con documento:
         const ALL_PRIMARY=[
           {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}, adminOnly:false, block:null},
           {id:"hector-direct", icon:"🧙", label:"Héctor",       shortcut:"",    onClick:()=>{setActiveTab("hector-direct");}, adminOnly:false, block:"tu-dia"},
-          {id:"consejo",    icon:"💼", label:"El Consejo",   shortcut:"",    onClick:()=>{setActiveTab("consejo");}, adminOnly:false, block:"tu-dia"},
+          {id:"consejo",    icon:"💼", label:"El Consejo",   shortcut:"",    onClick:()=>{setActiveTab("consejo");}, adminOnly:false, requiresOwner:true, block:"tu-dia"},
           {id:"command",    icon:"🎯", label:"Sala de Mando",shortcut:"",    onClick:()=>{setActiveTab("command");}, adminOnly:false, block:"tu-dia"},
           {id:"midia",      icon:"📅", label:"Mi Día",       shortcut:"",    onClick:()=>{setActiveTab("midia");}, adminOnly:false, block:"tu-dia"},
           {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:false, block:"operacion"},
@@ -14837,12 +14875,17 @@ Estructura recomendada de una respuesta con documento:
         ];
         // Filtrado del sidebar: admin global ve todo. Para no-admins:
         // - adminOnly:true → oculto.
+        // - requiresOwner:true → solo accountRole==="admin" (Consejo).
+        //   Gate idéntico a isAccountOwner sin legacyMode aquí: la UI del
+        //   sidebar respeta el rol del miembro activo, no el modo demo
+        //   (el modo demo se trata aparte en los gates de LLM).
         // - requiresPermission:"<feature>" → visible solo si el miembro
         //   tiene al menos permission "view" en ese feature.
         const myMember = (data.members||[]).find(m=>m.id===activeMember);
         const PRIMARY = ALL_PRIMARY.filter(it=>{
           if(isAdmin) return true;
           if(it.adminOnly) return false;
+          if(it.requiresOwner) return false; // member no es owner → fuera
           if(it.requiresPermission && !hasPermission(myMember, it.requiresPermission, "view", data.permissions)) return false;
           return true;
         });

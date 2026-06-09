@@ -1260,6 +1260,7 @@ export function executeScopedCommand(cmd, { scope, data, activeProjectId, active
 // El usuario no ve ni configura ninguna key.
 
 import { formatCeoMemoryForPrompt } from "./memory.js";
+import { stripCeoProfile } from "./agentActions.js";
 
 function buildTaskContext(task, members){
   const q = getQ(task);
@@ -1287,10 +1288,20 @@ function buildTaskContext(task, members){
   ].filter(Boolean).join("\n");
 }
 
-export async function llmAgentReply(userText, task, agent, members, history, ceoMemory){
-  const memBlock = formatCeoMemoryForPrompt(ceoMemory);
+// opts.includeCeoMemory (default false): si true, inyecta el bloque
+// MEMORIA PERMANENTE DEL CEO formateado a partir de ceoMemory. Cuando es
+// false, también strippeamos el párrafo PERFIL CEO del promptBase del
+// agente (que arrastra identidad del CEO via AGENT_ACTIONS_ADDON).
+// Defensa-en-profundidad: defaults seguros para que un caller que no
+// gateé explícitamente no leakee al miembro.
+export async function llmAgentReply(userText, task, agent, members, history, ceoMemory, opts = {}){
+  const includeCeoMemory = !!opts?.includeCeoMemory;
+  const memBlock = includeCeoMemory ? formatCeoMemoryForPrompt(ceoMemory) : "";
+  const basePrompt = includeCeoMemory
+    ? (agent.promptBase || `Eres ${agent.name}, ${agent.role||"asesor profesional"}.`)
+    : (stripCeoProfile(agent.promptBase) || `Eres ${agent.name}, ${agent.role||"asesor profesional"}.`);
   const systemPrompt = [
-    agent.promptBase || `Eres ${agent.name}, ${agent.role||"asesor profesional"}.`,
+    basePrompt,
     "",
     "ESTILO DE RESPUESTA:",
     "- Responde en español, tono profesional pero cercano.",
@@ -1326,10 +1337,16 @@ export async function llmAgentReply(userText, task, agent, members, history, ceo
 // attachment = { kind:"pdf"|"image"|"text", media_type?, data?, text?, name? }
 // contextLabel = "la negociación X" / "la tarea Y" para situar al modelo.
 // Devuelve { summary, details, recommendations } tal como los pidió el prompt.
-export async function analyzeDocument(attachment, agent, contextLabel, ceoMemory){
-  const memBlock = formatCeoMemoryForPrompt(ceoMemory);
+// opts.includeCeoMemory (default false): mismo gate que llmAgentReply.
+// Cuando false, también strippeamos PERFIL CEO del promptBase.
+export async function analyzeDocument(attachment, agent, contextLabel, ceoMemory, opts = {}){
+  const includeCeoMemory = !!opts?.includeCeoMemory;
+  const memBlock = includeCeoMemory ? formatCeoMemoryForPrompt(ceoMemory) : "";
+  const basePrompt = includeCeoMemory
+    ? (agent.promptBase || `Eres ${agent.name}, ${agent.role||"analista profesional"}.`)
+    : (stripCeoProfile(agent.promptBase) || `Eres ${agent.name}, ${agent.role||"analista profesional"}.`);
   const systemPrompt = [
-    agent.promptBase || `Eres ${agent.name}, ${agent.role||"analista profesional"}.`,
+    basePrompt,
     "",
     "ESTILO DE RESPUESTA:",
     "- Responde en español, tono profesional y preciso.",
