@@ -721,10 +721,76 @@ Reglas:
         }
         return { role: "assistant", content };
       });
-      const reply = await callAgentSafe(
-        { system: baseSystem, messages, max_tokens: 4096 },
-        { timeoutMs: 90000 }
+      // Anti-truncado (replica el patrón validado de buildCouncilDirect en
+      // App.jsx). Antes: max_tokens 4096 sin detección de truncado → un
+      // [ACTIONS] grande (fichas extensas) se cortaba antes del [/ACTIONS],
+      // el parser no matcheaba y el JSON quedaba visible en el chat.
+      // Cambios:
+      //   - max_tokens: 4096 → 8000 (mismo techo que Consejo). Cubre fichas
+      //     médicas / pactos / asientos contables completos sin red.
+      //   - includeMeta: leemos stop_reason para detectar truncado real.
+      //   - Continuación automática (1 retry máx): si la primera llamada
+      //     vuelve con stop_reason="max_tokens", encadenamos {assistant: parcial,
+      //     user: "Continúa…"}. La instrucción de continuación varía si
+      //     estábamos dentro de un bloque [ACTIONS] abierto (no abrir otro)
+      //     o de [TASKS_LIST] o de prosa libre. Concatenamos al texto.
+      const MAX_TOKENS_PER_CALL = 8000;
+      const callOnce = (msgs) => callAgentSafe(
+        { system: baseSystem, messages: msgs, max_tokens: MAX_TOKENS_PER_CALL },
+        { timeoutMs: 90000, includeMeta: true }
       );
+      const first = await callOnce(messages);
+      let reply = (first?.text || "");
+      let finalStopReason = first?.stop_reason || null;
+      if (finalStopReason === "max_tokens" && reply.trim()) {
+        console.warn(`✂️ [HectorDirect] respuesta truncada (max_tokens, ${reply.length} chars) — intentando continuación…`);
+        const aOpens   = (reply.match(/\[ACTIONS\]/gi) || []).length;
+        const aCloses  = (reply.match(/\[\/ACTIONS\]/gi) || []).length;
+        const tOpens   = (reply.match(/\[TASKS_LIST\]/gi) || []).length;
+        const tCloses  = (reply.match(/\[\/TASKS_LIST\]/gi) || []).length;
+        const inActions = aOpens > aCloses;
+        const inTasks   = tOpens > tCloses;
+        const continueInstruction = inActions
+          ? "Continúa exactamente donde quedaste DENTRO del bloque [ACTIONS] abierto, sin repetir nada de lo anterior. NO abras un nuevo [ACTIONS]. Cuando termines el JSON, cierra con [/ACTIONS] en línea aparte. No añadas prosa después del cierre."
+          : inTasks
+          ? "Continúa exactamente donde quedaste DENTRO del bloque [TASKS_LIST] abierto, sin repetir nada de lo anterior. NO abras un nuevo [TASKS_LIST]. Cuando termines el JSON, cierra con [/TASKS_LIST] en línea aparte."
+          : "Continúa exactamente donde quedaste, sin repetir nada de lo anterior. Mantén el formato y la estructura. No introduzcas, ve directo al siguiente carácter.";
+        try {
+          const continuationMsgs = [
+            ...messages,
+            { role: "assistant", content: reply },
+            { role: "user", content: continueInstruction },
+          ];
+          const second = await callOnce(continuationMsgs);
+          const tail = String(second?.text || "").trim();
+          if (tail) {
+            const joiner = reply.endsWith("\n") ? "" : "\n";
+            reply = reply + joiner + tail;
+            finalStopReason = second?.stop_reason || null;
+            console.log(`✂️ [HectorDirect] continuación OK · +${tail.length} chars (total ${reply.length}) · stop_reason: ${finalStopReason}`);
+          } else {
+            console.warn(`✂️ [HectorDirect] continuación vacía — entregamos parcial sin concatenar`);
+          }
+        } catch (e) {
+          console.warn(`✂️ [HectorDirect] fallo en continuación:`, e?.message);
+        }
+      }
+      // Failsafe (c): si tras la continuación SIGUE habiendo [ACTIONS] abierto
+      // sin cerrar (o [TASKS_LIST]) Y la última llamada terminó por max_tokens,
+      // ocultamos el bloque truncado del chat (no dejamos JSON crudo a la vista)
+      // y añadimos un aviso visible para que el CEO pida continuación manual.
+      const aOpensF  = (reply.match(/\[ACTIONS\]/gi) || []).length;
+      const aClosesF = (reply.match(/\[\/ACTIONS\]/gi) || []).length;
+      const tOpensF  = (reply.match(/\[TASKS_LIST\]/gi) || []).length;
+      const tClosesF = (reply.match(/\[\/TASKS_LIST\]/gi) || []).length;
+      const stillOpenActions = aOpensF > aClosesF;
+      const stillOpenTasks   = tOpensF > tClosesF;
+      if ((stillOpenActions || stillOpenTasks) && finalStopReason === "max_tokens") {
+        const which = stillOpenActions ? "ACTIONS" : "TASKS_LIST";
+        const cutRe = stillOpenActions ? /\[ACTIONS\][\s\S]*$/ : /\[TASKS_LIST\][\s\S]*$/;
+        console.warn(`✂️ [HectorDirect] failsafe — bloque [${which}] truncado tras continuación, ocultando JSON crudo`);
+        reply = reply.replace(cutRe, "").trimEnd() + "\n\n⚠ Propuesta truncada — pídeme que continúe.";
+      }
       console.log('[BUG_SINTEXTO] reply:', JSON.stringify(reply).slice(0, 1000));
       const sanitizedReply = reply.replace(/"(?:[^"\\]|\\.)*"/g, m =>
         m.replace(/[\n\r\t]/g, c => ({ "\n":"\\n", "\r":"\\r", "\t":"\\t" }[c]))
@@ -1049,10 +1115,42 @@ Reglas:
           const isRedaccion = inv.key === "mario" && REDACCION_KEYS.some(k => taskLow.includes(k));
           const timeoutMs = 90000;
           const userPrompt = `TAREA QUE TE ENCARGA HÉCTOR (Chief of Staff):\n${inv.task}\n\nResponde con la información concreta que pide. Sin disclaimers extensos. Frases claras y accionables.`;
-          const respuesta = await callAgentSafe(
-            { system: sys, messages: [{ role: "user", content: userPrompt }], max_tokens: 4096 },
-            { timeoutMs }
+          // Anti-truncado (mismo patrón que el send principal). Las
+          // invocaciones a especialistas pueden producir respuestas largas
+          // (Mario redactando contrato, Jorge tablas financieras). Sube a
+          // 8000, detecta stop_reason="max_tokens" y encadena 1 retry.
+          const SPEC_MAX_TOKENS = 8000;
+          const specBaseMsgs = [{ role: "user", content: userPrompt }];
+          const specOnce = (msgs) => callAgentSafe(
+            { system: sys, messages: msgs, max_tokens: SPEC_MAX_TOKENS },
+            { timeoutMs, includeMeta: true }
           );
+          const specFirst = await specOnce(specBaseMsgs);
+          let respuesta = (specFirst?.text || "");
+          let specStop = specFirst?.stop_reason || null;
+          if (specStop === "max_tokens" && respuesta.trim()) {
+            console.warn(`✂️ [HectorDirect·${meta.label}] respuesta truncada (max_tokens, ${respuesta.length} chars) — continuación…`);
+            try {
+              const specSecond = await specOnce([
+                ...specBaseMsgs,
+                { role: "assistant", content: respuesta },
+                { role: "user", content: "Continúa exactamente donde quedaste, sin repetir nada de lo anterior. Mantén el formato. Ve directo al siguiente carácter." },
+              ]);
+              const tail = String(specSecond?.text || "").trim();
+              if (tail) {
+                const joiner = respuesta.endsWith("\n") ? "" : "\n";
+                respuesta = respuesta + joiner + tail;
+                specStop = specSecond?.stop_reason || null;
+                console.log(`✂️ [HectorDirect·${meta.label}] continuación OK · +${tail.length} chars (total ${respuesta.length})`);
+                if (specStop === "max_tokens") {
+                  respuesta += "\n\n⚠ Respuesta truncada — pídeme que continúe.";
+                }
+              }
+            } catch (e2c) {
+              console.warn(`✂️ [HectorDirect·${meta.label}] fallo en continuación:`, e2c?.message);
+              respuesta += "\n\n⚠ Respuesta truncada — pídeme que continúe.";
+            }
+          }
           setChatHistory(prev => prev.map(m => m.tempId === tempId
             ? { ...m, text: respuesta || "(sin respuesta)", loading: false }
             : m
