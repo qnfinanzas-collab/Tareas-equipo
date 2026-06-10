@@ -1,13 +1,31 @@
 // MiDiaView — agenda diaria por horas del usuario activo. Vive aparte de
 // MyTasksView (lista filtrada) y de la Sala de Mando (foco operativo).
 // Tres tabs: Hoy, Mañana, Esta semana. Tareas con dueTime se distribuyen
-// en franjas horarias 08:00–22:00; las que tienen dueDate del día pero
+// en franjas horarias 08:00–22:00; las que tienen el ancla del día pero
 // sin dueTime van al bloque "Sin hora asignada".
+//
+// EJE DE FECHA (decisión de producto, fix de junio 2026): el día en el
+// que aparece cada tarea se determina por su FECHA DE INICIO (startDate)
+// — cuándo se ataca la tarea — NO por dueDate (cuándo vence). Fallback
+// para tareas históricas sin startDate: caemos a dueDate. El editor
+// rápido de la tarjeta edita SOLO startDate; dueDate se preserva
+// intacto y se modifica desde el detalle de la tarea, no desde aquí.
+// Misma lógica de ancla para overdue: una tarea "atrasada en Mi Día"
+// es una que ya debía atacarse y sigue sin estar Hecho.
 //
 // Independencia: no toca TaskModal global, no muta shared state fuera de
 // los callbacks que recibe por props. duration_minutes se persiste vía
 // onUpdateTask (jsonb, sin migración).
 import React, { useMemo, useState } from "react";
+
+// Ancla del día para Mi Día: startDate manda; dueDate solo cubre tareas
+// históricas (creadas antes de que se introdujera el campo o desde
+// vistas que no lo rellenaban). Una función única para que filtro,
+// overdue y vista semana compartan la misma regla — la coherencia
+// entre los tres era una restricción explícita del fix.
+function taskAnchor(t) {
+  return t?.startDate || t?.dueDate || "";
+}
 
 const C = {
   bg: "#FAFAF7",
@@ -271,11 +289,17 @@ export default function MiDiaView({
       }
       targetProjId = def.id;
     }
-    const dueDate = tab === "dia" ? selectedDate : todayISO();
+    const dayIso = tab === "dia" ? selectedDate : todayISO();
+    // Nueva tarea nace con startDate Y dueDate alineados al día visible.
+    // startDate es ahora la fuente para Mi Día (cuándo se ataca); dueDate
+    // se mantiene para que el resto de vistas (Kanban, Eisenhower) sigan
+    // teniendo fecha límite explícita. Si más adelante se introduce el
+    // concepto tarea/evento, dueDate puede diverger libremente.
     onCreateTask(targetProjId, {
       title: createDraft.title.trim(),
       priority: createDraft.priority,
-      dueDate,
+      startDate: dayIso,
+      dueDate: dayIso,
       dueTime: createDraft.dueTime,
       duration_minutes: Number(createDraft.duration_minutes) || 60,
       assignees: [activeMember],
@@ -304,8 +328,14 @@ export default function MiDiaView({
 
   const openEdit = (t) => {
     setEditingId(t.id);
+    // El editor rápido de Mi Día edita SOLO la fecha de INICIO (cuándo
+    // se ataca). dueDate se preserva intacto y se modifica desde el
+    // detalle de la tarea. Pre-rellenamos con el ancla actual (startDate
+    // o, si no existe, dueDate como fallback histórico) para que al
+    // abrir el editor el CEO vea el día en el que la tarea está
+    // colocada en la agenda.
     setEditDraft({
-      dueDate: t.dueDate || "",
+      startDate: t.startDate || t.dueDate || "",
       dueTime: t.dueTime || "",
       duration_minutes: Number(t.duration_minutes) || 60,
       colName: t.colName || "Por hacer",
@@ -339,7 +369,12 @@ export default function MiDiaView({
   const saveEdit = (t) => {
     if (!editDraft) { closeEdit(); return; }
     const fieldUpdates = {};
-    if (editDraft.dueDate !== (t.dueDate || ""))                              fieldUpdates.dueDate = editDraft.dueDate;
+    // SOLO startDate, dueTime y duration_minutes. dueDate NO se toca
+    // aquí — se conserva intacto para que cualquier vista que dependa
+    // de la fecha límite (Kanban, Eisenhower, alertas) siga con su
+    // valor original. Decisión de producto: el editor rápido mueve la
+    // tarea de día en la agenda; vencer es otra cosa, otra UI.
+    if (editDraft.startDate !== (t.startDate || ""))                          fieldUpdates.startDate = editDraft.startDate;
     if (editDraft.dueTime !== (t.dueTime || ""))                              fieldUpdates.dueTime = editDraft.dueTime;
     if (Number(editDraft.duration_minutes) !== (Number(t.duration_minutes) || 60)) {
       fieldUpdates.duration_minutes = Number(editDraft.duration_minutes);
@@ -395,27 +430,34 @@ export default function MiDiaView({
 
   const filtered = useMemo(() => {
     return myTasks.filter(t => {
-      if (!t.dueDate) return false;
-      if (tab === "dia") return t.dueDate === selectedDate;
+      const anchor = taskAnchor(t);
+      if (!anchor) return false;
+      if (tab === "dia") return anchor === selectedDate;
       if (tab === "semana") {
         const start = new Date(); start.setHours(0, 0, 0, 0);
         const end = addDays(new Date(), 6); end.setHours(23, 59, 59, 999);
-        const d = new Date(t.dueDate);
+        const d = new Date(anchor);
         return d >= start && d <= end;
       }
       return false;
     });
   }, [myTasks, tab, selectedDate]);
 
-  // Días anteriores — tareas vencidas NO completadas. Excluye Hecho aquí
-  // porque myTasks ahora sí incluye esa columna (para mostrarlas en su
-  // día con visual diferenciado).
+  // Días anteriores — tareas que ya debían atacarse (startDate < hoy)
+  // y siguen sin estar en Hecho. Usa el mismo ancla que `filtered` —
+  // así Mi Día y el contador de atrasadas hablan del mismo eje: cuándo
+  // se trabaja la tarea, no cuándo vence. Excluye Hecho aquí porque
+  // myTasks sí incluye esa columna (para mostrarlas en su día con
+  // visual diferenciado).
   const overdueTasks = useMemo(() => {
     const today = todayISO();
     return myTasks
-      .filter(t => t.dueDate && t.dueDate < today && t.colName !== "Hecho")
+      .filter(t => {
+        const anchor = taskAnchor(t);
+        return anchor && anchor < today && t.colName !== "Hecho";
+      })
       .sort((a, b) => {
-        const dateCmp = (a.dueDate || "").localeCompare(b.dueDate || "");
+        const dateCmp = taskAnchor(a).localeCompare(taskAnchor(b));
         if (dateCmp !== 0) return dateCmp;
         return (a.dueTime || "99:99").localeCompare(b.dueTime || "99:99");
       });
@@ -501,11 +543,11 @@ export default function MiDiaView({
           }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <label style={fieldLabelStyle}>
-                <span>Fecha</span>
+                <span>Fecha de inicio</span>
                 <input
                   type="date"
-                  value={editDraft?.dueDate || ""}
-                  onChange={e => setEditDraft(d => ({ ...d, dueDate: e.target.value }))}
+                  value={editDraft?.startDate || ""}
+                  onChange={e => setEditDraft(d => ({ ...d, startDate: e.target.value }))}
                   style={fieldInputStyle}
                 />
               </label>
@@ -696,7 +738,7 @@ export default function MiDiaView({
       const d = addDays(new Date(), i);
       const iso = toISO(d);
       const dayTasks = filtered
-        .filter(t => t.dueDate === iso)
+        .filter(t => taskAnchor(t) === iso)
         .sort((a, b) => (a.dueTime || "99:99").localeCompare(b.dueTime || "99:99"));
       days.push({ d, iso, tasks: dayTasks });
     }
