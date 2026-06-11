@@ -1447,6 +1447,25 @@ function _migrate(d){
       if (cur.alvaro  === undefined) cur.alvaro  = false;
       if (cur.gonzalo === undefined) cur.gonzalo = false;
     }
+    // Proyecto por defecto al crear tareas sin elegir destino. Per
+    // usuario — cada miembro tiene el suyo. Null inicial: la primera
+    // tarea sin selección obliga a elegir o configurar uno. Ahí
+    // morimos el bug histórico de Marbella Club fantasma (las tareas
+    // sin proyecto caían silenciosamente a data.projects[0]).
+    if (d.permissions[m.id].defaultTaskProjectId === undefined) {
+      d.permissions[m.id].defaultTaskProjectId = null;
+    }
+  }
+  // El backfill anterior corre solo sobre members no-admin (por el
+  // continue de la línea 1438). Para el admin global, también queremos
+  // su entrada en permissions para guardar defaultTaskProjectId — sin
+  // afectar a los agentes / features (admin pasa libre por canUseAgent).
+  for (const m of (d.members||[])) {
+    if (m.accountRole !== "admin") continue;
+    if (!d.permissions[m.id]) d.permissions[m.id] = {};
+    if (d.permissions[m.id].defaultTaskProjectId === undefined) {
+      d.permissions[m.id].defaultTaskProjectId = null;
+    }
   }
   // Movimientos financieros (módulo Finanzas). Lista plana de movimientos.
   if (!Array.isArray(d.financeMovements)) d.financeMovements = [];
@@ -1868,6 +1887,22 @@ function _initCounters(d){
 const _saved=_loadData();
 const _c=_initCounters(_saved);
 let nextId=_c.nextId,nextProjId=_c.nextProjId,nextColId=_c.nextColId,nextWsId=_c.nextWsId,nextAgentId=_c.nextAgentId;
+
+// Proyecto por defecto del usuario activo al crear tareas sin elegir
+// destino. Lee data.permissions[memberId].defaultTaskProjectId y valida:
+//   - id null/undefined → null (usuario no ha configurado).
+//   - proyecto borrado → null (no resucitamos referencias muertas).
+//   - proyecto archivado → null (tratado como inválido, fuerza elegir).
+//   - cualquier otro caso → objeto proyecto.
+// Nunca cae a data.projects[0]. Ese fallback histórico es la causa del
+// bug "Marbella Club fantasma" y queda enterrado.
+function resolveMyDefaultProject(data, memberId){
+  if (data == null || memberId == null) return null;
+  const id = data?.permissions?.[memberId]?.defaultTaskProjectId;
+  if (id == null) return null;
+  const p = (data.projects||[]).find(x => x && x.id === id && !x.archived);
+  return p || null;
+}
 // Re-sync counters cuando llega estado remoto, para que nextWsId/nextProjId no
 // asignen ids ya usados por otros clientes — origen de las colisiones.
 function _syncCounters(d){
@@ -6005,7 +6040,7 @@ function TimeReportsView({boards,members,projects}){
 }
 
 // ── Project Modal ─────────────────────────────────────────────────────────────
-function ProjectModal({project,members,workspaces,allProjects,currentMember,onClose,onSave,onTransferOwnership,onDelete,onArchive,onUnarchive}){
+function ProjectModal({project,members,workspaces,allProjects,currentMember,myDefaultProjectId=null,onToggleMyDefault,onClose,onSave,onTransferOwnership,onDelete,onArchive,onUnarchive}){
   const isEdit=!!project;
   const [name,setName]=useState(project?.name||"");
   const [desc,setDesc]=useState(project?.desc||"");
@@ -6165,6 +6200,40 @@ function ProjectModal({project,members,workspaces,allProjects,currentMember,onCl
               El campo `visibility` sigue existiendo en el state local con
               valor "private" para no romper la firma de save() y los
               llamados a updateProject / createProject. */}
+          {/* Proyecto por defecto del USUARIO ACTIVO. Per usuario — cada
+              miembro tiene el suyo. El checkbox marca/desmarca este
+              proyecto como tu destino por defecto al crear tareas sin
+              elegir. Solo en edit (en create todavía no hay id). */}
+          {isEdit && onToggleMyDefault && (() => {
+            const isMyDefault = myDefaultProjectId === project.id;
+            const otherDefault = (myDefaultProjectId != null && myDefaultProjectId !== project.id)
+              ? (allProjects||[]).find(p => p.id === myDefaultProjectId)
+              : null;
+            return (
+              <div style={{padding:"10px 12px",borderRadius:8,background:"#F9FAFB",border:"0.5px solid #E5E7EB",marginBottom:16,fontSize:12}}>
+                <label style={{display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer"}}>
+                  <input
+                    type="checkbox"
+                    checked={isMyDefault}
+                    onChange={()=>onToggleMyDefault(isMyDefault ? null : project.id)}
+                    style={{marginTop:3,cursor:"pointer",flexShrink:0}}
+                  />
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:"#111827"}}>📌 Proyecto por defecto para tus tareas nuevas</div>
+                    <div style={{fontSize:11,color:"#6B7280",marginTop:2,lineHeight:1.5}}>
+                      Cada usuario tiene el suyo. Solo afecta a las tareas que crees tú sin elegir destino.
+                      {otherDefault && (
+                        <> Marcar este sustituirá al actual: <b>{otherDefault.name}</b>.</>
+                      )}
+                      {isMyDefault && (
+                        <> <span style={{color:"#1D9E75",fontWeight:600}}>(Tu defecto actual)</span></>
+                      )}
+                    </div>
+                  </div>
+                </label>
+              </div>
+            );
+          })()}
           {isEdit && owner && (
             <div style={{padding:"10px 12px",borderRadius:8,background:"#F9FAFB",border:"0.5px solid #E5E7EB",marginBottom:16,fontSize:12}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
@@ -6602,7 +6671,7 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
 }
 
 // ── Projects Home View ────────────────────────────────────────────────────────
-function ProjectsView({projects,members,boards,currentMember,onSelectProject,onCreateProject,onEditProject,onDeleteProject,onArchiveProject,onUnarchiveProject,favoriteProjectIds=[],onToggleFavorite}){
+function ProjectsView({projects,members,boards,currentMember,myDefaultProjectId=null,onSelectProject,onCreateProject,onEditProject,onDeleteProject,onArchiveProject,onUnarchiveProject,favoriteProjectIds=[],onToggleFavorite}){
   const total=pid=>(boards[pid]||[]).flatMap(c=>c.tasks).length;
   const done=pid=>(boards[pid]||[]).filter(c=>c.name==="Hecho").flatMap(c=>c.tasks).length;
   const [pendingDel,setPendingDel]=useState(null);
@@ -6704,6 +6773,7 @@ function ProjectsView({projects,members,boards,currentMember,onSelectProject,onC
                     <RefBadge code={p.code}/>
                     <span title={visTitle} style={{fontSize:13,lineHeight:1}}>{visIcon}</span>
                     {isMine && <span title="Eres el owner de este proyecto" style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:10,background:"#1D9E7518",color:"#0E7C5A",border:"0.5px solid #1D9E7555",textTransform:"uppercase",letterSpacing:"0.04em"}}>Tuyo</span>}
+                    {myDefaultProjectId === p.id && <span title="Tu proyecto por defecto para tareas nuevas (solo tú lo ves marcado)" style={{fontSize:11,lineHeight:1}}>📌</span>}
                     {readOnly && <span title="Solo puedes ver este proyecto" style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:10,background:"#F3F4F6",color:"#6B7280",border:"0.5px solid #D1D5DB",textTransform:"uppercase",letterSpacing:"0.04em"}}>Solo lectura</span>}
                     {/* Chip de categoría — visible siempre que el proyecto
                         tenga una. "Sin categorizar" no se chip-ea (sería ruido). */}
@@ -12204,7 +12274,15 @@ export default function TaskFlow(){
   // como fallback inerte: esos callbacks NO disparan sin la UI del board,
   // que a su vez solo se monta tras una selección explícita.
   const hasSelectedProject = activeProject != null && !!data.projects[activeProject];
-  const proj  = hasSelectedProject ? data.projects[activeProject] : data.projects[0];
+  // `proj` mantiene el fallback INERTE histórico (commit 5f184e3) — vive
+  // como ancla de deps de useCallback y para derivaciones de board que
+  // requieren *alguna* referencia incluso sin selección visible. NO usar
+  // `proj` como destino de tareas nuevas: si hay fallback inerte, las
+  // tareas acaban en data.projects[0] (Marbella Club fantasma).
+  // `selectedProj` es la fuente de verdad para flujos de CREACIÓN: null
+  // si el usuario NO ha seleccionado proyecto activamente.
+  const proj         = hasSelectedProject ? data.projects[activeProject] : data.projects[0];
+  const selectedProj = hasSelectedProject ? data.projects[activeProject] : null;
   // Tablero derivado: incluye tareas vinculadas desde otros proyectos cuyo
   // linkedProjects incluya este proyecto. Se mapean a la columna que
   // coincida por nombre con la columna primaria de la tarea; si no hay
@@ -12245,12 +12323,22 @@ export default function TaskFlow(){
   // Acciones rápidas del Command Palette.
   const paletteActions = React.useMemo(()=>[
     { id:"new-task", icon:"➕", label:"Crear nueva tarea", shortcut:"", run:()=>{
-        const colId=board[0]?.id; if(!colId) return;
+        // Destino: selección activa > defecto del usuario > forzar elegir.
+        // NUNCA caer a data.projects[0] (Marbella Club fantasma).
+        const target = selectedProj || resolveMyDefaultProject(data, activeMember);
+        if (!target) {
+          addToast("Elige un proyecto en Proyectos o marca uno como tu predeterminado.", "info");
+          setActiveTab("projects");
+          return;
+        }
+        const colsTarget = data.boards[target.id] || [];
+        const colId = colsTarget[0]?.id;
+        if(!colId){ addToast("⚠ El proyecto no tiene columnas","error"); return; }
         const id=_uid("t");
         setData(prev=>{
           const nt={id,title:"Nueva tarea",tags:[],assignees:[activeMember],priority:"media",startDate:fmt(new Date()),dueDate:"",estimatedHours:0,timeLogs:[],desc:"",comments:[],subtasks:[],links:[],agentIds:[]};
-          const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:[...col.tasks,nt]}:col);
-          return{...prev,boards:{...prev.boards,[proj.id]:cols}};
+          const cols=prev.boards[target.id].map(col=>col.id===colId?{...col,tasks:[...col.tasks,nt]}:col);
+          return{...prev,boards:{...prev.boards,[target.id]:cols}};
         });
         setActiveTab("board");
         setPendingOpenTaskId(id);
@@ -12264,20 +12352,30 @@ export default function TaskFlow(){
     { id:"alerts",      icon:"🔔", label:"Ver alertas",        shortcut:"",    run:()=>setShowAlerts(true) },
     { id:"change-user", icon:"🔄", label:"Cambiar usuario",    shortcut:"",    run:()=>changeUser() },
     { id:"logout",      icon:"🚪", label:"Cerrar sesión",      shortcut:"",    run:()=>logoutTemp() },
-  ],[proj.id,board,activeMember,addToast,changeUser,logoutTemp]);
+  ],[selectedProj,data,activeMember,addToast,changeUser,logoutTemp]);
 
   // Handlers para el dropdown "Nueva ▾" del TopBar. Reusan flujos existentes.
   const handleNuevaTarea = useCallback(()=>{
-    const colId=board[0]?.id; if(!colId){ addToast("⚠ Sin tablero activo","error"); return; }
+    // Destino: selección activa > defecto del usuario > forzar elegir.
+    // NUNCA caer a data.projects[0] (Marbella Club fantasma).
+    const target = selectedProj || resolveMyDefaultProject(data, activeMember);
+    if (!target) {
+      addToast("Elige un proyecto en Proyectos o marca uno como tu predeterminado.", "info");
+      setActiveTab("projects");
+      return;
+    }
+    const cols = data.boards[target.id] || [];
+    const colId = cols[0]?.id;
+    if(!colId){ addToast("⚠ El proyecto no tiene columnas","error"); return; }
     const id=_uid("t");
     setData(prev=>{
       const nt={id,title:"Nueva tarea",tags:[],assignees:[activeMember],priority:"media",startDate:fmt(new Date()),dueDate:"",estimatedHours:0,timeLogs:[],desc:"",comments:[],subtasks:[],links:[],agentIds:[],refs:[]};
-      const cols=prev.boards[proj.id].map(col=>col.id===colId?{...col,tasks:[...col.tasks,nt]}:col);
-      return{...prev,boards:{...prev.boards,[proj.id]:cols}};
+      const cols=prev.boards[target.id].map(col=>col.id===colId?{...col,tasks:[...col.tasks,nt]}:col);
+      return{...prev,boards:{...prev.boards,[target.id]:cols}};
     });
     setOverlayTaskId(id);
     addToast("✓ Tarea creada — edítala en el modal");
-  },[proj.id,board,activeMember,addToast]);
+  },[selectedProj,data,activeMember,addToast]);
   const handleNuevaStakeholder = useCallback(()=>{
     if(!activeNegId){
       setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null);
@@ -12751,6 +12849,26 @@ export default function TaskFlow(){
   // admin) para un miembro y un feature. Implica jerarquía: edit→view,
   // admin→edit→view (al activar admin, los inferiores quedan true).
   // Solo admin global debería poder llamarlo (gate en la UI).
+  // Fija (o limpia) el proyecto por defecto del USUARIO ACTIVO. Per
+  // usuario: cada miembro tiene el suyo. Pasar null lo desactiva — la
+  // próxima tarea sin selección obliga a elegir. Si llega un id de
+  // proyecto que ya no existe o está archivado, el helper
+  // resolveMyDefaultProject lo neutralizará al leerlo; pero aceptamos
+  // el set por si el caller sabe lo que hace (p.ej. al guardar antes de
+  // archivar).
+  const setMyDefaultTaskProject = useCallback((projId)=>{
+    setData(prev=>{
+      const perms = {...(prev.permissions||{})};
+      const my   = {...(perms[activeMember]||{})};
+      my.defaultTaskProjectId = (typeof projId === "number") ? projId : null;
+      perms[activeMember] = my;
+      return {...prev, permissions: perms};
+    });
+    addToast(projId
+      ? "📌 Proyecto por defecto fijado (solo para ti)"
+      : "Proyecto por defecto desactivado");
+  },[activeMember, addToast]);
+
   const setMemberPermission = useCallback((memberId, feature, level, value)=>{
     setData(prev=>{
       const perms = {...(prev.permissions||{})};
@@ -15247,7 +15365,7 @@ Estructura recomendada de una respuesta con documento:
         <div style={{flex:1,overflow:"auto"}}>
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} isAdmin={isAdmin} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)} onUnarchiveTask={unarchiveTaskAnywhere}/>}
-          {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)} onMoveTask={moveTaskAnywhere} onCreateTask={(pid,payload)=>addTaskToProject(pid,payload)}/>}
+          {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} defaultProjectId={resolveMyDefaultProject(data, activeMember)?.id ?? null} onNavigateProjects={()=>setActiveTab("projects")} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)} onMoveTask={moveTaskAnywhere} onCreateTask={(pid,payload)=>addTaskToProject(pid,payload)}/>}
           {activeTab==="consejo"   &&<ConsejoView currentMember={(data.members||[]).find(m=>m.id===activeMember)} permissions={data.permissions} onCallMario={callMarioDirect} onCallJorge={callJorgeDirect} onCallAlvaro={callAlvaroDirect} onNavigate={id=>setActiveTab(id)} pendingDerivation={pendingDerivation} onSetPendingDerivation={setPendingDerivation} onBridgeToHector={(payload)=>{setPendingExecBridge(payload);setActiveTab("hector-direct");}} negTargets={consejoNegTargets} taskTargets={consejoTaskTargets} onSaveCouncilDocument={saveCouncilDocument}/>}
           {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
           {activeTab==="memory"    &&<MemoryPanel ceoMemory={data.ceoMemory} onAddCeo={addCeoMemoryItems} onRemoveCeo={removeCeoMemoryItem} onAddNeg={addNegMemoryItems} onRemoveNeg={removeNegMemoryItem}/>}
@@ -15337,7 +15455,7 @@ Estructura recomendada de una respuesta con documento:
           {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext} pendingExecBridge={pendingExecBridge} onConsumePendingExecBridge={()=>setPendingExecBridge(null)}/>}
           {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} authSession={authSession} onNavigate={setActiveTab} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onApplyTaskChanges={applyTaskChanges} onOpenNegotiation={openNegotiationById} onOpenProject={pid=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); } }} onToggleFavorite={toggleFavoriteProject} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
-          {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} favoriteProjectIds={data.favoriteProjectIds||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject} onArchiveProject={archiveProject} onUnarchiveProject={unarchiveProject} onToggleFavorite={toggleFavoriteProject}/>}
+          {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} favoriteProjectIds={data.favoriteProjectIds||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} myDefaultProjectId={resolveMyDefaultProject(data, activeMember)?.id ?? null} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject} onArchiveProject={archiveProject} onUnarchiveProject={unarchiveProject} onToggleFavorite={toggleFavoriteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission} onSetAgentPermission={setMemberAgentPermission}/>}
           {activeTab==="mantenimiento" && <MantenimientoView authUid={authSession?.user?.id || null}/>}
           {activeTab==="finance"   &&(()=>{
@@ -15385,7 +15503,7 @@ Estructura recomendada de una respuesta con documento:
       <Toast toasts={toasts}/>
       {profileMember&&<ProfileModal member={profileMember} onClose={()=>setPM(null)} onSave={avail=>{saveMemberProfile(profileMember.id,avail);setPM(null);}}/>}
       {projectModal==="create"&&<ProjectModal members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setProjModal(null)} onSave={createProject}/>}
-      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} currentMember={(data.members||[]).find(m=>m.id===activeMember)} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)} onTransferOwnership={transferProjectOwnership} onDelete={()=>{ deleteProject(projectModal); setProjModal(null); }} onArchive={()=>{ archiveProject(projectModal); setProjModal(null); }} onUnarchive={()=>{ unarchiveProject(projectModal); setProjModal(null); }}/>}
+      {typeof projectModal==="number"&&<ProjectModal project={data.projects[projectModal]} members={data.members} workspaces={data.workspaces||[]} allProjects={data.projects} currentMember={(data.members||[]).find(m=>m.id===activeMember)} myDefaultProjectId={data.permissions?.[activeMember]?.defaultTaskProjectId ?? null} onToggleMyDefault={setMyDefaultTaskProject} onClose={()=>setProjModal(null)} onSave={d=>editProject(projectModal,d)} onTransferOwnership={transferProjectOwnership} onDelete={()=>{ deleteProject(projectModal); setProjModal(null); }} onArchive={()=>{ archiveProject(projectModal); setProjModal(null); }} onUnarchive={()=>{ unarchiveProject(projectModal); setProjModal(null); }}/>}
       {memberModal==="create"&&<MemberEditModal allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={createMember}/>}
       {memberModal&&memberModal!=="create"&&<MemberEditModal member={memberModal} allMembers={data.members} onClose={()=>setMemberModal(null)} onSave={d=>updateMember(d,memberModal.id)} onDelete={id=>{deleteMember(id);setMemberModal(null);}}/>}
       {agentModal==="create"&&<AgentEditModal onClose={()=>setAgentModal(null)} onSave={createAgent}/>}

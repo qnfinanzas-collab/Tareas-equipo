@@ -131,9 +131,18 @@ function dateNavBtnStyle(disabled) {
 // solo título no vacío; el resto tiene defaults razonables (60m, alta,
 // proyecto = primero disponible si "Personal / Sin proyecto"). Submit
 // dispara onSubmit(); el caller llama a onCreateTask y cierra.
-function CreateForm({ draft, setDraft, availableProjects, onSubmit, onCancel }) {
+function CreateForm({ draft, setDraft, availableProjects, defaultProjectId, onSubmit, onCancel, onNavigateProjects }) {
   if (!draft) return null;
-  const canSubmit = (draft.title || "").trim().length > 0 && availableProjects.length > 0;
+  // Para guardar requerimos: título no vacío Y projId explícito. El
+  // dropdown ya no muestra "Personal / Sin proyecto" — si el usuario no
+  // ha configurado su defecto, debe elegir uno. Esto cierra el bug
+  // histórico de tareas que caían a data.projects[0] (Marbella Club).
+  const canSubmit = (draft.title || "").trim().length > 0
+                 && availableProjects.length > 0
+                 && !!draft.projId;
+  const defaultProj = defaultProjectId != null
+    ? availableProjects.find(p => p.id === defaultProjectId)
+    : null;
   return (
     <div style={{
       background: C.borderSoft, padding: 12, border: `0.5px solid ${C.border}`,
@@ -203,31 +212,56 @@ function CreateForm({ draft, setDraft, availableProjects, onSubmit, onCancel }) 
         </label>
         <label style={fieldLabelStyle}>
           <span>Proyecto</span>
+          {/* Sin defecto: primera opción es un placeholder deshabilitado
+              que obliga a elegir; sin elección, el botón Crear queda
+              deshabilitado (canSubmit). Con defecto: dropdown se pre-elige
+              con el proyecto-defecto y se ve con sufijo "· por defecto".
+              Cero fallback silencioso. */}
           <select
             value={draft.projId}
             onChange={e => setDraft(d => ({ ...d, projId: e.target.value }))}
             style={fieldInputStyle}
           >
-            <option value="">🪪 Personal / Sin proyecto</option>
+            {!draft.projId && <option value="" disabled>— Elige proyecto —</option>}
             {availableProjects.map(p => (
               <option key={p.id} value={p.id}>
                 {p.emoji || "📋"} {p.name}{p.code ? ` [${p.code}]` : ""}
+                {defaultProj && p.id === defaultProj.id ? " · por defecto" : ""}
               </option>
             ))}
           </select>
         </label>
       </div>
-      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-        <button onClick={onCancel} style={btnStyle()}>Cancelar</button>
-        <button
-          onClick={onSubmit}
-          disabled={!canSubmit}
-          style={{
-            ...btnStyle(C.gold, true),
-            opacity: canSubmit ? 1 : 0.5,
-            cursor: canSubmit ? "pointer" : "not-allowed",
-          }}
-        >Crear</button>
+      <div style={{ display: "flex", gap: 6, justifyContent: "space-between", alignItems: "center", flexWrap: "wrap" }}>
+        {/* Hint sutil: si NO hay proyecto-defecto del usuario, sugerir
+            configurar uno en Proyectos para que la próxima vez salga
+            pre-elegido. Si hay defecto, no añadimos ruido. */}
+        {!defaultProj && onNavigateProjects ? (
+          <button
+            onClick={() => onNavigateProjects()}
+            style={{
+              ...btnStyle(),
+              fontSize: 10,
+              padding: "3px 8px",
+              color: C.textTertiary,
+              border: "none",
+              textDecoration: "underline",
+              fontStyle: "italic",
+            }}
+          >Configurar mi proyecto por defecto</button>
+        ) : <span/>}
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={onCancel} style={btnStyle()}>Cancelar</button>
+          <button
+            onClick={onSubmit}
+            disabled={!canSubmit}
+            style={{
+              ...btnStyle(C.gold, true),
+              opacity: canSubmit ? 1 : 0.5,
+              cursor: canSubmit ? "pointer" : "not-allowed",
+            }}
+          >Crear</button>
+        </div>
       </div>
     </div>
   );
@@ -240,22 +274,18 @@ function CreateForm({ draft, setDraft, availableProjects, onSubmit, onCancel }) 
 // se actualizan igual.
 const STATUS_OPTIONS = ["Por hacer", "En progreso", "Hecho"];
 
-// Selección del proyecto destino cuando el CEO elige "Personal / Sin
-// proyecto". Buscamos uno con nombre o code que empiece por "personal"
-// / "per" / "prs"; si no existe, caemos al primero no archivado. Si la
-// lista está vacía, el submit aborta con warn — sin proyecto no hay
-// dónde guardar la tarea (no existen tasks huérfanas en este schema).
-function findPersonalProject(projects) {
-  if (!Array.isArray(projects) || projects.length === 0) return null;
-  return projects.find(p => /^personal/i.test(p?.name || "")
-                          || /^(per|prs)$/i.test(p?.code || ""))
-       || projects[0]
-       || null;
-}
+// findPersonalProject ELIMINADO. Antes resolvía "Personal / Sin proyecto"
+// cayendo en último término a projects[0] — origen del bug histórico
+// "tareas en Marbella Club". Sustituido por:
+//   - dropdown que muestra el defaultProjectId del usuario pre-elegido,
+//   - "Crear" deshabilitado si no hay proyecto explícito,
+//   - link "Configurar mi proyecto por defecto" → navegación a Proyectos.
 
 export default function MiDiaView({
   data,
   activeMember,
+  defaultProjectId = null,
+  onNavigateProjects,
   onOpenTask,
   onCompleteTask,
   onArchiveTask,
@@ -287,7 +317,13 @@ export default function MiDiaView({
       dueTime: `${String(h).padStart(2, "0")}:00`,
       duration_minutes: 60,
       priority: "alta",
-      projId: "",
+      // Pre-elegir el proyecto-defecto del USUARIO si existe y sigue
+      // disponible (no archivado). Si no, dropdown vacío que obliga a
+      // elegir explícitamente.
+      projId: (defaultProjectId != null
+              && availableProjects.some(p => p.id === defaultProjectId))
+        ? String(defaultProjectId)
+        : "",
     });
     setEditingId(null);
     setEditDraft(null);
@@ -297,15 +333,13 @@ export default function MiDiaView({
   const closeCreate = () => { setCreateHour(null); setCreateDraft(null); };
   const submitCreate = () => {
     if (!createDraft || !createDraft.title.trim() || !onCreateTask) { closeCreate(); return; }
-    let targetProjId = createDraft.projId ? Number(createDraft.projId) : null;
+    // Proyecto obligatorio. Sin elección explícita no se crea — el
+    // botón "Crear" ya está disabled vía canSubmit en CreateForm, esto
+    // es defensa adicional. Cero fallback silencioso a projects[0].
+    const targetProjId = createDraft.projId ? Number(createDraft.projId) : null;
     if (!targetProjId) {
-      const def = findPersonalProject(availableProjects);
-      if (!def) {
-        console.warn("[MiDiaView] No hay proyecto disponible para crear la tarea");
-        closeCreate();
-        return;
-      }
-      targetProjId = def.id;
+      console.warn("[MiDiaView] submitCreate sin projId — se aborta (sin fallback silencioso)");
+      return;
     }
     const dayIso = tab === "dia" ? selectedDate : todayISO();
     // Nueva tarea nace con startDate Y dueDate alineados al día visible.
@@ -712,8 +746,10 @@ export default function MiDiaView({
                         draft={createDraft}
                         setDraft={setCreateDraft}
                         availableProjects={availableProjects}
+                        defaultProjectId={defaultProjectId}
                         onSubmit={submitCreate}
                         onCancel={closeCreate}
+                        onNavigateProjects={onNavigateProjects}
                       />
                     : (slotTasks.length === 0 && onCreateTask && (
                         <button
