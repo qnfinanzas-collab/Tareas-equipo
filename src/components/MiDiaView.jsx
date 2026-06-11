@@ -152,6 +152,23 @@ function CreateForm({ draft, setDraft, availableProjects, onSubmit, onCancel }) 
           style={{ ...fieldInputStyle, fontSize: 13 }}
         />
       </label>
+      {/* Descripción: textarea plano multilínea. Se guarda en
+          task.desc (campo canónico del schema — verificado en TaskModal,
+          INITIAL_DATA y addTaskToProject). Enter dentro del textarea
+          hace salto de línea por defecto, NO submit — coherente con la
+          expectativa de un campo de texto largo. Escape no cancela aquí
+          a propósito: si el CEO está escribiendo un párrafo, no quiero
+          que la tecla Escape pierda su texto. Cancelar = botón. */}
+      <label style={fieldLabelStyle}>
+        <span>Descripción</span>
+        <textarea
+          rows={2}
+          value={draft.desc || ""}
+          onChange={e => setDraft(d => ({ ...d, desc: e.target.value }))}
+          placeholder="Opcional · contexto, detalles, recordatorios"
+          style={{ ...fieldInputStyle, fontSize: 13, resize: "vertical", lineHeight: 1.5, boxSizing: "border-box", width: "100%" }}
+        />
+      </label>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <label style={fieldLabelStyle}>
           <span>Hora inicio</span>
@@ -266,6 +283,7 @@ export default function MiDiaView({
     setCreateHour(h);
     setCreateDraft({
       title: "",
+      desc: "",
       dueTime: `${String(h).padStart(2, "0")}:00`,
       duration_minutes: 60,
       priority: "alta",
@@ -297,6 +315,10 @@ export default function MiDiaView({
     // concepto tarea/evento, dueDate puede diverger libremente.
     onCreateTask(targetProjId, {
       title: createDraft.title.trim(),
+      // Descripción: se persiste en task.desc (campo canónico, ver
+      // App.jsx addTaskToProject que lee payload.desc). Trim para no
+      // grabar espacios sueltos cuando el CEO escribe y borra.
+      desc: (createDraft.desc || "").trim(),
       priority: createDraft.priority,
       startDate: dayIso,
       dueDate: dayIso,
