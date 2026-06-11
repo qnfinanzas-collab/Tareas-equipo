@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "smoke:prod": "node scripts/smoke_prod_sanity.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.0",
