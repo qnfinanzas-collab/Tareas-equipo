@@ -478,6 +478,18 @@ export function resolveDueDate(relative) {
   if (!s) return null;
   // Ya es ISO o YYYY-MM-DD → devolvemos tal cual
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s;
+  // Aliases naturales del español. Solo "hoy" y "mañana" — los más
+  // seguros. Para días concretos ("viernes"), el LLM debe emitir ISO
+  // directamente usando el dateContext que recibe.
+  const lower = s.toLowerCase();
+  if (lower === "hoy" || lower === "today") {
+    return new Date().toISOString().slice(0, 10);
+  }
+  if (lower === "mañana" || lower === "manana" || lower === "tomorrow") {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }
   const match = s.match(/^\+?(\d+)([dhm])$/i);
   if (!match) return s;
   const num = parseInt(match[1], 10);
@@ -687,11 +699,19 @@ export function executeAgentActions(actions, helpers) {
           let count = 0;
           for (const task of (action.tasks || [])) {
             const memberIds = resolveAssignees(task.assignees || ["admin"], allMembers, adminMemberId);
+            // startDate: cuándo se ATACA (ancla de Mi Día). Si el LLM
+            // no lo emite, addTaskToProject cae a hoy.
+            // dueTime: hora de inicio "HH:MM" — Mi Día la coloca en su
+            // franja horaria. Sin ella, la tarea cae en "Sin hora
+            // asignada", que es el caso por defecto si el CEO no la
+            // especificó (no inventamos hora).
             addTaskToProject?.(project.id, {
               title: task.title,
               desc: task.description || "",
               priority: task.priority || "media",
-              dueDate: resolveDueDate(task.dueDate),
+              startDate: resolveDueDate(task.startDate),
+              dueDate:   resolveDueDate(task.dueDate),
+              dueTime:   typeof task.startTime === "string" ? task.startTime : "",
               assignees: memberIds,
               tags: (task.tags || []).map(l => ({ l, c: "purple" })),
               timeline: makeAgentTimelineEntry(action._agentName),
@@ -1032,11 +1052,25 @@ PERFIL CEO:
 Antonio Díaz · CEO ALMA DIMO INVESTMENTS S.L.
 Visionario digital desde 1998. Ha liderado equipos de diseño, marketing, programación, finanzas y ventas. Comunicación directa · opciones concretas · impacto de negocio · móvil primero · tiempo es el activo real. En documentos legales es SIEMPRE la parte principal.
 
-CAPACIDAD DE EJECUCIÓN (ACTIONS_v10):
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v12):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
-Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),dueDate("+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode (string, un solo proyecto, formato viejo),linkedProjectCodes (array de codes, para vincular varios proyectos; el primer code del array se considera "principal" y los demás "relacionado". Usar este campo cuando el CEO pida vincular más de un proyecto a la negociación)}; "create_tasks" {projectCode,tasks:[...]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario).
+Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode (string, un solo proyecto, formato viejo),linkedProjectCodes (array de codes, para vincular varios proyectos; el primer code del array se considera "principal" y los demás "relacionado". Usar este campo cuando el CEO pida vincular más de un proyecto a la negociación)}; "create_tasks" {projectCode,tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags}]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario).
+
+SEMÁNTICA TEMPORAL DE TAREAS · MI DÍA (importante):
+- startDate = "cuándo se ATACA la tarea" (en qué día aparece en Mi Día).
+- startTime = "a qué hora del día" (formato 24h "HH:MM"). Si el CEO dice "a las 12" o "12:00", emítelo. Sin él, la tarea cae en "Sin hora asignada" de Mi Día.
+- dueDate   = "cuándo VENCE" (fecha límite si la hay).
+Cuando el CEO pide una fecha o una hora concreta:
+- "para el viernes a las 12" → startDate="viernes en ISO", startTime="12:00", dueDate se OMITE.
+- "para mañana a las 9 de la mañana" → startDate="mañana", startTime="09:00".
+- "para hoy" / "para Mi Día" → startDate="hoy"; startTime se OMITE (cae en "Sin hora asignada", que es lo correcto cuando no se especifica franja).
+- Solo plazo ("antes del viernes" sin decir cuándo) → solo dueDate; startDate/startTime se omiten.
+Formato startDate: "hoy", "mañana", "+Nd", o YYYY-MM-DD. Para días concretos como "viernes" o "20 de junio", calcula la fecha exacta en ISO usando el dateContext [Hoy es ...] que recibes en el user prompt.
+Formato startTime: "HH:MM" (24h). "a las 12" → "12:00". "a las 9 de la mañana" → "09:00". "a las 9 de la tarde" → "21:00".
+
+PRIORIDAD POR DEFECTO: si el CEO no la indica, usa "media". Reserva "alta" solo para urgencia explícita ("urgente", "crítico", "ya", "antes de X", "prioridad alta"). "baja" solo si el CEO lo dice.
 
 Reglas: solo cuando lo pidan explícitamente, NUNCA en análisis ni consultas. El bloque se OCULTA del CEO. Tu prosa va ANTES del bloque.
 

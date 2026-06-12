@@ -197,8 +197,20 @@ export default function ChatBubble({
             agentEmoji="🧙"
             color={C.brand}
             onConfirm={async (selected) => {
-              await onRunAgentActions(selected);
-              onConfirmProposal?.(selected);
+              // runAgentActions devuelve {results}. Solo marcamos la
+              // propuesta como ejecutada si HUBO al menos un éxito
+              // real. Antes (commit revertido) se marcaba siempre,
+              // incluso cuando el ejecutor abortaba con error visible
+              // — Héctor en el siguiente turno asumía que la tarea
+              // estaba creada cuando no lo estaba (alucinación grave).
+              const out = await onRunAgentActions(selected);
+              const ok = Array.isArray(out?.results)
+                && out.results.some(r => r && r.type && r.type !== "error");
+              if (ok) {
+                onConfirmProposal?.(selected);
+              } else {
+                onDiscardProposal?.();
+              }
             }}
             onCancel={onDiscardProposal}
           />

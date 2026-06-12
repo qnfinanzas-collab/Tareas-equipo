@@ -1065,14 +1065,14 @@ function _migrate(d){
   // "PERFIL CEO:" o "CAPACIDAD DE EJECUCIÓN" según versión previa.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v10")) return a;            // ya v10
+    if(a.promptBase.includes("ACTIONS_v12")) return a;            // ya v12
     let cut = a.promptBase;
     if (cut.includes("PERFIL CEO:")) {
       cut = cut.split(/\n+PERFIL CEO:/)[0];
     } else if (cut.includes("CAPACIDAD DE EJECUCIÓN")) {
       cut = cut.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
     } else {
-      // sin addon previo → añadir v10
+      // sin addon previo → añadir v12
       return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
     }
     return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
@@ -14664,13 +14664,20 @@ Estructura recomendada de una respuesta con documento:
       const projObj = prev.projects.find(p => p.id === projId);
       const ref = projObj?.code ? computeNextTaskRef(projObj.code, cols) : null;
       const id = "t" + nextId++;
+      // startDate: si el payload trae ISO YYYY-MM-DD válido, se usa.
+      // Si no (null, "", string raro), default a HOY. Cambio idempotente:
+      // callers manuales (Topbar, Mi Día) que NO pasan startDate siguen
+      // comportándose igual; los que sí lo pasan (Héctor [ACTIONS] tras
+      // este commit) lo respetan.
+      const isValidISODate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+      const resolvedStart = isValidISODate(payload.startDate) ? payload.startDate : fmt(new Date());
       const newTask = {
         id, ref,
         title: payload.title || "Tarea sin título",
         tags: Array.isArray(payload.tags) ? payload.tags : [],
         assignees: Array.isArray(payload.assignees) ? payload.assignees : [],
         priority: payload.priority || "media",
-        startDate: fmt(new Date()),
+        startDate: resolvedStart,
         dueDate: payload.dueDate || "",
         dueTime: typeof payload.dueTime === "string" ? payload.dueTime : "",
         duration_minutes: Number(payload.duration_minutes) > 0 ? Number(payload.duration_minutes) : undefined,
@@ -14785,7 +14792,12 @@ Estructura recomendada de una respuesta con documento:
               title: task.title,
               desc: task.description || "",
               priority: task.priority || "media",
-              dueDate: resolveDueDate(task.dueDate),
+              // startDate: ancla de Mi Día. Si LLM no lo emite, default
+              // a hoy en addTaskToProject. dueTime: hora de inicio para
+              // que la tarea caiga en su franja en Mi Día.
+              startDate: resolveDueDate(task.startDate),
+              dueDate:   resolveDueDate(task.dueDate),
+              dueTime:   typeof task.startTime === "string" ? task.startTime : "",
               assignees: finalAssignees,
               tags: (task.tags || []).map(l => ({ l, c: "purple" })),
               timeline: [{
