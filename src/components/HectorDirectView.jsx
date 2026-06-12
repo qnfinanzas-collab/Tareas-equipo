@@ -664,7 +664,7 @@ Reglas:
         : stripCeoProfile(hector?.promptBase);
       const baseSystem = (isOwner ? ceoBlock : memberBlock) + (hectorPromptBase
         ? hectorPromptBase + "\n\n" + PLAIN_TEXT_RULE
-        : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE)
+        : "Eres Héctor, Jefe de Gabinete estratégico. " + PLAIN_TEXT_RULE)
         + memBlockFormatted
         + membersBlock + urgentBlock + projBlock + negBlock + finBlockGated + govBlockGated + tasksListBlock;
       // Convertimos el historial a la forma que espera la API.
@@ -1123,7 +1123,7 @@ Reglas:
           // diferenciar microcopy más adelante.
           const isRedaccion = inv.key === "mario" && REDACCION_KEYS.some(k => taskLow.includes(k));
           const timeoutMs = 180000;
-          const userPrompt = `TAREA QUE TE ENCARGA HÉCTOR (Chief of Staff):\n${inv.task}\n\nResponde con la información concreta que pide. Sin disclaimers extensos. Frases claras y accionables.`;
+          const userPrompt = `TAREA QUE TE ENCARGA HÉCTOR (Jefe de Gabinete):\n${inv.task}\n\nResponde con la información concreta que pide. Sin disclaimers extensos. Frases claras y accionables.`;
           // Anti-truncado (mismo patrón que el send principal). Las
           // invocaciones a especialistas pueden producir respuestas largas
           // (Mario redactando contrato, Jorge tablas financieras). Sube a
@@ -1245,7 +1245,7 @@ Reglas:
             </div>
           </div>
         </div>
-        <div style={{ fontSize: 12, color: C.textTertiary, fontWeight: 500 }}>Chief of Staff</div>
+        <div style={{ fontSize: 12, color: C.textTertiary, fontWeight: 500 }}>Jefe de Gabinete</div>
       </div>
 
       {/* ZONA 1b — LINK SALA DE MANDO. Acceso discreto al panel completo

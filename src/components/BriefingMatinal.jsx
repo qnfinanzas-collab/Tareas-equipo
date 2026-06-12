@@ -32,7 +32,7 @@ export default function BriefingMatinal({ user, data, onClose }) {
         const hectorAgent = (data.agents || []).find(a => a.name === "Héctor");
         const baseSystem = hectorAgent?.promptBase
           ? hectorAgent.promptBase + "\n\n" + PLAIN_TEXT_RULE
-          : "Eres Héctor, Chief of Staff estratégico. Briefing matinal corto, directo, accionable. " + PLAIN_TEXT_RULE;
+          : "Eres Héctor, Jefe de Gabinete estratégico. Briefing matinal corto, directo, accionable. " + PLAIN_TEXT_RULE;
         const system = baseSystem + "\n\nIMPORTANTE: responde texto plano sin markdown, máximo 5 frases, en castellano.";
         const prompt = `Genera un briefing matinal para ${user.name || "el CEO"} (${today}).\n\nTareas pendientes top (orden por urgencia):\n${top.map(t => `- ${t.ref || ""} ${t.title} · ${t.project} · ${t.dueDate ? `vence ${t.dueDate}${t.days < 0 ? ` (vencida ${-t.days}d)` : t.days === 0 ? " (hoy)" : ` (en ${t.days}d)`}` : "sin fecha"} · prio ${t.priority || "media"}`).join("\n") || "(sin tareas pendientes)"}\n\nFormato exacto:\n1. Una frase de saludo breve (sin "Buenos días" genérico — algo concreto del día).\n2. Las 3 tareas más críticas resumidas en 1 frase cada una.\n3. Una pregunta de coaching abierta para activar el día (ej: "¿Qué impacto buscas hoy?").\n\nSin listas con guiones ni markdown. Frases separadas por saltos de línea simples.`;
         const r = await fetch("/api/agent", {

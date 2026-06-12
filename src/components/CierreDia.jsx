@@ -36,7 +36,7 @@ export default function CierreDia({ user, data, onClose }) {
         const hectorAgent = (data.agents || []).find(a => a.name === "Héctor");
         const baseSystem = hectorAgent?.promptBase
           ? hectorAgent.promptBase + "\n\n" + PLAIN_TEXT_RULE
-          : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE;
+          : "Eres Héctor, Jefe de Gabinete estratégico. " + PLAIN_TEXT_RULE;
         const system = baseSystem + "\n\nIMPORTANTE: responde texto plano sin markdown, exactamente 2-3 frases.";
         const doneList = summary.doneToday.slice(0, 8).map(t => `- ${t.ref || ""} ${t.title} (${t.projName})`).join("\n") || "(ninguna)";
         const carryList = [...summary.overdueOpen, ...summary.dueTodayOpen].slice(0, 8).map(t => `- ${t.ref || ""} ${t.title} (vence ${t.dueDate})`).join("\n") || "(ninguna)";

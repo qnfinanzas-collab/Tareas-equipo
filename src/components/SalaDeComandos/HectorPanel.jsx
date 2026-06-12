@@ -867,7 +867,7 @@ export default function HectorPanel({
       const promptBaseNoActions = promptBaseStripped.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
       const baseSystem = promptBaseNoActions
         ? promptBaseNoActions + "\n\n" + PLAIN_TEXT_RULE
-        : "Eres Héctor, Chief of Staff estratégico. Conciso, directo, accionable. " + PLAIN_TEXT_RULE;
+        : "Eres Héctor, Jefe de Gabinete estratégico. Conciso, directo, accionable. " + PLAIN_TEXT_RULE;
       // GATE privacidad: ceoMemory solo si owner.
       const memBlock = isOwner ? formatCeoMemoryForPrompt(mem) : "";
       // Detecta skills relevantes a partir de títulos de tareas activas,
@@ -1263,7 +1263,7 @@ Reglas:
       const _promptBase = isOwner ? ag?.promptBase : stripCeoProfile(ag?.promptBase);
       const baseSystem = _promptBase
         ? _promptBase + "\n\n" + PLAIN_TEXT_RULE
-        : "Eres Héctor, Chief of Staff estratégico. " + PLAIN_TEXT_RULE;
+        : "Eres Héctor, Jefe de Gabinete estratégico. " + PLAIN_TEXT_RULE;
       // GATE privacidad: ceoMemory solo si owner.
       const memBlock = isOwner ? formatCeoMemoryForPrompt(mem) : "";
       // Skills detectados a partir del mensaje del CEO + última recomendación
@@ -2794,7 +2794,7 @@ Reglas para block_task:
                           flexShrink: 0,
                         }}>H</div>
                         <span style={{ fontSize: 11, fontWeight: 500, color: "#1A1A1A", letterSpacing: "0.02em" }}>
-                          Héctor · Chief of Staff
+                          Héctor · Jefe de Gabinete
                         </span>
                       </div>
                       <div style={{
