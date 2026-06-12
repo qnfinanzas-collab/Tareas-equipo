@@ -1065,14 +1065,14 @@ function _migrate(d){
   // "PERFIL CEO:" o "CAPACIDAD DE EJECUCIÓN" según versión previa.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v11")) return a;            // ya v11
+    if(a.promptBase.includes("ACTIONS_v10")) return a;            // ya v10
     let cut = a.promptBase;
     if (cut.includes("PERFIL CEO:")) {
       cut = cut.split(/\n+PERFIL CEO:/)[0];
     } else if (cut.includes("CAPACIDAD DE EJECUCIÓN")) {
       cut = cut.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
     } else {
-      // sin addon previo → añadir v11
+      // sin addon previo → añadir v10
       return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
     }
     return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
@@ -14664,20 +14664,13 @@ Estructura recomendada de una respuesta con documento:
       const projObj = prev.projects.find(p => p.id === projId);
       const ref = projObj?.code ? computeNextTaskRef(projObj.code, cols) : null;
       const id = "t" + nextId++;
-      // startDate: si el payload trae un ISO YYYY-MM-DD válido, se usa.
-      // Si no (null, "", string no-ISO), default a HOY. Filtro defensivo
-      // anti-basura: el LLM podría enviar "viernes" sin resolver — en
-      // ese caso resolveDueDate devolvió el string raw y NO queremos
-      // grabarlo. Mejor caer a hoy y que al menos la tarea aparezca.
-      const isValidISODate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
-      const resolvedStart = isValidISODate(payload.startDate) ? payload.startDate : fmt(new Date());
       const newTask = {
         id, ref,
         title: payload.title || "Tarea sin título",
         tags: Array.isArray(payload.tags) ? payload.tags : [],
         assignees: Array.isArray(payload.assignees) ? payload.assignees : [],
         priority: payload.priority || "media",
-        startDate: resolvedStart,
+        startDate: fmt(new Date()),
         dueDate: payload.dueDate || "",
         dueTime: typeof payload.dueTime === "string" ? payload.dueTime : "",
         duration_minutes: Number(payload.duration_minutes) > 0 ? Number(payload.duration_minutes) : undefined,
@@ -14720,11 +14713,6 @@ Estructura recomendada de una respuesta con documento:
       data: d,
       adminMemberId,
       allMembers: d.members || [],
-      // Proyecto por defecto del usuario activo (per-usuario, vivo desde
-      // 189b4c3). El ejecutor lo usa como fallback si el LLM omite
-      // projectCode al crear tareas. Si tampoco hay default → la creación
-      // falla con toast visible, no se cae silenciosamente.
-      defaultTaskProject: resolveMyDefaultProject(d, activeMember),
       createProject,
       addTaskToProject,
       createNegotiation,
@@ -14797,10 +14785,7 @@ Estructura recomendada de una respuesta con documento:
               title: task.title,
               desc: task.description || "",
               priority: task.priority || "media",
-              // startDate: ancla de Mi Día. Si el LLM no lo emitió,
-              // queda null y addTaskToProject cae a hoy.
-              startDate: resolveDueDate(task.startDate),
-              dueDate:   resolveDueDate(task.dueDate),
+              dueDate: resolveDueDate(task.dueDate),
               assignees: finalAssignees,
               tags: (task.tags || []).map(l => ({ l, c: "purple" })),
               timeline: [{

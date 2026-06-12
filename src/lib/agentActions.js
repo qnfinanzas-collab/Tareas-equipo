@@ -478,19 +478,6 @@ export function resolveDueDate(relative) {
   if (!s) return null;
   // Ya es ISO o YYYY-MM-DD → devolvemos tal cual
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s;
-  // Aliases naturales del español. Solo "hoy" y "mañana" — los más
-  // seguros y comunes. Para días concretos ("viernes", "el martes"),
-  // el LLM debe emitir ISO directamente (sabe la fecha actual por el
-  // dateContext inyectado en el user prompt).
-  const lower = s.toLowerCase();
-  if (lower === "hoy" || lower === "today") {
-    return new Date().toISOString().slice(0, 10);
-  }
-  if (lower === "mañana" || lower === "manana" || lower === "tomorrow") {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
-  }
   const match = s.match(/^\+?(\d+)([dhm])$/i);
   if (!match) return s;
   const num = parseInt(match[1], 10);
@@ -690,33 +677,12 @@ export function executeAgentActions(actions, helpers) {
         }
 
         case AGENT_ACTION_TYPES.CREATE_TASKS: {
-          // Resolución de proyecto destino:
-          //   1) Si el LLM emitió projectCode válido → ese.
-          //   2) Si emitió code que NO resuelve → error visible (como
-          //      antes; señal de que el LLM tipeó mal).
-          //   3) Si OMITIÓ projectCode → fallback al proyecto por
-          //      defecto del usuario (helpers.defaultTaskProject).
-          //   4) Si tampoco hay default → error visible, no se crea.
-          let project = findProjectByCode?.(action.projectCode);
+          const project = findProjectByCode?.(action.projectCode);
           if (!project) {
-            if (action.projectCode) {
-              // (2) code emitido pero inválido.
-              console.error("[Executor] Proyecto no encontrado para code:", action.projectCode, "— acción omitida:", action.type);
-              addToast?.(`⚠ Proyecto "${action.projectCode}" no encontrado — tareas no creadas`, "warn");
-              results.push({ type: "error", action: action.type, error: `Proyecto con code ${action.projectCode} no encontrado` });
-              break;
-            }
-            // (3) code omitido → fallback al default del usuario.
-            project = helpers.defaultTaskProject || null;
-            if (!project) {
-              // (4) tampoco hay default.
-              console.warn("[Executor] create_tasks sin projectCode y sin proyecto por defecto del usuario — abortado");
-              addToast?.(`⚠ Sin proyecto y sin proyecto por defecto — tareas no creadas. Marca uno como predeterminado en Proyectos.`, "warn");
-              results.push({ type: "error", action: action.type, error: "Sin projectCode y sin defaultTaskProject" });
-              break;
-            }
-            // Aviso visible para que el CEO sepa dónde acabó la tarea.
-            addToast?.(`📌 Tarea creada en tu proyecto por defecto "${project.name}"`, "info");
+            console.error("[Executor] Proyecto no encontrado para code:", action.projectCode, "— acción omitida:", action.type);
+            addToast?.(`⚠ Proyecto "${action.projectCode}" no encontrado — tareas no creadas`, "warn");
+            results.push({ type: "error", action: action.type, error: `Proyecto con code ${action.projectCode} no encontrado` });
+            break;
           }
           let count = 0;
           for (const task of (action.tasks || [])) {
@@ -725,10 +691,7 @@ export function executeAgentActions(actions, helpers) {
               title: task.title,
               desc: task.description || "",
               priority: task.priority || "media",
-              // startDate: cuándo se ATACA (ancla de Mi Día). Si el LLM
-              // no lo emitió, queda null y addTaskToProject cae a hoy.
-              startDate: resolveDueDate(task.startDate),
-              dueDate:   resolveDueDate(task.dueDate),
+              dueDate: resolveDueDate(task.dueDate),
               assignees: memberIds,
               tags: (task.tags || []).map(l => ({ l, c: "purple" })),
               timeline: makeAgentTimelineEntry(action._agentName),
@@ -1069,27 +1032,11 @@ PERFIL CEO:
 Antonio Díaz · CEO ALMA DIMO INVESTMENTS S.L.
 Visionario digital desde 1998. Ha liderado equipos de diseño, marketing, programación, finanzas y ventas. Comunicación directa · opciones concretas · impacto de negocio · móvil primero · tiempo es el activo real. En documentos legales es SIEMPRE la parte principal.
 
-CAPACIDAD DE EJECUCIÓN (ACTIONS_v11):
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v10):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
-Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode (string, un solo proyecto, formato viejo),linkedProjectCodes (array de codes, para vincular varios proyectos; el primer code del array se considera "principal" y los demás "relacionado". Usar este campo cuando el CEO pida vincular más de un proyecto a la negociación)}; "create_tasks" {projectCode?,tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags}]} — projectCode opcional: si el CEO no menciona proyecto, OMITE este campo y el sistema usará el proyecto por defecto del usuario; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario).
-
-SEMÁNTICA TEMPORAL DE TAREAS · MI DÍA (importante):
-- startDate = "cuándo se ATACA la tarea" (cuándo va a su agenda en Mi Día).
-- dueDate   = "cuándo VENCE" (fecha límite si la hay).
-Cuando el CEO pide una fecha concreta para una tarea ("para el viernes", "el día 20", "mañana", "para hoy", "para Mi Día"), interpreta:
-- Si no menciona vencimiento separado → startDate = ese día, dueDate se OMITE (no inventes un vencimiento).
-- Si menciona vencimiento separado ("hago el viernes, entrega el martes") → startDate = día de ataque, dueDate = día de entrega.
-- "para hoy" / "para Mi Día" / sin fecha → startDate = "hoy"; omite dueDate.
-- Solo plazo ("antes del viernes" sin decir cuándo se ataca) → solo dueDate; startDate se omite y el sistema usa hoy por defecto.
-Formatos aceptados: "hoy", "mañana", "+Nd" (relativo), o YYYY-MM-DD (ISO). Para días concretos como "viernes" o "el 20 de junio", calcula la fecha exacta en ISO usando el dateContext [Hoy es ...] que recibes en el user prompt.
-
-PRIORIDAD POR DEFECTO: si el CEO no la indica, usa "media". Reserva "alta" solo para urgencia explícita ("urgente", "crítico", "ya", "antes de X", "prioridad alta"). "baja" solo si el CEO lo dice.
-
-PROYECTO PARA TAREAS:
-- Si el CEO menciona un proyecto explícito (por nombre o code), úsalo como projectCode.
-- Si el CEO NO menciona proyecto, OMITE projectCode (NO inventes uno). El sistema resolverá al proyecto por defecto del usuario; si no lo tiene configurado, te avisará y la tarea no se creará.
+Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),dueDate("+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode (string, un solo proyecto, formato viejo),linkedProjectCodes (array de codes, para vincular varios proyectos; el primer code del array se considera "principal" y los demás "relacionado". Usar este campo cuando el CEO pida vincular más de un proyecto a la negociación)}; "create_tasks" {projectCode,tasks:[...]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario).
 
 Reglas: solo cuando lo pidan explícitamente, NUNCA en análisis ni consultas. El bloque se OCULTA del CEO. Tu prosa va ANTES del bloque.
 
