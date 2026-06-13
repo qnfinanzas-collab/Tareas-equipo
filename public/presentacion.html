@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0A0A0A">
+<title>Kluxor — Presentación</title>
+<meta name="description" content="Kluxor. El sistema operativo del que dirige.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; border-radius: 0; }
+  html, body { background: #0A0A0A; color: #F5F0E8; font-family: "Montserrat", sans-serif; font-weight: 300; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  body { min-height: 100vh; display: flex; flex-direction: column; }
+
+  .kx-shell { flex: 1; display: flex; flex-direction: column; padding: 64px 48px 32px; max-width: 1280px; margin: 0 auto; width: 100%; }
+
+  .kx-head { text-align: center; margin-bottom: 80px; }
+  .kx-brand { font-family: "Cormorant Garamond", serif; font-weight: 400; font-size: 56px; letter-spacing: 0.32em; color: #F5F0E8; padding-left: 0.32em; line-height: 1; }
+  .kx-rule { width: 48px; height: 1px; background: #C9A84C; margin: 28px auto 28px; }
+  .kx-tag { font-family: "Cormorant Garamond", serif; font-style: italic; font-weight: 300; font-size: 20px; color: #C9A84C; letter-spacing: 0.04em; }
+
+  .kx-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-bottom: 64px; }
+  .kx-card { display: flex; flex-direction: column; justify-content: space-between; min-height: 280px; padding: 32px 28px; background: #111111; border: 1px solid #1F1F1F; text-decoration: none; color: inherit; transition: border-color 220ms ease, transform 220ms ease, background 220ms ease; }
+  .kx-card:hover, .kx-card:focus-visible { border-color: #C9A84C; background: #131210; transform: translateY(-2px); outline: none; }
+  .kx-card:focus-visible { box-shadow: 0 0 0 2px rgba(201, 168, 76, 0.35); }
+
+  .kx-card-num { font-family: "Cormorant Garamond", serif; font-weight: 300; font-size: 14px; letter-spacing: 0.24em; color: #C9A84C; }
+  .kx-card-title { font-family: "Cormorant Garamond", serif; font-weight: 400; font-size: 32px; color: #F5F0E8; letter-spacing: 0.01em; line-height: 1.15; margin-top: 16px; }
+  .kx-card-foot { display: flex; align-items: center; gap: 12px; margin-top: 32px; font-family: "Montserrat", sans-serif; font-weight: 400; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: #C9A84C; }
+  .kx-card-foot::before { content: ""; width: 24px; height: 1px; background: #C9A84C; }
+
+  .kx-foot { margin-top: auto; padding-top: 40px; text-align: center; }
+  .kx-foot-rule { width: 32px; height: 1px; background: #2A2A2A; margin: 0 auto 20px; }
+  .kx-foot-text { font-family: "Montserrat", sans-serif; font-weight: 300; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: #6B6055; }
+
+  @media (max-width: 1024px) {
+    .kx-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 640px) {
+    .kx-shell { padding: 48px 24px 24px; }
+    .kx-brand { font-size: 38px; letter-spacing: 0.28em; padding-left: 0.28em; }
+    .kx-tag { font-size: 17px; }
+    .kx-head { margin-bottom: 56px; }
+    .kx-grid { grid-template-columns: 1fr; gap: 16px; margin-bottom: 48px; }
+    .kx-card { min-height: 200px; padding: 28px 24px; }
+    .kx-card-title { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+  <main class="kx-shell">
+    <header class="kx-head">
+      <h1 class="kx-brand">KLUXOR</h1>
+      <div class="kx-rule" aria-hidden="true"></div>
+      <p class="kx-tag">El sistema operativo del que dirige.</p>
+    </header>
+
+    <nav class="kx-grid" aria-label="Accesos">
+      <a class="kx-card" href="landing-publica.html">
+        <div>
+          <div class="kx-card-num">I</div>
+          <div class="kx-card-title">La presentación</div>
+        </div>
+        <div class="kx-card-foot">Entrar</div>
+      </a>
+      <a class="kx-card" href="antesala.html">
+        <div>
+          <div class="kx-card-num">II</div>
+          <div class="kx-card-title">La invitación</div>
+        </div>
+        <div class="kx-card-foot">Entrar</div>
+      </a>
+      <a class="kx-card" href="accesos.html">
+        <div>
+          <div class="kx-card-num">III</div>
+          <div class="kx-card-title">Los accesos</div>
+        </div>
+        <div class="kx-card-foot">Entrar</div>
+      </a>
+      <a class="kx-card" href="umbral.html">
+        <div>
+          <div class="kx-card-num">IV</div>
+          <div class="kx-card-title">El Umbral</div>
+        </div>
+        <div class="kx-card-foot">Entrar</div>
+      </a>
+    </nav>
+
+    <footer class="kx-foot">
+      <div class="kx-foot-rule" aria-hidden="true"></div>
+      <p class="kx-foot-text">Kluxor &middot; Silent Luxury Circle</p>
+    </footer>
+  </main>
+</body>
+</html>
