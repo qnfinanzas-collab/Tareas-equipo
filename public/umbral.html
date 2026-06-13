@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>El Umbral — Kluxor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --negro:#0E0E0C; --tinta:#1A1A18;
+    --oro:#B8923A; --oro-vivo:#C9A84C; --oro-claro:#E8C96A; --oro-oscuro:#8B6914;
+    --crema:#F7F3EA; --crema-2:#EFE9DB; --linea:#D8CFB8; --gris:#6B6457;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{background:var(--crema);color:var(--tinta);font-family:'Montserrat',sans-serif;font-weight:400;line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden;}
+  .wrap{max-width:860px;margin:0 auto;padding:0 30px;}
+  .reveal{opacity:0;transform:translateY(26px);transition:opacity 1s cubic-bezier(.16,1,.3,1),transform 1s cubic-bezier(.16,1,.3,1);}
+  .reveal.in{opacity:1;transform:none;}
+
+  .topbar{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;justify-content:center;padding:24px 0;background:linear-gradient(var(--crema) 60%,transparent);}
+  .topbar .logo{font-family:'Cormorant Garamond',serif;font-weight:600;font-size:19px;letter-spacing:7px;color:var(--negro);text-transform:uppercase;opacity:0;animation:fadeIn 1s ease 1.1s forwards;}
+  .topbar .logo b{color:var(--oro);}
+
+  /* HERO */
+  .hero{min-height:100svh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;max-width:900px;margin:0 auto;padding:130px 30px 90px;position:relative;}
+  .hero::after{content:"";position:absolute;top:-15%;left:50%;width:120vw;height:80vh;transform:translateX(-50%);background:radial-gradient(ellipse at center,rgba(201,168,76,0.13),transparent 60%);pointer-events:none;z-index:-1;}
+  .hero .kicker{font-weight:600;font-size:11px;letter-spacing:6px;text-transform:uppercase;color:var(--oro);margin-bottom:30px;opacity:0;animation:fadeUp 1.1s cubic-bezier(.16,1,.3,1) .15s forwards;}
+  .hero h1{font-family:'Cormorant Garamond',serif;font-weight:600;font-size:clamp(64px,18vw,128px);line-height:0.92;letter-spacing:-2px;color:var(--negro);margin-bottom:30px;opacity:0;animation:fadeUp 1.2s cubic-bezier(.16,1,.3,1) .4s forwards;}
+  .hero h1 em{display:block;color:var(--oro);font-style:italic;font-weight:500;font-size:clamp(30px,7vw,52px);letter-spacing:-0.5px;margin-top:6px;}
+  .hero .lead{font-size:clamp(17px,4.6vw,21px);font-weight:400;color:var(--tinta);max-width:540px;line-height:1.55;opacity:0;animation:fadeUp 1.2s cubic-bezier(.16,1,.3,1) .8s forwards;}
+  .hero .lead b{font-weight:600;color:var(--negro);}
+  .scrollcue{position:absolute;bottom:36px;left:50%;transform:translateX(-50%);font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--gris);opacity:0;animation:fadeIn 1s ease 1.5s forwards;}
+
+  section{padding:80px 0;}
+  .sep{width:50px;height:2px;background:var(--oro);margin-bottom:30px;}
+  .label{font-weight:600;font-size:10px;letter-spacing:4px;text-transform:uppercase;color:var(--oro);margin-bottom:22px;}
+  h2{font-family:'Cormorant Garamond',serif;font-weight:600;font-size:clamp(34px,8vw,56px);line-height:1.06;letter-spacing:-0.7px;color:var(--negro);margin-bottom:22px;}
+  h2 .gold{color:var(--oro);font-style:italic;font-weight:500;}
+  .body-lg{font-size:clamp(16px,4.3vw,19px);font-weight:400;color:var(--gris);max-width:620px;line-height:1.7;}
+  .body-lg b{color:var(--negro);font-weight:600;}
+  .body-lg + .body-lg{margin-top:16px;}
+  .punch{font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:600;font-size:clamp(26px,7vw,44px);color:var(--oro);margin-top:22px;line-height:1.12;letter-spacing:-0.5px;}
+
+  /* tarjetas dobles (vías de entrada) */
+  .duo{display:flex;flex-wrap:wrap;gap:16px;margin-top:34px;}
+  .duo .c{flex:1 1 280px;border:1px solid var(--linea);padding:30px 26px;background:rgba(255,255,255,0.4);}
+  .duo .c .tag{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--oro-oscuro);font-weight:600;margin-bottom:14px;}
+  .duo .c h3{font-family:'Cormorant Garamond',serif;font-weight:600;font-size:clamp(24px,6vw,32px);color:var(--negro);line-height:1.1;margin-bottom:14px;letter-spacing:-0.4px;}
+  .duo .c h3 em{color:var(--oro);font-style:italic;font-weight:500;}
+  .duo .c p{font-size:15px;color:var(--gris);line-height:1.6;}
+  .duo .c p b{color:var(--negro);font-weight:600;}
+
+  /* puertas numeradas */
+  .puerta{border-top:2px solid var(--negro);padding-top:28px;margin-top:46px;}
+  .puerta:first-of-type{margin-top:28px;}
+  .puerta .num{font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:600;font-size:clamp(36px,9vw,60px);color:var(--oro);line-height:1;margin-bottom:12px;letter-spacing:-1px;}
+  .puerta h3{font-family:'Cormorant Garamond',serif;font-weight:600;font-size:clamp(26px,6.5vw,40px);color:var(--negro);line-height:1.08;letter-spacing:-0.5px;margin-bottom:16px;}
+  .puerta h3 em{color:var(--oro);font-style:italic;font-weight:500;}
+  .puerta p{font-size:clamp(15px,4.1vw,17px);color:var(--gris);line-height:1.7;max-width:610px;margin-bottom:20px;}
+  .puerta p b{color:var(--negro);font-weight:600;}
+  .flow{display:flex;flex-wrap:wrap;border:1px solid var(--linea);}
+  .flow .step{flex:1 1 150px;padding:18px 20px;border-right:1px solid var(--linea);}
+  .flow .step:last-child{border-right:none;}
+  .flow .step .k{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--oro-oscuro);margin-bottom:7px;font-weight:600;}
+  .flow .step .v{font-family:'Cormorant Garamond',serif;font-size:clamp(17px,4.4vw,22px);font-weight:600;color:var(--negro);line-height:1.18;}
+  .flow .step .d{font-size:12.5px;color:var(--gris);margin-top:4px;line-height:1.4;}
+
+  /* identidad — ID card */
+  .idcard{border:1px solid var(--oro);padding:34px 30px;margin-top:30px;background:rgba(255,255,255,0.45);position:relative;max-width:440px;}
+  .idcard::before{content:"";position:absolute;inset:6px;border:1px solid rgba(184,146,58,0.35);pointer-events:none;}
+  .idcard .k{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--oro-oscuro);font-weight:600;margin-bottom:10px;}
+  .idcard .id{font-family:'Cormorant Garamond',serif;font-weight:600;font-size:clamp(34px,9vw,52px);color:var(--negro);letter-spacing:2px;line-height:1;}
+  .idcard .sub{font-size:13px;color:var(--gris);margin-top:12px;letter-spacing:0.5px;}
+
+  .grados{list-style:none;margin-top:28px;border-top:1px solid var(--linea);max-width:620px;}
+  .grados li{padding:18px 0;border-bottom:1px solid var(--linea);display:flex;gap:16px;align-items:baseline;}
+  .grados li .lvl{font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:600;font-size:clamp(18px,4.6vw,24px);color:var(--oro);min-width:120px;}
+  .grados li .desc{font-size:14.5px;color:var(--gris);line-height:1.55;}
+  .grados li .desc b{color:var(--negro);font-weight:600;}
+
+  /* bloque negro */
+  .dark{background:var(--negro);color:var(--crema);padding:104px 0;position:relative;overflow:hidden;}
+  .dark::after{content:"";position:absolute;top:-25%;right:-10%;width:80vw;height:90vh;background:radial-gradient(circle,rgba(201,168,76,0.12),transparent 60%);pointer-events:none;}
+  .dark .sep{background:var(--oro-vivo);}
+  .dark .label{color:var(--oro-vivo);}
+  .dark h2{color:var(--crema);max-width:640px;}
+  .dark h2 .gold{color:var(--oro-vivo);}
+  .dark .body-lg{color:#d9d2c2;}
+  .dark .body-lg b{color:#fff;}
+
+  /* cierre */
+  .cierre{text-align:center;padding:100px 0 84px;}
+  .cierre .frase{font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:500;font-size:clamp(28px,7vw,48px);line-height:1.2;color:var(--negro);max-width:640px;margin:0 auto 28px;letter-spacing:-0.4px;}
+  .cierre .frase .gold{color:var(--oro);}
+  .cierre .sub{font-size:clamp(15px,4.1vw,18px);color:var(--gris);max-width:520px;margin:0 auto;line-height:1.65;}
+
+  .mark{text-align:center;padding:50px 0 60px;border-top:1px solid var(--linea);}
+  .mark .logo{font-family:'Cormorant Garamond',serif;font-weight:600;font-size:26px;letter-spacing:9px;color:var(--negro);text-transform:uppercase;}
+  .mark .logo b{color:var(--oro);}
+  .mark .tag{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--gris);margin-top:14px;}
+
+  @keyframes fadeUp{from{opacity:0;transform:translateY(28px);}to{opacity:1;transform:none;}}
+  @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+</style>
+</head>
+<body>
+
+  <div class="topbar"><div class="logo">KLU<b>X</b>OR</div></div>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="kicker">El sistema de accesos de Kluxor</div>
+    <h1>El Umbral<em>donde se decide quién pasa</em></h1>
+    <p class="lead">Toda entrada al círculo cruza por aquí. <b>Nada se abre solo</b> — cada acceso se concede, y cada quien ve únicamente lo suyo.</p>
+    <div class="scrollcue">Cruzar ↓</div>
+  </header>
+
+  <!-- PRINCIPIO -->
+  <section>
+    <div class="wrap reveal">
+      <div class="sep"></div>
+      <div class="label">El principio</div>
+      <h2>Aquí no hay <span class="gold">puerta pública.</span></h2>
+      <p class="body-lg">No existe el registro abierto. Nadie entra por la calle. Se cruza el Umbral de dos maneras — y ambas terminan en lo mismo: <b>la aprobación de la casa.</b></p>
+      <p class="punch">Conceder el acceso es controlarlo.</p>
+    </div>
+  </section>
+
+  <!-- DOS VÍAS DE ENTRADA -->
+  <section>
+    <div class="wrap reveal">
+      <div class="sep"></div>
+      <div class="label">Cómo se cruza · Dos vías</div>
+      <h2>Te abren, <span class="gold">o llamas.</span></h2>
+      <div class="duo">
+        <div class="c">
+          <div class="tag">Vía noble · Con aval</div>
+          <h3>Te invita <em>un par.</em></h3>
+          <p>Un CEO del círculo te envía su tarjeta. Llegas avalado, accedes a la antesala profunda y ves de parte de quién vienes. <b>El privilegio de tener padrino.</b></p>
+        </div>
+        <div class="c">
+          <div class="tag">Vía abierta · Solicitud</div>
+          <h3>Llamas <em>tú.</em></h3>
+          <p>Descubres Kluxor sin invitación. Desde la página pública solicitas ser considerado. <b>Tu solicitud llega a la administración del círculo</b>, que decide. Sin padrino, pero con la puerta principal abierta a quien lo merece.</p>
+        </div>
+      </div>
+      <p class="body-lg" style="margin-top:26px;">Las dos vías comparten la última llave: <b>nadie entra sin el visto bueno de la casa.</b> El aval acelera; la solicitud espera. Pero la decisión final es siempre del círculo.</p>
+    </div>
+  </section>
+
+  <!-- TRES NIVELES DE ACCESO -->
+  <section>
+    <div class="wrap reveal">
+      <div class="sep"></div>
+      <div class="label">Quién está dentro · Tres niveles</div>
+      <h2>Cada quien, <span class="gold">su espacio.</span></h2>
+
+      <div class="puerta">
+        <div class="num">I.</div>
+        <h3>El <em>primer ejecutivo.</em></h3>
+        <p>Dueño de su círculo. Ve y dirige todo lo suyo — tableros, proyectos, negociaciones, su equipo directivo de agentes. Invita a otros CEOs y a su propia gente.</p>
+        <div class="flow">
+          <div class="step"><div class="k">Es</div><div class="v">El CEO</div><div class="d">Dueño del entorno</div></div>
+          <div class="step"><div class="k">Ve</div><div class="v">Todo lo suyo</div><div class="d">Y nada de otros círculos</div></div>
+          <div class="step"><div class="k">Puede</div><div class="v">Invitar y compartir</div><div class="d">CEOs, equipo, externos</div></div>
+        </div>
+      </div>
+
+      <div class="puerta">
+        <div class="num">II.</div>
+        <h3>El <em>equipo.</em></h3>
+        <p>Los suyos. El CEO los incorpora para trabajar <b>dentro de su entorno</b>. Operan bajo su mando, en su espacio, sin ver el de ningún otro círculo. Con permiso, pueden también compartir con externos.</p>
+        <div class="flow">
+          <div class="step"><div class="k">Es</div><div class="v">Usuario interno</div><div class="d">Invitado por el CEO</div></div>
+          <div class="step"><div class="k">Ve</div><div class="v">El entorno del CEO</div><div class="d">A trabajar, no a mirar</div></div>
+          <div class="step"><div class="k">Puede</div><div class="v">Gestionar</div><div class="d">Y compartir si tiene permiso</div></div>
+        </div>
+      </div>
+
+      <div class="puerta">
+        <div class="num">III.</div>
+        <h3>El <em>externo.</em></h3>
+        <p>El cliente o colaborador de fuera. El CEO o su equipo lo dan de alta como <b>contacto</b> y le envían un enlace ligado a su ficha. Entra a <b>su propia antesala</b>: solo las negociaciones y proyectos que comparte. Nada más del sistema existe para él.</p>
+        <div class="flow">
+          <div class="step"><div class="k">Es</div><div class="v">Un contacto</div><div class="d">De fuera del círculo</div></div>
+          <div class="step"><div class="k">Recibe</div><div class="v">Enlace de contacto</div><div class="d">Ligado a su ficha</div></div>
+          <div class="step"><div class="k">Ve</div><div class="v">Su antesala</div><div class="d">Solo sus negociaciones</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- IDENTIDAD -->
+  <section>
+    <div class="wrap reveal">
+      <div class="sep"></div>
+      <div class="label">La identidad · El número de socio</div>
+      <h2>Dentro del círculo, <span class="gold">cada uno tiene nombre.</span></h2>
+      <p class="body-lg">Todo miembro recibe un identificador único y visible — su número de socio. Es la columna vertebral de su identidad: con él se le reconoce y con él se comparte, sin exponer jamás sus datos de contacto.</p>
+      <div class="idcard">
+        <div class="k">Número de socio</div>
+        <div class="id">KLX · 0042</div>
+        <div class="sub">Identidad permanente dentro del círculo</div>
+      </div>
+      <p class="body-lg" style="margin-top:30px;">Email y teléfono se mantienen <b>privados de fábrica.</b> Cada miembro decide cuán localizable quiere ser — y el teléfono, lo más sagrado de un primer ejecutivo, se protege por encima de todo.</p>
+      <ul class="grados">
+        <li><span class="lvl">Solo por ID</span><span class="desc"><b>Por defecto.</b> Solo te encuentran quienes ya tienen tu número de socio.</span></li>
+        <li><span class="lvl">Colaboradores</span><span class="desc">Te encuentran por email los miembros con los que ya compartes algo.</span></li>
+        <li><span class="lvl">Todo el círculo</span><span class="desc">Cualquier miembro puede localizarte por email. <b>Por elección, nunca por defecto.</b></span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- COMPARTIR -->
+  <section>
+    <div class="wrap reveal">
+      <div class="sep"></div>
+      <div class="label">Compartir · Dos caminos</div>
+      <h2>Según esté <span class="gold">dentro o fuera.</span></h2>
+      <div class="duo">
+        <div class="c">
+          <div class="tag">Con un externo</div>
+          <h3>Das de alta <em>un contacto.</em></h3>
+          <p>Para el cliente o colaborador de fuera. Creas su ficha, generas un enlace ligado a ella, y entra a su antesala externa con lo que compartes. <b>Sin pertenecer al círculo.</b></p>
+        </div>
+        <div class="c">
+          <div class="tag">Con un miembro</div>
+          <h3>Lo <em>identificas.</em></h3>
+          <p>Para otro miembro del círculo. Lo localizas por su número de socio — o por email/teléfono si lo ha permitido — y compartís <b>de igual a igual</b>, los dos ya dentro.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PATRÓN COMÚN -->
+  <section class="dark">
+    <div class="wrap reveal">
+      <div class="sep"></div>
+      <div class="label">El patrón común</div>
+      <h2>Quien cruza, llega a <span class="gold">una antesala.</span></h2>
+      <p class="body-lg">El CEO invitado encuentra la antesala del círculo. El cliente externo, la suya, con sus negociaciones. <b>Nadie aterriza en el sistema entero</b> — cada quien entra a un espacio pensado para él, que le muestra lo justo y nada más.</p>
+      <p class="body-lg">Un mismo gesto, repetido con elegancia en cada puerta. Así se sostiene un círculo: <b>dejando ver sin dejar entrar de más.</b></p>
+    </div>
+  </section>
+
+  <!-- CIERRE -->
+  <section class="cierre">
+    <div class="wrap reveal">
+      <p class="frase">El valor de un círculo no está en quién puede entrar.<br><span class="gold">Está en quién no.</span></p>
+      <p class="sub">El Umbral. Dos vías de entrada, tres niveles de acceso, una identidad, dos formas de compartir — sobre un solo cimiento, cada dato en su sitio.</p>
+    </div>
+  </section>
+
+  <footer class="mark">
+    <div class="logo">KLU<b>X</b>OR</div>
+    <div class="tag">El Umbral · El acceso al círculo</div>
+  </footer>
+
+<script>
+  const io=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:0.13});
+  document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+</script>
+</body>
+</html>
