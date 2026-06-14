@@ -12,6 +12,7 @@ import {
 import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./lib/ics.js";
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
+import { fetchCurrentTenantId, clearTenantCache } from "./lib/tenants.js";
 import { tabFromPath, pathFromTab } from "./lib/routing.js";
 import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents, updateUserPassword, isAccountOwner } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, MAX_ANALYZE_MB, isAnalyzable, ANALYZE_TOO_LARGE_MSG, ALLOWED_MIME, ALLOWED_EXTENSIONS, migrateBase64DocsInData } from "./lib/storage.js";
@@ -1235,6 +1236,12 @@ function _migrate(d){
       email:"mdiaz.holding@gmail.com", supabaseUid:"089678db-5f31-4ef3-b185-cd8ad3afab78", accountRole:"member" },
     { match: m=> m.id===7 || m.email==="albertquicknex@gmail.com" || m.email==="albert@empresa.com",
       email:"albertquicknex@gmail.com", supabaseUid:"61cfb1d3-1751-4a76-a54a-e26e5ac77d57", accountRole:"member" },
+    // Elena — añadida 14/06/2026 (Fase 2B). Existe en data.members (id=8)
+    // con email correcto pero supabaseUid vacío; este binding lo rellena
+    // automáticamente en el siguiente _migrate. También consta en
+    // tenant_members del tenant 89934a37 (RPC current_tenant_id la resuelve).
+    { match: m=> m.id===8 || m.email==="gestionsoulbaric@gmail.com",
+      email:"gestionsoulbaric@gmail.com", supabaseUid:"f17e382a-68dc-41f5-8a3e-b37fd336b05d", accountRole:"member" },
   ];
   d.members = (d.members||[]).map(m=>{
     const binding = AUTH_BINDINGS.find(b => b.match(m));
@@ -12008,6 +12015,33 @@ export default function TaskFlow(){
     });
     return ()=>{ alive = false; unsub(); };
   },[]);
+  // Fase 2B — resolución asíncrona del tenant del usuario logueado.
+  // tenantId truthy → sync.js usa el path nuevo (.eq("tenant_id", X) +
+  // filtro realtime). tenantId null → fallback id=1 (compat shadow mode).
+  // tenantResolved es el GUARD que evita arrancar sync con session ya
+  // presente pero antes de que el RPC current_tenant_id() haya respondido
+  // — si no, fetchState arrancaría por id=1 y machacaría el path nuevo en
+  // mitad de carga. Inicial: tenantResolved=true cuando no hay auth (legacy).
+  const [tenantId, setTenantId] = useState(null);
+  const [tenantResolved, setTenantResolved] = useState(true);
+  useEffect(()=>{
+    if(!authSession){
+      clearTenantCache();
+      setTenantId(null);
+      setTenantResolved(true);
+      return;
+    }
+    const uid = authSession.user?.id;
+    if(!uid){ setTenantId(null); setTenantResolved(true); return; }
+    setTenantResolved(false);
+    let alive = true;
+    fetchCurrentTenantId(uid).then(t=>{
+      if(!alive) return;
+      setTenantId(t);
+      setTenantResolved(true);
+    });
+    return ()=>{ alive = false; };
+  },[authSession]);
   // Resuelve el miembro a partir del session.user (uid → fallback email).
   const authMemberInfo = authSession ? resolveSessionMember(authSession, data.members) : null;
   // Tras login, fijamos activeMember automáticamente y redirigimos:
@@ -12077,6 +12111,7 @@ export default function TaskFlow(){
   const handleSignOut = async ()=>{
     await signOut();
     setAuthSession(null);
+    clearTenantCache();
     try { localStorage.removeItem("taskflow_current_user"); } catch {}
   };
   // Si no eres admin y estás en un tab admin-only, te redirigimos a "mytasks".
@@ -12169,19 +12204,29 @@ export default function TaskFlow(){
   const [pendingOpenTaskId,setPendingOpenTaskId] = useState(null);
   const [sidebarOpen,setSidebarOpen] = useState(false);
 
-  // Persistencia automática en cada cambio de datos (local + remoto)
+  // Persistencia automática en cada cambio de datos (local + remoto).
+  // pushState va gateado por syncReady, que solo es true tras la primera
+  // sync — que a su vez espera a tenantResolved. Por eso aquí no repetimos
+  // el guard: si llegamos aquí con syncReady=true, el tenantId ya está
+  // resuelto (o explícitamente null en legacy mode).
   useEffect(()=>{
     try{ localStorage.setItem(LS_KEY,JSON.stringify(data)); }catch(e){}
     if(!syncReady) return;
     if(isRemoteUpdate.current){ isRemoteUpdate.current=false; return; }
-    pushState(data);
-  },[data,syncReady]);
+    pushState(data, tenantId);
+  },[data,syncReady,tenantId]);
 
-  // Sync inicial + subscripción realtime
+  // Sync inicial + subscripción realtime.
+  // GUARD asíncrono Fase 2B: si hay session pero el RPC current_tenant_id
+  // todavía no ha respondido (tenantResolved=false), NO arrancamos —
+  // evitamos que fetchState corra por id=1 y luego salte a tenant_id en
+  // mitad de carga. El effect se re-dispara cuando tenantResolved=true.
   useEffect(()=>{
     if(!syncEnabled) return;
+    if(!authReady) return;
+    if(authSession && !tenantResolved) return;
     let cancelled=false;
-    fetchState().then(remote=>{
+    fetchState(tenantId).then(remote=>{
       if(cancelled) return;
       if(remote && Object.keys(remote).length>0 && remote.projects){
         const migrated=_migrate(remote);
@@ -12198,9 +12243,9 @@ export default function TaskFlow(){
       _syncCounters(migrated);
       isRemoteUpdate.current=true;
       setData(migrated);
-    });
+    }, tenantId);
     return ()=>{ cancelled=true; unsub(); };
-  },[]);
+  },[authReady, authSession, tenantResolved, tenantId]);
 
   const toastIdRef=useRef(0);
   const addToast=useCallback((msg,type="success",opts={})=>{

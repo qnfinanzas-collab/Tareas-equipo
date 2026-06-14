@@ -1,0 +1,29 @@
+{
+  "_seededAgents": false,
+  "ceoProfile": {
+    "name": "",
+    "company": "",
+    "sector": "",
+    "description": ""
+  },
+  "members": [],
+  "projects": [],
+  "boards": {},
+  "negotiations": [],
+  "agents": [],
+  "permissions": {},
+  "governance": { "companies": [] },
+  "ceoMemory": {},
+  "vault": {},
+  "workspaces": [],
+  "accountingEntries": [],
+  "bankAccounts": [],
+  "bankMovements": [],
+  "movementCategories": [],
+  "chartOfAccounts": [],
+  "invoices": [],
+  "financeMovements": [],
+  "aiSchedule": [],
+  "favoriteProjectIds": [],
+  "favoriteNegotiationIds": []
+}

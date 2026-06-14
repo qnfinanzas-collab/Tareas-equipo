@@ -125,6 +125,83 @@ async function flushChatToSupabase(authUid, messages) {
   }
 }
 
+// Fase 2C — ceoBlock dinámico.
+//
+// Antes la identidad del CEO vivía hardcodeada en un literal dentro del
+// componente (Antonio Díaz · ALMA DIMO · CIF B19929256 · etc.). Eso
+// hacía imposible multi-tenant: un CEO distinto vería el prompt de
+// Héctor identificándose como Antonio.
+//
+// Ahora `buildCeoBlock` lee `data.ceoProfile` (vive dentro del JSONB
+// per-tenant de taskflow_state). Si tiene algún campo no vacío → compone
+// el bloque dinámico. Si está vacío/inexistente → fallback al literal de
+// Antonio para no romper el comportamiento actual de la fila id=1 mientras
+// no se le rellene su ceoProfile (Fase 2D).
+//
+// El header "USUARIO ACTIVO — CEO Y PROPIETARIO:" es el mismo en ambos
+// caminos: marker estable que reconocen los smokes C1 como "este prompt
+// tiene contexto owner".
+
+function buildCeoBlockLegacyAntonio(email) {
+  return `USUARIO ACTIVO — CEO Y PROPIETARIO:
+Nombre: Antonio Díaz
+Empresa: ALMA DIMO INVESTMENTS S.L. · CIF: B19929256
+Email: ${email}
+Ubicación: Marbella-Estepona, Costa del Sol, España
+
+PERFIL PROFESIONAL:
+Antonio es un visionario de negocio y arquitecto digital. Pionero digital desde 1998. Ha liderado equipos completos de diseño, creatividad, marketing, programación, finanzas, administración y ventas. No es programador técnico pero tiene criterio de producto y arquitectura de negocio de alto nivel. Entiende cada capa de una empresa porque ha dirigido a las personas que las ejecutan.
+
+PROYECTOS ACTIVOS:
+- Kluxor: CEO Operating System con IA multi-agente (marca paraguas)
+- QuickNex: Plataforma B2B2C colaboración empresarial con IA
+- Cámara Hiperbárica HD5000 Plus: expansión Marbella-Estepona
+- Negociaciones activas en Marbella-Estepona
+
+SECTORES: Salud hiperbárica · Inversiones · Real estate · Tecnología IA · Colaboración empresarial B2B
+
+CÓMO COMUNICARTE CON ANTONIO:
+- Directo al punto, sin tecnicismos innecesarios
+- No repitas lo que ya sabe
+- Da opciones concretas (A o B, no listas de 10)
+- Explica el impacto de negocio, no solo el técnico
+- Trata como CEO con criterio, no como usuario técnico
+- Prioriza lo que mueve la aguja hoy
+
+FILOSOFÍA: Aristóteles + Séneca. El tiempo es el único activo real. Tecnología al servicio del negocio, nunca al revés.
+
+REGLA CRÍTICA DE IDENTIDAD:
+Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones. NUNCA uses otro miembro del equipo como parte principal sin confirmación explícita.
+Datos legales: ALMA DIMO INVESTMENTS S.L. · CIF B19929256
+Jurisdicción: Juzgados de Marbella.
+
+---
+`;
+}
+
+export function buildCeoBlock(profile, usuarioActivo) {
+  const email = usuarioActivo?.email || "qn.finanzas@gmail.com";
+  const hasAny = profile && (profile.name || profile.company || profile.sector || profile.description);
+  if (!hasAny) return buildCeoBlockLegacyAntonio(email);
+  const name        = profile.name || "el CEO";
+  const company     = profile.company ? `\nEmpresa: ${profile.company}` : "";
+  const sector      = profile.sector ? `\nSector: ${profile.sector}` : "";
+  const description = profile.description ? `\n\nLO QUE LE OCUPA:\n${profile.description}` : "";
+  return `USUARIO ACTIVO — CEO Y PROPIETARIO:
+Nombre: ${name}${company}
+Email: ${email}${sector}${description}
+
+CÓMO COMUNICARTE:
+- Háblale por su nombre (${name}).
+- Directo al punto. Sin tecnicismos innecesarios.
+- Da opciones concretas (A o B), no listas de 10.
+- Adapta tus ejemplos y referencias al sector si lo conoces.
+- Si lo que le ocupa apunta a un riesgo concreto, entra directo — no lo eludas.
+
+---
+`;
+}
+
 export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, financeContext, pendingExecBridge, onConsumePendingExecBridge }) {
   const userKey = userId != null ? userId : "anon";
   // Misma clave que usa HectorPanel.jsx → conversación compartida.
@@ -490,46 +567,10 @@ INSTRUCCIONES DE PRIVACIDAD:
 
 ---
 ` : "";
-      // Perfil completo de Antonio Díaz como contexto permanente.
-      // Sin esto, Héctor (y especialistas vía propagación) tratan al
-      // CEO como "usuario técnico genérico", repiten información que
-      // ya conoce y no calibran tono ni profundidad. El bloque incluye
-      // identidad legal (parte principal en contratos), proyectos
-      // activos, sectores, estilo de comunicación y filosofía.
-      const ceoBlock = (isOwner && usuarioActivo) ? `USUARIO ACTIVO — CEO Y PROPIETARIO:
-Nombre: Antonio Díaz
-Empresa: ALMA DIMO INVESTMENTS S.L. · CIF: B19929256
-Email: ${usuarioActivo.email || "qn.finanzas@gmail.com"}
-Ubicación: Marbella-Estepona, Costa del Sol, España
-
-PERFIL PROFESIONAL:
-Antonio es un visionario de negocio y arquitecto digital. Pionero digital desde 1998. Ha liderado equipos completos de diseño, creatividad, marketing, programación, finanzas, administración y ventas. No es programador técnico pero tiene criterio de producto y arquitectura de negocio de alto nivel. Entiende cada capa de una empresa porque ha dirigido a las personas que las ejecutan.
-
-PROYECTOS ACTIVOS:
-- Kluxor: CEO Operating System con IA multi-agente (marca paraguas)
-- QuickNex: Plataforma B2B2C colaboración empresarial con IA
-- Cámara Hiperbárica HD5000 Plus: expansión Marbella-Estepona
-- Negociaciones activas en Marbella-Estepona
-
-SECTORES: Salud hiperbárica · Inversiones · Real estate · Tecnología IA · Colaboración empresarial B2B
-
-CÓMO COMUNICARTE CON ANTONIO:
-- Directo al punto, sin tecnicismos innecesarios
-- No repitas lo que ya sabe
-- Da opciones concretas (A o B, no listas de 10)
-- Explica el impacto de negocio, no solo el técnico
-- Trata como CEO con criterio, no como usuario técnico
-- Prioriza lo que mueve la aguja hoy
-
-FILOSOFÍA: Aristóteles + Séneca. El tiempo es el único activo real. Tecnología al servicio del negocio, nunca al revés.
-
-REGLA CRÍTICA DE IDENTIDAD:
-Antonio Díaz es SIEMPRE la parte principal en contratos, documentos y acciones. NUNCA uses otro miembro del equipo como parte principal sin confirmación explícita.
-Datos legales: ALMA DIMO INVESTMENTS S.L. · CIF B19929256
-Jurisdicción: Juzgados de Marbella.
-
----
-` : "";
+      // ceoBlock dinámico: lee identidad/perfil desde data.ceoProfile
+      // (per-tenant) con fallback al literal de Antonio cuando ceoProfile
+      // está vacío. Definición e implementación arriba (buildCeoBlock).
+      const ceoBlock = (isOwner && usuarioActivo) ? buildCeoBlock(data?.ceoProfile, usuarioActivo) : "";
       const membersBlock = membersLines ? `\n\n---\nMIEMBROS REALES DEL EQUIPO (los únicos válidos para assignees y referencias):\n${membersLines}\n\nReglas:\n- Cuando el CEO mencione un nombre, comprueba primero si coincide EXACTAMENTE con algún miembro de esta lista.\n- Si NO coincide o es ambiguo (ej. "Marc" cuando hay varios "Marc..."), aplica la REGLA AMBIGÜEDAD del bloque CAPACIDAD DE EJECUCIÓN: pregunta antes de actuar.\n- Para assignees usa el id (number) cuando lo conozcas, o el nombre exacto entre comillas.` : "";
 
       // ── Contexto operativo (HD-context-v1) ────────────────────────
