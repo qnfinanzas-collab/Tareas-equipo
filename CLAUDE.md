@@ -261,3 +261,5 @@ Comunicación: directa, opciones A/B concretas, móvil primero. Filosofía: el t
 
 **Última actualización:** 03/05/2026
 **Origen:** Sesión 02/05/2026 — 7 commits exitosos + 2 reverts.
+
+**Fase 1 multi-tenant (14/06/2026):** `tenant_id` añadido a `taskflow_state`; tenant de Antonio = `89934a37-60d9-49ac-8a41-dad10601ad81`. SQL en `migrations/2026-06-14-fase1-tenant-id.sql`. Sin cambios de código — fila id=1 con `data` intacta.
