@@ -3015,6 +3015,19 @@ function matchItemByCode(item, queryRaw){
   return code.includes(q) || name.includes(q) || desc.includes(q);
 }
 
+// Variante para negociaciones — distinto schema (title en vez de name,
+// counterparty en vez de description). El CommandPalette ⌘K filtra por
+// código (NEG-NNN), título y contraparte; no incluye sesiones/memoria/
+// briefing (eso sería full-text de otro orden).
+function matchNegByCode(n, queryRaw){
+  const q = normalizeQuery(queryRaw);
+  if(!q) return true;
+  const code         = normalizeQuery(n.code || "");
+  const title        = normalizeQuery(n.title || "");
+  const counterparty = normalizeQuery(n.counterparty || "");
+  return code.includes(q) || title.includes(q) || counterparty.includes(q);
+}
+
 // Fuzzy subsequence match + highlight para el Command Palette.
 function fuzzyMatch(text,query){
   if(!query) return true;
@@ -8051,7 +8064,7 @@ function AgentsView({agents,onCreate,onEdit}){
 }
 
 // ── Command Palette (⌘K) ──────────────────────────────────────────────────────
-function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavigateProject,actions}){
+function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavigateProject,onNavigateNegotiation,actions}){
   const [query,setQuery]       = useState("");
   const [selectedIndex,setSI]  = useState(0);
   const inputRef               = useRef(null);
@@ -8075,26 +8088,32 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
         actions,
         workspaces:(data.workspaces||[]).slice(0,5),
         projects:[],
+        negotiations:[],
       };
     }
     // Búsqueda tolerante: matchTask normaliza acentos, espacios, guiones
     // y números escritos a palabras (es). Cubre formas tipo "T40", "t-40",
     // "t 40", "40", "cuarenta", "T cuarenta" sobre tareas con ref T-40.
     return {
-      tasks:      allTasks.filter(t=>matchTask(t, q)).slice(0,10),
-      actions:    actions.filter(a=>fuzzyMatch(a.label, q)),
-      workspaces: (data.workspaces||[]).filter(w=>matchItemByCode(w, q)).slice(0,6),
-      projects:   data.projects.filter(p=>matchItemByCode(p, q)).slice(0,6),
+      tasks:        allTasks.filter(t=>matchTask(t, q)).slice(0,10),
+      actions:      actions.filter(a=>fuzzyMatch(a.label, q)),
+      workspaces:   (data.workspaces||[]).filter(w=>matchItemByCode(w, q)).slice(0,6),
+      projects:     data.projects.filter(p=>matchItemByCode(p, q)).slice(0,6),
+      // Negociaciones: filtra archivadas (consistente con DealRoom). Todos
+      // los status (en_curso, pausado, cerrado_*) son buscables — el CEO
+      // puede querer encontrar una negociación cerrada hace meses.
+      negotiations: (data.negotiations||[]).filter(n=>!n.archived&&matchNegByCode(n, q)).slice(0,8),
     };
   },[query,data,actions]);
 
   // Lista plana para navegación por índice; registra el tipo de cada item.
   const flat = React.useMemo(()=>{
     const list=[];
-    results.tasks     .forEach(t=>list.push({type:"task",     item:t}));
-    results.actions   .forEach(a=>list.push({type:"action",   item:a}));
-    results.workspaces.forEach(w=>list.push({type:"workspace",item:w}));
-    results.projects  .forEach(p=>list.push({type:"project",  item:p}));
+    results.tasks       .forEach(t=>list.push({type:"task",        item:t}));
+    results.actions     .forEach(a=>list.push({type:"action",      item:a}));
+    results.workspaces  .forEach(w=>list.push({type:"workspace",   item:w}));
+    results.projects    .forEach(p=>list.push({type:"project",     item:p}));
+    results.negotiations.forEach(n=>list.push({type:"negotiation", item:n}));
     return list;
   },[results]);
 
@@ -8102,12 +8121,13 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
 
   const executeAt = useCallback((idx)=>{
     const entry=flat[idx]; if(!entry) return;
-    if(entry.type==="task")      onNavigateTask(entry.item);
-    else if(entry.type==="workspace") onNavigateWorkspace(entry.item);
-    else if(entry.type==="project")   onNavigateProject(entry.item);
-    else if(entry.type==="action")    entry.item.run();
+    if(entry.type==="task")         onNavigateTask(entry.item);
+    else if(entry.type==="workspace")    onNavigateWorkspace(entry.item);
+    else if(entry.type==="project")      onNavigateProject(entry.item);
+    else if(entry.type==="negotiation")  onNavigateNegotiation?.(entry.item);
+    else if(entry.type==="action")       entry.item.run();
     onClose();
-  },[flat,onNavigateTask,onNavigateWorkspace,onNavigateProject,onClose]);
+  },[flat,onNavigateTask,onNavigateWorkspace,onNavigateProject,onNavigateNegotiation,onClose]);
 
   useEffect(()=>{
     const onKey=(e)=>{
@@ -8150,7 +8170,7 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
             ref={inputRef}
             value={query}
             onChange={e=>setQuery(e.target.value)}
-            placeholder="Buscar tareas, proyectos, acciones..."
+            placeholder="Buscar tareas, proyectos, negociaciones, acciones..."
             style={{flex:1,fontSize:17,border:"none",outline:"none",background:"transparent",fontFamily:"inherit",color:"#111827"}}
           />
           <VoiceMicButton
@@ -8228,6 +8248,25 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
                     <RefBadge code={p.code}/>
                   </div>
                   <div style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#6B7280",opacity:0.85}}>{ws?`${ws.emoji||"🏢"} ${ws.name} · `:""}{total} tarea{total!==1?"s":""}</div>
+                </div>
+              </div>
+            );})}
+          </>}
+
+          {results.negotiations.length>0&&<>
+            {catHeader("Negociaciones",results.negotiations.length,results.tasks.length===0&&results.actions.length===0&&results.workspaces.length===0&&results.projects.length===0)}
+            {results.negotiations.map(n=>{ const idx=idxCounter++; const status=NEG_STATUSES.find(s=>s.id===n.status); return(
+              <div key={`n-${n.id}`} data-idx={idx} data-cmdk="neg-row" onClick={()=>executeAt(idx)} onMouseEnter={()=>setSI(idx)} style={rowStyle(idx)}>
+                <span style={{fontSize:15,flexShrink:0}}>🤝</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:6}}>
+                    <HighlightedText text={n.title||"Sin título"} query={query.trim()}/>
+                    <RefBadge code={n.code}/>
+                  </div>
+                  <div style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#6B7280",opacity:0.85}}>
+                    {n.counterparty ? <HighlightedText text={n.counterparty} query={query.trim()}/> : "(sin contraparte)"}
+                    {status ? ` · ${status.label}` : ""}
+                  </div>
                 </div>
               </div>
             );})}
@@ -15149,6 +15188,7 @@ Estructura recomendada de una respuesta con documento:
         }}
         onNavigateWorkspace={ws=>{ setActiveTab("workspaces"); setPendingWorkspaceId(ws.id); }}
         onNavigateProject={p=>{ const i=data.projects.findIndex(x=>x.id===p.id); if(i>=0){ setAP(i); setActiveTab("board"); } }}
+        onNavigateNegotiation={n=>{ setActiveTab("dealroom"); setActiveNegId(n.id); setActiveSessId(null); }}
       />}
       {sidebarOpen && <div className="tf-backdrop" onClick={()=>setSidebarOpen(false)}/>}
       {/* SIDEBAR — AppShell: 5 principales + Recientes + Footer Atajos */}
