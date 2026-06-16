@@ -202,7 +202,7 @@ CÓMO COMUNICARTE:
 `;
 }
 
-export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, financeContext, pendingExecBridge, onConsumePendingExecBridge }) {
+export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, financeContext, pendingExecBridge, onConsumePendingExecBridge, onSaveCouncilDocument }) {
   const userKey = userId != null ? userId : "anon";
   // Misma clave que usa HectorPanel.jsx → conversación compartida.
   const CHAT_KEY = `kluxor.hector.chat.${userKey}`;
@@ -1400,7 +1400,7 @@ Reglas:
           })
           .map(({ m, i }) => (
             m.role === "specialist"
-              ? <SpecialistBubble key={i} message={m} data={data} onRunAgentActions={onRunAgentActions}/>
+              ? <SpecialistBubble key={i} message={m} data={data} onRunAgentActions={onRunAgentActions} onSaveCouncilDocument={onSaveCouncilDocument}/>
               : <ChatBubble
                   key={i}
                   message={{ ...m, text: stripSystemMarker(m.text) }}
@@ -1466,7 +1466,7 @@ Reglas:
 // MessageBubble se mudó a Shared/ChatBubble.jsx (commit 37) para que
 // HectorDirect y HectorPanel compartan exactamente el mismo render.
 
-function SpecialistBubble({ message, data, onRunAgentActions }) {
+function SpecialistBubble({ message, data, onRunAgentActions, onSaveCouncilDocument }) {
   const meta = SPECIALIST_META[message.specialistKey] || { label: "Especialista", emoji: "🤖", color: "#6B7280" };
   // Estado UI local de la burbuja: qué picker mostramos y qué feedback
   // inline tras una acción completada. Se desmonta con la propia burbuja
@@ -1640,27 +1640,64 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
     imprimirHTML(html, fileName);
   };
 
-  // Acción 3 — Adjuntar a negociación. No hay action type para esto en
-  // el executor y updateNegotiation no se expone como prop; el spec del
-  // CEO autoriza explícitamente fallback a localStorage. Persistimos la
-  // respuesta bajo kluxor.specialist.attachments.${negId} para que un
-  // futuro panel de negociación pueda recuperarlas. La sincronización
-  // con Supabase queda como TODO documentado.
+  // Acción 3 — Adjuntar respuesta del especialista a una negociación.
+  //
+  // Reutiliza saveCouncilDocument (App.jsx) — el mismo pipeline que usa
+  // ConsejoView para sus "Guardar como documento". Eso garantiza:
+  //   · El adjunto vive en data.negotiations[i].documents (JSONB del tenant)
+  //     y se sincroniza vía pushState → Supabase. Persistente, cross-device.
+  //   · Aparece automáticamente en la sección 📎 Documentos del detalle de
+  //     la negociación (NegotiationDetailView ya renderiza documents[]).
+  //   · Héctor, al armar contexto de esa negociación, lee documents y lo ve.
+  //   · _origin.source = "hector-specialist" lo distingue de los guardados
+  //     desde ConsejoView (source: "consejo") para trazabilidad.
+  //
+  // Nombre AUTOMÁTICO: "{Especialista} · {primeros 40 chars de la task}
+  // · YYYY-MM-DD" — sin abrir modal extra. Renombrable después desde el
+  // visor de docs del detalle.
+  //
+  // Fallback transicional: si onSaveCouncilDocument llegara undefined
+  // (orden de despliegue raro, prop no conectada), conservamos el escrito
+  // a localStorage para no perder el adjunto. Eliminable en commit
+  // posterior cuando el bundle nuevo sea estable en producción.
   const handleAttachNeg = (negId, negCode) => {
+    const fechaCorta = new Date().toISOString().slice(0, 10);
+    const taskShort  = (message.task || "Análisis").trim().slice(0, 40);
+    const docName    = `${meta.label} · ${taskShort} · ${fechaCorta}`;
+    const doc = {
+      id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: docName,
+      type: "text/markdown",
+      size: (message.text || "").length,
+      storagePath: null,
+      url: null,
+      text: message.text || "",
+      kind: "inline",
+      uploadedAt: new Date().toISOString(),
+      analyzedBy: null,
+      analyzedAt: null,
+      report: null,
+      _origin: { source: "hector-specialist", specKey: message.specialistKey, specName: meta.label, ts: Date.now() },
+    };
+    if (typeof onSaveCouncilDocument === "function") {
+      const ok = onSaveCouncilDocument({ targetType: "negotiation", targetId: negId, doc });
+      setPicker(null);
+      // saveCouncilDocument ya emite toast "✓ Documento guardado en …".
+      // Solo emitimos flash inline si volvió false (fallo de permisos o
+      // negociación no encontrada), para que el CEO sepa que no se guardó.
+      if (!ok) flash(`⚠ No se pudo adjuntar a ${negCode}`);
+      return;
+    }
+    // Fallback transicional — solo si la prop no llegó (no debería pasar
+    // tras el deploy de este commit, pero defendemos por si acaso).
     const key = `kluxor.specialist.attachments.${negId}`;
     let existing = [];
     try { const raw = localStorage.getItem(key); if (raw) existing = JSON.parse(raw); } catch {}
     if (!Array.isArray(existing)) existing = [];
-    existing.push({
-      specialist: message.specialistKey,
-      label: meta.label,
-      task: message.task || "",
-      response: message.text || "",
-      ts: Date.now(),
-    });
+    existing.push({ specialist: message.specialistKey, label: meta.label, task: message.task || "", response: message.text || "", ts: Date.now() });
     try { localStorage.setItem(key, JSON.stringify(existing.slice(-100))); } catch {}
     setPicker(null);
-    flash(`✓ Adjuntado a ${negCode}`);
+    flash(`✓ Adjuntado a ${negCode} (local)`);
   };
 
   const projects = (data?.projects || []).filter(p => p && !p.archived && p.code);
