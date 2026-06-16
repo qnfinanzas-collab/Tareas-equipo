@@ -9,6 +9,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PERSONAL_CATEGORY_LABELS, PERSONAL_CATEGORY_ORDER, computePersonalStats, generatePersonalDocuments, checkVaultAlerts } from "./personalTemplates.js";
 import { uploadDocument as uploadToBucket, getSignedUrlCached, storageEnabled, MAX_FILE_MB, MAX_ANALYZE_MB, isAnalyzable } from "../../lib/storage.js";
+import RichText from "../Shared/RichText.jsx";
 
 const RELATIONSHIPS = [
   { key: "CEO",        label: "Yo (titular principal)" },
@@ -648,7 +649,7 @@ function DocumentRow({ doc, onUpdate, currentMember, space }) {
         <span style={{ fontSize: 18, lineHeight: 1, flexShrink: 0 }}>{meta.icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>{doc.name}</div>
-          {doc.description && <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2, lineHeight: 1.4 }}>{doc.description}</div>}
+          {doc.description && <RichText text={doc.description} lineHeight={1.4} style={{ fontSize: 11, color: "#6B7280", marginTop: 2 }}/>}
           {hasFile && (
             <div style={{ fontSize: 11, color: "#0E7C5A", marginTop: 4, fontFamily: "ui-monospace,monospace", display: "flex", gap: 8, flexWrap: "wrap" }}>
               <span>📎 {doc.fileName}</span>

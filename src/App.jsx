@@ -13,6 +13,7 @@ import { parseICSDate, parseICS, ICS_CACHE, fetchICS, getCachedEvents } from "./
 import { gCalUrl, waUrl, waMsg } from "./lib/external.js";
 import { syncEnabled, fetchState, pushState, subscribeState } from "./lib/sync.js";
 import { fetchCurrentTenantId, clearTenantCache } from "./lib/tenants.js";
+import RichText from "./components/Shared/RichText.jsx";
 import { tabFromPath, pathFromTab } from "./lib/routing.js";
 import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, resolveSessionMember, hasPermission, canEditProject, canViewProject, canEditDeal, canViewDeal, canUseAgent, getAvailableAgents, updateUserPassword, isAccountOwner } from "./lib/auth.js";
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, MAX_ANALYZE_MB, isAnalyzable, ANALYZE_TOO_LARGE_MSG, ALLOWED_MIME, ALLOWED_EXTENSIONS, migrateBase64DocsInData } from "./lib/storage.js";
@@ -3965,7 +3966,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                     {task.estimatedHours>0&&<div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"4px 10px",fontSize:11,color:"#374151"}}>Est: {task.estimatedHours}h</div>}
                   </div>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>{task.tags.map((tg,i)=><Tag key={i} tag={tg}/>)}</div>
-                  {task.desc&&<div style={{fontSize:13,color:"#4b5563",lineHeight:1.6,padding:10,background:"#f9fafb",borderRadius:8,marginBottom:12}}>{task.desc}</div>}
+                  {task.desc&&<RichText text={task.desc} lineHeight={1.6} style={{fontSize:13,color:"#4b5563",padding:10,background:"#f9fafb",borderRadius:8,marginBottom:12}}/>}
                   <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:12}}>
                     <a href={gcUrl} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px",borderRadius:8,background:"#E1F5EE",color:"#085041",border:"1px solid #1D9E75",fontSize:12,fontWeight:600,textDecoration:"none"}}>Añadir a Google Calendar</a>
                     {wu&&<a href={wu} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:6,padding:"6px 14px",borderRadius:8,background:"#dcfce7",color:"#166534",border:"1px solid #25D366",fontSize:12,fontWeight:600,textDecoration:"none"}}>Notificar WhatsApp</a>}
@@ -7862,7 +7863,7 @@ function WorkspacesView({workspaces,projects,boards,onCreate,onEdit,onSelectProj
             <div style={{fontSize:36}}>{ws.emoji}</div>
             <div style={{flex:1}}>
               <div style={{fontSize:20,fontWeight:700,color:ws.color}}>{ws.name}</div>
-              {ws.description&&<div style={{fontSize:13,color:"#6b7280",marginTop:2}}>{ws.description}</div>}
+              {ws.description&&<RichText text={ws.description} style={{fontSize:13,color:"#6b7280",marginTop:2}}/>}
             </div>
             <button onClick={()=>onEdit(ws)} style={{padding:"7px 14px",borderRadius:8,background:ws.color,color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>✏ Editar</button>
           </div>
@@ -8854,7 +8855,7 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
                 <span style={{fontSize:15,flexShrink:0}}>{rt.icon}</span>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:12.5,fontWeight:600,color:rt.color}}>{rt.label}: <span style={{color:"#111827"}}>{target?.title||"(negociación borrada)"}</span>{r.critical&&<span style={{marginLeft:6,fontSize:10,padding:"1px 6px",background:"#FEE2E2",color:"#B91C1C",borderRadius:10}}>Crítica</span>}</div>
-                  {r.description&&<div style={{fontSize:11,color:"#6B7280",fontStyle:"italic",marginTop:3}}>{r.description}</div>}
+                  {r.description&&<RichText text={r.description} style={{fontSize:11,color:"#6B7280",fontStyle:"italic",marginTop:3}}/>}
                 </div>
                 <button onClick={()=>removeRelation(r.id)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #e5e7eb",background:"#fff",fontSize:12,color:"#6b7280",cursor:"pointer"}}>✕</button>
               </div>
@@ -8894,7 +8895,7 @@ function NegotiationModal({negotiation,members,workspaces,projects,agents,allNeg
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:600,color:"#111827"}}>{s.name}{s.company&&<span style={{fontWeight:400,color:"#6B7280"}}> · {s.company}</span>}</div>
                   <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{getStkRole(s.role)} · <b>{getStkInfluence(s.influence)}</b>{s.email&&` · ${s.email}`}{s.phone&&` · ${s.phone}`}</div>
-                  {s.notes&&<div style={{fontSize:11,color:"#4B5563",fontStyle:"italic",marginTop:4}}>{s.notes}</div>}
+                  {s.notes&&<RichText text={s.notes} style={{fontSize:11,color:"#4B5563",fontStyle:"italic",marginTop:4}}/>}
                 </div>
                 <button onClick={()=>removeStakeholder(s.id)} style={{padding:"5px 8px",borderRadius:6,border:"1px solid #e5e7eb",background:"#fff",fontSize:12,color:"#6b7280",cursor:"pointer"}}>✕</button>
               </div>
@@ -11089,7 +11090,7 @@ ${taskLines||"(ninguna)"}`;
                 <div style={{fontSize:13,fontWeight:600,color:"#111827",marginBottom:3}}>👤 {s.name}</div>
                 <div style={{fontSize:11,color:"#6B7280",marginBottom:4}}>{s.company&&`${s.company} · `}{getStkRole(s.role)} · <b>{getStkInfluence(s.influence)}</b></div>
                 {(s.email||s.phone)&&<div style={{fontSize:11,color:"#9CA3AF",marginBottom:4}}>{s.email}{s.email&&s.phone&&" · "}{s.phone}</div>}
-                {s.notes&&<div style={{fontSize:11.5,color:"#4B5563",fontStyle:"italic",lineHeight:1.5,marginTop:4}}>{s.notes}</div>}
+                {s.notes&&<RichText text={s.notes} style={{fontSize:11.5,color:"#4B5563",fontStyle:"italic",marginTop:4}}/>}
               </div>
             ))}
           </div>
@@ -11109,7 +11110,7 @@ ${taskLines||"(ninguna)"}`;
                 <div key={r.id} onClick={()=>target&&onOpenRelatedNeg?.(r.negotiationId)} className="tf-lift" style={{background:bg,border:`1.5px solid ${bd}`,borderRadius:10,padding:"11px 13px",cursor:target?"pointer":"default"}}>
                   <div style={{fontSize:12.5,fontWeight:600,color:rt.color,marginBottom:3}}>{rt.icon} {rt.label} {r.critical&&<span style={{marginLeft:6,fontSize:10,padding:"1px 6px",background:"#FEE2E2",color:"#B91C1C",borderRadius:10}}>Crítica</span>}</div>
                   <div style={{fontSize:12.5,fontWeight:600,color:"#111827"}}>{target?.title||"(negociación borrada)"}</div>
-                  {r.description&&<div style={{fontSize:11,color:"#4B5563",fontStyle:"italic",marginTop:4,lineHeight:1.5}}>{r.description}</div>}
+                  {r.description&&<RichText text={r.description} style={{fontSize:11,color:"#4B5563",fontStyle:"italic",marginTop:4}}/>}
                 </div>
               );
             })}
@@ -11612,8 +11613,8 @@ function MemorySection({label, category, items, onAdd, onRemove, open, onToggle}
             <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
               {items.slice().reverse().map(item=>(
                 <div key={item.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",background:"#F9FAFB",borderRadius:8,borderLeft:`3px solid ${item.source&&item.source!=="manual"?"#378ADD":"#7F77DD"}`}}>
-                  <div style={{flex:1,minWidth:0,fontSize:12.5,lineHeight:1.5,color:"#1F2937"}}>
-                    {item.text}
+                  <div style={{flex:1,minWidth:0,fontSize:12.5,color:"#1F2937"}}>
+                    <RichText text={item.text} style={{fontSize:12.5,color:"#1F2937"}}/>
                     {item.negotiationTitle && <div style={{fontSize:10,color:"#9CA3AF",marginTop:2,fontStyle:"italic"}}>↳ de "{item.negotiationTitle}"</div>}
                   </div>
                   <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,flexShrink:0}}>
@@ -11743,7 +11744,7 @@ function MemoryPanel({ceoMemory, negotiation, onAddCeo, onRemoveCeo, onAddNeg, o
                   <div key={item.id} style={{padding:"10px 12px",background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,borderLeft:`3px solid ${b.color}`}}>
                     <div style={{display:"flex",alignItems:"flex-start",gap:8,marginBottom:4}}>
                       <span style={{fontSize:9.5,fontWeight:700,color:b.color,background:b.bg,padding:"1px 7px",borderRadius:4,textTransform:"uppercase",letterSpacing:"0.04em",flexShrink:0}}>{b.label}</span>
-                      <div style={{flex:1,fontSize:12.5,color:"#1F2937",lineHeight:1.5}}>{item.text}</div>
+                      <div style={{flex:1,minWidth:0}}><RichText text={item.text} style={{fontSize:12.5,color:"#1F2937"}}/></div>
                     </div>
                     {(item.negotiationTitle || item.outcome) && (
                       <div style={{fontSize:10.5,color:"#9CA3AF",fontStyle:"italic"}}>
