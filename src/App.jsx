@@ -2171,6 +2171,37 @@ function LoginScreen({onAuthed, onLegacySkip, forceRecovery=false, onRecoveryDon
   );
 }
 
+// Responsable principal de un documento. Prioridad: el agente que lo
+// GENERÓ desde el chat (data en _origin.specName, presente desde commit
+// 794aad4) > el agente que lo ANALIZÓ (analyzedBy, campo legacy) > "Sin
+// agente · Subido por el CEO" para docs sin trazabilidad (uploads
+// manuales o pre-794aad4). Función pura sin side effects.
+function docResponsible(doc){
+  if (doc?._origin?.specName) return { name: doc._origin.specName, kind: "created",  specKey: doc._origin.specKey || null };
+  if (doc?.analyzedBy)        return { name: doc.analyzedBy,        kind: "analyzed", specKey: null };
+  return { name: null, kind: "uploaded", specKey: null };
+}
+
+// Agrupa docs por su responsable principal. Devuelve un array de
+// {name, docs}; orden alfabético de agentes con "Sin agente · Subido
+// por el CEO" SIEMPRE al final (consistencia visual).
+function groupDocsByResponsible(docs){
+  const groups = new Map();
+  for (const doc of (docs || [])) {
+    const r = docResponsible(doc);
+    const key = r.name || "__ceo__";
+    if (!groups.has(key)) groups.set(key, { name: r.name || "Sin agente · Subido por el CEO", isUploaded: r.kind === "uploaded", docs: [] });
+    groups.get(key).docs.push(doc);
+  }
+  const arr = [...groups.values()];
+  arr.sort((a, b) => {
+    if (a.isUploaded && !b.isUploaded) return 1;
+    if (b.isUploaded && !a.isUploaded) return -1;
+    return a.name.localeCompare(b.name, "es");
+  });
+  return arr;
+}
+
 // Adjuntos de documentos con upload a Supabase Storage.
 // ownerKey = identificador del contenedor ("neg-<id>" o "task-<id>") que se
 // usa como prefijo del path en el bucket. documents se persiste en el estado
@@ -2183,6 +2214,12 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
   const [analyzing,setAnalyzing] = useState(null);
   const [expanded,setExpanded]   = useState(null);
   const [agentMenuDocId,setAgentMenuDocId] = useState(null); // doc.id cuyo dropdown de agentes está abierto
+  // Toggle "Agrupar por agente" — default false (lista plana, comportamiento
+  // histórico). Solo aparece el botón cuando hay >3 docs, para no estorbar
+  // con pocos. Agrupa por responsable principal (_origin.specName ?
+  // analyzedBy ? "Sin agente"). Patrón Kluxor heredado de groupByCategory
+  // en DealRoomView (App.jsx:9178).
+  const [groupByAgent,setGroupByAgent] = useState(false);
   const [urlInput,setUrlInput]   = useState("");
   const [urlBusy,setUrlBusy]     = useState(false);
   const [textMode,setTextMode]   = useState(false);
@@ -2597,93 +2634,158 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
         </div>
       )}
       {error&&<div style={{fontSize:11.5,color:"#B91C1C",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:6,padding:"6px 10px"}}>{error}</div>}
-      {documents.length>0 && (
-        <div style={{display:"flex",flexDirection:"column",gap:6}}>
-          {documents.map(doc=>{
-            const isExpanded = expanded===doc.id && doc.report;
-            const isAnalyzing = analyzing===doc.id;
-            return(
-              <div key={doc.id} style={{display:"flex",flexDirection:"column",background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,overflow:"hidden"}}>
-                <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px"}}>
-                  <span style={{fontSize:16,flexShrink:0}}>{iconFor(doc)}</span>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:12.5,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</div>
-                    <div style={{fontSize:10.5,color:"#9CA3AF"}}>
-                      {fmtFileSize(doc.size)} · {new Date(doc.uploadedAt).toLocaleDateString("es-ES")}
-                      {doc.analyzedBy && <> · <span style={{color:"#0E7C5A",fontWeight:600}}>analizado por {doc.analyzedBy}</span></>}
-                    </div>
+      {documents.length>0 && (() => {
+        // Render por fila. Función local para reutilizar tanto en lista
+        // plana como dentro de cada grupo. Captura todas las dependencias
+        // del componente (estado, helpers, agents prop) via closure.
+        const renderDocRow = (doc) => {
+          const isExpanded = expanded===doc.id && doc.report;
+          const isAnalyzing = analyzing===doc.id;
+          const responsible = docResponsible(doc);
+          const respAgent = responsible.kind === "created"
+            ? agents.find(a => a.name === responsible.name)
+            : null;
+          return(
+            <div key={doc.id} style={{display:"flex",flexDirection:"column",background:"#fff",border:"1px solid #E5E7EB",borderRadius:8,overflow:"hidden"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px"}}>
+                <span style={{fontSize:16,flexShrink:0}}>{iconFor(doc)}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12.5,fontWeight:600,color:"#111827",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{doc.name}</div>
+                  <div style={{fontSize:10.5,color:"#9CA3AF",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                    <span>{fmtFileSize(doc.size)} · {new Date(doc.uploadedAt).toLocaleDateString("es-ES")}</span>
+                    {/* Badge del agente creador (solo si _origin.specName presente).
+                        Color sutil del agente; emoji + nombre. data-c para smoke. */}
+                    {responsible.kind === "created" && (
+                      <span data-c="doc-agent-badge" title={`Generado por ${responsible.name}`} style={{
+                        display:"inline-flex",alignItems:"center",gap:4,
+                        padding:"1px 8px",borderRadius:4,
+                        background: respAgent?.color ? `${respAgent.color}15` : "#F3F4F6",
+                        color: respAgent?.color || "#6B7280",
+                        fontSize:10,fontWeight:600,
+                      }}>
+                        <span>{respAgent?.emoji || "🤖"}</span>
+                        <span>{responsible.name}</span>
+                      </span>
+                    )}
+                    {doc.analyzedBy && <span style={{color:"#0E7C5A",fontWeight:600}}>analizado por {doc.analyzedBy}</span>}
                   </div>
-                  <button onClick={()=>openDoc(doc)} title="Abrir" style={{width:28,height:28,borderRadius:6,background:"#F3F4F6",border:"none",cursor:"pointer",fontSize:13}}>↗</button>
-                  {/* Tercer botón: Analizar (verde) si no hay informe; Ver informe (azul) + Re-analizar (gris) si lo hay */}
-                  {hasAgents && canAnalyze(doc) && !doc.report && (
-                    <button
-                      data-doc-anchor={`analyze-${doc.id}`}
-                      onClick={()=>setAgentMenuDocId(v=>v===doc.id?null:doc.id)}
-                      disabled={isAnalyzing}
-                      title="Analizar con un agente IA"
-                      style={{padding:"4px 12px",borderRadius:6,background:isAnalyzing?"#A7F3D0":"#1D9E75",color:"#fff",border:"none",cursor:isAnalyzing?"wait":"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}
-                    >{isAnalyzing?"⋯ Analizando…":"Analizar"}</button>
-                  )}
-                  {doc.report && (
-                    <>
-                      <button
-                        onClick={()=>setExpanded(e=>e===doc.id?null:doc.id)}
-                        title={isExpanded?"Ocultar informe":"Ver informe"}
-                        style={{padding:"4px 12px",borderRadius:6,background:"#378ADD",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit"}}
-                      >{isExpanded?"Ocultar":"Ver informe"}</button>
-                      {hasAgents && canAnalyze(doc) && (
-                        <button
-                          data-doc-anchor={`analyze-${doc.id}`}
-                          onClick={()=>setAgentMenuDocId(v=>v===doc.id?null:doc.id)}
-                          disabled={isAnalyzing}
-                          title="Re-analizar con otro agente"
-                          style={{padding:"4px 10px",borderRadius:6,background:isAnalyzing?"#E5E7EB":"#F3F4F6",color:"#374151",border:"1px solid #D1D5DB",cursor:isAnalyzing?"wait":"pointer",fontSize:11,fontWeight:600,fontFamily:"inherit"}}
-                        >{isAnalyzing?"⋯":"Re-analizar"}</button>
-                      )}
-                    </>
-                  )}
-                  <PortalDropdown
-                    open={agentMenuDocId===doc.id && !isAnalyzing}
-                    onClose={()=>setAgentMenuDocId(null)}
-                    getAnchor={()=>document.querySelector(`[data-doc-anchor="analyze-${doc.id}"]`)}
-                  >
-                    {agents.map(a=>(
-                      <button
-                        key={a.id}
-                        onClick={()=>{ setAgentMenuDocId(null); runAnalyze(doc, a); }}
-                        style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"7px 10px",border:"none",background:"transparent",cursor:"pointer",fontSize:12,fontFamily:"inherit",textAlign:"left",borderRadius:6,color:"#111827"}}
-                        onMouseEnter={e=>e.currentTarget.style.background="#F3F4F6"}
-                        onMouseLeave={e=>e.currentTarget.style.background="transparent"}
-                      >
-                        <span>{a.emoji||"🤖"}</span>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontWeight:600}}>{a.name}</div>
-                          {a.role && <div style={{fontSize:10,color:"#6B7280"}}>{a.role}</div>}
-                        </div>
-                      </button>
-                    ))}
-                  </PortalDropdown>
-                  <button onClick={()=>removeDoc(doc)} title="Eliminar" style={{width:28,height:28,borderRadius:6,background:"#FEF2F2",border:"none",cursor:"pointer",fontSize:13,color:"#B91C1C"}}>✕</button>
                 </div>
-                {isExpanded && (
-                  <div style={{borderTop:"1px solid #E5E7EB",padding:"10px 12px",background:"#FAFBFF",fontSize:12,color:"#374151",display:"flex",flexDirection:"column",gap:10}}>
-                    {doc.report.summary && <div><div style={{fontSize:10,fontWeight:700,color:"#1E40AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Resumen ejecutivo</div><div style={{lineHeight:1.5,whiteSpace:"pre-wrap"}}>{doc.report.summary}</div></div>}
-                    {doc.report.details && <div><div style={{fontSize:10,fontWeight:700,color:"#B45309",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Riesgos y oportunidades</div><div style={{lineHeight:1.5,whiteSpace:"pre-wrap"}}>{doc.report.details}</div></div>}
-                    {doc.report.recommendations && <div><div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Recomendaciones</div><div style={{lineHeight:1.5,whiteSpace:"pre-wrap"}}>{doc.report.recommendations}</div></div>}
-                    <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
-                      <ExportPDFButton
-                        title={`Informe — ${doc.name}`}
-                        filename={`informe-${doc.name.slice(0,40)}`}
-                        render={(pdfDoc,y)=>renderDocumentReport(pdfDoc, y, doc.report, doc.name, doc.analyzedBy)}
-                      />
-                    </div>
-                  </div>
+                <button onClick={()=>openDoc(doc)} title="Abrir" style={{width:28,height:28,borderRadius:6,background:"#F3F4F6",border:"none",cursor:"pointer",fontSize:13}}>↗</button>
+                {/* Tercer botón: Analizar (verde) si no hay informe; Ver informe (azul) + Re-analizar (gris) si lo hay */}
+                {hasAgents && canAnalyze(doc) && !doc.report && (
+                  <button
+                    data-doc-anchor={`analyze-${doc.id}`}
+                    onClick={()=>setAgentMenuDocId(v=>v===doc.id?null:doc.id)}
+                    disabled={isAnalyzing}
+                    title="Analizar con un agente IA"
+                    style={{padding:"4px 12px",borderRadius:6,background:isAnalyzing?"#A7F3D0":"#1D9E75",color:"#fff",border:"none",cursor:isAnalyzing?"wait":"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit",display:"inline-flex",alignItems:"center",gap:5}}
+                  >{isAnalyzing?"⋯ Analizando…":"Analizar"}</button>
                 )}
+                {doc.report && (
+                  <>
+                    <button
+                      onClick={()=>setExpanded(e=>e===doc.id?null:doc.id)}
+                      title={isExpanded?"Ocultar informe":"Ver informe"}
+                      style={{padding:"4px 12px",borderRadius:6,background:"#378ADD",color:"#fff",border:"none",cursor:"pointer",fontSize:12,fontWeight:600,fontFamily:"inherit"}}
+                    >{isExpanded?"Ocultar":"Ver informe"}</button>
+                    {hasAgents && canAnalyze(doc) && (
+                      <button
+                        data-doc-anchor={`analyze-${doc.id}`}
+                        onClick={()=>setAgentMenuDocId(v=>v===doc.id?null:doc.id)}
+                        disabled={isAnalyzing}
+                        title="Re-analizar con otro agente"
+                        style={{padding:"4px 10px",borderRadius:6,background:isAnalyzing?"#E5E7EB":"#F3F4F6",color:"#374151",border:"1px solid #D1D5DB",cursor:isAnalyzing?"wait":"pointer",fontSize:11,fontWeight:600,fontFamily:"inherit"}}
+                      >{isAnalyzing?"⋯":"Re-analizar"}</button>
+                    )}
+                  </>
+                )}
+                <PortalDropdown
+                  open={agentMenuDocId===doc.id && !isAnalyzing}
+                  onClose={()=>setAgentMenuDocId(null)}
+                  getAnchor={()=>document.querySelector(`[data-doc-anchor="analyze-${doc.id}"]`)}
+                >
+                  {agents.map(a=>(
+                    <button
+                      key={a.id}
+                      onClick={()=>{ setAgentMenuDocId(null); runAnalyze(doc, a); }}
+                      style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"7px 10px",border:"none",background:"transparent",cursor:"pointer",fontSize:12,fontFamily:"inherit",textAlign:"left",borderRadius:6,color:"#111827"}}
+                      onMouseEnter={e=>e.currentTarget.style.background="#F3F4F6"}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+                    >
+                      <span>{a.emoji||"🤖"}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:600}}>{a.name}</div>
+                        {a.role && <div style={{fontSize:10,color:"#6B7280"}}>{a.role}</div>}
+                      </div>
+                    </button>
+                  ))}
+                </PortalDropdown>
+                <button onClick={()=>removeDoc(doc)} title="Eliminar" style={{width:28,height:28,borderRadius:6,background:"#FEF2F2",border:"none",cursor:"pointer",fontSize:13,color:"#B91C1C"}}>✕</button>
               </div>
-            );
-          })}
-        </div>
-      )}
+              {isExpanded && (
+                <div style={{borderTop:"1px solid #E5E7EB",padding:"10px 12px",background:"#FAFBFF",fontSize:12,color:"#374151",display:"flex",flexDirection:"column",gap:10}}>
+                  {doc.report.summary && <div><div style={{fontSize:10,fontWeight:700,color:"#1E40AF",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Resumen ejecutivo</div><div style={{lineHeight:1.5,whiteSpace:"pre-wrap"}}>{doc.report.summary}</div></div>}
+                  {doc.report.details && <div><div style={{fontSize:10,fontWeight:700,color:"#B45309",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Riesgos y oportunidades</div><div style={{lineHeight:1.5,whiteSpace:"pre-wrap"}}>{doc.report.details}</div></div>}
+                  {doc.report.recommendations && <div><div style={{fontSize:10,fontWeight:700,color:"#0E7C5A",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:4}}>Recomendaciones</div><div style={{lineHeight:1.5,whiteSpace:"pre-wrap"}}>{doc.report.recommendations}</div></div>}
+                  <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+                    <ExportPDFButton
+                      title={`Informe — ${doc.name}`}
+                      filename={`informe-${doc.name.slice(0,40)}`}
+                      render={(pdfDoc,y)=>renderDocumentReport(pdfDoc, y, doc.report, doc.name, doc.analyzedBy)}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        // Lista plana (toggle OFF) o agrupada (toggle ON). Toggle solo
+        // aparece si hay >3 docs — con pocos no merece la pena.
+        const groupsToRender = groupByAgent
+          ? groupDocsByResponsible(documents)
+          : [{ name: null, isUploaded: false, docs: documents }];
+
+        return (
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {documents.length > 3 && (
+              <div style={{display:"flex",justifyContent:"flex-end"}}>
+                <button
+                  data-c="docs-group-toggle"
+                  onClick={()=>setGroupByAgent(g=>!g)}
+                  title={groupByAgent?"Desagrupar":"Agrupar por agente"}
+                  style={{padding:"6px 12px",borderRadius:0,background:groupByAgent?"#FBF6E6":"transparent",border:groupByAgent?"1px solid #C9A84C":"1px solid #E5E0D5",color:groupByAgent?"#876C1E":"#6B6B6B",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}
+                >🗂 {groupByAgent ? "Desagrupar" : "Agrupar por agente"}</button>
+              </div>
+            )}
+            {groupsToRender.map((group, gi) => {
+              const headerAgent = group.name && !group.isUploaded
+                ? agents.find(a => a.name === group.name)
+                : null;
+              return (
+                <React.Fragment key={group.name || `__plain__-${gi}`}>
+                  {group.name && (
+                    <div data-c="docs-group-header" style={{
+                      display:"flex",alignItems:"center",gap:8,
+                      padding:"6px 10px",marginTop:gi===0?0:6,
+                      fontSize:11,fontWeight:700,
+                      color: headerAgent?.color || "#6B7280",
+                      textTransform:"uppercase",letterSpacing:"0.08em",
+                      background: headerAgent?.color ? `${headerAgent.color}10` : "#F3F4F6",
+                      borderRadius:4,
+                    }}>
+                      <span>{group.isUploaded ? "📥" : (headerAgent?.emoji || "🤖")}</span>
+                      <span style={{flex:1}}>{group.name}</span>
+                      <span style={{opacity:0.7}}>({group.docs.length})</span>
+                    </div>
+                  )}
+                  {group.docs.map(doc => renderDocRow(doc))}
+                </React.Fragment>
+              );
+            })}
+          </div>
+        );
+      })()}
       {/* Visor profesional para documentos inline (markdown / texto).
           Reemplaza el blob-in-new-tab para corregir el mojibake UTF-8 y
           ofrecer render Markdown + descargas PDF/MD. */}
