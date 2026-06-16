@@ -1473,6 +1473,11 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
   // si el chat se limpia, así que no necesita persistencia.
   const [picker, setPicker] = useState(null);    // "task" | "neg" | null
   const [feedback, setFeedback] = useState("");
+  // Query del buscador inline de los pickers. Una sola pieza de state
+  // porque solo hay un picker abierto a la vez. Se resetea al cambiar
+  // (abrir/cerrar) para que cada apertura arranque limpia.
+  const [query, setQuery] = useState("");
+  useEffect(() => { setQuery(""); }, [picker]);
   const flash = (txt) => { setFeedback(txt); setTimeout(()=>setFeedback(""), 2400); };
 
   // Acción 1 — Crear tarea desde la respuesta. Necesita projectCode
@@ -1662,6 +1667,22 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
   const ACTIVE_NEG = new Set(["en_curso", "pausado"]);
   const negs = (data?.negotiations || []).filter(n => n && ACTIVE_NEG.has(n.status));
 
+  // Filtros del buscador inline. case-insensitive contains. Cuando query
+  // está vacío devolvemos la lista completa — el scroll del contenedor
+  // hace el resto. Antes había un .slice(0, 12) hardcodeado que cortaba
+  // los pickers a las 12 primeras entradas; con 57 proyectos / 57 negs
+  // significaba que muchas no eran alcanzables. Eliminado.
+  const queryLower = query.trim().toLowerCase();
+  const filteredProjects = !queryLower ? projects : projects.filter(p =>
+    (p.code || "").toLowerCase().includes(queryLower) ||
+    (p.name || "").toLowerCase().includes(queryLower)
+  );
+  const filteredNegs = !queryLower ? negs : negs.filter(n =>
+    (n.code || "").toLowerCase().includes(queryLower) ||
+    (n.title || "").toLowerCase().includes(queryLower) ||
+    (n.counterparty || "").toLowerCase().includes(queryLower)
+  );
+
   const buttons = [
     { id: "task",     label: "📋 Tarea",    onClick: () => {
         if (!projects.length) { flash("⚠ Crea un proyecto primero"); return; }
@@ -1743,38 +1764,70 @@ function SpecialistBubble({ message, data, onRunAgentActions }) {
         </div>
       )}
 
-      {/* Picker de proyecto (Acción 1) — tema operacional claro */}
+      {/* Picker de proyecto (Acción 1) — tema operacional claro.
+          maxHeight + overflowY auto en la lista interna para que con
+          50+ proyectos haya scroll. Input de búsqueda (autoFocus) cuando
+          hay >6 — umbral pragmático para no estorbar con pocos.
+          data-c="task-picker" + data-c="task-row" facilitan smoke tests. */}
       {picker === "task" && projects.length > 0 && (
-        <div style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: "#FFFFFF", border: `0.5px solid ${C.borderTertiary}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 14px rgba(26,26,26,0.08)" }}>
-          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: C.bgPrimary }}>Crear tarea en…</div>
-          {projects.slice(0, 12).map(p => (
-            <div key={p.id}
-              onClick={() => handleCreateTask(p.code)}
-              style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: C.textPrimary, borderBottom: `0.5px solid ${C.borderTertiary}` }}
-              onMouseEnter={e => e.currentTarget.style.background = C.bgSecondary}
-              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-            >
-              <span style={{ fontWeight: 600, color: C.brand }}>[{p.code}]</span> {p.name || "Sin nombre"}
-            </div>
-          ))}
+        <div data-c="task-picker" style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: "#FFFFFF", border: `0.5px solid ${C.borderTertiary}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 14px rgba(26,26,26,0.08)", display: "flex", flexDirection: "column", maxHeight: 360 }}>
+          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: C.bgPrimary, flexShrink: 0 }}>Crear tarea en…</div>
+          {projects.length > 6 && (
+            <input
+              data-c="task-search"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Buscar por código o nombre…"
+              autoFocus
+              style={{ padding: "8px 12px", border: 0, borderBottom: `0.5px solid ${C.borderTertiary}`, fontSize: 13, outline: "none", fontFamily: "inherit", background: "#FFFFFF", flexShrink: 0 }}
+            />
+          )}
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {filteredProjects.length === 0 ? (
+              <div style={{ padding: "16px 12px", fontSize: 12, color: C.textTertiary, textAlign: "center" }}>Sin resultados</div>
+            ) : filteredProjects.map(p => (
+              <div key={p.id} data-c="task-row"
+                onClick={() => handleCreateTask(p.code)}
+                style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: C.textPrimary, borderBottom: `0.5px solid ${C.borderTertiary}` }}
+                onMouseEnter={e => e.currentTarget.style.background = C.bgSecondary}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+              >
+                <span style={{ fontWeight: 600, color: C.brand }}>[{p.code}]</span> {p.name || "Sin nombre"}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Picker de negociación (Acción 3) — tema operacional claro */}
+      {/* Picker de negociación (Acción 3) — mismo patrón que el de proyectos. */}
       {picker === "neg" && negs.length > 0 && (
-        <div style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: "#FFFFFF", border: `0.5px solid ${C.borderTertiary}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 14px rgba(26,26,26,0.08)" }}>
-          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: C.bgPrimary }}>Adjuntar a negociación…</div>
-          {negs.slice(0, 12).map(n => (
-            <div key={n.id}
-              onClick={() => handleAttachNeg(n.id, n.code || `#${n.id}`)}
-              style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: C.textPrimary, borderBottom: `0.5px solid ${C.borderTertiary}` }}
-              onMouseEnter={e => e.currentTarget.style.background = C.bgSecondary}
-              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-            >
-              <span style={{ fontWeight: 600, color: C.brand }}>[{n.code || "?"}]</span> {(n.title || "Sin título").slice(0, 50)}
-              {n.counterparty ? <span style={{ fontSize: 11, color: C.textTertiary, marginLeft: 6 }}>· {n.counterparty}</span> : null}
-            </div>
-          ))}
+        <div data-c="neg-picker" style={{ marginLeft: 42, marginTop: 6, width: "calc(100% - 42px)", maxWidth: 360, background: "#FFFFFF", border: `0.5px solid ${C.borderTertiary}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 4px 14px rgba(26,26,26,0.08)", display: "flex", flexDirection: "column", maxHeight: 360 }}>
+          <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: C.textTertiary, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `0.5px solid ${C.borderTertiary}`, background: C.bgPrimary, flexShrink: 0 }}>Adjuntar a negociación…</div>
+          {negs.length > 6 && (
+            <input
+              data-c="neg-search"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Buscar por código, título o contraparte…"
+              autoFocus
+              style={{ padding: "8px 12px", border: 0, borderBottom: `0.5px solid ${C.borderTertiary}`, fontSize: 13, outline: "none", fontFamily: "inherit", background: "#FFFFFF", flexShrink: 0 }}
+            />
+          )}
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            {filteredNegs.length === 0 ? (
+              <div style={{ padding: "16px 12px", fontSize: 12, color: C.textTertiary, textAlign: "center" }}>Sin resultados</div>
+            ) : filteredNegs.map(n => (
+              <div key={n.id} data-c="neg-row"
+                onClick={() => handleAttachNeg(n.id, n.code || `#${n.id}`)}
+                style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: C.textPrimary, borderBottom: `0.5px solid ${C.borderTertiary}` }}
+                onMouseEnter={e => e.currentTarget.style.background = C.bgSecondary}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+              >
+                <span style={{ fontWeight: 600, color: C.brand }}>[{n.code || "?"}]</span> {(n.title || "Sin título").slice(0, 50)}
+                {n.counterparty ? <span style={{ fontSize: 11, color: C.textTertiary, marginLeft: 6 }}>· {n.counterparty}</span> : null}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
