@@ -12361,12 +12361,33 @@ export default function TaskFlow(){
   // sync — que a su vez espera a tenantResolved. Por eso aquí no repetimos
   // el guard: si llegamos aquí con syncReady=true, el tenantId ya está
   // resuelto (o explícitamente null en legacy mode).
+  //
+  // tenantId NO está en las deps de este effect — usamos un ref. Razón:
+  // si la incluyéramos, un cambio de tenantId (p.ej. anon→auth de un nuevo
+  // CEO) dispararía pushState(data, nuevoTenant) ANTES de que el sync
+  // useEffect haya releído la fila del nuevo tenant. Resultado: la data
+  // del tenant anterior se escribía en la fila del nuevo (contaminación
+  // cruzada al cambiar de tenant, incidente Luis 21/06/2026). Con ref +
+  // syncReady reseteado al cambiar tenantId, el push queda bloqueado hasta
+  // que la primera relectura del nuevo tenant haya terminado.
+  const tenantIdRef = useRef(null);
+  useEffect(()=>{ tenantIdRef.current = tenantId; },[tenantId]);
+  // Skip mount: solo reseteamos syncReady cuando tenantId CAMBIA. En el
+  // primer render no hay transición real y reseteando aquí romperíamos
+  // legacy mode (syncEnabled=false, syncReady arranca true y nunca se
+  // re-setea desde el sync useEffect).
+  const tenantPrevRef = useRef(tenantId);
+  useEffect(()=>{
+    if(tenantPrevRef.current === tenantId) return;
+    tenantPrevRef.current = tenantId;
+    setSyncReady(false);
+  },[tenantId]);
   useEffect(()=>{
     try{ localStorage.setItem(LS_KEY,JSON.stringify(data)); }catch(e){}
     if(!syncReady) return;
     if(isRemoteUpdate.current){ isRemoteUpdate.current=false; return; }
-    pushState(data, tenantId);
-  },[data,syncReady,tenantId]);
+    pushState(data, tenantIdRef.current);
+  },[data,syncReady]);
 
   // Sync inicial + subscripción realtime.
   // GUARD asíncrono Fase 2B: si hay session pero el RPC current_tenant_id
