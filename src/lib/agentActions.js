@@ -1112,6 +1112,53 @@ export function stripCeoProfile(promptBase){
   return promptBase.replace(/\n+PERFIL CEO:[\s\S]*?(?=\n+CAPACIDAD DE EJECUCIÓN)/g, "");
 }
 
+// buildSpecialistContext — override de identidad para especialistas del
+// Consejo (Mario, Jorge, Álvaro, Gonzalo, Diego) cuando el tenant activo
+// NO es Antonio. Los promptBase de los specialists tienen identidad de
+// Antonio HARDCODEADA (Jorge "Eres analista de Kluxor/Alma Dimo… representas
+// los intereses de Antonio Díaz Molina"; Mario "CASO ESPECIAL - KLUXOR…
+// Jurisdicción Marbella"). Cuando Luis Granda (u otro CEO nuevo) invocaba
+// a Mario, el modelo respondía "Hola Antonio… para tu JV de Kluxor…"
+// porque el promptBase pesa más que el contexto operativo.
+//
+// Estrategia: PREPENDER un bloque "CONTEXTO DEL CEO ACTUAL" con regla
+// crítica explícita (NO menciones Antonio/ALMA DIMO/Kluxor/Marbella/cifras
+// waterfall). La metodología y normativa del promptBase se aplica al CEO
+// actual; el caso específico de Kluxor queda como ejemplo histórico.
+//
+// DEFENSIVO: si ceoProfile es null/undefined, si no tiene name, o si el
+// name menciona a Antonio Díaz → devuelve "". El flujo de Antonio queda
+// idéntico (su tenant id=1 hoy NO tiene ceoProfile relleno, así que cae
+// por la primera rama; aunque se rellenara, la segunda rama lo detecta
+// por nombre).
+export function buildSpecialistContext(ceoProfile){
+  if (!ceoProfile || typeof ceoProfile !== "object") return "";
+  const name = String(ceoProfile.name || "").trim();
+  if (!name) return "";
+  if (/antonio\s+d[ií]az/i.test(name)) return "";
+  const company = String(ceoProfile.company || "").trim();
+  const role    = String(ceoProfile.role    || "").trim();
+  const sector  = String(ceoProfile.sector  || "").trim();
+  const description = String(ceoProfile.description || "").trim();
+  const lines = [
+    "CONTEXTO DEL CEO ACTUAL — LEE ANTES QUE NADA",
+    `Estás asesorando a ${name}${company ? ` (${company})` : ""}${role ? `, ${role}` : ""}.`,
+  ];
+  if (sector)      lines.push(`Sector: ${sector}`);
+  if (description) lines.push(`LO QUE LE OCUPA: ${description}`);
+  lines.push("");
+  lines.push("REGLA CRÍTICA DE IDENTIDAD (no negociable):");
+  lines.push("- NO menciones a Antonio Díaz ni a Antonio Díaz Molina como cliente activo.");
+  lines.push("- NO menciones ALMA DIMO INVESTMENTS S.L., ni Kluxor, ni Admore Projects.");
+  lines.push("- NO uses Marbella ni la Costa del Sol como ubicación del CEO actual.");
+  lines.push("- NO uses cifras de Kluxor (waterfall, tramos €50K/€75K/€125K/€175K, canon €25.000, JV cámara hiperbárica) como datos del cliente. Son ejemplos históricos del promptBase, NO de este CEO.");
+  lines.push(`- Cuando hables del CEO o de su empresa, refiérete SIEMPRE a ${name}${company ? ` / ${company}` : ""}.`);
+  lines.push("- Si necesitas un ejemplo numérico, pide los datos al CEO actual o usa una hipótesis abstracta marcada como ejemplo.");
+  lines.push("");
+  lines.push("Tu metodología, marcos profesionales y normativa siguen siendo válidos y se aplican AL CEO ACTUAL. Si el promptBase contiene un caso específico de un cliente histórico, trátalo como referencia técnica, no como cliente vivo.");
+  return lines.join("\n");
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Order Interpreter (commit 20) — intérprete de órdenes natural-language
 // sobre una tarea concreta. Diferente del flujo [ACTIONS]: aquí el LLM

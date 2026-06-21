@@ -40,7 +40,7 @@ import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
 import VaultGuestView, { parseVaultGuestPath } from "./components/Vault/VaultGuestView.jsx";
 import { generatePersonalDocuments } from "./components/Vault/personalTemplates.js";
-import { AGENT_ACTIONS_ADDON, suggestNegotiationEmoji, NEGOTIATION_EMOJIS, parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, correctActionsDates, stripCeoProfile } from "./lib/agentActions.js";
+import { AGENT_ACTIONS_ADDON, suggestNegotiationEmoji, NEGOTIATION_EMOJIS, parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, correctActionsDates, stripCeoProfile, buildSpecialistContext } from "./lib/agentActions.js";
 import ActionProposal from "./components/Shared/ActionProposal.jsx";
 import { buildFinanceSummary, renderFinanceSummaryForPrompt } from "./lib/financeSummary.js";
 import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
@@ -10583,7 +10583,10 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           // especialista. No persiste — el caller decide qué hacer con él.
           const invokeSpecialist = async({agentId, task, hectorReply})=>{
             const ag = (agents||[]).find(a=>a.id===agentId); if(!ag) return null;
-            const sys = (ag.promptBase||`Eres ${ag.name}, ${ag.role||"especialista"}.`) + "\n\n" + PLAIN_TEXT_RULE;
+            // Override identidad CEO para tenants nuevos (defensivo: vacío para Antonio).
+            const specCtx = buildSpecialistContext(dataRef.current?.ceoProfile);
+            const sys = (specCtx ? `${specCtx}\n\n` : "")
+              + (ag.promptBase||`Eres ${ag.name}, ${ag.role||"especialista"}.`) + "\n\n" + PLAIN_TEXT_RULE;
             const negIdent = negotiation.code ? `${negotiation.code} ` : "";
             const ctx = `CONTEXTO DE LA NEGOCIACIÓN:\nTítulo: ${negIdent}${negotiation.title}\nContraparte: ${negotiation.counterparty}` +
               (negotiation.value!=null ? `\nValor: ${negotiation.value} ${negotiation.currency||"EUR"}` : "") +
@@ -11303,7 +11306,7 @@ function AttendeesModal({session,members,onClose,onSave,onToast}){
 
 // Modal briefing/consejo con agente IA — llama al proxy /api/agent y guarda
 // la conversación en session.agentConversations cuando hay sesión asociada.
-function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialResponse,onClose,onSavedConversation,onSaveBriefing}){
+function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialResponse,onClose,onSavedConversation,onSaveBriefing,ceoProfile}){
   const [response,setResponse] = useState(initialResponse||"");
   const [loading,setLoading] = useState(!initialResponse);
   const [error,setError] = useState("");
@@ -11315,7 +11318,9 @@ function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialRespon
       const baseSystem = (agent.promptBase&&agent.promptBase.trim())
         ? agent.promptBase
         : `Eres ${agent.name}${agent.role?`, especialista en ${agent.role}`:""}. Estilo: ${agent.style||"profesional y directo"}. Responde en español en ${kind==="briefing"?"párrafos claros separados por tema":"tono conciso y accionable"}.`;
-      const systemPrompt = baseSystem + "\n\n" + PLAIN_TEXT_RULE;
+      // Override identidad CEO para tenants nuevos (defensivo: vacío para Antonio).
+      const specCtx = buildSpecialistContext(ceoProfile);
+      const systemPrompt = (specCtx ? `${specCtx}\n\n` : "") + baseSystem + "\n\n" + PLAIN_TEXT_RULE;
       const r = await fetch("/api/agent",{
         method:"POST",
         headers:{"content-type":"application/json"},
@@ -13278,7 +13283,12 @@ export default function TaskFlow(){
       "2) Si tienes un resultado de búsqueda, fíate de él POR ENCIMA de tu entrenamiento (que puede estar desactualizado).",
       "3) NUNCA incluyas datos privados del CEO ni de su cliente en la consulta de búsqueda. Busca SOLO normativa y datos públicos (BOE, AEAT, EUR-Lex, registros mercantiles, INE). Si la pregunta menciona nombres de personas o empresas privadas, refórmula la búsqueda en términos genéricos (ej: 'requisitos SL holding España 2026' en lugar de 'Antonio Díaz SL').",
     ].join("\n");
-    const system = (gonzalo.promptBase||`Eres Gonzalo, estratega de gobernanza empresarial.`)
+    // Override identidad CEO para tenants nuevos. Sin esto, Gonzalo
+    // arrastra refs a Antonio/ALMA DIMO del promptBase histórico.
+    // Defensivo: vacío para Antonio (su flujo intacto).
+    const specCtx = buildSpecialistContext(dataRef.current?.ceoProfile);
+    const system = (specCtx ? `${specCtx}\n\n` : "")
+      + (gonzalo.promptBase||`Eres Gonzalo, estratega de gobernanza empresarial.`)
       + "\n\n" + PLAIN_TEXT_RULE
       + "\n\n" + NORMATIVA_VIVA_RULES
       + (govContext ? `\n\n${govContext}` : "")
@@ -13628,7 +13638,10 @@ export default function TaskFlow(){
     const blocks = [summaryTxt, govCtx, opCtx, searchCtx, factCtx, cobCtx].filter(Boolean);
     let finCtx = blocks.join("\n\n");
     if (finCtx.length > 7000) finCtx = finCtx.slice(0, 6980) + "\n…(truncado)";
-    const system = (diego.promptBase||`Eres Diego, analista financiero senior.`)
+    // Override identidad CEO para tenants nuevos (defensivo: vacío para Antonio).
+    const specCtx = buildSpecialistContext(dataRef.current?.ceoProfile);
+    const system = (specCtx ? `${specCtx}\n\n` : "")
+      + (diego.promptBase||`Eres Diego, analista financiero senior.`)
       + "\n\n" + PLAIN_TEXT_RULE
       + (finCtx ? `\n\n${finCtx}` : "")
       + (extraSystem ? `\n\n${extraSystem}` : "");
@@ -13757,7 +13770,15 @@ Estructura recomendada de una respuesta con documento:
   …
   [/DOCUMENT]
   ¿Quieres que ajuste alguna cláusula antes de firmar?»`;
-    const system = (ag.promptBase || fallbackPrompt)
+    // Override identidad CEO para tenants nuevos (defensivo: vacío para Antonio).
+    // Va PRIMERO porque los promptBase de Mario/Jorge/Álvaro arrastran
+    // identidad de Antonio HARDCODEADA fuera del bloque PERFIL CEO
+    // (Jorge: "representas los intereses de Antonio Díaz Molina/Alma Dimo";
+    // Mario: "CASO ESPECIAL - KLUXOR" + "Jurisdicción Marbella"). stripCeoProfile
+    // no los toca. El prepend obliga al modelo a ignorar esa identidad.
+    const specCtx = buildSpecialistContext(dataRef.current?.ceoProfile);
+    const system = (specCtx ? `${specCtx}\n\n` : "")
+      + (ag.promptBase || fallbackPrompt)
       + "\n\n" + PLAIN_TEXT_RULE
       + "\n\n" + DERIVATION_RULES
       + "\n\n" + DOCUMENT_RULES
@@ -15771,6 +15792,7 @@ Estructura recomendada de una respuesta con documento:
         agent={briefingCtx.agent} negotiation={briefingCtx.negotiation} session={briefingCtx.session}
         kind={briefingCtx.kind} prompt={briefingCtx.prompt}
         initialResponse={briefingCtx.initialResponse}
+        ceoProfile={data?.ceoProfile}
         onClose={()=>setBriefingCtx(null)}
         onSavedConversation={briefingCtx.session?(conv=>addAgentConversation(briefingCtx.negotiation.id,briefingCtx.session.id,conv)):null}
         onSaveBriefing={briefingCtx.kind==="briefing"?(b=>setNegBriefing(briefingCtx.negotiation.id,b)):null}

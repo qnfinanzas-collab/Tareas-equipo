@@ -12,7 +12,7 @@
 // Responsive: maxWidth 680px en desktop, 600px en tablet, 100% en móvil.
 import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
-import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures, stripCeoProfile } from "../lib/agentActions.js";
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures, stripCeoProfile, buildSpecialistContext } from "../lib/agentActions.js";
 import { formatCeoMemoryForPrompt } from "../lib/memory.js";
 import { isAccountOwner } from "../lib/auth.js";
 import { supa } from "../lib/sync.js";
@@ -1154,7 +1154,12 @@ Reglas:
           // memberBlock + cero memoria (heredamos las variables ya
           // computadas en el scope superior por el send principal).
           const agPromptBase = isOwner ? ag.promptBase : stripCeoProfile(ag.promptBase);
-          const sys = (isOwner ? ceoBlock : memberBlock) + (agPromptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE + memBlockFormatted;
+          // Override identidad CEO para tenants nuevos cuando Héctor invoca
+          // a Mario/Jorge/Álvaro/Gonzalo/Diego (defensivo: vacío para Antonio).
+          const specCtx = buildSpecialistContext(data?.ceoProfile);
+          const sys = (specCtx ? `${specCtx}\n\n` : "")
+            + (isOwner ? ceoBlock : memberBlock)
+            + (agPromptBase || `Eres ${meta.label}, especialista invocado por Héctor.`) + "\n\n" + PLAIN_TEXT_RULE + memBlockFormatted;
           const taskLow = inv.task.toLowerCase();
           // Todos los specialists obtienen 180s (subido desde 90s). Mismo
           // criterio que el send principal: respuestas largas con
