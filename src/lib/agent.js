@@ -110,6 +110,17 @@ export const WEB_SEARCH_TOOL = {
   max_uses: 2,
 };
 
+// Variante para Héctor con max_uses:1. Más conservador que Gonzalo porque
+// (a) las consultas de Héctor también producen [ACTIONS] grandes, y dos
+// búsquedas + redacción + JSON pueden rozar los 180s del timeout;
+// (b) limitamos a un único viaje de búsqueda por turno para mantener
+// la latencia bajo control.
+export const HECTOR_SEARCH_TOOL = {
+  type: "web_search_20250305",
+  name: "web_search",
+  max_uses: 1,
+};
+
 // Sistema de skills de Héctor. Detecta el contexto del turno (texto del CEO,
 // títulos de tareas activas, recomendación reciente) y devuelve los skills
 // que aplican. Para cada skill activo se inyecta un resumen operativo en el

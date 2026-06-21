@@ -11,7 +11,36 @@
 // chat scrollable (flex:1) y compositor de mensajes (input + mic + send).
 // Responsive: maxWidth 680px en desktop, 600px en tablet, 100% en móvil.
 import React, { useState, useEffect, useRef } from "react";
-import { callAgentSafe, PLAIN_TEXT_RULE } from "../lib/agent.js";
+import { callAgentSafe, PLAIN_TEXT_RULE, HECTOR_SEARCH_TOOL } from "../lib/agent.js";
+
+// Reglas de uso de web_search para Héctor. Disparadores explícitos +
+// prohibición fuera de ellos. R1 crítica: si decide buscar, hacerlo
+// ANTES de emitir [ACTIONS] para no romper el JSON del bloque.
+const HECTOR_SEARCH_RULES = [
+  "HERRAMIENTA web_search — Tienes acceso a búsqueda web (máx 1 uso por turno).",
+  "",
+  "ÚSALA SOLO para preguntas que requieren información FRESCA del mundo real:",
+  "- Vuelos, trenes, ferries, autobuses (horarios, disponibilidad, precios actuales).",
+  "- Ubicaciones físicas (direcciones, mapas, horarios de comercios y restaurantes).",
+  "- Precios actuales de productos o servicios.",
+  "- Normativa vigente con fecha posterior a tu cutoff (BOE, AEAT, EUR-Lex recientes).",
+  "- Eventos próximos (conferencias, ferias, fechas de cierre).",
+  "- Datos meteorológicos o de mercado en tiempo real.",
+  "",
+  "NO LA USES para:",
+  "- Criterio personal, recomendaciones estratégicas, opiniones de Jefe de Gabinete.",
+  "- Preguntas sobre tareas, proyectos, negociaciones o miembros del equipo del CEO (eso lo tienes en el contexto inyectado).",
+  "- Redacción de correos, briefings, resúmenes o documentos.",
+  "- Análisis de negociaciones, valoraciones, modelos.",
+  "- Preguntas conversacionales o de coaching.",
+  "- Cuando el CEO te pide CREAR algo (tareas, proyectos, negociaciones, movimientos): NO busques.",
+  "",
+  "REGLA CRÍTICA: Si decides usar web_search, hazlo SIEMPRE antes de emitir el bloque [ACTIONS]. NUNCA en medio del JSON — eso lo rompe. Patrón correcto: prosa breve → web_search → resumen con datos encontrados → [ACTIONS] al final si procede.",
+  "",
+  "Si dudas, NO busques. Mejor responder con lo que sabes que disparar una búsqueda innecesaria.",
+  "",
+  "Cuando uses web_search, cita la fuente con su URL al final del párrafo correspondiente. El sistema mostrará las citaciones automáticamente.",
+].join("\n");
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures, stripCeoProfile, buildSpecialistContext } from "../lib/agentActions.js";
 import { formatCeoMemoryForPrompt } from "../lib/memory.js";
 import { isAccountOwner } from "../lib/auth.js";
@@ -707,7 +736,8 @@ Reglas:
         ? hectorPromptBase + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Jefe de Gabinete estratégico. " + PLAIN_TEXT_RULE)
         + memBlockFormatted
-        + membersBlock + urgentBlock + projBlock + negBlock + finBlockGated + govBlockGated + tasksListBlock;
+        + membersBlock + urgentBlock + projBlock + negBlock + finBlockGated + govBlockGated + tasksListBlock
+        + "\n\n" + HECTOR_SEARCH_RULES;
       // Convertimos el historial a la forma que espera la API.
       // Los mensajes "assistant" llevan el texto limpio (sin proposal).
       // Inyección de fecha actual en el USER prompt (commit 39): el system
@@ -783,8 +813,14 @@ Reglas:
       // Alineado con api/agent.js maxDuration:180. Mantenemos
       // includeMeta:true para que la continuación automática siga siendo
       // red de seguridad si Sonnet emite [ACTIONS] sin cerrar.
+      // tools: [HECTOR_SEARCH_TOOL] activa web_search (max_uses:1) para que
+      // Héctor consulte vuelos/horarios/ubicaciones/precios actuales/normativa
+      // vigente. Las reglas en HECTOR_SEARCH_RULES (system) acotan disparadores
+      // y prohíben búsqueda dentro de [ACTIONS]. api/agent.js descarta los
+      // tool_use blocks y concatena solo type:"text" — el reply final que llega
+      // a parseAgentActions sigue siendo lineal, [ACTIONS] intacto.
       const callOnce = (msgs) => callAgentSafe(
-        { system: baseSystem, messages: msgs, max_tokens: MAX_TOKENS_PER_CALL },
+        { system: baseSystem, messages: msgs, max_tokens: MAX_TOKENS_PER_CALL, tools: [HECTOR_SEARCH_TOOL] },
         { timeoutMs: 180000, includeMeta: true }
       );
       const first = await callOnce(messages);
