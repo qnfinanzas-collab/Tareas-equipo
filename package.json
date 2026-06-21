@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "smoke:prod": "node scripts/smoke_prod_sanity.mjs"
+    "smoke:prod": "node scripts/smoke_prod_sanity.mjs",
+    "smoke": "cd scripts/smoke && npm run all"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.0",

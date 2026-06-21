@@ -12163,9 +12163,19 @@ export default function TaskFlow(){
   // tenantResolved es el GUARD que evita arrancar sync con session ya
   // presente pero antes de que el RPC current_tenant_id() haya respondido
   // — si no, fetchState arrancaría por id=1 y machacaría el path nuevo en
-  // mitad de carga. Inicial: tenantResolved=true cuando no hay auth (legacy).
+  // mitad de carga.
+  //
+  // INICIAL: `false`. Antes era `true` (asunción optimista "no hay tenant
+  // por resolver"), pero eso provocaba race condition para nuevos CEOs
+  // como Luis Granda: el sync useEffect veía `tenantResolved=true` en el
+  // primer render con authSession ya cargada, NO bloqueaba, y disparaba
+  // fetchState(null) → fallback id=1 → cargaba la fila de Antonio →
+  // data.members sin Luis → modal "Email no autorizado" permanente. Con
+  // `false` como inicial, el guard bloquea hasta que el tenant useEffect
+  // setea tenantResolved=true tras resolver el RPC (caso autenticado)
+  // O directamente sin auth (caso legacy, ramita `!authSession`).
   const [tenantId, setTenantId] = useState(null);
-  const [tenantResolved, setTenantResolved] = useState(true);
+  const [tenantResolved, setTenantResolved] = useState(false);
   useEffect(()=>{
     if(!authSession){
       clearTenantCache();

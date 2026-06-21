@@ -1,0 +1,14 @@
+{
+  "name": "kluxor-smokes",
+  "version": "1.0.0",
+  "description": "Smokes E2E persistentes — antes vivían en /tmp y se perdían entre sesiones.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "all": "node smoke_create_task_e2e.mjs && node smoke_fase2_isolation.mjs && node smoke_c1.mjs && node smoke_c2.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.104.0",
+    "puppeteer": "^25.0.0"
+  }
+}
