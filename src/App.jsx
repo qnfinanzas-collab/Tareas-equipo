@@ -12499,7 +12499,16 @@ export default function TaskFlow(){
   // tareas acaban en data.projects[0] (Marbella Club fantasma).
   // `selectedProj` es la fuente de verdad para flujos de CREACIÓN: null
   // si el usuario NO ha seleccionado proyecto activamente.
-  const proj         = hasSelectedProject ? data.projects[activeProject] : data.projects[0];
+  //
+  // EMPTY_PROJ — fallback inerte para cuentas en blanco (tenant recién
+  // creado, 0 proyectos). Sin esto, `proj` quedaba undefined y cualquier
+  // `proj.id` en dep arrays o callbacks crasheaba el render entero ⇒
+  // pantalla blanca al primer login de un CEO nuevo (incidente Luis
+  // 21/06/2026). El id=0 es seguro porque hasSelectedProject queda false
+  // y la UI del board no se monta; los callbacks dependientes existen
+  // pero no se invocan sin selección.
+  const EMPTY_PROJ = { id: 0, name: "", members: [], color: "#7F77DD", emoji: "📋", code: "" };
+  const proj         = hasSelectedProject ? data.projects[activeProject] : (data.projects[0] || EMPTY_PROJ);
   const selectedProj = hasSelectedProject ? data.projects[activeProject] : null;
   // Tablero derivado: incluye tareas vinculadas desde otros proyectos cuyo
   // linkedProjects incluya este proyecto. Se mapean a la columna que
