@@ -8,12 +8,17 @@
 // puppeteer ni preview). Simula helpers como App.jsx los provee, y
 // captura las llamadas a addTaskToProject.
 //
-// 2 casos:
+// 3 casos:
 //   1) projectCode válido GCP + startDate "hoy" + startTime "12:00" →
 //      addTaskToProject llamado con (GCP.id, payload con startDate ISO
 //      y dueTime="12:00"), results contiene type:"tasks".
 //   2) projectCode XYZ_NOEXISTE → addTaskToProject NO llamado, results
 //      contiene type:"error", toast warn emitido.
+//   3) task.links con mezcla [http válido + http válido + URL malformada
+//      + url javascript:] → payload.links contiene SOLO los 2 http
+//      válidos, sanitizados con id wl_*, label fallback a url cuando
+//      no se da, icon default "🔗". Defensivo contra emisiones
+//      degeneradas del LLM.
 
 import { executeAgentActions } from "../../src/lib/agentActions.js";
 
@@ -77,9 +82,66 @@ try {
   if (captured2.length !== 0) throw new Error("Caso2: addTaskToProject se llamó cuando NO debía");
   if (results2.some(r => r?.type && r.type !== "error")) throw new Error("Caso2: results contiene success indebido");
 
+  // ── Caso 3 — task.links sanitizado ──
+  toasts = [];
+  const captured3 = [];
+  const helpers3 = buildHelpers({
+    projects: [{ id: 99999, name: "Gestión clientes proyecto", code: "GCP" }],
+    onAddTask: (projId, payload) => captured3.push({ projId, payload }),
+  });
+  const out3 = executeAgentActions([{
+    type: "create_tasks",
+    projectCode: "GCP",
+    tasks: [{
+      title: "Reservar vuelo Madrid-Bilbao",
+      description: "Vuelo de ida y vuelta",
+      priority: "media",
+      startDate: "hoy",
+      links: [
+        { url: "https://www.booking.com/search?city=BIO", label: "Booking Madrid-Bilbao", icon: "✈️" },
+        { url: "https://www.renfe.com/" },                  // label vacío → cae a url; icon vacío → "🔗"
+        { url: "kayak.com" },                               // sin http(s):// → DESCARTAR
+        { url: "javascript:alert(1)" },                     // protocolo malicioso → DESCARTAR
+        { label: "Sin url", icon: "🔗" },                   // sin campo url → DESCARTAR
+        "stringNoObjeto",                                   // no-objeto → DESCARTAR
+      ],
+    }],
+  }], helpers3);
+  const results3 = Array.isArray(out3) ? out3 : (out3?.results || []);
+  if (captured3.length !== 1) throw new Error("Caso3: esperaba 1 llamada a addTaskToProject, recibí " + captured3.length);
+  const p3 = captured3[0];
+  const links3 = p3.payload.links;
+  if (!Array.isArray(links3)) throw new Error("Caso3: payload.links no es array (es " + typeof links3 + ")");
+  if (links3.length !== 2) throw new Error("Caso3: esperaba 2 links sanitizados, recibí " + links3.length + " · raw: " + JSON.stringify(links3));
+  const [L0, L1] = links3;
+  if (L0.url !== "https://www.booking.com/search?city=BIO") throw new Error("Caso3: link[0].url incorrecto: " + L0.url);
+  if (L0.label !== "Booking Madrid-Bilbao") throw new Error("Caso3: link[0].label incorrecto: " + L0.label);
+  if (L0.icon !== "✈️") throw new Error("Caso3: link[0].icon incorrecto: " + L0.icon);
+  if (!L0.id || !L0.id.startsWith("wl_")) throw new Error("Caso3: link[0].id sin prefijo wl_: " + L0.id);
+  if (L1.url !== "https://www.renfe.com/") throw new Error("Caso3: link[1].url incorrecto: " + L1.url);
+  if (L1.label !== "https://www.renfe.com/") throw new Error("Caso3: link[1].label NO cayó a url cuando label estaba vacío: " + L1.label);
+  if (L1.icon !== "🔗") throw new Error("Caso3: link[1].icon NO cayó a 🔗 default: " + L1.icon);
+  if (!results3.some(r => r?.type && r.type !== "error")) throw new Error("Caso3: results no contiene éxito");
+
+  // ── Caso 3b — links ausente (legacy) → []  ──
+  const captured3b = [];
+  const helpers3b = buildHelpers({
+    projects: [{ id: 99999, name: "GCP", code: "GCP" }],
+    onAddTask: (projId, payload) => captured3b.push({ projId, payload }),
+  });
+  executeAgentActions([{
+    type: "create_tasks", projectCode: "GCP",
+    tasks: [{ title: "Tarea sin links", priority: "media" }],
+  }], helpers3b);
+  if (captured3b.length !== 1) throw new Error("Caso3b: esperaba 1 llamada, recibí " + captured3b.length);
+  if (!Array.isArray(captured3b[0].payload.links)) throw new Error("Caso3b: payload.links debería ser [] cuando el LLM no emite links");
+  if (captured3b[0].payload.links.length !== 0) throw new Error("Caso3b: payload.links debería ser [] cuando el LLM no emite links, len: " + captured3b[0].payload.links.length);
+
   console.log("=== CREATE TASK E2E OK ===");
   console.log("Caso 1: addTaskToProject llamado con startDate=" + TODAY_ISO + " + dueTime=12:00 · results con success ✓");
   console.log("Caso 2: projectCode inválido → addTaskToProject NO llamado · results solo errors ✓");
+  console.log("Caso 3: payload.links sanitizado · 2 válidos (1 con label custom + 1 fallback url) · 4 degenerados descartados ✓");
+  console.log("Caso 3b: legacy sin task.links → payload.links = [] ✓");
 } catch (e) {
   console.log("FAIL:", e.message);
   process.exit(1);

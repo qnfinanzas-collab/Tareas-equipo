@@ -598,6 +598,33 @@ export function resolveCompanyId(actionCompanyId, defaultCompanyId, data) {
   return null;
 }
 
+// Sanitiza un array de links emitido por el LLM en [ACTIONS] (campo
+// task.links). Acepta solo objetos con `url` http(s):// válida.
+// Output: array de {id, url, label, icon} listos para task.links.
+// Defensivo:
+//   · Cualquier cosa no-array → [] (incluye undefined, string, object).
+//   · Items sin url string http(s):// → descartados.
+//   · label vacío/no-string → cae a la url completa.
+//   · icon no-string → "🔗" por defecto.
+// El id es un slug local con prefijo "wl" (igual patrón que el modal
+// manual de tareas y los workspaces) — único dentro de la tarea, no
+// global.
+export function sanitizeTaskLinks(rawLinks) {
+  if (!Array.isArray(rawLinks)) return [];
+  const out = [];
+  for (let i = 0; i < rawLinks.length; i++) {
+    const l = rawLinks[i];
+    if (!l || typeof l !== "object") continue;
+    const url = typeof l.url === "string" ? l.url.trim() : "";
+    if (!url || !/^https?:\/\//i.test(url)) continue;
+    const label = (typeof l.label === "string" && l.label.trim()) ? l.label.trim() : url;
+    const icon  = typeof l.icon === "string" && l.icon.trim() ? l.icon.trim() : "🔗";
+    const id    = `wl_${Date.now().toString(36)}${Math.random().toString(36).slice(2,5)}_${i}`;
+    out.push({ id, url, label, icon });
+  }
+  return out;
+}
+
 // Resuelve un alias o nombre/email a memberId. "admin" → primer
 // accountRole==="admin". Cualquier otro string → match por nombre/email
 // (case-insensitive, includes). Devuelve fallback si no encuentra.
@@ -714,6 +741,7 @@ export function executeAgentActions(actions, helpers) {
               dueTime:   typeof task.startTime === "string" ? task.startTime : "",
               assignees: memberIds,
               tags: (task.tags || []).map(l => ({ l, c: "purple" })),
+              links: sanitizeTaskLinks(task.links),
               timeline: makeAgentTimelineEntry(action._agentName),
             });
             count++;
@@ -1052,11 +1080,31 @@ PERFIL CEO:
 Antonio Díaz · CEO ALMA DIMO INVESTMENTS S.L.
 Visionario digital desde 1998. Ha liderado equipos de diseño, marketing, programación, finanzas y ventas. Comunicación directa · opciones concretas · impacto de negocio · móvil primero · tiempo es el activo real. En documentos legales es SIEMPRE la parte principal.
 
-CAPACIDAD DE EJECUCIÓN (ACTIONS_v12):
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v13):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
-Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode (string, un solo proyecto, formato viejo),linkedProjectCodes (array de codes, para vincular varios proyectos; el primer code del array se considera "principal" y los demás "relacionado". Usar este campo cuando el CEO pida vincular más de un proyecto a la negociación)}; "create_tasks" {projectCode,tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags}]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario).
+Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags,links}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode (string, un solo proyecto, formato viejo),linkedProjectCodes (array de codes, para vincular varios proyectos; el primer code del array se considera "principal" y los demás "relacionado". Usar este campo cuando el CEO pida vincular más de un proyecto a la negociación)}; "create_tasks" {projectCode,tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags,links}]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario).
+
+ENLACES DE TAREA (campo task.links):
+Formato del campo links en cada tarea (opcional): array de objetos {url,label?,icon?}. Solo URLs http(s):// completas. Se renderizan en la pestaña Enlaces de la tarea, separadas de la descripción.
+
+USA task.links para enlaces OPERATIVOS que el CEO va a ABRIR para ejecutar la tarea:
+- Reservas (booking, kayak, renfe, iberia, ferries).
+- Drive/Dropbox/Notion/Linear/Jira/Trello con documentos relacionados.
+- Formularios oficiales (EUIPO, AEAT, Hacienda, Seguridad Social).
+- Datasheets, fichas de producto, web del proveedor.
+- Mapas (Google Maps de una ubicación física a visitar).
+
+NO USES task.links para URLs que son CITAS o REFERENCIAS dentro de una explicación. Eso va en la descripción:
+- Citas legales (artículos del BOE, referencias a normativa, jurisprudencia).
+- URLs ilustrativas dentro de un razonamiento ("según RFC https://… …").
+- Enlaces a blogs o artículos de fondo.
+
+Si dudas, fíjate en el verbo del CEO: "reserva", "abre", "rellena el formulario", "consulta el datasheet" → links. "explícame", "según …", "fundamenta" → desc.
+
+Cuando emitas el campo links, NO repitas las mismas URLs en la descripción — duplicar es ruido visual. label es opcional pero recomendado (texto corto que el CEO leerá al ver el enlace). icon es opcional (emoji, default 🔗). Ejemplo:
+"links":[{"url":"https://www.booking.com/search?...","label":"Booking Madrid-Bilbao","icon":"✈️"},{"url":"https://www.renfe.com/...","label":"Renfe AVE"}]
 
 SEMÁNTICA TEMPORAL DE TAREAS · MI DÍA (importante):
 - startDate = "cuándo se ATACA la tarea" (en qué día aparece en Mi Día).

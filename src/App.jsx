@@ -1067,14 +1067,14 @@ function _migrate(d){
   // "PERFIL CEO:" o "CAPACIDAD DE EJECUCIÓN" según versión previa.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v12")) return a;            // ya v12
+    if(a.promptBase.includes("ACTIONS_v13")) return a;            // ya v13
     let cut = a.promptBase;
     if (cut.includes("PERFIL CEO:")) {
       cut = cut.split(/\n+PERFIL CEO:/)[0];
     } else if (cut.includes("CAPACIDAD DE EJECUCIÓN")) {
       cut = cut.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
     } else {
-      // sin addon previo → añadir v12
+      // sin addon previo → añadir v13
       return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
     }
     return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
@@ -14935,7 +14935,13 @@ Estructura recomendada de una respuesta con documento:
         comments: [],
         timeline: Array.isArray(payload.timeline) ? payload.timeline : [],
         projectId: projId,
-        linkedProjects: [], links: [], agentIds: [], refs: [], documents: [],
+        linkedProjects: [],
+        // payload.links: array sanitizado de {id,url,label,icon} desde el
+        // executor de [ACTIONS] cuando Héctor emite enlaces operativos.
+        // Defensivo: cualquier cosa no-array (legacy, payload manual sin
+        // este campo, emisión degenerada) cae a [] — comportamiento previo.
+        links: Array.isArray(payload.links) ? payload.links : [],
+        agentIds: [], refs: [], documents: [],
         archived: false,
       };
       const newCols = cols.map(c => c.id === targetCol.id ? {...c, tasks: [...c.tasks, newTask]} : c);
