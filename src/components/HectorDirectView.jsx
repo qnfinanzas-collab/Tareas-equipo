@@ -14,32 +14,43 @@ import React, { useState, useEffect, useRef } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE, HECTOR_SEARCH_TOOL } from "../lib/agent.js";
 
 // Reglas de uso de web_search para Héctor. Disparadores explícitos +
-// prohibición fuera de ellos. R1 crítica: si decide buscar, hacerlo
-// ANTES de emitir [ACTIONS] para no romper el JSON del bloque.
+// test de decisión claro. R1 crítica: si decide buscar, hacerlo ANTES
+// de emitir [ACTIONS] para no romper el JSON.
+//
+// Versión 2 (22/06/2026): retiramos la prohibición global "al crear no
+// busques" porque mataba el caso real "búscame la opción más barata Y
+// créame la tarea de reserva". Ahora la regla es: SI el CEO pide CREAR
+// algo que requiere datos externos reales (reservas, comparativas,
+// proveedores, plataformas), busca PRIMERO y emite [ACTIONS] con los
+// resultados reales. Añadidos disparadores de comparación/recomendación
+// y test "¿cambiaría la respuesta en 6 meses?" para decidir mejor.
 const HECTOR_SEARCH_RULES = [
-  "HERRAMIENTA web_search — Tienes acceso a búsqueda web (máx 1 uso por turno).",
+  "HERRAMIENTA web_search — Tienes acceso a búsqueda web (máx 2 usos por turno).",
   "",
-  "ÚSALA SOLO para preguntas que requieren información FRESCA del mundo real:",
+  "ÚSALA cuando la respuesta correcta requiere información FRESCA del mundo real:",
   "- Vuelos, trenes, ferries, autobuses (horarios, disponibilidad, precios actuales).",
   "- Ubicaciones físicas (direcciones, mapas, horarios de comercios y restaurantes).",
   "- Precios actuales de productos o servicios.",
   "- Normativa vigente con fecha posterior a tu cutoff (BOE, AEAT, EUR-Lex recientes).",
   "- Eventos próximos (conferencias, ferias, fechas de cierre).",
   "- Datos meteorológicos o de mercado en tiempo real.",
+  "- Comparativas y recomendaciones: 'cuál es la mejor', 'la más barata', 'compárame', 'investiga opciones', 'recomiéndame plataformas/proveedores', 'qué proveedor uso'. Si el CEO te delega la decisión sobre QUÉ plataforma o servicio usar (no sabe cuál, te lo pide), BUSCA y compara antes de recomendar. Aprovecha los 2 usos para cruzar al menos dos fuentes (ej. booking.com + skyscanner, AEAT + BOE).",
+  "",
+  "CASO ESPECIAL — crear + buscar en el mismo turno:",
+  "Si el CEO te pide CREAR algo que requiere datos externos reales (reservar un vuelo, comprar un producto, abrir un trámite, contratar un proveedor), busca PRIMERO los datos y DESPUÉS emite [ACTIONS] con los resultados REALES (URLs de proveedores encontrados, no inventadas). NO inventes plataformas de memoria — usa solo las que aparezcan en los resultados de búsqueda. Patrón correcto: prosa breve → web_search → resumen comparativo con datos reales → [ACTIONS] al final con links de las opciones recomendadas.",
   "",
   "NO LA USES para:",
-  "- Criterio personal, recomendaciones estratégicas, opiniones de Jefe de Gabinete.",
-  "- Preguntas sobre tareas, proyectos, negociaciones o miembros del equipo del CEO (eso lo tienes en el contexto inyectado).",
-  "- Redacción de correos, briefings, resúmenes o documentos.",
-  "- Análisis de negociaciones, valoraciones, modelos.",
+  "- Criterio personal, recomendaciones estratégicas, opiniones de Jefe de Gabinete (Bezos/Munger/Aristóteles, marcos de decisión).",
+  "- Preguntas sobre tareas, proyectos, negociaciones, miembros del equipo o cualquier dato INTERNO del CEO (lo tienes en el contexto inyectado).",
+  "- Redacción de correos, briefings, resúmenes o documentos basados en información que ya tienes.",
+  "- Análisis de negociaciones, valoraciones, modelos financieros propios.",
   "- Preguntas conversacionales o de coaching.",
-  "- Cuando el CEO te pide CREAR algo (tareas, proyectos, negociaciones, movimientos): NO busques.",
   "",
-  "REGLA CRÍTICA: Si decides usar web_search, hazlo SIEMPRE antes de emitir el bloque [ACTIONS]. NUNCA en medio del JSON — eso lo rompe. Patrón correcto: prosa breve → web_search → resumen con datos encontrados → [ACTIONS] al final si procede.",
+  "TEST DE DECISIÓN: ¿la respuesta correcta sería distinta hoy de hace 6 meses (precios, plataformas activas, normativa vigente, eventos)? → BUSCA. ¿La respuesta no cambia con el tiempo (criterio estratégico, framework, opinión, contexto interno del CEO)? → no busques.",
   "",
-  "Si dudas, NO busques. Mejor responder con lo que sabes que disparar una búsqueda innecesaria.",
+  "REGLA CRÍTICA R1: Si decides usar web_search, hazlo SIEMPRE antes de emitir el bloque [ACTIONS]. NUNCA en medio del JSON — eso lo rompe. Patrón: prosa → web_search → resumen → [ACTIONS] al final si procede.",
   "",
-  "Cuando uses web_search, cita la fuente con su URL al final del párrafo correspondiente. El sistema mostrará las citaciones automáticamente.",
+  "Cuando uses web_search, cita la fuente con su URL al final del párrafo correspondiente. El sistema mostrará las citaciones automáticamente al pie del mensaje.",
 ].join("\n");
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures, stripCeoProfile, buildSpecialistContext } from "../lib/agentActions.js";
 import { formatCeoMemoryForPrompt } from "../lib/memory.js";
@@ -826,6 +837,22 @@ Reglas:
       const first = await callOnce(messages);
       let reply = (first?.text || "");
       let finalStopReason = first?.stop_reason || null;
+      // Acumulador de citaciones a lo largo de send + continuación
+      // (max_tokens). Se renderizan al pie del bubble como footer
+      // "🔍 N fuentes consultadas". Dedup por URL.
+      const _seenUrls = new Set();
+      const _finalCitations = [];
+      const _absorb = (cs) => {
+        if (!Array.isArray(cs)) return;
+        for (const c of cs) {
+          if (!c || typeof c.url !== "string") continue;
+          if (_seenUrls.has(c.url)) continue;
+          _seenUrls.add(c.url);
+          _finalCitations.push(c);
+        }
+      };
+      _absorb(first?.citations);
+      console.log(`[Héctor] tool_use · citations: ${_finalCitations.length} · stop_reason: ${finalStopReason}`);
       if (finalStopReason === "max_tokens" && reply.trim()) {
         console.warn(`✂️ [HectorDirect] respuesta truncada (max_tokens, ${reply.length} chars) — intentando continuación…`);
         const aOpens   = (reply.match(/\[ACTIONS\]/gi) || []).length;
@@ -847,11 +874,12 @@ Reglas:
           ];
           const second = await callOnce(continuationMsgs);
           const tail = String(second?.text || "").trim();
+          _absorb(second?.citations);
           if (tail) {
             const joiner = reply.endsWith("\n") ? "" : "\n";
             reply = reply + joiner + tail;
             finalStopReason = second?.stop_reason || null;
-            console.log(`✂️ [HectorDirect] continuación OK · +${tail.length} chars (total ${reply.length}) · stop_reason: ${finalStopReason}`);
+            console.log(`✂️ [HectorDirect] continuación OK · +${tail.length} chars (total ${reply.length}) · stop_reason: ${finalStopReason} · citations totales: ${_finalCitations.length}`);
           } else {
             console.warn(`✂️ [HectorDirect] continuación vacía — entregamos parcial sin concatenar`);
           }
@@ -1104,6 +1132,11 @@ Reglas:
         replyRaw: reply,
         proposal: proposal || null,
         tasksList: tasksList || null,
+        // citations: fuentes consultadas por web_search (acumuladas de
+        // send + continuación, dedup por URL). ChatBubble las renderiza
+        // como footer "🔍 N fuentes consultadas" si length>0. Paridad
+        // con GobernanzaView (Gonzalo Normativa Viva).
+        citations: _finalCitations.length > 0 ? _finalCitations : null,
         fakeSuccess,
         ts: Date.now(),
       }].slice(-CHAT_MAX));

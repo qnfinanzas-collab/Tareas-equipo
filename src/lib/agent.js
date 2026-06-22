@@ -110,15 +110,17 @@ export const WEB_SEARCH_TOOL = {
   max_uses: 2,
 };
 
-// Variante para Héctor con max_uses:1. Más conservador que Gonzalo porque
-// (a) las consultas de Héctor también producen [ACTIONS] grandes, y dos
-// búsquedas + redacción + JSON pueden rozar los 180s del timeout;
-// (b) limitamos a un único viaje de búsqueda por turno para mantener
-// la latencia bajo control.
+// Variante para Héctor con max_uses:2. Igualado a Gonzalo tras el
+// incidente del 22/06/2026: con max_uses:1 el modelo se conformaba con
+// una sola fuente cuando el CEO pedía COMPARAR plataformas / opciones,
+// lo cual contradice el espíritu de "búscame la más barata". 2 búsquedas
+// permite cruzar al menos dos fuentes (booking vs kayak, BOE vs AEAT,
+// etc.). Latencia coste: +5-10s por turno cuando se activa. Margen:
+// timeoutMs 180s con holgura para 2 búsquedas + redacción + [ACTIONS].
 export const HECTOR_SEARCH_TOOL = {
   type: "web_search_20250305",
   name: "web_search",
-  max_uses: 1,
+  max_uses: 2,
 };
 
 // Sistema de skills de Héctor. Detecta el contexto del turno (texto del CEO,

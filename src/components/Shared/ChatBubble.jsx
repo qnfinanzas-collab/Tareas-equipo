@@ -243,6 +243,49 @@ export default function ChatBubble({
           ⚠ Héctor afirma éxito pero <b>no emitió ninguna acción real</b>. Nada se ha guardado. Reformula la orden o pídele explícitamente que ejecute.
         </div>
       )}
+      {/* Footer de fuentes consultadas (web_search). Se renderiza cuando
+          message.citations tiene contenido — Héctor (HectorDirectView) y
+          en el futuro cualquier otro caller que use tools y guarde citas.
+          Patrón visual paralelo al de GobernanzaView (Normativa Viva). */}
+      {!isUser && Array.isArray(message.citations) && message.citations.length > 0 && (
+        <div style={{
+          alignSelf: "stretch",
+          marginLeft: 42,
+          marginTop: 6,
+          padding: "8px 10px",
+          background: "#F0FDF4",
+          border: "0.5px solid #BBF7D0",
+          borderRadius: 8,
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#15803D", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5 }}>
+            🔍 {message.citations.length} {message.citations.length === 1 ? "fuente consultada" : "fuentes consultadas"}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            {message.citations.map((c, ci) => (
+              <a
+                key={`cit-${ci}`}
+                href={c.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={c.cited_text || c.url}
+                style={{
+                  fontSize: 11,
+                  color: "#166534",
+                  textDecoration: "none",
+                  padding: "2px 6px",
+                  border: "0.5px solid #86EFAC",
+                  background: "#F7FEE7",
+                  wordBreak: "break-all",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
+              >
+                {c.title || c.url}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
