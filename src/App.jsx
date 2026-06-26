@@ -9843,7 +9843,7 @@ function NegSummaryPanel({ negotiation, members, projects, boards, owner, status
 }
 
 // Detalle negociación: header, info, timeline sesiones.
-function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,currentMember,permissions,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onSummarizeAndClearChat,onRouteAutoLearn,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask,onRunAgentActions}){
+function NegotiationDetailView({negotiation,members,projects,workspaces,agents,boards,allNegotiations,ceoMemory,ceoProfile,currentMember,permissions,onAddCeoMemory,onAddNegMemory,onRemoveNegMemory,onSummarizeAndClearChat,onRouteAutoLearn,onMemorized,onBack,onEditNeg,onCreateSession,onOpenSession,onEditSession,onRequestBriefing,onGoProject,onOpenTask,onOpenRelatedNeg,onClearBriefing,onAppendHectorMessage,onClearHectorChat,onClearHectorErrors,onSetAnalysis,onSaveBriefing,onUpdateDocuments,onOverlayTask,onRunAgentActions}){
   const st=getNegStatus(negotiation.status);
   const owner=members.find(m=>m.id===negotiation.ownerId);
   const sessionsAsc = (negotiation.sessions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -10584,7 +10584,12 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
           const invokeSpecialist = async({agentId, task, hectorReply})=>{
             const ag = (agents||[]).find(a=>a.id===agentId); if(!ag) return null;
             // Override identidad CEO para tenants nuevos (defensivo: vacío para Antonio).
-            const specCtx = buildSpecialistContext(dataRef.current?.ceoProfile);
+            // ceoProfile llega como prop desde App.jsx — antes referenciaba dataRef
+            // que vive en el componente raíz, no aquí (NegotiationDetailView es hijo).
+            // Fix del 26/06/2026: cuando Héctor invocaba especialistas desde una
+            // negociación, fallaba con "dataRef is not defined" y la respuesta del
+            // especialista no llegaba nunca.
+            const specCtx = buildSpecialistContext(ceoProfile);
             const sys = (specCtx ? `${specCtx}\n\n` : "")
               + (ag.promptBase||`Eres ${ag.name}, ${ag.role||"especialista"}.`) + "\n\n" + PLAIN_TEXT_RULE;
             const negIdent = negotiation.code ? `${negotiation.code} ` : "";
@@ -14918,7 +14923,17 @@ Estructura recomendada de una respuesta con documento:
       // comportándose igual; los que sí lo pasan (Héctor [ACTIONS] tras
       // este commit) lo respetan.
       const isValidISODate = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
-      const resolvedStart = isValidISODate(payload.startDate) ? payload.startDate : fmt(new Date());
+      const ceoProvidedStart = isValidISODate(payload.startDate);
+      const ceoProvidedDue   = typeof payload.dueDate === "string" && payload.dueDate.trim() !== "";
+      const resolvedStart    = ceoProvidedStart ? payload.startDate : fmt(new Date());
+      // _noDateAutoStart: marca que activa rolling anchor en Mi Día. Se pone
+      // SOLO cuando el caller no aportó ni startDate ni dueDate — el sistema
+      // anclou startDate a HOY como default histórico, pero queremos que la
+      // tarea siga apareciendo en el Mi Día del día actual cada día hasta
+      // completarse. Si el CEO especificó cualquier fecha, NO se marca:
+      // su elección manda. Backward-compat: tareas pre-flag no lo tienen
+      // (undefined) y se comportan como antes (anchor=startDate fijo).
+      const noDateAutoStart = !ceoProvidedStart && !ceoProvidedDue;
       const newTask = {
         id, ref,
         title: payload.title || "Tarea sin título",
@@ -14942,6 +14957,7 @@ Estructura recomendada de una respuesta con documento:
         // este campo, emisión degenerada) cae a [] — comportamiento previo.
         links: Array.isArray(payload.links) ? payload.links : [],
         agentIds: [], refs: [], documents: [],
+        _noDateAutoStart: noDateAutoStart,
         archived: false,
       };
       const newCols = cols.map(c => c.id === targetCol.id ? {...c, tasks: [...c.tasks, newTask]} : c);
@@ -15678,6 +15694,7 @@ Estructura recomendada de una respuesta con documento:
                 allNegotiations={data.negotiations||[]}
                 currentMember={(data.members||[]).find(m=>m.id===activeMember)}
                 permissions={data.permissions}
+                ceoProfile={data.ceoProfile}
                 onBack={()=>setActiveNegId(null)}
                 onEditNeg={n=>setNegModal(n)}
                 onCreateSession={()=>setSessModal("create")}
