@@ -23,7 +23,20 @@ import React, { useMemo, useState } from "react";
 // vistas que no lo rellenaban). Una función única para que filtro,
 // overdue y vista semana compartan la misma regla — la coherencia
 // entre los tres era una restricción explícita del fix.
+//
+// ROLLING ANCHOR (22/06/2026): tareas creadas SIN fecha (ni startDate ni
+// dueDate aportados por el CEO) llevan flag _noDateAutoStart=true desde
+// addTaskToProject. Mientras siga abierta (colName !== "Hecho") y siga
+// sin dueDate, devolvemos HOY como ancla cada día — la tarea reaparece
+// en el Mi Día del día actual hasta completarla o fijarle fecha.
+// El check de dueDate es red defensiva: si cualquier editor le pone
+// dueDate (kanban modal, futuro flujo), el rolling se desactiva sin
+// necesidad de limpiar el flag desde ese editor. Las tareas previas al
+// flag no lo tienen (undefined) y mantienen su anchor histórico.
 function taskAnchor(t) {
+  if (t?._noDateAutoStart && !t?.dueDate && t?.colName !== "Hecho") {
+    return todayISO();
+  }
   return t?.startDate || t?.dueDate || "";
 }
 
@@ -431,6 +444,10 @@ export default function MiDiaView({
     // valor original. Decisión de producto: el editor rápido mueve la
     // tarea de día en la agenda; vencer es otra cosa, otra UI.
     if (editDraft.startDate !== (t.startDate || ""))                          fieldUpdates.startDate = editDraft.startDate;
+    // Rolling anchor (22/06/2026): si el CEO fija manualmente startDate
+    // en este editor, desactivamos el flag _noDateAutoStart. La tarea
+    // pasa a respetar la fecha puesta y deja de "arrastrar" a hoy.
+    if (editDraft.startDate !== (t.startDate || "") && t._noDateAutoStart)    fieldUpdates._noDateAutoStart = false;
     if (editDraft.dueTime !== (t.dueTime || ""))                              fieldUpdates.dueTime = editDraft.dueTime;
     if (Number(editDraft.duration_minutes) !== (Number(t.duration_minutes) || 60)) {
       fieldUpdates.duration_minutes = Number(editDraft.duration_minutes);
@@ -559,6 +576,22 @@ export default function MiDiaView({
               <span style={{ fontSize: 11, color: C.textSecondary }}>
                 {t.projEmoji} {t.projName}{t.colName ? ` · ${t.colName}` : ""}
               </span>
+              {/* Badge "sin fecha" para tareas con rolling anchor activo.
+                  Indica al CEO que la tarea aparece aquí porque no tiene
+                  fecha asignada — si quiere fijarla, abre el editor. */}
+              {t._noDateAutoStart && !t.dueDate && !isDone && (
+                <span
+                  title="Tarea sin fecha — arrastra al día actual hasta que la completes o le pongas fecha."
+                  style={{
+                    fontSize: 9, fontWeight: 600, padding: "1px 6px",
+                    color: C.textTertiary,
+                    border: `0.5px dashed ${C.border}`,
+                    background: C.borderSoft,
+                    letterSpacing: "0.03em",
+                    textTransform: "uppercase",
+                  }}
+                >sin fecha</span>
+              )}
             </div>
             <div style={{
               fontSize: 13, fontWeight: 500,

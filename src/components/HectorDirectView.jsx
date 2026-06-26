@@ -52,6 +52,43 @@ const HECTOR_SEARCH_RULES = [
   "",
   "Cuando uses web_search, cita la fuente con su URL al final del párrafo correspondiente. El sistema mostrará las citaciones automáticamente al pie del mensaje.",
 ].join("\n");
+
+// Regla de fecha ausente al crear tareas. El sistema tiene rolling anchor
+// (22/06/2026): tareas sin fecha se arrastran al Mi Día de cada día hasta
+// completarse. Pero para tareas de MOMENTO CONCRETO (llamada, reunión,
+// visita) eso es peor que preguntar — si el CEO no dijo cuándo, el momento
+// importa. Para tareas DIFUSAS (investigar, leer, organizar) crear directo
+// sin fecha es lo correcto: aparecen en Mi Día y la rolling anchor las
+// recuerda hasta que el CEO las haga.
+const HECTOR_NODATE_RULES = [
+  "FECHA AUSENTE al crear tarea — cuándo preguntar vs cuándo crear directo:",
+  "",
+  "Si el CEO te pide CREAR una tarea SIN especificar cuándo (hoy/mañana/fecha/sin urgencia):",
+  "",
+  "(A) PREGUNTA si la tarea tiene MOMENTO CONCRETO — el éxito depende del cuándo:",
+  "- Llamar / WhatsApp / email a una persona específica.",
+  "- Asistir a reunión, sesión, comida/cena, evento, cita médica.",
+  "- Visitar / desplazarse a un sitio concreto.",
+  "- Entrega física, recogida, firma presencial.",
+  "- Presentar documento ante organismo (AEAT, registro, juzgado).",
+  "- Cualquier acción que sea distinta hacerla hoy vs pasado mañana.",
+  "En estos casos: NO emitas [ACTIONS] en este turno. Responde algo como 'Para cuándo lo dejo? Puedes decirme hoy, mañana, una fecha concreta, o sin fecha si va al backlog'. Espera la respuesta del CEO y entonces sí crea con la fecha.",
+  "",
+  "(B) CREA DIRECTO (sin preguntar, sin startDate, sin dueDate) si la tarea es DIFUSA o de FONDO:",
+  "- Investigar / leer / revisar / comparar opciones / estudiar.",
+  "- Organizar, limpiar, ordenar, archivar.",
+  "- Pensar, reflexionar, decidir (interno).",
+  "- Preparar borrador sin destinatario concreto.",
+  "- Cualquier acción donde da igual hacerla hoy o pasado mañana.",
+  "El sistema tiene ROLLING ANCHOR: estas tareas aparecen en el Mi Día de cada día hasta que el CEO las complete. No se pierden.",
+  "",
+  "(C) NUNCA preguntes si el CEO ya señaló temporalidad en su mensaje, aunque sea vaga: 'sin prisa', 'cuando puedas', 'backlog', 'para más adelante', 'pendiente', 'algún día'. Eso es señal explícita de 'sin fecha' — crea directo, sin preguntar.",
+  "",
+  "REGLA DE ORO: la pregunta tiene SENTIDO si la diferencia entre hoy y mañana cambia el éxito. 'Llamar a Juan' → preguntas. 'Investigar opciones de seguros' → creas directo, da igual el día.",
+  "",
+  "Si el CEO te pide MÚLTIPLES tareas en el mismo turno y unas son de momento y otras difusas: crea las difusas en un [ACTIONS] y pregunta SOLO por las de momento concreto. No bloquees todo por una.",
+].join("\n");
+
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures, stripCeoProfile, buildSpecialistContext } from "../lib/agentActions.js";
 import { formatCeoMemoryForPrompt } from "../lib/memory.js";
 import { isAccountOwner } from "../lib/auth.js";
@@ -748,7 +785,8 @@ Reglas:
         : "Eres Héctor, Jefe de Gabinete estratégico. " + PLAIN_TEXT_RULE)
         + memBlockFormatted
         + membersBlock + urgentBlock + projBlock + negBlock + finBlockGated + govBlockGated + tasksListBlock
-        + "\n\n" + HECTOR_SEARCH_RULES;
+        + "\n\n" + HECTOR_SEARCH_RULES
+        + "\n\n" + HECTOR_NODATE_RULES;
       // Convertimos el historial a la forma que espera la API.
       // Los mensajes "assistant" llevan el texto limpio (sin proposal).
       // Inyección de fecha actual en el USER prompt (commit 39): el system

@@ -8,7 +8,7 @@
 // puppeteer ni preview). Simula helpers como App.jsx los provee, y
 // captura las llamadas a addTaskToProject.
 //
-// 3 casos:
+// Casos cubiertos:
 //   1) projectCode válido GCP + startDate "hoy" + startTime "12:00" →
 //      addTaskToProject llamado con (GCP.id, payload con startDate ISO
 //      y dueTime="12:00"), results contiene type:"tasks".
@@ -19,6 +19,14 @@
 //      válidos, sanitizados con id wl_*, label fallback a url cuando
 //      no se da, icon default "🔗". Defensivo contra emisiones
 //      degeneradas del LLM.
+//   4) tarea SIN startDate ni dueDate → payload.startDate=null +
+//      payload.dueDate=null (executor pasa resolveDueDate(undefined)=null).
+//      Lo importante NO se mide aquí (el flag _noDateAutoStart lo pone
+//      addTaskToProject de App.jsx) — este smoke verifica el lado
+//      executor: ambos campos llegan null al mutator.
+//   4b) tarea CON startDate explícito → payload.startDate=ISO real,
+//       payload.dueDate=null. addTaskToProject de App.jsx detectará
+//       startDate válido y NO marcará el flag.
 
 import { executeAgentActions } from "../../src/lib/agentActions.js";
 
@@ -137,11 +145,45 @@ try {
   if (!Array.isArray(captured3b[0].payload.links)) throw new Error("Caso3b: payload.links debería ser [] cuando el LLM no emite links");
   if (captured3b[0].payload.links.length !== 0) throw new Error("Caso3b: payload.links debería ser [] cuando el LLM no emite links, len: " + captured3b[0].payload.links.length);
 
+  // ── Caso 4 — tarea SIN fechas (executor pasa null en startDate/dueDate) ──
+  const captured4 = [];
+  const helpers4 = buildHelpers({
+    projects: [{ id: 99999, name: "GCP", code: "GCP" }],
+    onAddTask: (projId, payload) => captured4.push({ projId, payload }),
+  });
+  executeAgentActions([{
+    type: "create_tasks", projectCode: "GCP",
+    tasks: [{ title: "Investigar opciones seguros", priority: "media" }],   // sin startDate, sin dueDate
+  }], helpers4);
+  if (captured4.length !== 1) throw new Error("Caso4: esperaba 1 llamada, recibí " + captured4.length);
+  if (captured4[0].payload.startDate !== null) throw new Error("Caso4: payload.startDate debería ser null cuando el LLM no emite startDate, recibí: " + JSON.stringify(captured4[0].payload.startDate));
+  if (captured4[0].payload.dueDate !== null) throw new Error("Caso4: payload.dueDate debería ser null cuando el LLM no emite dueDate, recibí: " + JSON.stringify(captured4[0].payload.dueDate));
+  if (captured4[0].payload.dueTime !== "") throw new Error("Caso4: payload.dueTime debería ser \"\" cuando el LLM no emite startTime, recibí: " + JSON.stringify(captured4[0].payload.dueTime));
+
+  // ── Caso 4b — tarea CON startDate explícito (no debe marcarse como rolling) ──
+  const captured4b = [];
+  const helpers4b = buildHelpers({
+    projects: [{ id: 99999, name: "GCP", code: "GCP" }],
+    onAddTask: (projId, payload) => captured4b.push({ projId, payload }),
+  });
+  executeAgentActions([{
+    type: "create_tasks", projectCode: "GCP",
+    tasks: [{ title: "Llamar a Juan", priority: "media", startDate: "mañana" }],
+  }], helpers4b);
+  if (captured4b.length !== 1) throw new Error("Caso4b: esperaba 1 llamada, recibí " + captured4b.length);
+  const startD = captured4b[0].payload.startDate;
+  if (typeof startD !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(startD)) {
+    throw new Error("Caso4b: payload.startDate debería ser ISO YYYY-MM-DD (mañana resuelto), recibí: " + JSON.stringify(startD));
+  }
+  if (startD === TODAY_ISO) throw new Error("Caso4b: startDate debería ser MAÑANA, no hoy");
+
   console.log("=== CREATE TASK E2E OK ===");
   console.log("Caso 1: addTaskToProject llamado con startDate=" + TODAY_ISO + " + dueTime=12:00 · results con success ✓");
   console.log("Caso 2: projectCode inválido → addTaskToProject NO llamado · results solo errors ✓");
   console.log("Caso 3: payload.links sanitizado · 2 válidos (1 con label custom + 1 fallback url) · 4 degenerados descartados ✓");
   console.log("Caso 3b: legacy sin task.links → payload.links = [] ✓");
+  console.log("Caso 4: tarea sin fechas → payload.startDate=null + payload.dueDate=null (addTaskToProject marcará flag) ✓");
+  console.log("Caso 4b: tarea con startDate explícito → payload.startDate=ISO real (no hoy) (addTaskToProject NO marcará flag) ✓");
 } catch (e) {
   console.log("FAIL:", e.message);
   process.exit(1);
