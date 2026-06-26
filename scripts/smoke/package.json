@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "all": "node smoke_create_task_e2e.mjs && node smoke_fase2_isolation.mjs && node smoke_c1.mjs && node smoke_c2.mjs"
+    "all": "node smoke_create_task_e2e.mjs && node smoke_parse_ruta.mjs && node smoke_fase2_isolation.mjs && node smoke_c1.mjs && node smoke_c2.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.104.0",

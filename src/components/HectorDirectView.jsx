@@ -89,7 +89,65 @@ const HECTOR_NODATE_RULES = [
   "Si el CEO te pide MÚLTIPLES tareas en el mismo turno y unas son de momento y otras difusas: crea las difusas en un [ACTIONS] y pregunta SOLO por las de momento concreto. No bloquees todo por una.",
 ].join("\n");
 
-import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures, stripCeoProfile, buildSpecialistContext } from "../lib/agentActions.js";
+// Bloque [RUTA] — desplazamientos físicos por carretera.
+// Cuando el CEO pide una RUTA DE VIAJE, devuelve la información como un
+// bloque estructurado que el frontend renderiza como tarjetas de parada
+// con botón de "Abrir en Google Maps". Sin esto, Héctor vuelca prosa larga
+// + enlaces sueltos inservibles para consultar conduciendo.
+//
+// IMPORTANTE: NO emitir [RUTA] para vuelos (eso es comparativa de
+// proveedores, otro pipeline) ni para hoteles ni para reuniones sin
+// componente de desplazamiento físico. SOLO ruta por carretera con origen,
+// destino y al menos una parada intermedia útil (gasolina, café, comida).
+const HECTOR_RUTA_RULES = [
+  "BLOQUE [RUTA] — solo para desplazamientos físicos por carretera.",
+  "",
+  "Cuando el CEO te pide una RUTA DE VIAJE (coche, moto, furgoneta) con origen y destino, NO respondas con prosa larga ni con listas planas de enlaces. Emite un bloque estructurado [RUTA]{json}[/RUTA] que el sistema renderiza como tarjetas de parada con botón 'Abrir en Google Maps'.",
+  "",
+  "ÚSALO solo si la consulta es ruta REAL por carretera:",
+  "- 'ruta Marbella-Madrid mañana 8am'",
+  "- 'qué paradas hacer Sevilla-París por carretera'",
+  "- 'cómo voy de Estepona a Barcelona sin autopista'",
+  "- 'plan de viaje en coche a Lisboa con descansos'",
+  "",
+  "NO LO USES para:",
+  "- Vuelos (eso es comparativa de aerolíneas, no ruta).",
+  "- Trenes / ferries (transporte público, no carretera).",
+  "- Hoteles o restaurantes aislados sin desplazamiento entre puntos.",
+  "- Reuniones, citas o consultas sin coche.",
+  "- Trayectos triviales urbanos (de un sitio a otro de la misma ciudad).",
+  "",
+  "FLUJO recomendado:",
+  "1. Usa web_search para obtener distancia real, tiempo estimado, peajes vigentes, áreas de servicio operativas, restaurantes con valoraciones en el trayecto. Cita las fuentes (aparecerán al pie automáticamente).",
+  "2. Calcula paradas razonables según horas de conducción del CEO: cada 2h descanso, mediodía comida si la salida es por la mañana, gasolina si supera 400 km.",
+  "3. Emite el bloque [RUTA] con el JSON completo. La prosa antes del bloque puede ser MUY breve (1-2 frases de contexto) o vacía. El bloque es la entrega real.",
+  "",
+  "SCHEMA exacto del JSON dentro de [RUTA]...[/RUTA]:",
+  '{',
+  '  "origen": "Marbella",',
+  '  "destino": "Madrid",',
+  '  "salida": "2026-06-27T08:00",',
+  '  "etaTotal": "5h 45min",',
+  '  "distanciaTotal": "590 km",',
+  '  "peajesEstimados": "32€",',
+  '  "paradas": [',
+  '    {"tipo":"inicio","lugar":"Marbella","hora":"08:00","km":0,"nota":""},',
+  '    {"tipo":"cafe","lugar":"Área Servicio Antequera","hora":"09:15","km":120,"nota":"15 min · gasolina si toca"},',
+  '    {"tipo":"comida","lugar":"Venta El Romeral, Córdoba","hora":"11:30","km":280,"nota":"Salida 320. Andaluza · 1h"},',
+  '    {"tipo":"gasolina","lugar":"Cepsa Manzanares","hora":"13:00","km":480,"nota":""},',
+  '    {"tipo":"destino","lugar":"Madrid","hora":"13:45","km":590,"nota":""}',
+  '  ]',
+  '}',
+  "",
+  "Campos obligatorios: paradas (array, mínimo 2 items con lugar string no vacío). Todo lo demás (etaTotal, distanciaTotal, peajesEstimados, salida, hora/km/nota de cada parada) es OPCIONAL — emítelo solo si lo has averiguado con datos reales. NO inventes cifras si no las buscaste. Sin invención.",
+  "",
+  "Tipos válidos para parada.tipo: inicio, cafe, comida, gasolina, descanso, destino, punto. Cualquier otro tipo se renderiza como 'punto' genérico.",
+  "",
+  "El sistema ya construye el deep link a Google Maps con todas las paradas como waypoints (máx 9 intermedias). El CEO toca el botón y se le abre la app de Google Maps con navegación lista. NO añadas tú enlaces a Google Maps en la prosa.",
+].join("\n");
+
+import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures, stripCeoProfile, buildSpecialistContext, parseRuta, cleanRutaBlock } from "../lib/agentActions.js";
+import RutaCard from "./Shared/RutaCard.jsx";
 import { formatCeoMemoryForPrompt } from "../lib/memory.js";
 import { isAccountOwner } from "../lib/auth.js";
 import { supa } from "../lib/sync.js";
@@ -786,7 +844,8 @@ Reglas:
         + memBlockFormatted
         + membersBlock + urgentBlock + projBlock + negBlock + finBlockGated + govBlockGated + tasksListBlock
         + "\n\n" + HECTOR_SEARCH_RULES
-        + "\n\n" + HECTOR_NODATE_RULES;
+        + "\n\n" + HECTOR_NODATE_RULES
+        + "\n\n" + HECTOR_RUTA_RULES;
       // Convertimos el historial a la forma que espera la API.
       // Los mensajes "assistant" llevan el texto limpio (sin proposal).
       // Inyección de fecha actual en el USER prompt (commit 39): el system
@@ -1077,9 +1136,13 @@ Reglas:
         .replace(/\[INVOCAR:[^\]]+\]/gi, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
+      // Parser de [RUTA] — desplazamientos por carretera. Falla silencioso:
+      // si malformado, devuelve null y la prosa sale como texto normal.
+      const ruta = parseRuta(reply);
       const afterActions = proposal ? cleanAgentResponse(reply) : reply;
       const afterTasks   = cleanTasksListBlock(afterActions);
-      let   cleanText    = stripInvokes(afterTasks);
+      const afterRuta    = cleanRutaBlock(afterTasks);
+      let   cleanText    = stripInvokes(afterRuta);
       // Reescritura propositiva extendida (propositive-prose-v1):
       // si la prosa narrativa de Héctor precede a un ActionProposal,
       // aplicamos la misma reescritura que ya hacemos al summary.
@@ -1170,6 +1233,10 @@ Reglas:
         replyRaw: reply,
         proposal: proposal || null,
         tasksList: tasksList || null,
+        // ruta: bloque [RUTA] parseado. ChatBubble lo renderiza como
+        // RutaCard al pie. Null si Héctor no emitió ruta o si el JSON
+        // venía malformado (degradación silenciosa, la prosa queda).
+        ruta: ruta || null,
         // citations: fuentes consultadas por web_search (acumuladas de
         // send + continuación, dedup por URL). ChatBubble las renderiza
         // como footer "🔍 N fuentes consultadas" si length>0. Paridad
@@ -1521,6 +1588,7 @@ Reglas:
                   onDiscardProposal={() => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
                   onConfirmProposal={(executedActions) => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalExecuted: true, executedAt: Date.now(), executedActions } : x))}
                   renderTaskList={(tasksList) => <TaskListCard tasksList={tasksList} />}
+                  renderRuta={(ruta) => <RutaCard ruta={ruta} />}
                 />
           ))}
         {isLoading && <TypingIndicator />}

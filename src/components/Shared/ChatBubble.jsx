@@ -152,6 +152,10 @@ export default function ChatBubble({
   // trae message.tasksList. HectorDirect lo pasa con su TaskListCard
   // local; HectorPanel no lo pasa (no genera tasksList en su pipeline).
   renderTaskList,
+  // Render-prop opcional para insertar RutaCard cuando el mensaje trae
+  // message.ruta. Misma idea que renderTaskList. HectorDirect lo pasa,
+  // los demás no — sin él la card no aparece (degradación silenciosa).
+  renderRuta,
 }) {
   const isUser = message.role === "user";
   const text = message.text || "";
@@ -225,6 +229,11 @@ export default function ChatBubble({
       {!isUser && message.tasksList && typeof renderTaskList === "function" && (
         <div style={{ alignSelf: "stretch", paddingLeft: 42 }}>
           {renderTaskList(message.tasksList)}
+        </div>
+      )}
+      {!isUser && message.ruta && typeof renderRuta === "function" && (
+        <div style={{ alignSelf: "stretch", paddingLeft: 42 }}>
+          {renderRuta(message.ruta)}
         </div>
       )}
       {!isUser && message.fakeSuccess && !message.proposal && (

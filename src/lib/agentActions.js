@@ -106,6 +106,83 @@ export function cleanTasksListBlock(responseText) {
     .trim();
 }
 
+// Parser y stripper del bloque [RUTA]…[/RUTA] que Héctor emite cuando
+// el CEO pide una ruta de viaje por carretera. Misma familia que
+// [TASKS_LIST]: bloque oculto del chat, renderizado como RutaCard
+// debajo del bubble con tarjetas de parada y botón "Abrir en Google
+// Maps". Falla silencioso si malformado — la respuesta sale como
+// texto normal. La instrucción al modelo vive en HectorDirectView
+// (HECTOR_RUTA_RULES), no en AGENT_ACTIONS_ADDON.
+//
+// Schema esperado (JSON dentro del bloque):
+//   {
+//     "origen":  "string lugar inicial",
+//     "destino": "string lugar final",
+//     "salida":  "ISO datetime opcional (YYYY-MM-DDTHH:mm)",
+//     "etaTotal": "string legible '5h 45min' (opcional)",
+//     "distanciaTotal": "string '590 km' (opcional)",
+//     "peajesEstimados": "string '32€' (opcional)",
+//     "paradas": [
+//       { "tipo": "inicio|cafe|comida|gasolina|descanso|destino|punto",
+//         "lugar": "string requerido",
+//         "hora":  "string 'HH:MM' opcional",
+//         "km":    "number km acumulados opcional",
+//         "nota":  "string corta opcional" }
+//     ]
+//   }
+//
+// Reglas mínimas para validación: paradas array con ≥2 items, cada
+// uno con `lugar` string no vacío. Sin esto → null y la respuesta
+// sale como texto. Aceptamos extras del modelo (ignoramos campos
+// desconocidos, no fallamos por ellos).
+const RUTA_RE = /\[RUTA\]([\s\S]*?)\[\/RUTA\]/;
+
+export function parseRuta(responseText) {
+  if (!responseText || typeof responseText !== "string") return null;
+  const m = responseText.match(RUTA_RE);
+  if (!m) return null;
+  try {
+    let raw = m[1].trim();
+    raw = raw.replace(/^```json\s*|\s*```$/g, "").replace(/^```\s*|\s*```$/g, "");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!Array.isArray(parsed.paradas) || parsed.paradas.length < 2) return null;
+    // Sanitización defensiva. Mantenemos solo paradas con lugar string
+    // no vacío. tipo cae a "punto" si no es válido. km a number o null.
+    const TIPOS_OK = new Set(["inicio","cafe","comida","gasolina","descanso","destino","punto"]);
+    const paradas = parsed.paradas
+      .filter(p => p && typeof p === "object" && typeof p.lugar === "string" && p.lugar.trim())
+      .map(p => ({
+        tipo:  TIPOS_OK.has(String(p.tipo||"").toLowerCase()) ? String(p.tipo).toLowerCase() : "punto",
+        lugar: String(p.lugar).trim(),
+        hora:  typeof p.hora === "string" && /^\d{1,2}:\d{2}$/.test(p.hora) ? p.hora : "",
+        km:    Number.isFinite(p.km) ? Number(p.km) : null,
+        nota:  typeof p.nota === "string" ? p.nota.trim() : "",
+      }));
+    if (paradas.length < 2) return null;
+    return {
+      origen:           typeof parsed.origen  === "string" ? parsed.origen.trim()  : (paradas[0].lugar || ""),
+      destino:          typeof parsed.destino === "string" ? parsed.destino.trim() : (paradas[paradas.length-1].lugar || ""),
+      salida:           typeof parsed.salida  === "string" ? parsed.salida.trim()  : "",
+      etaTotal:         typeof parsed.etaTotal === "string" ? parsed.etaTotal.trim() : "",
+      distanciaTotal:   typeof parsed.distanciaTotal === "string" ? parsed.distanciaTotal.trim() : "",
+      peajesEstimados:  typeof parsed.peajesEstimados === "string" ? parsed.peajesEstimados.trim() : "",
+      paradas,
+    };
+  } catch (e) {
+    console.warn("[agentActions] parseRuta fallo:", e?.message);
+    return null;
+  }
+}
+
+export function cleanRutaBlock(responseText) {
+  if (!responseText) return "";
+  return String(responseText)
+    .replace(RUTA_RE, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 // Reescritura propositiva de summaries de ActionProposal
 // (propositive-summary-v1). Bug: cuando Héctor emite el summary del
 // bloque [ACTIONS] con verbos en participio ("Tarea X creada en Y"),
