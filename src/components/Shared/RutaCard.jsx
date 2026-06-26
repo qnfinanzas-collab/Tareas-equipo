@@ -117,6 +117,9 @@ export default function RutaCard({ ruta }) {
       <div style={{ display: "flex", flexDirection: "column", marginBottom: 12 }}>
         {ruta.paradas.map((p, i) => {
           const icon = TIPO_ICON[p.tipo] || TIPO_ICON.punto;
+          // Paradas marcadas como fromCeoPlace destacan visualmente:
+          // estrella ⭐ junto al icono y nota personal con estilo enfatizado.
+          const isFromCeo = p.fromCeoPlace === true;
           return (
             <div
               key={i}
@@ -140,13 +143,28 @@ export default function RutaCard({ ruta }) {
                   fontWeight: 600,
                   color: "#1A1A1A",
                   wordBreak: "break-word",
-                }}>{p.lugar}</div>
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}>
+                  {isFromCeo && (
+                    <span
+                      title="De Mis Sitios — lugar ya validado por experiencia personal del CEO."
+                      style={{ fontSize: 13, color: GOLD, flexShrink: 0 }}
+                    >⭐</span>
+                  )}
+                  <span>{p.lugar}</span>
+                </div>
                 {p.nota && (
                   <div style={{
                     fontSize: 11,
-                    color: "#6B6B6B",
+                    color: isFromCeo ? "#7A5C0F" : "#6B6B6B",
                     marginTop: 2,
                     lineHeight: 1.4,
+                    fontStyle: isFromCeo ? "italic" : "normal",
+                    background: isFromCeo ? "#FBF7EB" : "transparent",
+                    padding: isFromCeo ? "3px 6px" : 0,
+                    border: isFromCeo ? `0.5px solid ${GOLD}33` : "none",
                   }}>{p.nota}</div>
                 )}
               </div>

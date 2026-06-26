@@ -877,6 +877,10 @@ function _migrate(d){
   // Favoritos de negociaciones — mismo patrón global por workspace que
   // favoriteProjectIds. Backfill blando para filas antiguas.
   if(!Array.isArray(d.favoriteNegotiationIds)) d.favoriteNegotiationIds = [];
+  // Mis Sitios — repositorio personal de lugares (dormir/comer/visitar/cafe/
+  // gasolina) que Héctor usa al planear rutas. Backfill blando para tenants
+  // previos al feature (26/06/2026). Schema en agentActions.js (SAVE_PLACE).
+  if(!Array.isArray(d.places)) d.places = [];
   // Commit 29: backfill emoji en negociaciones. Si no tiene emoji,
   // calculamos uno con la heurística y marcamos _emojiAuto=true para
   // que se recalcule automáticamente cuando cambie el título.
@@ -1067,14 +1071,14 @@ function _migrate(d){
   // "PERFIL CEO:" o "CAPACIDAD DE EJECUCIÓN" según versión previa.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v13")) return a;            // ya v13
+    if(a.promptBase.includes("ACTIONS_v14")) return a;            // ya v14
     let cut = a.promptBase;
     if (cut.includes("PERFIL CEO:")) {
       cut = cut.split(/\n+PERFIL CEO:/)[0];
     } else if (cut.includes("CAPACIDAD DE EJECUCIÓN")) {
       cut = cut.split(/\n+CAPACIDAD DE EJECUCIÓN/)[0];
     } else {
-      // sin addon previo → añadir v13
+      // sin addon previo → añadir v14
       return {...a, promptBase: a.promptBase + AGENT_ACTIONS_ADDON};
     }
     return {...a, promptBase: cut + AGENT_ACTIONS_ADDON};
@@ -14965,6 +14969,57 @@ Estructura recomendada de una respuesta con documento:
     });
   },[]);
 
+  // Mis Sitios — añade un lugar al repositorio personal del CEO. Llamado
+  // desde el executor de [ACTIONS] cuando Héctor emite save_place. El
+  // payload llega ya sanitizado (name no vacío, type cerrado a set válido,
+  // rating 0..5 o null, tags array de strings). Aquí solo genera id +
+  // timestamps y persiste.
+  //
+  // Dedup blando: si ya existe un place con el mismo name (case-insensitive)
+  // y misma type, NO se duplica — solo actualiza lastVisitedAt y bumpea
+  // visitCount. Evita que el CEO repitiendo "guarda Venta El Romeral" cree
+  // 5 entradas.
+  const addPlaceToTenant = useCallback((payload) => {
+    setData(prev => {
+      const places = Array.isArray(prev.places) ? prev.places : [];
+      const normName = (payload.name || "").trim().toLowerCase();
+      const existingIdx = places.findIndex(p =>
+        (p?.name || "").trim().toLowerCase() === normName &&
+        (p?.type || "otro") === (payload.type || "otro")
+      );
+      const nowIso = new Date().toISOString();
+      if (existingIdx >= 0) {
+        const merged = places.map((p, i) => i === existingIdx ? {
+          ...p,
+          // Campos que SÍ se actualizan si el CEO repite el sitio.
+          address: payload.address || p.address || "",
+          rating:  payload.rating != null ? payload.rating : (p.rating ?? null),
+          notes:   payload.notes ? (p.notes ? `${p.notes}\n${payload.notes}` : payload.notes) : (p.notes || ""),
+          tags:    Array.from(new Set([...(p.tags||[]), ...(payload.tags||[])])),
+          lastVisitedAt: nowIso,
+          visitCount: (p.visitCount || 0) + 1,
+        } : p);
+        return { ...prev, places: merged };
+      }
+      const id = "pl_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+      return {
+        ...prev,
+        places: [...places, {
+          id,
+          name: payload.name,
+          type: payload.type || "otro",
+          address: payload.address || "",
+          rating: payload.rating ?? null,
+          notes: payload.notes || "",
+          tags: Array.isArray(payload.tags) ? payload.tags : [],
+          createdAt: nowIso,
+          lastVisitedAt: nowIso,
+          visitCount: 1,
+        }],
+      };
+    });
+  },[]);
+
   // Orchestrator de acciones propuestas por agentes. Se pasa como prop al
   // chat (HectorPanel, GobernanzaView, etc) y delega en agentActions.js
   // que mapea cada acción a la función de mutación adecuada.
@@ -14999,6 +15054,7 @@ Estructura recomendada de una respuesta con documento:
       addAccountingEntry,
       addInvoice,
       updateInvoice,
+      addPlace: addPlaceToTenant,
       defaultCompanyId,
       addToast,
       findProjectByCode: (code) => (dataRef.current?.projects || []).find(p => p.code === code),

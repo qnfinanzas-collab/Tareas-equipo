@@ -118,9 +118,11 @@ const HECTOR_RUTA_RULES = [
   "- Trayectos triviales urbanos (de un sitio a otro de la misma ciudad).",
   "",
   "FLUJO recomendado:",
-  "1. Usa web_search para obtener distancia real, tiempo estimado, peajes vigentes, áreas de servicio operativas, restaurantes con valoraciones en el trayecto. Cita las fuentes (aparecerán al pie automáticamente).",
-  "2. Calcula paradas razonables según horas de conducción del CEO: cada 2h descanso, mediodía comida si la salida es por la mañana, gasolina si supera 400 km.",
-  "3. Emite el bloque [RUTA] con el JSON completo. La prosa antes del bloque puede ser MUY breve (1-2 frases de contexto) o vacía. El bloque es la entrega real.",
+  "1. SI el system prompt incluye 'MIS SITIOS DEL CEO' al final, revisa SIEMPRE esa lista PRIMERO. Identifica sitios que caigan en el trayecto (geografía aproximada por nombre del lugar y de la provincia) y úsalos como paradas preferentes. Una parada validada por experiencia personal del CEO es siempre más valiosa que una recomendación genérica de búsqueda web.",
+  "2. SI hay sitios del CEO en el trayecto, márcalos en el JSON con \"fromCeoPlace\": true. El frontend los renderiza con icono estrella ⭐ y la nota personal expandida. La nota del sitio debe ir en el campo 'nota' de la parada para que el CEO la lea al mirar la card.",
+  "3. SOLO si no hay suficientes sitios del CEO en la zona o necesitas datos vivos (precios, horarios, gasolineras abiertas), complementa con web_search. Las paradas que vienen de búsqueda web NO llevan fromCeoPlace.",
+  "4. Calcula paradas razonables según horas de conducción del CEO: cada 2h descanso, mediodía comida si la salida es por la mañana, gasolina si supera 400 km.",
+  "5. Emite el bloque [RUTA] con el JSON completo. La prosa antes del bloque puede ser MUY breve (1-2 frases de contexto) o vacía. El bloque es la entrega real.",
   "",
   "SCHEMA exacto del JSON dentro de [RUTA]...[/RUTA]:",
   '{',
@@ -133,15 +135,17 @@ const HECTOR_RUTA_RULES = [
   '  "paradas": [',
   '    {"tipo":"inicio","lugar":"Marbella","hora":"08:00","km":0,"nota":""},',
   '    {"tipo":"cafe","lugar":"Área Servicio Antequera","hora":"09:15","km":120,"nota":"15 min · gasolina si toca"},',
-  '    {"tipo":"comida","lugar":"Venta El Romeral, Córdoba","hora":"11:30","km":280,"nota":"Salida 320. Andaluza · 1h"},',
+  '    {"tipo":"comida","lugar":"Venta El Romeral, Córdoba","hora":"11:30","km":280,"nota":"Te gustó con Marc en mayo · andaluza · 1h","fromCeoPlace":true},',
   '    {"tipo":"gasolina","lugar":"Cepsa Manzanares","hora":"13:00","km":480,"nota":""},',
   '    {"tipo":"destino","lugar":"Madrid","hora":"13:45","km":590,"nota":""}',
   '  ]',
   '}',
   "",
-  "Campos obligatorios: paradas (array, mínimo 2 items con lugar string no vacío). Todo lo demás (etaTotal, distanciaTotal, peajesEstimados, salida, hora/km/nota de cada parada) es OPCIONAL — emítelo solo si lo has averiguado con datos reales. NO inventes cifras si no las buscaste. Sin invención.",
+  "Campos obligatorios: paradas (array, mínimo 2 items con lugar string no vacío). Todo lo demás (etaTotal, distanciaTotal, peajesEstimados, salida, hora/km/nota de cada parada, fromCeoPlace) es OPCIONAL — emítelo solo si aplica. NO inventes cifras si no las buscaste. Sin invención.",
   "",
   "Tipos válidos para parada.tipo: inicio, cafe, comida, gasolina, descanso, destino, punto. Cualquier otro tipo se renderiza como 'punto' genérico.",
+  "",
+  "Flag fromCeoPlace en parada: poner true SOLO si esa parada corresponde a un sitio que aparece literalmente en la lista 'MIS SITIOS DEL CEO' del system prompt. Si lo pones true sin que el sitio exista en esa lista, el CEO verá la estrella ⭐ engañosa y perderá confianza.",
   "",
   "El sistema ya construye el deep link a Google Maps con todas las paradas como waypoints (máx 9 intermedias). El CEO toca el botón y se le abre la app de Google Maps con navegación lista. NO añadas tú enlaces a Google Maps en la prosa.",
 ].join("\n");
@@ -823,6 +827,27 @@ Reglas:
       const memBlock = isOwner ? formatCeoMemoryForPrompt(data?.ceoMemory) : "";
       const memBlockFormatted = memBlock ? "\n\n----\n" + memBlock : "";
 
+      // Mis Sitios — repositorio personal de lugares del CEO. Capa 50 más
+      // recientes para no saturar el prompt (mismo cap que CEO Memory).
+      // GATE: solo owner — los sitios son privados al CEO. Members no los
+      // ven. Se inyectan SIEMPRE (no filtramos por trayecto aquí — Héctor
+      // decide qué usar en cada turno según su consulta).
+      const placesRaw = isOwner && Array.isArray(data?.places) ? data.places : [];
+      const placesRecent = placesRaw.slice(-50);
+      const placesBlock = placesRecent.length === 0 ? "" : (
+        "\n\n----\nMIS SITIOS DEL CEO (" + placesRecent.length + " guardados — usa estos como paradas preferentes al planear rutas, son lugares ya validados por la experiencia personal del CEO):\n" +
+        placesRecent.map(p => {
+          const parts = [
+            "- " + (p.name || "(sin nombre)"),
+            p.type || "otro",
+            p.address || "(sin dirección)",
+          ];
+          if (p.rating != null) parts.push(p.rating + "/5");
+          if (p.notes) parts.push(p.notes);
+          return parts.join(" · ");
+        }).join("\n")
+      );
+
       // finBlock y govBlock construidos arriba usan datos privados del
       // CEO (saldos, runway, facturas, empresas del grupo). GATE: solo
       // owner los recibe. Para members, vacíos.
@@ -842,7 +867,7 @@ Reglas:
         ? hectorPromptBase + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Jefe de Gabinete estratégico. " + PLAIN_TEXT_RULE)
         + memBlockFormatted
-        + membersBlock + urgentBlock + projBlock + negBlock + finBlockGated + govBlockGated + tasksListBlock
+        + membersBlock + urgentBlock + projBlock + negBlock + finBlockGated + govBlockGated + tasksListBlock + placesBlock
         + "\n\n" + HECTOR_SEARCH_RULES
         + "\n\n" + HECTOR_NODATE_RULES
         + "\n\n" + HECTOR_RUTA_RULES;

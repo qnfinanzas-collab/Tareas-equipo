@@ -29,6 +29,11 @@ export const AGENT_ACTION_TYPES = {
   // Facturas emitidas y recibidas (Diego: contabilidad pyme).
   ADD_INVOICE:          "add_invoice",
   UPDATE_INVOICE:       "update_invoice",
+  // Mis Sitios — repositorio personal de lugares del CEO (dormir/comer/
+  // visitar/cafe/gasolina). Héctor los emite cuando el CEO le dice
+  // "guarda este sitio" y los lee al planear rutas para sugerir paradas
+  // basadas en la experiencia personal del CEO, no en búsqueda web.
+  SAVE_PLACE:           "save_place",
 };
 
 // Marcadores. Públicos para que los prompts puedan referenciarlos exactamente.
@@ -158,6 +163,9 @@ export function parseRuta(responseText) {
         hora:  typeof p.hora === "string" && /^\d{1,2}:\d{2}$/.test(p.hora) ? p.hora : "",
         km:    Number.isFinite(p.km) ? Number(p.km) : null,
         nota:  typeof p.nota === "string" ? p.nota.trim() : "",
+        // Flag opcional: la parada viene de "Mis Sitios" del CEO.
+        // RutaCard la pinta con icono estrella y nota destacada.
+        fromCeoPlace: p.fromCeoPlace === true,
       }));
     if (paradas.length < 2) return null;
     return {
@@ -748,6 +756,7 @@ export function executeAgentActions(actions, helpers) {
     addAccountingEntry,   // (payload) → side-effect (Diego: libro diario)
     addInvoice,           // (payload) → id (Diego: nueva factura)
     updateInvoice,        // (id, patch) → side-effect (Diego: actualizar factura)
+    addPlace,             // (payload) → side-effect (Mis Sitios: guarda lugar en data.places)
     defaultCompanyId,     // string|null — empresa filtrada en la UI cuando aplica
     addToast,             // (msg, level, opts?) → side-effect — visibilidad de fallos
     newlyCreatedProjects = [], // [{id, code}] — proyectos creados en pass-1 del MISMO bloque [ACTIONS]; usado para auto-link en CREATE_NEGOTIATION cuando Héctor no provee codes (no puede anticiparlos antes de la ejecución).
@@ -1111,6 +1120,49 @@ export function executeAgentActions(actions, helpers) {
           break;
         }
 
+        case AGENT_ACTION_TYPES.SAVE_PLACE: {
+          // Mis Sitios — guarda un lugar en data.places. Sanitización
+          // defensiva: name requerido (descarta si vacío), placeType cerrado
+          // al set válido (default "otro"), rating clamp 0..5, tags filtra
+          // solo strings, notes/address cae a "" si no es string.
+          //
+          // IMPORTANTE: leemos action.placeType (no action.type). El campo
+          // "type" del action está reservado para el routing del executor.
+          // Si lo reutilizáramos para el tipo del lugar, el JSON solo podría
+          // llevar UNA clave "type" y rompería el routing.
+          const VALID_TYPES = new Set(["dormir","comer","visitar","cafe","gasolina","otro"]);
+          const rawName = typeof action.name === "string" ? action.name.trim() : "";
+          if (!rawName) {
+            results.push({ type: "error", action: action.type, error: "Sitio sin nombre — acción descartada" });
+            break;
+          }
+          const placeType = VALID_TYPES.has(String(action.placeType||"").toLowerCase())
+            ? String(action.placeType).toLowerCase()
+            : "otro";
+          let rating = null;
+          if (action.rating !== undefined && action.rating !== null) {
+            const r = Number(action.rating);
+            if (Number.isFinite(r)) rating = Math.max(0, Math.min(5, r));
+          }
+          const tags = Array.isArray(action.tags)
+            ? action.tags.filter(t => typeof t === "string").map(t => t.trim()).filter(Boolean)
+            : [];
+          const payload = {
+            name:    rawName,
+            // El mutator addPlaceToTenant en App.jsx persiste como place.type
+            // — mantenemos el nombre interno "type" en el storage, solo
+            // renombramos en el schema de [ACTIONS] del LLM.
+            type:    placeType,
+            address: typeof action.address === "string" ? action.address.trim() : "",
+            rating,
+            notes:   typeof action.notes === "string" ? action.notes.trim() : "",
+            tags,
+          };
+          addPlace?.(payload);
+          results.push({ type: "place", name: payload.name, placeType });
+          break;
+        }
+
         default:
           results.push({ type: "error", action: action.type, error: `Tipo de acción desconocido: ${action.type}` });
       }
@@ -1157,11 +1209,11 @@ PERFIL CEO:
 Antonio Díaz · CEO ALMA DIMO INVESTMENTS S.L.
 Visionario digital desde 1998. Ha liderado equipos de diseño, marketing, programación, finanzas y ventas. Comunicación directa · opciones concretas · impacto de negocio · móvil primero · tiempo es el activo real. En documentos legales es SIEMPRE la parte principal.
 
-CAPACIDAD DE EJECUCIÓN (ACTIONS_v13):
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v14):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
-Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags,links}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode (string, un solo proyecto, formato viejo),linkedProjectCodes (array de codes, para vincular varios proyectos; el primer code del array se considera "principal" y los demás "relacionado". Usar este campo cuando el CEO pida vincular más de un proyecto a la negociación)}; "create_tasks" {projectCode,tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags,links}]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario).
+Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags,links}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode (string, un solo proyecto, formato viejo),linkedProjectCodes (array de codes, para vincular varios proyectos; el primer code del array se considera "principal" y los demás "relacionado". Usar este campo cuando el CEO pida vincular más de un proyecto a la negociación)}; "create_tasks" {projectCode,tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags,links}]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario); "save_place" {name,placeType("dormir"|"comer"|"visitar"|"cafe"|"gasolina"|"otro"),address?,rating?(0-5),notes?,tags?} (Mis Sitios: guarda un lugar que el CEO menciona haber visitado o querer recordar — hotel donde durmió, restaurante donde comió, lugar visitado, área de servicio, etc. IMPORTANTE: el campo se llama "placeType" para no colisionar con el campo "type" que identifica la acción. Emite SOLO si el CEO lo pide explícitamente con verbos como "guarda", "registra", "recuerda este sitio", "añade a mis sitios". El sistema lo persiste para futuras consultas y para que tú lo uses al planear rutas como parada preferente. Una acción por sitio — si el CEO menciona varios, emite varias save_place en el mismo bloque [ACTIONS]).
 
 ENLACES DE TAREA (campo task.links):
 Formato del campo links en cada tarea (opcional): array de objetos {url,label?,icon?}. Solo URLs http(s):// completas. Se renderizan en la pestaña Enlaces de la tarea, separadas de la descripción.

@@ -35,6 +35,11 @@ async function runScenario(profile, role) {
     try {
       localStorage.setItem(`sb-${ref}-auth-token`, JSON.stringify(session));
       localStorage.setItem("kluxor.briefingMatinal.lastDate", new Date().toISOString().slice(0,10));
+      // Previene CierreDia automático (se dispara post-18:00 hora local
+      // y hace POST a /api/agent ANTES de que el smoke envíe el chat
+      // de Héctor — el smoke capturaría ese system prompt en lugar del
+      // de Héctor, rompiendo todos los markers de ceoBlock).
+      localStorage.setItem("kluxor.cierreDia.lastDate", new Date().toISOString().slice(0,10));
     } catch {}
     // Strip Authorization en GETs a taskflow_state — el JWT fake da 401;
     // sin auth header pasa como anon vía allow_read permisiva.

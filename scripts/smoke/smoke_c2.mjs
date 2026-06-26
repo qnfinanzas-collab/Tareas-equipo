@@ -30,6 +30,8 @@ async function bootstrap(profile) {
     try {
       localStorage.setItem(`sb-${ref}-auth-token`, JSON.stringify(session));
       localStorage.setItem("kluxor.briefingMatinal.lastDate", new Date().toISOString().slice(0,10));
+      // Mismo fix que smoke_c1: prevenir CierreDia post-18:00.
+      localStorage.setItem("kluxor.cierreDia.lastDate", new Date().toISOString().slice(0,10));
     } catch {}
     const origFetch = window.fetch;
     window.fetch = async function(input, init) {
