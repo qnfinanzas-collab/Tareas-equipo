@@ -46,6 +46,52 @@ function formatSalida(iso) {
   return hh && mi ? `${dia} ${mes} ${hh}:${mi}` : `${dia} ${mes}`;
 }
 
+// Detección de teléfonos españoles en texto libre de notas. Cuando la nota
+// de una parada (ej. "Reservar al 937 130 289") contiene un número, lo
+// envuelve en <a href="tel:..."> para que el CEO pulse y llame desde el
+// móvil. El resto del texto queda intacto.
+//
+// Patrón cubierto:
+//   · Móviles  6XX XXX XXX, 7XX XXX XXX
+//   · Fijos    8XX/9XX XXX XXX
+//   · Prefijo  +34 o (+34) o 34 opcional
+//   · Separadores opcionales entre bloques: espacio, punto, guion
+//
+// Normalización tel:href: limpia separadores y prefija +34 si no había
+// código país. Conserva el formato visible original (lo que el CEO leyó).
+const PHONE_RE = /((?:\+?34[\s.\-]?)?[6789]\d{2}[\s.\-]?\d{3}[\s.\-]?\d{3})/g;
+
+function renderNoteWithPhones(text) {
+  if (!text || typeof text !== "string") return text;
+  // split con captura → intercala texto-sin-match y match. Items en
+  // posición impar son los teléfonos detectados.
+  const parts = text.split(PHONE_RE);
+  if (parts.length === 1) return text;  // sin matches
+  return parts.map((part, i) => {
+    if (i % 2 === 0) return part;
+    const digits = part.replace(/[\s.\-()]/g, "");
+    const tel = digits.startsWith("+")
+      ? digits
+      : (digits.length === 11 && digits.startsWith("34"))
+        ? "+" + digits
+        : "+34" + digits;
+    return (
+      <a
+        key={`tel-${i}`}
+        href={`tel:${tel}`}
+        style={{
+          color: "inherit",
+          fontWeight: 600,
+          textDecoration: "underline",
+          textDecorationStyle: "dotted",
+          textUnderlineOffset: "2px",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >{part}</a>
+    );
+  });
+}
+
 function buildGoogleMapsUrl(ruta) {
   const origin = encodeURIComponent(ruta.origen || ruta.paradas[0]?.lugar || "");
   const destination = encodeURIComponent(ruta.destino || ruta.paradas[ruta.paradas.length-1]?.lugar || "");
@@ -165,7 +211,7 @@ export default function RutaCard({ ruta }) {
                     background: isFromCeo ? "#FBF7EB" : "transparent",
                     padding: isFromCeo ? "3px 6px" : 0,
                     border: isFromCeo ? `0.5px solid ${GOLD}33` : "none",
-                  }}>{p.nota}</div>
+                  }}>{renderNoteWithPhones(p.nota)}</div>
                 )}
               </div>
               <div style={{
