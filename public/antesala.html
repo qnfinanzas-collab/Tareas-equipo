@@ -6,6 +6,11 @@
 <title>Kluxor — Una invitación</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Preload de la stylesheet de Google Fonts: anticipa la descarga del CSS de
+     fuentes en paralelo al HTML parse, reduce el FOUT (Flash of Unstyled Text)
+     y evita el salto cuando Cormorant carga tarde — protección contra layout
+     shift discutida en el diagnóstico previo. -->
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&family=Montserrat:wght@300;400;500;600&display=swap">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&family=Montserrat:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
@@ -127,6 +132,24 @@
 
   @keyframes fadeUp{from{opacity:0;transform:translateY(28px);}to{opacity:1;transform:none;}}
   @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+
+  /* BLOQUE HÉCTOR (estructura — el MP3 se sube aparte).
+     Por defecto OCULTO (display:none). JS añade .ready cuando el audio
+     dispara 'loadedmetadata' = MP3 existe y se puede reproducir. Si el
+     MP3 no existe (404) o el navegador no puede reproducirlo, dispara
+     'error' y el bloque permanece oculto: fallo silencioso, la página
+     se ve sin el bloque, cero botón roto. */
+  .hector-block{display:none;margin-top:40px;flex-direction:column;align-items:center;gap:14px;opacity:0;animation:fadeUp 1.2s cubic-bezier(.16,1,.3,1) .9s forwards;}
+  .hector-block.ready{display:flex;}
+  .hector-listen{display:inline-flex;align-items:center;gap:12px;background:#0A0A0A;color:var(--crema);border:1px solid var(--oro-vivo);font-family:'Cormorant Garamond',serif;font-weight:600;font-size:14px;letter-spacing:2.5px;text-transform:uppercase;padding:14px 30px;cursor:pointer;transition:all .35s cubic-bezier(.16,1,.3,1);border-radius:0;font-style:normal;}
+  .hector-listen:hover{background:transparent;color:#0A0A0A;border-color:#0A0A0A;}
+  .hector-listen .ico{font-size:15px;line-height:1;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;}
+  .hector-listen .label-pause{display:none;}
+  .hector-listen.playing .label-play{display:none;}
+  .hector-listen.playing .label-pause{display:inline;}
+  .hector-progress{width:220px;height:1px;background:rgba(184,146,58,0.22);position:relative;overflow:hidden;}
+  .hector-progress::before{content:"";position:absolute;top:0;left:0;height:100%;width:var(--p,0%);background:var(--oro-vivo);transition:width .15s linear;}
+  .hector-caption{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--gris);}
 </style>
 </head>
 <body>
@@ -144,6 +167,20 @@
       <p class="frase">Hay puertas que no se encuentran.<br><b>Se abren cuando alguien las abre por usted.</b></p>
     </div>
     <p class="sub">Ha llegado hasta aquí porque alguien que dirige como usted lo ha considerado parte de algo reservado a muy pocos.</p>
+
+    <!-- BLOQUE HÉCTOR: presentación hablada. El MP3 se sube después; mientras
+         tanto el bloque queda oculto por CSS y no se renderiza visualmente. -->
+    <div class="hector-block" id="hectorBlock">
+      <audio id="hectorAudio" src="/audio/hector-presentacion.mp3" preload="auto" playsinline></audio>
+      <button id="hectorBtn" type="button" class="hector-listen" aria-label="Escuchar la presentación de Héctor">
+        <span class="ico" aria-hidden="true">🎙</span>
+        <span class="label-play">Escuchar a Héctor</span>
+        <span class="label-pause">Pausar</span>
+      </button>
+      <div class="hector-progress" id="hectorProg" aria-hidden="true"></div>
+      <p class="hector-caption">Su jefe de gabinete se presenta</p>
+    </div>
+
     <div class="scrollcue">Descubra por qué ↓</div>
   </header>
 
@@ -189,7 +226,7 @@
       <p class="quote">"No es que tengamos poco tiempo, es que perdemos mucho."</p>
       <div class="cite">Séneca</div>
       <p class="invitacion">Reservado para quien dirige.</p>
-      <a href="#" class="cta">Solicitar mi acceso</a>
+      <a href="/" class="cta" id="ctaSolicitar">Solicitar mi acceso</a>
       <p class="nota">Su solicitud será revisada por <b>la administración del círculo</b>. El acceso es personal e intransferible.</p>
     </div>
   </section>
@@ -202,6 +239,53 @@
 <script>
   const io=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:0.16});
   document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+
+  // Bloque Héctor — control mínimo de audio con fallback silencioso.
+  // El bloque parte OCULTO por CSS y solo se revela cuando el audio
+  // dispara 'loadedmetadata' (= MP3 existe y es reproducible). Si el
+  // MP3 no existe todavía (404), dispara 'error' y el bloque permanece
+  // oculto sin romper la página.
+  (function(){
+    var audio = document.getElementById('hectorAudio');
+    var btn   = document.getElementById('hectorBtn');
+    var prog  = document.getElementById('hectorProg');
+    var block = document.getElementById('hectorBlock');
+    if(!audio || !btn || !block) return;
+    var disabled = false;
+    audio.addEventListener('loadedmetadata', function(){ block.classList.add('ready'); });
+    audio.addEventListener('error', function(){ disabled = true; });
+    btn.addEventListener('click', function(){
+      if(disabled) return;
+      if(audio.paused){
+        var p = audio.play();
+        if(p && typeof p.catch === 'function'){
+          p.catch(function(){ disabled = true; block.classList.remove('ready'); });
+        }
+      } else {
+        audio.pause();
+      }
+    });
+    audio.addEventListener('play',   function(){ btn.classList.add('playing'); });
+    audio.addEventListener('pause',  function(){ btn.classList.remove('playing'); });
+    audio.addEventListener('ended',  function(){ btn.classList.remove('playing'); prog.style.setProperty('--p','0%'); });
+    audio.addEventListener('timeupdate', function(){
+      if(!audio.duration || !isFinite(audio.duration)) return;
+      var pct = (audio.currentTime / audio.duration) * 100;
+      prog.style.setProperty('--p', pct + '%');
+    });
+  })();
+
+  // CTA "Solicitar mi acceso": marca la antesala como vista en
+  // sessionStorage para que la SPA no rebote de vuelta aquí cuando
+  // llegue a "/". El flag dura la sesión del navegador; si el CEO abre
+  // una pestaña nueva sin sesión, vuelve a ver la antesala (deseado).
+  (function(){
+    var cta = document.getElementById('ctaSolicitar');
+    if(!cta) return;
+    cta.addEventListener('click', function(){
+      try { sessionStorage.setItem('kluxor_seen_antesala', '1'); } catch(_) {}
+    });
+  })();
 </script>
 </body>
 </html>

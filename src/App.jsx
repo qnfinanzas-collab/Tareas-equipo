@@ -15372,6 +15372,21 @@ Estructura recomendada de una respuesta con documento:
       return <div style={{position:"fixed",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#6B7280"}}>Cargando…</div>;
     }
     if(!authSession || isRecoveryFlow){
+      // Antesala pre-login (28/06/2026): si el visitante aterriza en raíz
+      // sin sesión y no está en flujo de recovery, lo redirigimos UNA VEZ
+      // por sesión a la antesala estática (public/antesala.html). El flag
+      // sessionStorage.kluxor_seen_antesala evita el bucle cuando vuelve
+      // a "/" tras pulsar el CTA. Usuarios CON sesión nunca pasan por aquí
+      // — entran directamente como hasta hoy. Reversible: quitando este
+      // bloque, comportamiento exacto previo.
+      if (!isRecoveryFlow && typeof window !== "undefined"
+          && window.location.pathname === "/"
+          && !sessionStorage.getItem("kluxor_seen_antesala")) {
+        try {
+          window.location.replace("/antesala.html");
+          return null;
+        } catch (_) { /* si falla, cae al LoginScreen normal */ }
+      }
       return <LoginScreen onAuthed={s=>{ setAuthSession(s); setIsRecoveryFlow(false); }} onLegacySkip={enableLegacyMode} forceRecovery={isRecoveryFlow} onRecoveryDone={()=>setIsRecoveryFlow(false)}/>;
     }
     if(!authMemberInfo?.member){
