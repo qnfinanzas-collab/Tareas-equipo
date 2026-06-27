@@ -12035,8 +12035,21 @@ export default function TaskFlow(){
   // "hector-direct". Excepción: el guest del Vault (/vault/<token>) se
   // captura ANTES vía parseVaultGuestPath y short-circuita la app.
   const [activeTab,setActiveTab]   = useState(() => {
-    try { return tabFromPath(window.location.pathname) || "hector-direct"; }
-    catch { return "hector-direct"; }
+    try {
+      const fromUrl = tabFromPath(window.location.pathname);
+      if (fromUrl) return fromUrl;
+      // Onboarding (27/06/2026): default a "home" en vez de "hector-direct"
+      // para que el CEO aterrice en un mapa de secciones, no en un chat sin
+      // contexto. Excepción: si el CEO ya ha guardado preferencia
+      // ceoProfile.defaultLanding="hector", la respetamos leyendo del cache
+      // localStorage para no esperar al sync (que ya repuebla más tarde).
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (cached?.ceoProfile?.defaultLanding === "hector") return "hector-direct";
+      }
+      return "home";
+    } catch { return "home"; }
   });
   const [activeMember,setAM]       = useState(()=>{ const u=readStoredUser(); return typeof u?.id==="number"?u.id:5; });
   // Briefing matinal automático: aparece la primera apertura del día
@@ -12221,13 +12234,19 @@ export default function TaskFlow(){
       postLoginAppliedRef.current = true;
       const isAdminNow = authMemberInfo.member.accountRole === "admin";
       // Post-login: respetar la URL si trae un tab válido; solo redirigir
-      // a hector-direct cuando la URL es "/" o no matchea ningún slug
-      // conocido. Así un F5 en /mantenimiento queda en /mantenimiento.
+      // cuando la URL es "/" o no matchea ningún slug conocido. Así un F5
+      // en /mantenimiento queda en /mantenimiento.
+      // Default landing: "home" para onboarding (CEO aterriza en mapa de
+      // secciones, no en chat). Si el CEO ya ha guardado preferencia
+      // ceoProfile.defaultLanding="hector", la respetamos.
       const tabFromUrl = (() => {
         try { return tabFromPath(window.location.pathname); }
         catch { return null; }
       })();
-      if (!tabFromUrl) setActiveTab("hector-direct");
+      if (!tabFromUrl) {
+        const pref = data?.ceoProfile?.defaultLanding;
+        setActiveTab(pref === "hector" ? "hector-direct" : "home");
+      }
     }
   },[authMemberInfo?.member?.id, authMemberInfo?.member?.accountRole]);
 
@@ -15520,6 +15539,23 @@ Estructura recomendada de una respuesta con documento:
                 <div onClick={()=>setUserMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:1600}}/>
                 <div style={{position:"absolute",top:"calc(100% - 2px)",left:sidebarCollapsed?4:12,right:sidebarCollapsed?"auto":12,minWidth:sidebarCollapsed?200:"auto",background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:10,boxShadow:"0 10px 28px rgba(0,0,0,0.14)",zIndex:1700,overflow:"hidden",animation:"tf-slide-down .15s ease-out"}}>
                   <div onClick={()=>{setUserMenuOpen(false);setPM(data.members.find(x=>x.id===activeMember));}} style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>⚙ Mi perfil</div>
+                  {/* Toggle de entrada por defecto (onboarding 27/06/2026).
+                      Persistido en data.ceoProfile.defaultLanding. Default
+                      implícito si nunca se ha tocado: "home". */}
+                  <div onClick={()=>{
+                    setUserMenuOpen(false);
+                    setData(prev=>{
+                      const cur = prev?.ceoProfile?.defaultLanding === "hector" ? "hector" : "home";
+                      const next = cur === "home" ? "hector" : "home";
+                      return {
+                        ...prev,
+                        ceoProfile: { ...(prev.ceoProfile||{}), defaultLanding: next },
+                      };
+                    });
+                    addToast("Entrada por defecto actualizada — efectivo al próximo login","info",{ttl:3500});
+                  }} title="Pantalla a la que aterrizas cuando abres Kluxor (raíz o sin URL específica)" style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    🎯 Entrada por defecto: <b style={{color:"#7F77DD"}}>{data?.ceoProfile?.defaultLanding === "hector" ? "Héctor" : "Inicio"}</b> <span style={{fontSize:10,color:"#9CA3AF"}}>(cambiar)</span>
+                  </div>
                   <div onClick={changeUser} style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🔄 Cambiar usuario</div>
                   <div onClick={()=>{ setUserMenuOpen(false); if(authSession) handleSignOut(); else logoutTemp(); }} style={{padding:"9px 12px",fontSize:12,color:"#A32D2D",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#FEF2F2"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🚪 Cerrar sesión</div>
                   <div onClick={()=>{ if(!window.confirm("¿Borrar todos los datos guardados y volver al estado inicial?"))return; setUserMenuOpen(false); localStorage.removeItem(LS_KEY); window.location.reload(); }} style={{padding:"9px 12px",fontSize:11,color:"#6B7280",cursor:"pointer",fontStyle:"italic"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🗑 Resetear datos (dev)</div>
@@ -15966,15 +16002,18 @@ Estructura recomendada de una respuesta con documento:
         onOpenTask={(pid,tid)=>{ const idx=data.projects.findIndex(p=>p.id===pid); if(idx>=0){setAP(idx);setActiveTab("board");setPendingOpenTaskId(tid);} }}
       />}
       {/* Bottom navigation — visible solo en móvil (≤768px) vía CSS.
-          Aditiva al sidebar drawer existente: estas 4 rutas son las más
-          usadas y se acceden con un tap; el resto sigue en la
-          hamburguesa. Reusa setActiveTab para no duplicar lógica. */}
+          Aditiva al sidebar drawer existente. Onboarding (27/06/2026):
+          reordenado a Home / Héctor / Tareas / Más. Home como primer ítem
+          ancla al mapa de secciones; "Más" abre el drawer con las 13+
+          rutas que no caben aquí (El Consejo, Sala de Mando, Mi Día,
+          Deal Room, Proyectos, Workspaces, Finanzas, Gobernanza, etc.).
+          Reusa setActiveTab y setSidebarOpen. */}
       <nav className="tf-bottom-nav" aria-label="Navegación principal móvil">
         {[
-          { id: "hector-direct", icon: "🧙", label: "Héctor",    onClick: () => setActiveTab("hector-direct") },
-          { id: "mytasks",       icon: "✅", label: "Tareas",    onClick: () => setActiveTab("mytasks") },
-          { id: "dealroom",      icon: "🤝", label: "Negs",      onClick: () => { setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null); } },
-          { id: "projects",      icon: "📁", label: "Proyectos", onClick: () => setActiveTab("projects") },
+          { id: "home",          icon: "🏠", label: "Inicio",  onClick: () => setActiveTab("home") },
+          { id: "hector-direct", icon: "🧙", label: "Héctor",  onClick: () => setActiveTab("hector-direct") },
+          { id: "mytasks",       icon: "✅", label: "Tareas",  onClick: () => setActiveTab("mytasks") },
+          { id: "more",          icon: "☰",  label: "Más",     onClick: () => setSidebarOpen(true) },
         ].map(item => (
           <button
             key={item.id}
