@@ -341,7 +341,7 @@ CÓMO COMUNICARTE:
 `;
 }
 
-export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, financeContext, pendingExecBridge, onConsumePendingExecBridge, onSaveCouncilDocument }) {
+export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, financeContext, pendingExecBridge, onConsumePendingExecBridge, onSaveCouncilDocument, onRequestSavePlace }) {
   const userKey = userId != null ? userId : "anon";
   // Misma clave que usa HectorPanel.jsx → conversación compartida.
   const CHAT_KEY = `kluxor.hector.chat.${userKey}`;
@@ -1613,7 +1613,7 @@ Reglas:
                   onDiscardProposal={() => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
                   onConfirmProposal={(executedActions) => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalExecuted: true, executedAt: Date.now(), executedActions } : x))}
                   renderTaskList={(tasksList) => <TaskListCard tasksList={tasksList} />}
-                  renderRuta={(ruta) => <RutaCard ruta={ruta} />}
+                  renderRuta={(ruta) => <RutaCard ruta={ruta} onSavePlace={onRequestSavePlace || null} />}
                 />
           ))}
         {isLoading && <TypingIndicator />}

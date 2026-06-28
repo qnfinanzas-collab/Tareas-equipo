@@ -280,12 +280,18 @@ function PlaceCard({ place, onEdit, onDelete, pendingDelete, onAskDelete, onCanc
 }
 
 // PlaceModal — form de add/edit. Validación inline (name obligatorio).
-// Modo CREATE: todo vacío. Modo EDIT: pre-rellena del place recibido.
+// Modo CREATE: pre-rellena si recibe `place` como seed (Commit 3: botón
+// "+" desde una parada de RutaCard abre este modal con name/type/notes
+// pre-rellenados). Modo EDIT: pre-rellena del place recibido.
 // Botones: Cancelar / Guardar (+ Borrar en modo EDIT, con confirmación
 // inline reemplazando los botones).
-function PlaceModal({ mode, place, onSubmit, onDelete, onClose }) {
+// Export: usado dentro de MisLugaresView (CRUD propio) Y desde App.jsx
+// como overlay global cuando una parada de RutaCard dispara guardar.
+export function PlaceModal({ mode, place, onSubmit, onDelete, onClose }) {
   const isEdit = mode === "edit";
-  const initial = isEdit && place ? place : null;
+  // Acepta `place` también en modo create — funciona como seed inicial
+  // sin convertir la operación en update (no hay id, no toca lastVisitedAt).
+  const initial = place || null;
 
   const [name, setName]       = useState(initial?.name || "");
   const [type, setType]       = useState(initial?.type && TIPOS_ORDEN.includes(initial.type) ? initial.type : "otro");

@@ -30,7 +30,7 @@ import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import HectorDirectView from "./components/HectorDirectView.jsx";
 import MiDiaView from "./components/MiDiaView.jsx";
-import MisLugaresView from "./components/MisLugaresView.jsx";
+import MisLugaresView, { PlaceModal } from "./components/MisLugaresView.jsx";
 import ConsejoView from "./components/ConsejoView.jsx";
 import MantenimientoView from "./components/MantenimientoView.jsx";
 import { CHAT_PALETTE } from "./components/Shared/ChatBubble.jsx";
@@ -3121,6 +3121,18 @@ function matchItemByCode(item, queryRaw){
   const name = normalizeQuery(item.name || "");
   const desc = normalizeQuery(item.desc || item.description || "");
   return code.includes(q) || name.includes(q) || desc.includes(q);
+}
+
+// Variante para lugares guardados (data.places). Sin code, sin desc —
+// matchea por name, address y tags. El CommandPalette muestra el lugar
+// como entrada de búsqueda; click lleva a /places (sin deep link en F1).
+function matchPlaceByText(p, queryRaw){
+  const q = normalizeQuery(queryRaw);
+  if(!q) return true;
+  const name    = normalizeQuery(p?.name    || "");
+  const address = normalizeQuery(p?.address || "");
+  const tags    = normalizeQuery(Array.isArray(p?.tags) ? p.tags.join(" ") : "");
+  return name.includes(q) || address.includes(q) || tags.includes(q);
 }
 
 // Variante para negociaciones — distinto schema (title en vez de name,
@@ -8173,7 +8185,7 @@ function AgentsView({agents,onCreate,onEdit}){
 }
 
 // ── Command Palette (⌘K) ──────────────────────────────────────────────────────
-function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavigateProject,onNavigateNegotiation,actions}){
+function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavigateProject,onNavigateNegotiation,onNavigatePlace,actions}){
   const [query,setQuery]       = useState("");
   const [selectedIndex,setSI]  = useState(0);
   const inputRef               = useRef(null);
@@ -8198,6 +8210,11 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
         workspaces:(data.workspaces||[]).slice(0,5),
         projects:[],
         negotiations:[],
+        // Sin query: muestra los 5 últimos lugares por actividad
+        // (lastVisitedAt || createdAt). Patrón equivalente a workspaces.
+        places: (Array.isArray(data.places) ? [...data.places] : [])
+          .sort((a,b)=>(b?.lastVisitedAt||b?.createdAt||"").localeCompare(a?.lastVisitedAt||a?.createdAt||""))
+          .slice(0,5),
       };
     }
     // Búsqueda tolerante: matchTask normaliza acentos, espacios, guiones
@@ -8212,6 +8229,7 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
       // los status (en_curso, pausado, cerrado_*) son buscables — el CEO
       // puede querer encontrar una negociación cerrada hace meses.
       negotiations: (data.negotiations||[]).filter(n=>!n.archived&&matchNegByCode(n, q)).slice(0,8),
+      places:       (data.places||[]).filter(p=>matchPlaceByText(p, q)).slice(0,6),
     };
   },[query,data,actions]);
 
@@ -8223,6 +8241,7 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
     results.workspaces  .forEach(w=>list.push({type:"workspace",   item:w}));
     results.projects    .forEach(p=>list.push({type:"project",     item:p}));
     results.negotiations.forEach(n=>list.push({type:"negotiation", item:n}));
+    (results.places||[]).forEach(p=>list.push({type:"place",       item:p}));
     return list;
   },[results]);
 
@@ -8234,9 +8253,10 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
     else if(entry.type==="workspace")    onNavigateWorkspace(entry.item);
     else if(entry.type==="project")      onNavigateProject(entry.item);
     else if(entry.type==="negotiation")  onNavigateNegotiation?.(entry.item);
+    else if(entry.type==="place")        onNavigatePlace?.(entry.item);
     else if(entry.type==="action")       entry.item.run();
     onClose();
-  },[flat,onNavigateTask,onNavigateWorkspace,onNavigateProject,onNavigateNegotiation,onClose]);
+  },[flat,onNavigateTask,onNavigateWorkspace,onNavigateProject,onNavigateNegotiation,onNavigatePlace,onClose]);
 
   useEffect(()=>{
     const onKey=(e)=>{
@@ -8375,6 +8395,23 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
                   <div style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#6B7280",opacity:0.85}}>
                     {n.counterparty ? <HighlightedText text={n.counterparty} query={query.trim()}/> : "(sin contraparte)"}
                     {status ? ` · ${status.label}` : ""}
+                  </div>
+                </div>
+              </div>
+            );})}
+          </>}
+
+          {(results.places||[]).length>0&&<>
+            {catHeader("Lugares",results.places.length,results.tasks.length===0&&results.actions.length===0&&results.workspaces.length===0&&results.projects.length===0&&results.negotiations.length===0)}
+            {results.places.map(p=>{ const idx=idxCounter++; const tipoMap={dormir:"🛏",comer:"🍽",visitar:"📍",cafe:"☕",gasolina:"⛽",otro:"•"}; const tipoLblMap={dormir:"Dormir",comer:"Comer",visitar:"Visitar",cafe:"Café",gasolina:"Gasolina",otro:"Otros"}; const t=tipoMap[p.type]||tipoMap.otro; const tLbl=tipoLblMap[p.type]||"Otros"; return(
+              <div key={`pl-${p.id}`} data-idx={idx} data-cmdk="place-row" onClick={()=>executeAt(idx)} onMouseEnter={()=>setSI(idx)} style={rowStyle(idx)}>
+                <span style={{fontSize:15,flexShrink:0}}>{t}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    <HighlightedText text={p.name||"(sin nombre)"} query={query.trim()}/>
+                  </div>
+                  <div style={{fontSize:11,color:idx===selectedIndex?"#1E40AF":"#6B7280",opacity:0.85,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                    {tLbl}{p.address ? ` · ${p.address}` : ""}
                   </div>
                 </div>
               </div>
@@ -12316,6 +12353,12 @@ export default function TaskFlow(){
   const [showUserModal,setShowUserModal] = useState(()=>!readStoredUser());
   const [userMenuOpen,setUserMenuOpen]   = useState(false);
   const [showCommandPalette,setShowCommandPalette] = useState(false);
+  // Seed para PlaceModal global cuando una parada de RutaCard pide
+  // guardar (Commit 3 Mis Lugares). null = modal cerrado; objeto =
+  // {name,type,notes} pre-rellenando el form. Lo dispara HectorDirectView
+  // → RutaCard → onSavePlace. Vive en App.jsx para que el modal sea
+  // transversal a la vista activa.
+  const [pendingPlaceSeed,setPendingPlaceSeed] = useState(null);
   const [pendingWorkspaceId,setPendingWorkspaceId] = useState(null);
   const [sidebarCollapsed,setSidebarCollapsed] = useState(()=>{
     // Default explícito: si NO hay valor guardado (null) → expandido (false).
@@ -15498,7 +15541,24 @@ Estructura recomendada de una respuesta con documento:
         onNavigateWorkspace={ws=>{ setActiveTab("workspaces"); setPendingWorkspaceId(ws.id); }}
         onNavigateProject={p=>{ const i=data.projects.findIndex(x=>x.id===p.id); if(i>=0){ setAP(i); setActiveTab("board"); } }}
         onNavigateNegotiation={n=>{ setActiveTab("dealroom"); setActiveNegId(n.id); setActiveSessId(null); }}
+        onNavigatePlace={()=>{ setActiveTab("places"); }}
       />}
+      {/* PlaceModal global — se abre cuando una parada de RutaCard pide
+          guardar como lugar (commit 3 Mis Lugares). Vive aquí para ser
+          transversal a la vista activa: el chat puede invocarse desde
+          /hector, /home u otras vistas y este overlay aparece sobre
+          cualquiera de ellas. Modo "create" con seed pre-rellenada;
+          guarda con addPlaceToTenant (que dispara dedup blando contra
+          lugares existentes con mismo name+type). */}
+      {pendingPlaceSeed && (
+        <PlaceModal
+          mode="create"
+          place={pendingPlaceSeed}
+          onSubmit={(payload)=>{ addPlaceToTenant(payload); setPendingPlaceSeed(null); addToast("✓ Lugar guardado en Mis Lugares"); }}
+          onDelete={()=>{}}
+          onClose={()=>setPendingPlaceSeed(null)}
+        />
+      )}
       {sidebarOpen && <div className="tf-backdrop" onClick={()=>setSidebarOpen(false)}/>}
       {/* SIDEBAR — AppShell: 5 principales + Recientes + Footer Atajos */}
       {(()=>{
@@ -15866,7 +15926,7 @@ Estructura recomendada de una respuesta con documento:
               onToggleFavorite={toggleFavoriteNegotiation}
             />;
           })()}
-          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext} pendingExecBridge={pendingExecBridge} onConsumePendingExecBridge={()=>setPendingExecBridge(null)} onSaveCouncilDocument={saveCouncilDocument}/>}
+          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext} pendingExecBridge={pendingExecBridge} onConsumePendingExecBridge={()=>setPendingExecBridge(null)} onSaveCouncilDocument={saveCouncilDocument} onRequestSavePlace={setPendingPlaceSeed}/>}
           {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} authSession={authSession} onNavigate={setActiveTab} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onApplyTaskChanges={applyTaskChanges} onOpenNegotiation={openNegotiationById} onOpenProject={pid=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); } }} onToggleFavorite={toggleFavoriteProject} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} favoriteProjectIds={data.favoriteProjectIds||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} myDefaultProjectId={resolveMyDefaultProject(data, activeMember)?.id ?? null} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject} onArchiveProject={archiveProject} onUnarchiveProject={unarchiveProject} onToggleFavorite={toggleFavoriteProject}/>}

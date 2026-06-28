@@ -36,6 +36,19 @@ const TIPO_ICON = {
   punto:     "•",
 };
 
+// Mapeo parada.tipo (schema [RUTA]) → place.type (schema save_place).
+// El botón "+" usa esto para construir la seed del PlaceModal. Caso
+// inicio se trata aparte (no muestra botón — guardar el punto de
+// salida no aporta valor al CEO).
+const PARADA_TO_PLACE_TYPE = {
+  destino:  "visitar",
+  cafe:     "cafe",
+  comida:   "comer",
+  gasolina: "gasolina",
+  descanso: "otro",
+  punto:    "otro",
+};
+
 function formatSalida(iso) {
   if (!iso) return "";
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
@@ -123,8 +136,9 @@ function buildGoogleMapsUrl(ruta) {
   return `https://www.google.com/maps/dir/${puntos.map(encodeURIComponent).join("/")}`;
 }
 
-export default function RutaCard({ ruta }) {
+export default function RutaCard({ ruta, onSavePlace }) {
   if (!ruta || !Array.isArray(ruta.paradas) || ruta.paradas.length < 2) return null;
+  const canSavePlace = typeof onSavePlace === "function";
 
   const mapsUrl = buildGoogleMapsUrl(ruta);
   const salidaTxt = formatSalida(ruta.salida);
@@ -236,9 +250,50 @@ export default function RutaCard({ ruta }) {
                 textAlign: "right",
                 minWidth: 90,
                 flexShrink: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-end",
+                gap: 4,
               }}>
                 {p.hora && <div>{p.hora}</div>}
                 {p.km != null && <div style={{ color: "#9CA3AF", fontSize: 10.5 }}>{p.km} km</div>}
+                {canSavePlace && p.tipo !== "inicio" && p.lugar && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSavePlace({
+                        name: p.lugar,
+                        type: PARADA_TO_PLACE_TYPE[p.tipo] || "otro",
+                        notes: p.nota || "",
+                      });
+                    }}
+                    title="Guardar esta parada en Mis Lugares"
+                    style={{
+                      fontFamily: "inherit",
+                      fontSize: 9.5,
+                      fontWeight: 600,
+                      color: GOLD,
+                      background: "transparent",
+                      border: `0.5px solid ${GOLD}`,
+                      borderRadius: 0,
+                      padding: "2px 6px",
+                      cursor: "pointer",
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      lineHeight: 1.3,
+                      marginTop: 2,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = GOLD;
+                      e.currentTarget.style.color = "#FFFFFF";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.color = GOLD;
+                    }}
+                  >+ guardar</button>
+                )}
               </div>
             </div>
           );
