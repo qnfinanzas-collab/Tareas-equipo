@@ -163,6 +163,10 @@ export function parseRuta(responseText) {
         hora:  typeof p.hora === "string" && /^\d{1,2}:\d{2}$/.test(p.hora) ? p.hora : "",
         km:    Number.isFinite(p.km) ? Number(p.km) : null,
         nota:  typeof p.nota === "string" ? p.nota.trim() : "",
+        // Dirección postal real confirmada por web_search. OPCIONAL —
+        // Héctor la OMITE si no la encontró (vacío > inventada). Tipo
+        // distinto a string o ausente → "" (retrocompat rutas viejas).
+        direccion: typeof p.direccion === "string" ? p.direccion.trim() : "",
         // Flag opcional: la parada viene de "Mis Sitios" del CEO.
         // RutaCard la pinta con icono estrella y nota destacada.
         fromCeoPlace: p.fromCeoPlace === true,

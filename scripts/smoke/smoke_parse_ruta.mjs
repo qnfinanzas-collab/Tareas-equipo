@@ -59,6 +59,54 @@ try {
   if (!cleaned.includes("Aquí tienes la ruta")) throw new Error("Caso1: cleanRutaBlock comió la prosa de antes");
   if (!cleaned.includes("¿Quieres que cuadre")) throw new Error("Caso1: cleanRutaBlock comió la prosa de después");
 
+  // Caso 1: retrocompatibilidad. Las paradas SIN campo `direccion` (rutas
+  // viejas o emitidas antes de la regla del prompt) deben quedar con
+  // direccion === "" — el frontend lo trata como "sin dirección".
+  for (const p of r1.paradas) {
+    if (p.direccion !== "") throw new Error("Caso1d (retrocompat): parada sin `direccion` debería caer a '' · " + JSON.stringify(p));
+  }
+
+  // ── Caso 1b — direccion válida en paradas (Fase A: campo nuevo) ──
+  // Héctor emite la dirección postal real cuando la confirma por
+  // web_search. parseRuta debe recogerla y trimearla.
+  const withDireccion = `[RUTA]
+{
+  "origen": "Sevilla",
+  "destino": "Cádiz",
+  "paradas": [
+    {"tipo":"inicio","lugar":"Sevilla","hora":"08:00","km":0,"nota":""},
+    {"tipo":"cafe","lugar":"Venta El Puntal","direccion":"  A-4 km 478, 41700 Dos Hermanas  ","hora":"08:45","km":40,"nota":""},
+    {"tipo":"destino","lugar":"Cádiz","direccion":"Av. del Puerto 1, 11006 Cádiz","hora":"10:00","km":120,"nota":""}
+  ]
+}
+[/RUTA]`;
+  const r1b = parseRuta(withDireccion);
+  if (!r1b) throw new Error("Caso1b: parseRuta devolvió null con direccion válida");
+  if (r1b.paradas[1].direccion !== "A-4 km 478, 41700 Dos Hermanas") throw new Error("Caso1b: direccion mal trimeada · " + r1b.paradas[1].direccion);
+  if (r1b.paradas[2].direccion !== "Av. del Puerto 1, 11006 Cádiz") throw new Error("Caso1b: direccion destino mal · " + r1b.paradas[2].direccion);
+  if (r1b.paradas[0].direccion !== "") throw new Error("Caso1b: parada inicio sin direccion debería ser ''");
+
+  // ── Caso 1c — direccion con tipo degenerado cae a "" ──
+  // Sanitización defensiva: cualquier cosa que no sea string (número,
+  // null, objeto, array) se reduce a "" sin romper la parada.
+  const badDireccion = `[RUTA]
+{
+  "origen": "A",
+  "destino": "B",
+  "paradas": [
+    {"tipo":"inicio","lugar":"A","direccion":42},
+    {"tipo":"cafe","lugar":"X","direccion":null},
+    {"tipo":"comida","lugar":"Y","direccion":{"calle":"Mayor 3"}},
+    {"tipo":"destino","lugar":"B","direccion":["Av. Larga 1"]}
+  ]
+}
+[/RUTA]`;
+  const r1c = parseRuta(badDireccion);
+  if (!r1c) throw new Error("Caso1c: parseRuta devolvió null con direccion degenerada");
+  for (const p of r1c.paradas) {
+    if (p.direccion !== "") throw new Error("Caso1c: direccion no-string debería ser '' · " + JSON.stringify(p));
+  }
+
   // ── Caso 2 — malformado (JSON roto dentro del bloque) ──
   const broken = `Te paso la ruta.
 
@@ -93,10 +141,13 @@ Avísame si quieres alternativa.`;
   if (cleaned3 !== sinBloque) throw new Error("Caso3: cleanRutaBlock sin bloque debería devolver el texto intacto");
 
   console.log("=== PARSE RUTA OK ===");
-  console.log("Caso 1: bloque válido → ruta con 4 paradas sanitizadas (3 degenerados descartados) · cleanRutaBlock quita el bloque y conserva prosa ✓");
-  console.log("Caso 2: JSON malformado → parseRuta=null (fallo silencioso) · cleanRutaBlock SÍ quita el bloque por regex ✓");
+  console.log("Caso 1:  bloque válido → ruta con 4 paradas sanitizadas (3 degenerados descartados) · cleanRutaBlock quita el bloque y conserva prosa ✓");
+  console.log("Caso 1b: campo direccion válido (Fase A) → recogido y trimeado en r.paradas[i].direccion ✓");
+  console.log("Caso 1c: direccion con tipo degenerado (number, null, objeto, array) → cae a '' sin romper la parada ✓");
+  console.log("Caso 1d: retrocompatibilidad — paradas sin campo direccion (rutas viejas) → direccion === '' ✓");
+  console.log("Caso 2:  JSON malformado → parseRuta=null (fallo silencioso) · cleanRutaBlock SÍ quita el bloque por regex ✓");
   console.log("Caso 2b: bloque válido con < 2 paradas → parseRuta=null (regla mínima de utilidad) ✓");
-  console.log("Caso 3: input vacío / sin bloque → parseRuta=null · cleanRutaBlock devuelve texto intacto ✓");
+  console.log("Caso 3:  input vacío / sin bloque → parseRuta=null · cleanRutaBlock devuelve texto intacto ✓");
 } catch (e) {
   console.log("FAIL:", e.message);
   process.exit(1);
