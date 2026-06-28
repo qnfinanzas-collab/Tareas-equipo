@@ -30,6 +30,7 @@ import HectorPanel from "./components/SalaDeComandos/HectorPanel.jsx";
 import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import HectorDirectView from "./components/HectorDirectView.jsx";
 import MiDiaView from "./components/MiDiaView.jsx";
+import MisLugaresView from "./components/MisLugaresView.jsx";
 import ConsejoView from "./components/ConsejoView.jsx";
 import MantenimientoView from "./components/MantenimientoView.jsx";
 import { CHAT_PALETTE } from "./components/Shared/ChatBubble.jsx";
@@ -4984,6 +4985,7 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
     { id:"mytasks",       title:"Mis tareas",          valor:"Todo lo suyo, de todos los proyectos.",                                               block:"operacion",      pictogram:"mytasks" },
     { id:"projects",      title:"Proyectos",           valor:"Sus tableros por categorías, favoritos arriba.",                                      block:"operacion",      pictogram:"projects" },
     { id:"workspaces",    title:"Workspaces",          valor:"Sus espacios por cliente: enlaces, contactos, credenciales.",                         block:"operacion",      pictogram:"workspaces",  requiresPermission:"workspaces" },
+    { id:"places",        title:"Mis Lugares",         valor:"Sus sitios guardados — dónde durmió, comió, visitó. Héctor los usa al planear rutas.", block:"operacion",      pictogram:"places",      requiresOwner:true },
     { id:"finance",       title:"Finanzas",            valor:"Movimientos, tesorería, contabilidad y facturas, con Diego.",                         block:"patrimonio",     pictogram:"finance",     requiresPermission:"finance" },
     { id:"gobernanza",    title:"Gobernanza",          valor:"Estructura societaria, documentos y compliance.",                                     block:"patrimonio",     pictogram:"gobernanza",  requiresPermission:"gobernanza" },
     { id:"dashboard",     title:"Dashboard analítico", valor:"KPIs globales y matriz de prioridades.",                                              block:"inteligencia",   pictogram:"dashboard",   requiresPermission:"dashboard" },
@@ -15468,6 +15470,7 @@ Estructura recomendada de una respuesta con documento:
           {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false, block:"operacion"},
           {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:false, block:"operacion"},
           {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}, adminOnly:false, requiresPermission:"workspaces", block:"operacion"},
+          {id:"places",     icon:"📍", label:"Mis Lugares",  shortcut:"",    onClick:()=>{setActiveTab("places");}, adminOnly:false, requiresOwner:true, block:"operacion"},
           {id:"finance",    icon:"💰", label:"Finanzas",     shortcut:"",    onClick:()=>{setActiveTab("finance");}, adminOnly:false, requiresPermission:"finance", block:"patrimonio"},
           {id:"gobernanza", icon:"🏛️", label:"Gobernanza",   shortcut:"⌘⇧G", onClick:()=>{setActiveTab("gobernanza");}, adminOnly:false, requiresPermission:"gobernanza", block:"patrimonio"},
           {id:"dashboard",  icon:"📊", label:"Dashboard analítico", shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:false, requiresPermission:"dashboard", block:"inteligencia"},
@@ -15829,6 +15832,7 @@ Estructura recomendada de una respuesta con documento:
             return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement} onAddBankMovementsBatch={addBankMovementsBatch} onDeleteBankMovementsByBatch={deleteBankMovementsByBatch} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onDeleteInvoice={deleteInvoice} onReconcileMatches={reconcileMatches} onAddAccountingEntry={addAccountingEntry} onUpdateAccountingEntry={updateAccountingEntry} onDeleteAccountingEntry={deleteAccountingEntry} onAddCustomAccount={addCustomAccount} onCallAgent={callDiegoDirect} onRunAgentActions={runAgentActions} onToast={addToast}/>;
           })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
+          {activeTab==="places"&&<MisLugaresView data={data}/>}
           {activeTab==="gobernanza"&&(()=>{
             const myMember = (data.members||[]).find(x=>x.id===activeMember);
             const canView  = hasPermission(myMember, "gobernanza", "view", data.permissions);

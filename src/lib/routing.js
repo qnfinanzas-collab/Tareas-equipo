@@ -20,6 +20,7 @@ export const TAB_TO_SLUG = {
   "projects":      "projects",
   "finance":       "finance",
   "workspaces":    "workspaces",
+  "places":        "places",
   "dashboard":     "dashboard",
   "briefings":     "briefings",
   "memory":        "memory",

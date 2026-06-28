@@ -61,7 +61,7 @@ function formatSalida(iso) {
 // código país. Conserva el formato visible original (lo que el CEO leyó).
 const PHONE_RE = /((?:\+?34[\s.\-]?)?[6789]\d{2}[\s.\-]?\d{3}[\s.\-]?\d{3})/g;
 
-function renderNoteWithPhones(text) {
+export function renderNoteWithPhones(text) {
   if (!text || typeof text !== "string") return text;
   // split con captura → intercala texto-sin-match y match. Items en
   // posición impar son los teléfonos detectados.
