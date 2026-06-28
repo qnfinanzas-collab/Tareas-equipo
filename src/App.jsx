@@ -15022,6 +15022,56 @@ Estructura recomendada de una respuesta con documento:
     });
   },[]);
 
+  // Mis Lugares — edición manual desde MisLugaresView (commit 2/3).
+  // NO llama a addPlaceToTenant (eso dispara dedup conversacional que
+  // mezclaría lugares con mismo nombre+tipo). Aquí actualizamos por id
+  // exacto. Sanitización defensiva equivalente a la del walker save_place:
+  // type cerrado al set válido, rating clamp 0..5, tags filter strings,
+  // name no vacío (descarta update si lo está).
+  // Los campos lastVisitedAt y visitCount NO se actualizan aquí — esos
+  // son del dedup conversacional. La edición manual no debe alterar la
+  // "frecuencia de uso" del lugar.
+  const updatePlaceInTenant = useCallback((id, patch) => {
+    if (!id || !patch || typeof patch !== "object") return;
+    const VALID_TYPES = new Set(["dormir","comer","visitar","cafe","gasolina","otro"]);
+    const cleanName = typeof patch.name === "string" ? patch.name.trim() : "";
+    if (!cleanName) return;  // name vacío → descarta sin error (el modal valida antes)
+    const cleanPatch = {
+      name: cleanName,
+      type: VALID_TYPES.has(String(patch.type||"").toLowerCase())
+        ? String(patch.type).toLowerCase()
+        : "otro",
+      address: typeof patch.address === "string" ? patch.address.trim() : "",
+      notes:   typeof patch.notes   === "string" ? patch.notes.trim()   : "",
+      tags: Array.isArray(patch.tags)
+        ? patch.tags.filter(t => typeof t === "string").map(t => t.trim()).filter(Boolean)
+        : [],
+    };
+    if (patch.rating === null || patch.rating === undefined || patch.rating === "") {
+      cleanPatch.rating = null;
+    } else {
+      const r = Number(patch.rating);
+      cleanPatch.rating = Number.isFinite(r) ? Math.max(0, Math.min(5, r)) : null;
+    }
+    setData(prev => {
+      const places = Array.isArray(prev.places) ? prev.places : [];
+      const idx = places.findIndex(p => p?.id === id);
+      if (idx < 0) return prev;
+      const updated = places.map((p, i) => i === idx ? { ...p, ...cleanPatch } : p);
+      return { ...prev, places: updated };
+    });
+  },[]);
+
+  // Mis Lugares — borrado desde MisLugaresView. Idempotente: si el id
+  // no existe (ya borrado, race), no hace nada y no lanza error.
+  const deletePlaceFromTenant = useCallback((id) => {
+    if (!id) return;
+    setData(prev => {
+      const places = Array.isArray(prev.places) ? prev.places : [];
+      return { ...prev, places: places.filter(p => p?.id !== id) };
+    });
+  },[]);
+
   // Orchestrator de acciones propuestas por agentes. Se pasa como prop al
   // chat (HectorPanel, GobernanzaView, etc) y delega en agentActions.js
   // que mapea cada acción a la función de mutación adecuada.
@@ -15832,7 +15882,7 @@ Estructura recomendada de una respuesta con documento:
             return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement} onAddBankMovementsBatch={addBankMovementsBatch} onDeleteBankMovementsByBatch={deleteBankMovementsByBatch} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onDeleteInvoice={deleteInvoice} onReconcileMatches={reconcileMatches} onAddAccountingEntry={addAccountingEntry} onUpdateAccountingEntry={updateAccountingEntry} onDeleteAccountingEntry={deleteAccountingEntry} onAddCustomAccount={addCustomAccount} onCallAgent={callDiegoDirect} onRunAgentActions={runAgentActions} onToast={addToast}/>;
           })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
-          {activeTab==="places"&&<MisLugaresView data={data}/>}
+          {activeTab==="places"&&<MisLugaresView data={data} onAdd={addPlaceToTenant} onUpdate={updatePlaceInTenant} onDelete={deletePlaceFromTenant}/>}
           {activeTab==="gobernanza"&&(()=>{
             const myMember = (data.members||[]).find(x=>x.id===activeMember);
             const canView  = hasPermission(myMember, "gobernanza", "view", data.permissions);
