@@ -15926,7 +15926,25 @@ Estructura recomendada de una respuesta con documento:
               onToggleFavorite={toggleFavoriteNegotiation}
             />;
           })()}
-          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext} pendingExecBridge={pendingExecBridge} onConsumePendingExecBridge={()=>setPendingExecBridge(null)} onSaveCouncilDocument={saveCouncilDocument} onRequestSavePlace={setPendingPlaceSeed}/>}
+          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext} pendingExecBridge={pendingExecBridge} onConsumePendingExecBridge={()=>setPendingExecBridge(null)} onSaveCouncilDocument={saveCouncilDocument} onRequestSavePlace={(seed)=>{
+            // Enriquecimiento de address: el schema [RUTA] no tiene campo
+            // direccion (vive embebido en nota o falta). Si la parada
+            // matchea con un lugar ya guardado del CEO (name+type), tomamos
+            // su address real — fuente fiable cero-riesgo. Si no hay match
+            // o el lugar guardado no tiene address, dejamos vacío para que
+            // el CEO lo edite. Criterio: vacío > inventado.
+            if (!seed || !seed.name) { setPendingPlaceSeed(seed); return; }
+            const places = Array.isArray(data.places) ? data.places : [];
+            const normName = seed.name.trim().toLowerCase();
+            const seedType = seed.type || "otro";
+            const match = places.find(p =>
+              (p?.name || "").trim().toLowerCase() === normName &&
+              (p?.type || "otro") === seedType
+            );
+            setPendingPlaceSeed(match?.address
+              ? { ...seed, address: match.address }
+              : seed);
+          }}/>}
           {activeTab==="command"   &&<CommandRoomView data={data} activeMember={activeMember} authSession={authSession} onNavigate={setActiveTab} onOpenTask={(taskId,projId)=>{ const i=data.projects.findIndex(p=>p.id===projId); if(i>=0){setAP(i);setActiveTab("board");setPendingOpenTaskId(taskId);} }} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onApplyTaskChanges={applyTaskChanges} onOpenNegotiation={openNegotiationById} onOpenProject={pid=>{ const i=data.projects.findIndex(p=>p.id===pid); if(i>=0){ setAP(i); setActiveTab("board"); } }} onToggleFavorite={toggleFavoriteProject} onGoDashboard={()=>setActiveTab("dashboard")} onGoMytasks={()=>setActiveTab("mytasks")} onGoDealRoom={()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}} currentFocus={currentFocus} onSetCurrentFocus={setCurrentFocus} onHectorStateChange={setHectorState} onHectorRecommendation={(rec)=>setLastRecommendation(rec)} financeContext={financeContext} onAddTimelineEntry={addTimelineEntry} onRunAgentActions={runAgentActions}/>}
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} favoriteProjectIds={data.favoriteProjectIds||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} myDefaultProjectId={resolveMyDefaultProject(data, activeMember)?.id ?? null} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject} onArchiveProject={archiveProject} onUnarchiveProject={unarchiveProject} onToggleFavorite={toggleFavoriteProject}/>}
