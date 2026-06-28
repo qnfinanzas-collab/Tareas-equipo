@@ -93,19 +93,34 @@ export function renderNoteWithPhones(text) {
 }
 
 function buildGoogleMapsUrl(ruta) {
-  const origin = encodeURIComponent(ruta.origen || ruta.paradas[0]?.lugar || "");
-  const destination = encodeURIComponent(ruta.destino || ruta.paradas[ruta.paradas.length-1]?.lugar || "");
-  // Waypoints: paradas intermedias (sin inicio ni destino). Max 9
-  // waypoints en Google Maps Directions API; truncamos defensivamente.
+  // Formato PATH en lugar de query string ?api=1&waypoints=. Razón:
+  // la app nativa de Google Maps en iOS DESCARTA el parámetro waypoints
+  // del formato ?api=1 cuando captura el link vía Universal Link
+  // — solo respeta origin y destination, perdiendo las paradas
+  // intermedias. El formato path /maps/dir/A/B/C/D coloca cada punto
+  // como segmento de URL y SÍ se respeta en iOS app, Android app y
+  // navegador desktop. Universal (un único link sirve para todo, cero
+  // detección de plataforma).
+  //
+  // Orden de los puntos: inicio (origen explícito o primera parada) +
+  // intermedias en orden + fin (destino explícito o última parada).
+  // Truncado defensivo a 10 segmentos: Google Maps soporta hasta 10
+  // puntos en el itinerario (1 origen + 9 intermedios + destino, donde
+  // origen y destino comparten cupo con intermedios en este formato).
+  // Por encima de 10, los extras se ignoran silenciosamente.
+  //
+  // encodeURIComponent por segmento — un lugar con "/" en el nombre
+  // queda "%2F" y NO rompe el separador de path. Espacios → %20.
+  const inicio = ruta.origen || ruta.paradas[0]?.lugar || "";
+  const fin    = ruta.destino || ruta.paradas[ruta.paradas.length-1]?.lugar || "";
   const intermedias = ruta.paradas
     .slice(1, -1)
     .map(p => p.lugar)
+    .filter(Boolean);
+  const puntos = [inicio, ...intermedias, fin]
     .filter(Boolean)
-    .slice(0, 9);
-  const waypoints = intermedias.map(encodeURIComponent).join("%7C");
-  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
-  if (waypoints) url += `&waypoints=${waypoints}`;
-  return url;
+    .slice(0, 10);
+  return `https://www.google.com/maps/dir/${puntos.map(encodeURIComponent).join("/")}`;
 }
 
 export default function RutaCard({ ruta }) {
