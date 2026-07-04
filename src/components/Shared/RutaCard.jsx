@@ -230,6 +230,16 @@ export default function RutaCard({ ruta, onSavePlace }) {
                   )}
                   <span>{p.lugar}</span>
                 </div>
+                {p.direccion && p.tipo !== "inicio" && (
+                  <div style={{
+                    fontSize: 10.5,
+                    color: "#6B7280",
+                    marginTop: 1,
+                    lineHeight: 1.35,
+                    wordBreak: "break-word",
+                    fontVariantNumeric: "tabular-nums",
+                  }}>{p.direccion}</div>
+                )}
                 {p.nota && (
                   <div style={{
                     fontSize: 11,
@@ -266,6 +276,7 @@ export default function RutaCard({ ruta, onSavePlace }) {
                         name: p.lugar,
                         type: PARADA_TO_PLACE_TYPE[p.tipo] || "otro",
                         notes: p.nota || "",
+                        address: p.direccion || "",
                       });
                     }}
                     title="Guardar esta parada en Mis Lugares"

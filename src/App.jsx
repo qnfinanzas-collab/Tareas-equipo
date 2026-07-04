@@ -15927,13 +15927,22 @@ Estructura recomendada de una respuesta con documento:
             />;
           })()}
           {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext} pendingExecBridge={pendingExecBridge} onConsumePendingExecBridge={()=>setPendingExecBridge(null)} onSaveCouncilDocument={saveCouncilDocument} onRequestSavePlace={(seed)=>{
-            // Enriquecimiento de address: el schema [RUTA] no tiene campo
-            // direccion (vive embebido en nota o falta). Si la parada
-            // matchea con un lugar ya guardado del CEO (name+type), tomamos
-            // su address real — fuente fiable cero-riesgo. Si no hay match
-            // o el lugar guardado no tiene address, dejamos vacío para que
-            // el CEO lo edite. Criterio: vacío > inventado.
+            // Prioridad de address al guardar una parada como lugar:
+            //   1. seed.address del propio schema [RUTA] — Héctor lo emite
+            //      cuando confirma la dirección postal por web_search
+            //      (Fase B, regla en HECTOR_RUTA_RULES). Si viene, se
+            //      respeta intacto: es la fuente más fresca.
+            //   2. Lookup en data.places por name+type (fix 9bc9d93) —
+            //      fallback cuando el schema no trae address pero el CEO
+            //      ya había guardado el lugar antes. Fuente fiable del
+            //      propio repositorio.
+            //   3. Vacío editable — cuando ninguna de las dos aplica, el
+            //      modal abre el campo vacío y el CEO lo escribe a mano.
+            //      Criterio Antonio: vacío > inventado.
             if (!seed || !seed.name) { setPendingPlaceSeed(seed); return; }
+            // (1) address ya viene en la seed → cortocircuito, no hay lookup.
+            if (seed.address && seed.address.trim()) { setPendingPlaceSeed(seed); return; }
+            // (2) fallback: lookup en places por name+type normalizados.
             const places = Array.isArray(data.places) ? data.places : [];
             const normName = seed.name.trim().toLowerCase();
             const seedType = seed.type || "otro";
