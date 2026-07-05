@@ -154,6 +154,7 @@ const HECTOR_RUTA_RULES = [
 ].join("\n");
 
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures, stripCeoProfile, buildSpecialistContext, parseRuta, cleanRutaBlock } from "../lib/agentActions.js";
+import { useCurrentLocation, hasUbicacionIntent } from "../lib/geolocation.js";
 import RutaCard from "./Shared/RutaCard.jsx";
 import { formatCeoMemoryForPrompt } from "../lib/memory.js";
 import { isAccountOwner } from "../lib/auth.js";
@@ -363,6 +364,10 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
   const [inputText, setInputText]     = useState("");
   const [isLoading, setIsLoading]     = useState(false);
   const [showApertura, setShowApertura] = useState(true);
+  // Geolocalización bajo orden (Fase D1). El hook solo dispara GPS
+  // cuando se llama a request(), no al montar. Estado en memoria, TTL
+  // 5 min, se pierde al desmontar.
+  const { status: geoStatus, request: requestGeo } = useCurrentLocation();
   // Puente desde El Consejo. Cuando el CEO pulsa "Accionar con Héctor" en
   // un chat de especialista, App.jsx aterriza el paquete en pendingExecBridge
   // y navega aquí. Lo consumimos: precargamos el input con instrucción +
@@ -669,6 +674,44 @@ ACCIÓN: Convierte este análisis en acciones operativas. Si procede, propón ta
     const next = [...chatHistory, userMsg].slice(-CHAT_MAX);
     setChatHistory(next);
     setInputText("");
+
+    // Geolocalización bajo orden (Fase D1). Solo se dispara si:
+    //   (1) el mensaje contiene la intención "desde mi ubicación" o
+    //       variantes (regex UBICACION_INTENT_RE),
+    //   (2) el usuario activo es el owner de la cuenta.
+    // Timing: la llamada a navigator.geolocation.getCurrentPosition
+    // ocurre AQUÍ, tras la orden explícita — nunca al montar. El prompt
+    // nativo de iOS aparecerá la primera vez que se cumpla la condición.
+    // Si el permiso se deniega o el GPS falla, empujamos aviso local y
+    // continuamos el flujo con el mensaje del CEO sin ubicacionContext
+    // — Héctor recibirá el texto tal cual y pedirá el origen a mano.
+    let ubicacionForTurn = null;
+    if (hasUbicacionIntent(txt)) {
+      const usuarioActivoForGeo = data?.me || data?.currentUser
+        || (data?.members || []).find(m => m && m.id === userId) || null;
+      const isOwnerForGeo = isAccountOwner(usuarioActivoForGeo, {
+        legacyMode: typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1"
+      });
+      if (isOwnerForGeo) {
+        const result = await requestGeo();
+        if (result.ok) {
+          ubicacionForTurn = result.coords;
+        } else {
+          let motivo = "No pude acceder a tu ubicación.";
+          if (result.reason === "denied")           motivo = "Bloqueaste el permiso de ubicación. Actívalo en Ajustes → Safari → Ubicación y vuelve a intentarlo.";
+          else if (result.reason === "timeout")     motivo = "Tu ubicación tardó demasiado en responder. Prueba en un sitio con mejor señal.";
+          else if (result.reason === "unavailable") motivo = "No pude obtener tu ubicación (sin señal GPS ni wifi).";
+          else if (result.reason === "unsupported") motivo = "Este navegador no expone geolocalización.";
+          setChatHistory(prev => [...prev, {
+            role: "assistant",
+            text: `📍 ${motivo} Puedes indicarme el origen a mano (por ejemplo, "desde Marbella").`,
+            isLocalNotice: true,
+            ts: Date.now(),
+          }].slice(-CHAT_MAX));
+        }
+      }
+    }
+
     setIsLoading(true);
     try {
       const hector = (data?.agents || []).find(a => a.name === "Héctor");
@@ -883,6 +926,15 @@ Reglas:
       // cutoff. No afecta a [ACTIONS] porque viene en user, no system.
       const today = new Date();
       const fechaContext = `[Hoy es ${today.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", year: "numeric" })} — ${today.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}]`;
+      // Ubicación bajo orden (Fase D1). ubicacionForTurn se captura arriba
+      // en handleSend cuando el mensaje matchea la regex de intención Y el
+      // usuario es owner. Se prefija junto a fechaContext al último user
+      // prompt — mismo patrón, cero cambios en el system prompt de [RUTA].
+      // Si es null (sin intención, o intención fallida por permiso/timeout),
+      // el join Boolean lo descarta y Héctor no ve nada relacionado.
+      const ubicacionContext = ubicacionForTurn
+        ? `[Ubicación actual del CEO: ${ubicacionForTurn.lat.toFixed(4)}, ${ubicacionForTurn.lng.toFixed(4)} (capturada ahora vía GPS del navegador; úsalas como origen de la ruta — emite parada inicio con lugar:"Tu ubicación" y direccion con las coordenadas)]`
+        : "";
       // Filtramos avisos locales (isLocalNotice: true) — son metadata
       // del sistema (ej. "He registrado una incidencia en Mantenimiento")
       // no parte del diálogo CEO↔Héctor. Enviarlos a Claude pollutearía
@@ -907,7 +959,11 @@ Reglas:
         const isLastUser = (idx === lastIdx && m.role === "user");
         if (m.role === "user") {
           const c = m.text || "";
-          return { role: "user", content: isLastUser ? fechaContext + "\n" + c : c };
+          if (isLastUser) {
+            const prefix = [fechaContext, ubicacionContext].filter(Boolean).join("\n");
+            return { role: "user", content: prefix + "\n" + c };
+          }
+          return { role: "user", content: c };
         }
         // Turn ASSISTANT: preferimos replyRaw (con [ACTIONS] incluido) sobre
         // text. Si ambos están vacíos o son "(sin texto)" literal (entradas
@@ -1630,7 +1686,8 @@ Reglas:
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Dile algo a Héctor..."
+          placeholder={geoStatus === "requesting" ? "📍 Capturando tu ubicación…" : "Dile algo a Héctor..."}
+          disabled={geoStatus === "requesting"}
           rows={1}
           style={textareaStyle}
         />
