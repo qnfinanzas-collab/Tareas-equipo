@@ -110,17 +110,23 @@ export const WEB_SEARCH_TOOL = {
   max_uses: 2,
 };
 
-// Variante para Héctor con max_uses:2. Igualado a Gonzalo tras el
-// incidente del 22/06/2026: con max_uses:1 el modelo se conformaba con
-// una sola fuente cuando el CEO pedía COMPARAR plataformas / opciones,
-// lo cual contradice el espíritu de "búscame la más barata". 2 búsquedas
-// permite cruzar al menos dos fuentes (booking vs kayak, BOE vs AEAT,
-// etc.). Latencia coste: +5-10s por turno cuando se activa. Margen:
-// timeoutMs 180s con holgura para 2 búsquedas + redacción + [ACTIONS].
+// Variante para Héctor con max_uses:3 (05/07/2026, tras validar Fase B
+// v2 de [RUTA]). El techo previo de 2 se quedaba corto en rutas con
+// 3+ paradas concretas: Héctor gastaba las 2 en destino/comparativas y
+// se quedaba sin presupuesto para confirmar direcciones de paradas
+// intermedias — omitía direccion legítimamente (regla "vacío > erróneo")
+// y el CEO se quedaba sin address al guardar la parada en Mis Lugares.
+// Historia previa: subida de 1 → 2 el 22/06/2026 por el mismo síntoma
+// aplicado a comparativas de plataformas (max_uses:1 quedaba en una
+// sola fuente). Este cambio 2 → 3 es la misma medicina aplicada al
+// caso [RUTA]. Latencia coste marginal: +5-10s por turno cuando el
+// modelo aprovecha el tercero. Margen: timeoutMs 180s con holgura para
+// 3 búsquedas + redacción + [ACTIONS]. Es techo, no piso — Héctor
+// sigue pudiendo usar 0, 1 o 2.
 export const HECTOR_SEARCH_TOOL = {
   type: "web_search_20250305",
   name: "web_search",
-  max_uses: 2,
+  max_uses: 3,
 };
 
 // Sistema de skills de Héctor. Detecta el contexto del turno (texto del CEO,
