@@ -17,6 +17,7 @@
 // los callbacks que recibe por props. duration_minutes se persiste vía
 // onUpdateTask (jsonb, sin migración).
 import React, { useMemo, useState } from "react";
+import RutaCard from "./Shared/RutaCard.jsx";
 
 // Ancla del día para Mi Día: startDate manda; dueDate solo cubre tareas
 // históricas (creadas antes de que se introdujera el campo o desde
@@ -306,7 +307,15 @@ export default function MiDiaView({
   onUpdateTask,
   onMoveTask,
   onCreateTask,
+  // Organizador del Día — Fase 1. Rutas persistidas por fecha
+  // (data.dayPlans[YYYY-MM-DD]) desde el chat de Héctor. Se muestran al
+  // inicio del renderAgendaDay del día seleccionado. Retrocompat: si no
+  // llegan, la vista funciona igual que antes.
+  dayPlans = {},
+  onDeleteDayPlan,
 }) {
+  // Estado local: qué plan del día está en "confirmar borrado" inline.
+  const [pendingDeleteDayPlanId, setPendingDeleteDayPlanId] = useState(null);
   const [tab, setTab] = useState("dia");
   const [selectedDate, setSelectedDate] = useState(() => todayISO());
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
@@ -747,9 +756,79 @@ export default function MiDiaView({
 
     const empty = withTime.length === 0 && withoutTime.length === 0;
 
+    // Rutas persistidas para el día seleccionado — Fase 1 Organizador
+    // del Día. dayPlans es siempre un objeto; podría estar vacío. Se
+    // muestran al principio, encima de la agenda por horas. Cada plan
+    // usa RutaCard (sin onSavePlace — no queremos duplicar el botón
+    // "+ guardar" desde Mi Día; ese uso vive en el chat de Héctor).
+    const plansForDay = Array.isArray(dayPlans[selectedDate]) ? dayPlans[selectedDate] : [];
+    const emptyDayCompletely = empty && plansForDay.length === 0;
+
     return (
       <>
-        {empty && (
+        {plansForDay.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{
+              fontSize: 10, fontWeight: 700, color: C.textSecondary,
+              textTransform: "uppercase", letterSpacing: "0.08em",
+              marginBottom: 6,
+            }}>
+              🗺 Ruta{plansForDay.length > 1 ? "s" : ""} prevista{plansForDay.length > 1 ? "s" : ""}
+            </div>
+            {plansForDay.map(plan => (
+              <div key={plan.id} style={{ marginBottom: 10, position: "relative" }}>
+                <RutaCard ruta={plan.ruta} />
+                {onDeleteDayPlan && (
+                  pendingDeleteDayPlanId === plan.id ? (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      marginTop: 6, padding: "8px 12px",
+                      background: C.redBg, border: `0.5px solid ${C.red}`,
+                      fontSize: 11.5,
+                    }}>
+                      <span style={{ flex: 1, color: C.red, fontWeight: 500 }}>¿Descartar esta ruta del día?</span>
+                      <button
+                        type="button"
+                        onClick={() => { onDeleteDayPlan(selectedDate, plan.id); setPendingDeleteDayPlanId(null); }}
+                        style={{
+                          fontFamily: "inherit", fontSize: 10.5, fontWeight: 600,
+                          color: "#FFFFFF", background: C.red, border: `1px solid ${C.red}`,
+                          borderRadius: 0, padding: "5px 12px", cursor: "pointer",
+                          letterSpacing: "0.04em", textTransform: "uppercase",
+                        }}
+                      >Sí, descartar</button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingDeleteDayPlanId(null)}
+                        style={{
+                          fontFamily: "inherit", fontSize: 10.5, fontWeight: 500,
+                          color: C.textSecondary, background: "transparent",
+                          border: `0.5px solid ${C.border}`, borderRadius: 0,
+                          padding: "5px 12px", cursor: "pointer",
+                        }}
+                      >Cancelar</button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setPendingDeleteDayPlanId(plan.id)}
+                      title="Descartar esta ruta del día"
+                      style={{
+                        marginTop: 4, fontFamily: "inherit",
+                        fontSize: 10, fontWeight: 500,
+                        color: C.textTertiary, background: "transparent",
+                        border: `0.5px solid ${C.border}`, borderRadius: 0,
+                        padding: "3px 10px", cursor: "pointer",
+                        letterSpacing: "0.04em", textTransform: "uppercase",
+                      }}
+                    >Descartar ruta</button>
+                  )
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {emptyDayCompletely && (
           <div style={{
             padding: "16px 20px", textAlign: "center", color: C.textTertiary,
             fontSize: 12, background: C.borderSoft, border: `0.5px solid ${C.border}`,

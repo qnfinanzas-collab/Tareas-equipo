@@ -31,6 +31,7 @@ import HectorFloat from "./components/SalaDeComandos/HectorFloat.jsx";
 import HectorDirectView from "./components/HectorDirectView.jsx";
 import MiDiaView from "./components/MiDiaView.jsx";
 import MisLugaresView, { PlaceModal } from "./components/MisLugaresView.jsx";
+import { upsertDayPlan, deleteDayPlan as deleteDayPlanFromMap } from "./lib/dayPlans.js";
 import ConsejoView from "./components/ConsejoView.jsx";
 import MantenimientoView from "./components/MantenimientoView.jsx";
 import { CHAT_PALETTE } from "./components/Shared/ChatBubble.jsx";
@@ -882,6 +883,13 @@ function _migrate(d){
   // gasolina) que Héctor usa al planear rutas. Backfill blando para tenants
   // previos al feature (26/06/2026). Schema en agentActions.js (SAVE_PLACE).
   if(!Array.isArray(d.places)) d.places = [];
+  // Organizador del Día — Fase 1 (06/07/2026). Rutas [RUTA] emitidas por
+  // Héctor se persisten aquí indexadas por fecha (extractPlanDate desde
+  // ruta.salida). Se auto-persisten en HectorDirect al llegar la parseada
+  // al chatHistory; el CEO las ve en Mi Día del día correspondiente. Sin
+  // esto la ruta se enterraba en el chat y se perdía. Schema/helpers en
+  // src/lib/dayPlans.js.
+  if(!d.dayPlans || typeof d.dayPlans !== "object" || Array.isArray(d.dayPlans)) d.dayPlans = {};
   // Commit 29: backfill emoji en negociaciones. Si no tiene emoji,
   // calculamos uno con la heurística y marcamos _emojiAuto=true para
   // que se recalcule automáticamente cuando cambie el título.
@@ -15115,6 +15123,31 @@ Estructura recomendada de una respuesta con documento:
     });
   },[]);
 
+  // Organizador del Día — Fase 1. saveDayPlan persiste una ruta [RUTA]
+  // recién parseada en data.dayPlans[YYYY-MM-DD]. Los helpers puros
+  // (extractPlanDate + rutaSignature + upsertDayPlan) viven en
+  // src/lib/dayPlans.js y hacen dedup por origen|destino|salida — si el
+  // CEO regenera la misma ruta, se reemplaza en vez de acumular.
+  // Si ruta.salida no aporta fecha extraíble, no-op silencioso: mejor no
+  // persistir que persistir en fecha errónea.
+  const saveDayPlan = useCallback((ruta, meta = {}) => {
+    if (!ruta) return;
+    setData(prev => {
+      const next = upsertDayPlan(prev.dayPlans || {}, ruta, meta);
+      if (next === prev.dayPlans) return prev;
+      return { ...prev, dayPlans: next };
+    });
+  },[]);
+
+  const deleteDayPlanEntry = useCallback((date, id) => {
+    if (!date || !id) return;
+    setData(prev => {
+      const next = deleteDayPlanFromMap(prev.dayPlans || {}, date, id);
+      if (next === prev.dayPlans) return prev;
+      return { ...prev, dayPlans: next };
+    });
+  },[]);
+
   // Orchestrator de acciones propuestas por agentes. Se pasa como prop al
   // chat (HectorPanel, GobernanzaView, etc) y delega en agentActions.js
   // que mapea cada acción a la función de mutación adecuada.
@@ -15838,7 +15871,7 @@ Estructura recomendada de una respuesta con documento:
         <div style={{flex:1,overflow:"auto"}}>
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} isAdmin={isAdmin} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)} onUnarchiveTask={unarchiveTaskAnywhere}/>}
-          {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} defaultProjectId={resolveMyDefaultProject(data, activeMember)?.id ?? null} onNavigateProjects={()=>setActiveTab("projects")} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)} onMoveTask={moveTaskAnywhere} onCreateTask={(pid,payload)=>addTaskToProject(pid,payload)}/>}
+          {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} defaultProjectId={resolveMyDefaultProject(data, activeMember)?.id ?? null} onNavigateProjects={()=>setActiveTab("projects")} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)} onMoveTask={moveTaskAnywhere} onCreateTask={(pid,payload)=>addTaskToProject(pid,payload)} dayPlans={data.dayPlans||{}} onDeleteDayPlan={deleteDayPlanEntry}/>}
           {activeTab==="consejo"   &&<ConsejoView currentMember={(data.members||[]).find(m=>m.id===activeMember)} permissions={data.permissions} onCallMario={callMarioDirect} onCallJorge={callJorgeDirect} onCallAlvaro={callAlvaroDirect} onNavigate={id=>setActiveTab(id)} pendingDerivation={pendingDerivation} onSetPendingDerivation={setPendingDerivation} onBridgeToHector={(payload)=>{setPendingExecBridge(payload);setActiveTab("hector-direct");}} negTargets={consejoNegTargets} taskTargets={consejoTaskTargets} onSaveCouncilDocument={saveCouncilDocument}/>}
           {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
           {activeTab==="memory"    &&<MemoryPanel ceoMemory={data.ceoMemory} onAddCeo={addCeoMemoryItems} onRemoveCeo={removeCeoMemoryItem} onAddNeg={addNegMemoryItems} onRemoveNeg={removeNegMemoryItem}/>}
@@ -15926,7 +15959,7 @@ Estructura recomendada de una respuesta con documento:
               onToggleFavorite={toggleFavoriteNegotiation}
             />;
           })()}
-          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext} pendingExecBridge={pendingExecBridge} onConsumePendingExecBridge={()=>setPendingExecBridge(null)} onSaveCouncilDocument={saveCouncilDocument} onRequestSavePlace={(seed)=>{
+          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext} pendingExecBridge={pendingExecBridge} onConsumePendingExecBridge={()=>setPendingExecBridge(null)} onSaveCouncilDocument={saveCouncilDocument} onPersistRuta={saveDayPlan} onRequestSavePlace={(seed)=>{
             // Prioridad de address al guardar una parada como lugar:
             //   1. seed.address del propio schema [RUTA] — Héctor lo emite
             //      cuando confirma la dirección postal por web_search

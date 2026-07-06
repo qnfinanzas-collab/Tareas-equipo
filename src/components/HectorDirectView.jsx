@@ -345,7 +345,7 @@ CÓMO COMUNICARTE:
 `;
 }
 
-export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, financeContext, pendingExecBridge, onConsumePendingExecBridge, onSaveCouncilDocument, onRequestSavePlace }) {
+export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, financeContext, pendingExecBridge, onConsumePendingExecBridge, onSaveCouncilDocument, onRequestSavePlace, onPersistRuta }) {
   const userKey = userId != null ? userId : "anon";
   // Misma clave que usa HectorPanel.jsx → conversación compartida.
   const CHAT_KEY = `kluxor.hector.chat.${userKey}`;
@@ -1329,6 +1329,23 @@ Reglas:
         fakeSuccess,
         ts: Date.now(),
       }].slice(-CHAT_MAX));
+
+      // Organizador del Día — Fase 1. Si Héctor emitió una ruta con
+      // ruta.salida extraíble a fecha, la persistimos en data.dayPlans
+      // para que aparezca en Mi Día del día correspondiente. El wrapper
+      // (App.jsx) hace dedup por origen|destino|salida y no-op si no hay
+      // fecha. Antes esta ruta se enterraba en el chat (localStorage) y
+      // se perdía si el CEO preparaba varios días.
+      if (ruta && typeof onPersistRuta === "function") {
+        try {
+          onPersistRuta(ruta, {
+            sourceUserId: userId,
+            sourceMessageTs: Date.now(),
+          });
+        } catch (e) {
+          console.warn("[HectorDirect] onPersistRuta error:", e?.message);
+        }
+      }
 
       // Detección de decisión del CEO (commit 6 — CEOMemoryList).
       // Heurística regex sobre cleanText. Si matchea, INSERT directo a
