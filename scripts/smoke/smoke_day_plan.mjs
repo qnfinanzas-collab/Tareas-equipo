@@ -6,7 +6,7 @@
 // signature previene acumulación de duplicados cuando el CEO regenera
 // la ruta del mismo día desde el chat.
 
-import { extractPlanDate, rutaSignature, upsertDayPlan, deleteDayPlan } from "../../src/lib/dayPlans.js";
+import { extractPlanDate, rutaSignature, upsertDayPlan, deleteDayPlan, getTasksForDate, countActiveNegotiations } from "../../src/lib/dayPlans.js";
 
 const NOW = "2026-07-05T18:00:00.000Z";
 
@@ -79,6 +79,69 @@ try {
   const map8b = deleteDayPlan(null, "2026-07-06", "cualquier");
   if (typeof map8b !== "object") throw new Error("Caso8b: deleteDayPlan tolera null");
 
+  // ── Caso 9 — getTasksForDate (Fase 2) ──
+  const projects9 = [
+    { id: 10, name: "Soulbaric", emoji: "🎯" },
+    { id: 20, name: "ALMA DIMO", emoji: "🏛" },
+  ];
+  const boards9 = {
+    10: [
+      { id: "c1", name: "Por hacer", tasks: [
+        { id: "t1", ref: "SB-1", title: "Preparar propuesta", dueDate: "2026-07-06", dueTime: "09:30", priority: "alta", assignees: [6] },
+        { id: "t2", ref: "SB-2", title: "Revisar borrador",   dueDate: "2026-07-07", dueTime: "10:00", priority: "media", assignees: [6] },
+        { id: "t3", ref: "SB-3", title: "Sesión Luis Granda", dueDate: "2026-07-06", dueTime: "18:00", priority: "alta", assignees: [7] },  // otro miembro
+        { id: "t4", ref: "SB-4", title: "Archivada del día",  dueDate: "2026-07-06", dueTime: "12:00", priority: "baja", assignees: [6], archived: true },
+      ]},
+      { id: "c2", name: "Hecho", tasks: [
+        { id: "t5", ref: "SB-5", title: "Ya completada",      dueDate: "2026-07-06", dueTime: "08:00", priority: "media", assignees: [6] },
+      ]},
+    ],
+    20: [
+      { id: "c3", name: "Backlog", tasks: [
+        { id: "t6", ref: "AD-1", title: "Sin hora del día",  dueDate: "2026-07-06", dueTime: "",      priority: "media", assignees: [6] },
+        { id: "t7", ref: "AD-2", title: "Con hora temprano",  dueDate: "2026-07-06", dueTime: "07:00", priority: "media", assignees: [6] },
+      ]},
+    ],
+  };
+  // Filtro por memberId=6 → excluye t3 (asignada a 7), t4 (archivada), t5 (Hecho), t2 (otro día).
+  const tasks9 = getTasksForDate(boards9, projects9, "2026-07-06", { memberId: 6 });
+  if (tasks9.length !== 3) throw new Error("Caso9a: esperaba 3 tareas para memberId=6, recibí " + tasks9.length);
+  // Orden: 07:00 (t7), 09:30 (t1), sin hora (t6).
+  if (tasks9[0].ref !== "AD-2") throw new Error("Caso9b: primera debería ser AD-2 (07:00), recibí " + tasks9[0].ref);
+  if (tasks9[1].ref !== "SB-1") throw new Error("Caso9c: segunda debería ser SB-1 (09:30), recibí " + tasks9[1].ref);
+  if (tasks9[2].ref !== "AD-1") throw new Error("Caso9d: tercera (sin hora) debería ser AD-1, recibí " + tasks9[2].ref);
+  // Enriquecimiento correcto: projName y projEmoji.
+  if (tasks9[0].projName !== "ALMA DIMO" || tasks9[0].projEmoji !== "🏛") throw new Error("Caso9e: enriquecimiento project mal · " + JSON.stringify({name:tasks9[0].projName, emoji:tasks9[0].projEmoji}));
+
+  // Sin filtro por memberId → incluye t3 (asignada a 7). Sigue excluyendo archivadas y Hecho.
+  const tasks9b = getTasksForDate(boards9, projects9, "2026-07-06");
+  if (tasks9b.length !== 4) throw new Error("Caso9f: sin memberId esperaba 4 (incluir t3), recibí " + tasks9b.length);
+  if (!tasks9b.some(t => t.ref === "SB-3")) throw new Error("Caso9g: SB-3 debería estar sin filtro de memberId");
+  if (tasks9b.some(t => t.ref === "SB-4")) throw new Error("Caso9h: SB-4 archivada NUNCA debe salir");
+  if (tasks9b.some(t => t.ref === "SB-5")) throw new Error("Caso9i: SB-5 en 'Hecho' NUNCA debe salir");
+
+  // Fecha sin tareas → array vacío.
+  const tasks9c = getTasksForDate(boards9, projects9, "2026-08-01");
+  if (tasks9c.length !== 0) throw new Error("Caso9j: fecha sin tareas → []");
+
+  // boards vacío/inválido → array vacío defensivo.
+  if (getTasksForDate(null, projects9, "2026-07-06").length !== 0) throw new Error("Caso9k: boards null → []");
+  if (getTasksForDate({}, projects9, "").length !== 0) throw new Error("Caso9l: date vacía → []");
+
+  // ── Caso 10 — countActiveNegotiations ──
+  const negs = [
+    { id: "n1", status: "en_curso", archived: false },
+    { id: "n2", status: "pausado",  archived: false },
+    { id: "n3", status: "en_curso", archived: true  },   // archivada → no cuenta
+    { id: "n4", status: "cerrado_ganado", archived: false },  // cerrada → no cuenta
+    { id: "n5", status: "cerrado_perdido", archived: false },
+    { id: "n6", status: "acuerdo_parcial", archived: false },
+    null,
+  ];
+  if (countActiveNegotiations(negs) !== 2) throw new Error("Caso10a: solo n1 (en_curso) + n2 (pausado) deben contar = 2");
+  if (countActiveNegotiations([]) !== 0) throw new Error("Caso10b: array vacío → 0");
+  if (countActiveNegotiations(null) !== 0) throw new Error("Caso10c: null → 0");
+
   console.log("=== DAY PLAN OK ===");
   console.log("Caso 1: extractPlanDate — variantes ISO, solo fecha, con espacio, vacío, no-parseable, null ✓");
   console.log("Caso 2: rutaSignature — insensible a caps/espacios; distinta hora → distinta signature ✓");
@@ -88,6 +151,8 @@ try {
   console.log("Caso 6: ruta sin salida → no-op silencioso (mapa intacto, mismo objeto) ✓");
   console.log("Caso 7: deleteDayPlan borra, idempotente si no existe, elimina fecha vacía ✓");
   console.log("Caso 8: null tolerado como estado inicial ✓");
+  console.log("Caso 9: getTasksForDate — filtro dueDate + memberId, excluye archived/Hecho, orden por dueTime ✓");
+  console.log("Caso 10: countActiveNegotiations — solo en_curso|pausado, no archivadas ni cerradas ✓");
 } catch (e) {
   console.log("FAIL:", e.message);
   process.exit(1);

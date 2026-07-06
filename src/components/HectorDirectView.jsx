@@ -155,7 +155,7 @@ const HECTOR_RUTA_RULES = [
 
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures, stripCeoProfile, buildSpecialistContext, parseRuta, cleanRutaBlock } from "../lib/agentActions.js";
 import { useCurrentLocation, hasUbicacionIntent } from "../lib/geolocation.js";
-import RutaCard from "./Shared/RutaCard.jsx";
+import DayPlanBlock from "./Shared/DayPlanBlock.jsx";
 import { formatCeoMemoryForPrompt } from "../lib/memory.js";
 import { isAccountOwner } from "../lib/auth.js";
 import { supa } from "../lib/sync.js";
@@ -1689,7 +1689,7 @@ Reglas:
                   onDiscardProposal={() => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
                   onConfirmProposal={(executedActions) => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalExecuted: true, executedAt: Date.now(), executedActions } : x))}
                   renderTaskList={(tasksList) => <TaskListCard tasksList={tasksList} />}
-                  renderRuta={(ruta) => <RutaCard ruta={ruta} onSavePlace={onRequestSavePlace || null} />}
+                  renderRuta={(ruta) => <DayPlanBlock ruta={ruta} data={data} memberId={null} onSavePlace={onRequestSavePlace || null} />}
                 />
           ))}
         {isLoading && <TypingIndicator />}

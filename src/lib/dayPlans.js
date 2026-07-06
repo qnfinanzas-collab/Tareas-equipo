@@ -103,3 +103,74 @@ export function deleteDayPlan(dayPlans, date, id) {
   if (filtered.length === 0) return rest;
   return { ...dayPlans, [date]: filtered };
 }
+
+// ── Fase 2: Organizador del Día — cruce por fecha ────────────────────
+// Ancla usado en este frente: dueDate (cuándo vence la tarea), NO
+// startDate. Coherente con la visión "las tareas que se despachan ese
+// día" — se cruzan con la ruta cuya salida coincide.
+// (MiDiaView usa startDate como ancla de su agenda por horas — decisión
+// producto distinta y compatible; ambas coexisten sin fricción.)
+
+// Extrae tareas cuyo dueDate === date, planas y enriquecidas con datos
+// del proyecto y columna. Excluye archivadas y las que estén en columna
+// "Hecho" (regla del proyecto — coherente con MiDiaView y otras vistas).
+// Filtro opcional por memberId (si se pasa, solo tareas asignadas a él).
+// Ordenación: por dueTime ascendente ("" al final del grupo).
+//
+// Inputs:
+//   boards: { [projId]: [{id, name, tasks: [{id, ref, title, dueDate, dueTime, priority, duration_minutes, assignees, archived}]}] }
+//   projects: array de proyectos { id, name, emoji }
+//   date: "YYYY-MM-DD"
+//   opts: { memberId? }
+export function getTasksForDate(boards, projects, date, opts = {}) {
+  if (!boards || typeof boards !== "object") return [];
+  if (!date) return [];
+  const memberId = opts.memberId;
+  const projMap = new Map();
+  if (Array.isArray(projects)) {
+    for (const p of projects) {
+      if (p && p.id != null) projMap.set(p.id, p);
+    }
+  }
+  const out = [];
+  for (const [pidRaw, cols] of Object.entries(boards)) {
+    if (!Array.isArray(cols)) continue;
+    const pid = Number(pidRaw);
+    const proj = projMap.get(pid) || null;
+    for (const col of cols) {
+      if (!col || !Array.isArray(col.tasks)) continue;
+      if (col.name === "Hecho") continue;
+      for (const t of col.tasks) {
+        if (!t || t.archived === true) continue;
+        if (t.dueDate !== date) continue;
+        if (memberId != null && Array.isArray(t.assignees) && !t.assignees.includes(memberId)) continue;
+        out.push({
+          ...t,
+          projId: pid,
+          projName: proj?.name || "",
+          projEmoji: proj?.emoji || "📋",
+          colName: col.name || "",
+          colId: col.id,
+        });
+      }
+    }
+  }
+  // Ordenación: dueTime asc; las sin dueTime al final.
+  out.sort((a, b) => {
+    const ta = /^\d{2}:\d{2}$/.test(a.dueTime || "") ? a.dueTime : "99:99";
+    const tb = /^\d{2}:\d{2}$/.test(b.dueTime || "") ? b.dueTime : "99:99";
+    if (ta !== tb) return ta.localeCompare(tb);
+    return String(a.title || "").localeCompare(String(b.title || ""));
+  });
+  return out;
+}
+
+// Cuenta negociaciones activas (no archivadas + status en_curso|pausado).
+// Fase 2 la usa para un banner discreto informativo: "N negociaciones
+// activas — próximas acciones pendientes de Fase 2b". Cuando Fase 2b
+// introduzca el schema n.nextAction, se sustituirá por el conteo real
+// de próximas acciones del día.
+export function countActiveNegotiations(negotiations) {
+  if (!Array.isArray(negotiations)) return 0;
+  return negotiations.filter(n => n && !n.archived && (n.status === "en_curso" || n.status === "pausado")).length;
+}
