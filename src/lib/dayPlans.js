@@ -105,27 +105,58 @@ export function deleteDayPlan(dayPlans, date, id) {
 }
 
 // ── Fase 2: Organizador del Día — cruce por fecha ────────────────────
-// Ancla usado en este frente: dueDate (cuándo vence la tarea), NO
-// startDate. Coherente con la visión "las tareas que se despachan ese
-// día" — se cruzan con la ruta cuya salida coincide.
-// (MiDiaView usa startDate como ancla de su agenda por horas — decisión
-// producto distinta y compatible; ambas coexisten sin fricción.)
+// Ancla: startDate || dueDate. Misma decisión producto documentada en
+// MiDiaView (junio 2026) — "el día en que aparece cada tarea se
+// determina por su FECHA DE INICIO (startDate), no por dueDate".
+// Fallback a dueDate cubre tareas históricas y las creadas desde vistas
+// que solo rellenan dueDate. Fix del 06/07/2026: originalmente este
+// módulo filtraba solo por dueDate, lo que descartaba las reuniones/
+// sesiones típicas donde Héctor emite startDate=día del evento pero
+// dueDate vacío o distinto — resultado: bloque día mostraba 1 tarea
+// de 3. Alineando el ancla, coherencia total con MiDiaView.
 
-// Extrae tareas cuyo dueDate === date, planas y enriquecidas con datos
-// del proyecto y columna. Excluye archivadas y las que estén en columna
-// "Hecho" (regla del proyecto — coherente con MiDiaView y otras vistas).
-// Filtro opcional por memberId (si se pasa, solo tareas asignadas a él).
-// Ordenación: por dueTime ascendente ("" al final del grupo).
+function _todayISOForAnchor() {
+  const d = new Date();
+  const tz = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+}
+
+// Devuelve la fecha "YYYY-MM-DD" con la que debe indexarse la tarea al
+// mostrarse en el organizador del día. Reglas (idénticas a MiDiaView):
+//   1) Rolling anchor: si t._noDateAutoStart=true, sigue sin dueDate y
+//      NO está en columna "Hecho", devolvemos HOY — la tarea reaparece
+//      en el día actual hasta que se complete o se le asigne fecha.
+//   2) Si no aplica, devolvemos startDate; si vacío, dueDate; si vacío,
+//      "" (la tarea no tiene ancla y no aparece en ningún día).
+//
+// Parámetro todayISO opcional para tests deterministas.
+export function taskAnchor(t, todayISO = null) {
+  if (t && t._noDateAutoStart === true && !t.dueDate && t.colName !== "Hecho") {
+    return todayISO || _todayISOForAnchor();
+  }
+  return (t && (t.startDate || t.dueDate)) || "";
+}
+
+// Extrae tareas cuyo taskAnchor === date, planas y enriquecidas con
+// datos del proyecto y columna. Excluye archivadas y las que estén en
+// columna "Hecho" (regla del proyecto — coherente con MiDiaView y otras
+// vistas). Filtro opcional por memberId (si se pasa, solo tareas
+// asignadas a él). Ordenación: por dueTime ascendente ("" al final).
+//
+// Anchor: startDate || dueDate, con rolling logic para tareas sin
+// fecha. Ver taskAnchor arriba.
 //
 // Inputs:
-//   boards: { [projId]: [{id, name, tasks: [{id, ref, title, dueDate, dueTime, priority, duration_minutes, assignees, archived}]}] }
+//   boards: { [projId]: [{id, name, tasks: [{id, ref, title, startDate, dueDate, dueTime, priority, duration_minutes, assignees, archived, _noDateAutoStart}]}] }
 //   projects: array de proyectos { id, name, emoji }
 //   date: "YYYY-MM-DD"
-//   opts: { memberId? }
+//   opts: { memberId?, todayISO? } — todayISO opcional para tests con
+//     fecha fija; en runtime se calcula del reloj.
 export function getTasksForDate(boards, projects, date, opts = {}) {
   if (!boards || typeof boards !== "object") return [];
   if (!date) return [];
   const memberId = opts.memberId;
+  const todayISO = opts.todayISO || null;
   const projMap = new Map();
   if (Array.isArray(projects)) {
     for (const p of projects) {
@@ -142,7 +173,11 @@ export function getTasksForDate(boards, projects, date, opts = {}) {
       if (col.name === "Hecho") continue;
       for (const t of col.tasks) {
         if (!t || t.archived === true) continue;
-        if (t.dueDate !== date) continue;
+        // Para el ancla, necesitamos que la tarea "sepa" en qué col vive
+        // (regla de rolling anchor mira col.name !== "Hecho"; ya lo
+        // excluimos arriba). Pasamos colName al helper por ergonomía.
+        const anchor = taskAnchor({ ...t, colName: col.name }, todayISO);
+        if (anchor !== date) continue;
         if (memberId != null && Array.isArray(t.assignees) && !t.assignees.includes(memberId)) continue;
         out.push({
           ...t,

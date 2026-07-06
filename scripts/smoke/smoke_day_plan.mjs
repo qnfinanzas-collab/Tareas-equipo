@@ -6,7 +6,7 @@
 // signature previene acumulación de duplicados cuando el CEO regenera
 // la ruta del mismo día desde el chat.
 
-import { extractPlanDate, rutaSignature, upsertDayPlan, deleteDayPlan, getTasksForDate, countActiveNegotiations } from "../../src/lib/dayPlans.js";
+import { extractPlanDate, rutaSignature, upsertDayPlan, deleteDayPlan, getTasksForDate, countActiveNegotiations, taskAnchor } from "../../src/lib/dayPlans.js";
 
 const NOW = "2026-07-05T18:00:00.000Z";
 
@@ -121,12 +121,50 @@ try {
   if (tasks9b.some(t => t.ref === "SB-5")) throw new Error("Caso9i: SB-5 en 'Hecho' NUNCA debe salir");
 
   // Fecha sin tareas → array vacío.
-  const tasks9c = getTasksForDate(boards9, projects9, "2026-08-01");
-  if (tasks9c.length !== 0) throw new Error("Caso9j: fecha sin tareas → []");
+  const tasks9j = getTasksForDate(boards9, projects9, "2026-08-01");
+  if (tasks9j.length !== 0) throw new Error("Caso9j: fecha sin tareas → []");
 
   // boards vacío/inválido → array vacío defensivo.
   if (getTasksForDate(null, projects9, "2026-07-06").length !== 0) throw new Error("Caso9k: boards null → []");
   if (getTasksForDate({}, projects9, "").length !== 0) throw new Error("Caso9l: date vacía → []");
+
+  // ── Caso 9b — taskAnchor: alineado con MiDiaView ──
+  // startDate manda sobre dueDate.
+  if (taskAnchor({ startDate: "2026-07-06", dueDate: "2026-07-05" }) !== "2026-07-06") throw new Error("Caso9b-a: startDate debe ganar sobre dueDate");
+  // dueDate como fallback cuando startDate vacío.
+  if (taskAnchor({ startDate: "", dueDate: "2026-07-05" }) !== "2026-07-05") throw new Error("Caso9b-b: dueDate como fallback");
+  // Ambos vacíos y sin _noDateAutoStart → "".
+  if (taskAnchor({ startDate: "", dueDate: "" }) !== "") throw new Error("Caso9b-c: ambos vacíos → ''");
+  // Rolling anchor: _noDateAutoStart=true, sin dueDate, colName !== "Hecho" → hoy.
+  const TODAY = "2026-07-06";
+  if (taskAnchor({ _noDateAutoStart: true, colName: "Por hacer" }, TODAY) !== TODAY) throw new Error("Caso9b-d: rolling anchor → today");
+  // Rolling desactivado si la tarea llega a "Hecho" (aunque siga con flag).
+  if (taskAnchor({ _noDateAutoStart: true, colName: "Hecho" }, TODAY) !== "") throw new Error("Caso9b-e: rolling desactivado en 'Hecho'");
+  // Rolling desactivado si le pusieron dueDate (regla defensiva).
+  if (taskAnchor({ _noDateAutoStart: true, dueDate: "2026-07-10" }, TODAY) !== "2026-07-10") throw new Error("Caso9b-f: rolling desactivado con dueDate");
+
+  // ── Caso 9c — REGRESIÓN "1 de 3 tareas" (bug real de Antonio 06/07) ──
+  // Caso real reportado: 3 tareas del día 6 de julio en el mismo proyecto,
+  // solo 1 aparecía en el bloque. Causa: filtro por dueDate excluía las
+  // reuniones/sesiones que emitía Héctor con startDate=día del evento y
+  // dueDate vacío. Ancla ahora es startDate || dueDate, tras el fix.
+  const projects9c = [{ id: 30, name: "Marbella Club", emoji: "🏛" }];
+  const boards9c = {
+    30: [
+      { id: "cx", name: "Por hacer", tasks: [
+        // MAR-039 análogo: ambos alineados (aparecía antes del fix).
+        { id: "t039", ref: "MAR-039", title: "Preparar propuesta económica", startDate: "2026-07-06", dueDate: "2026-07-06", dueTime: "08:30", priority: "alta", assignees: [6] },
+        // MAR-040 análogo: startDate del día, dueDate vacío (Héctor típico).
+        { id: "t040", ref: "MAR-040", title: "Sesión nuevo paciente",         startDate: "2026-07-06", dueDate: "",           dueTime: "17:30", priority: "alta", assignees: [6] },
+        // MAR-041 análogo: startDate del día, dueDate en otro día (típico "haz esto hoy pero no vence hasta X").
+        { id: "t041", ref: "MAR-041", title: "Reunión Luis Granda",           startDate: "2026-07-06", dueDate: "2026-07-10", dueTime: "20:00", priority: "alta", assignees: [6] },
+      ]},
+    ],
+  };
+  const tasks9c = getTasksForDate(boards9c, projects9c, "2026-07-06", { memberId: 6 });
+  if (tasks9c.length !== 3) throw new Error(`Caso9c: esperaba 3 tareas del día (fix del bug 1/3), recibí ${tasks9c.length} · ${tasks9c.map(x=>x.ref).join(",")}`);
+  // Orden por dueTime: 08:30, 17:30, 20:00.
+  if (tasks9c.map(t => t.ref).join(",") !== "MAR-039,MAR-040,MAR-041") throw new Error("Caso9c-b: orden esperado por dueTime · " + tasks9c.map(x=>x.ref).join(","));
 
   // ── Caso 10 — countActiveNegotiations ──
   const negs = [
@@ -151,7 +189,9 @@ try {
   console.log("Caso 6: ruta sin salida → no-op silencioso (mapa intacto, mismo objeto) ✓");
   console.log("Caso 7: deleteDayPlan borra, idempotente si no existe, elimina fecha vacía ✓");
   console.log("Caso 8: null tolerado como estado inicial ✓");
-  console.log("Caso 9: getTasksForDate — filtro dueDate + memberId, excluye archived/Hecho, orden por dueTime ✓");
+  console.log("Caso 9: getTasksForDate — filtro anchor + memberId, excluye archived/Hecho, orden por dueTime ✓");
+  console.log("Caso 9b: taskAnchor — startDate manda, dueDate fallback, rolling anchor con _noDateAutoStart ✓");
+  console.log("Caso 9c: regresión bug '1 de 3 tareas' — startDate del día + dueDate vacío / otro día ahora se listan ✓");
   console.log("Caso 10: countActiveNegotiations — solo en_curso|pausado, no archivadas ni cerradas ✓");
 } catch (e) {
   console.log("FAIL:", e.message);
