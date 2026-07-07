@@ -32,6 +32,7 @@ import HectorDirectView from "./components/HectorDirectView.jsx";
 import MiDiaView from "./components/MiDiaView.jsx";
 import MisLugaresView, { PlaceModal } from "./components/MisLugaresView.jsx";
 import { upsertDayPlan, deleteDayPlan as deleteDayPlanFromMap } from "./lib/dayPlans.js";
+import { filterMyPlaces, findMyPlaceIndex, backfillPlaceOwnership } from "./lib/places.js";
 import ConsejoView from "./components/ConsejoView.jsx";
 import MantenimientoView from "./components/MantenimientoView.jsx";
 import { CHAT_PALETTE } from "./components/Shared/ChatBubble.jsx";
@@ -883,6 +884,15 @@ function _migrate(d){
   // gasolina) que Héctor usa al planear rutas. Backfill blando para tenants
   // previos al feature (26/06/2026). Schema en agentActions.js (SAVE_PLACE).
   if(!Array.isArray(d.places)) d.places = [];
+  // Aislamiento por member (07/07/2026): hasta esta fecha requiresOwner:true
+  // limitaba Mis Lugares al owner. Al abrirlo a members, cada place debe
+  // llevar memberId. Places existentes se asignan al owner del tenant (el
+  // primer member con accountRole:"admin") — asunción segura porque hasta
+  // hoy solo el owner podía crear places. Idempotente.
+  const _ownerMember = Array.isArray(d.members) ? d.members.find(m => m && m.accountRole === "admin") : null;
+  if (_ownerMember && _ownerMember.id != null) {
+    d.places = backfillPlaceOwnership(d.places, _ownerMember.id);
+  }
   // Organizador del Día — Fase 1 (06/07/2026). Rutas [RUTA] emitidas por
   // Héctor se persisten aquí indexadas por fecha (extractPlanDate desde
   // ruta.salida). Se auto-persisten en HectorDirect al llegar la parseada
@@ -5005,7 +5015,7 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
     { id:"mytasks",       title:"Mis tareas",          valor:"Todo lo suyo, de todos los proyectos.",                                               block:"operacion",      pictogram:"mytasks" },
     { id:"projects",      title:"Proyectos",           valor:"Sus tableros por categorías, favoritos arriba.",                                      block:"operacion",      pictogram:"projects" },
     { id:"workspaces",    title:"Workspaces",          valor:"Sus espacios por cliente: enlaces, contactos, credenciales.",                         block:"operacion",      pictogram:"workspaces",  requiresPermission:"workspaces" },
-    { id:"places",        title:"Mis Lugares",         valor:"Sus sitios guardados — dónde durmió, comió, visitó. Héctor los usa al planear rutas.", block:"operacion",      pictogram:"places",      requiresOwner:true },
+    { id:"places",        title:"Mis Lugares",         valor:"Sus sitios guardados — dónde durmió, comió, visitó. Héctor los usa al planear rutas.", block:"operacion",      pictogram:"places" },
     { id:"finance",       title:"Finanzas",            valor:"Movimientos, tesorería, contabilidad y facturas, con Diego.",                         block:"patrimonio",     pictogram:"finance",     requiresPermission:"finance" },
     { id:"gobernanza",    title:"Gobernanza",          valor:"Estructura societaria, documentos y compliance.",                                     block:"patrimonio",     pictogram:"gobernanza",  requiresPermission:"gobernanza" },
     { id:"dashboard",     title:"Dashboard analítico", valor:"KPIs globales y matriz de prioridades.",                                              block:"inteligencia",   pictogram:"dashboard",   requiresPermission:"dashboard" },
@@ -8193,7 +8203,7 @@ function AgentsView({agents,onCreate,onEdit}){
 }
 
 // ── Command Palette (⌘K) ──────────────────────────────────────────────────────
-function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavigateProject,onNavigateNegotiation,onNavigatePlace,actions}){
+function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavigateProject,onNavigateNegotiation,onNavigatePlace,actions,activeMember}){
   const [query,setQuery]       = useState("");
   const [selectedIndex,setSI]  = useState(0);
   const inputRef               = useRef(null);
@@ -8211,6 +8221,9 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
         allTasks.push({...t,projId:Number(pid),projName:proj?.name||"",projEmoji:proj?.emoji||"📋",colName:col.name,colId:col.id});
       }));
     });
+    // Aislamiento de places (07/07/2026): el ⌘K solo muestra los places
+    // del member activo, nunca los de otros users del mismo tenant.
+    const myPlacesAll = filterMyPlaces(data.places || [], activeMember);
     if(!q){
       return {
         tasks:[],
@@ -8220,7 +8233,7 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
         negotiations:[],
         // Sin query: muestra los 5 últimos lugares por actividad
         // (lastVisitedAt || createdAt). Patrón equivalente a workspaces.
-        places: (Array.isArray(data.places) ? [...data.places] : [])
+        places: [...myPlacesAll]
           .sort((a,b)=>(b?.lastVisitedAt||b?.createdAt||"").localeCompare(a?.lastVisitedAt||a?.createdAt||""))
           .slice(0,5),
       };
@@ -8237,9 +8250,9 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
       // los status (en_curso, pausado, cerrado_*) son buscables — el CEO
       // puede querer encontrar una negociación cerrada hace meses.
       negotiations: (data.negotiations||[]).filter(n=>!n.archived&&matchNegByCode(n, q)).slice(0,8),
-      places:       (data.places||[]).filter(p=>matchPlaceByText(p, q)).slice(0,6),
+      places:       myPlacesAll.filter(p=>matchPlaceByText(p, q)).slice(0,6),
     };
-  },[query,data,actions]);
+  },[query,data,actions,activeMember]);
 
   // Lista plana para navegación por índice; registra el tipo de cada item.
   const flat = React.useMemo(()=>{
@@ -15032,14 +15045,19 @@ Estructura recomendada de una respuesta con documento:
   // y misma type, NO se duplica — solo actualiza lastVisitedAt y bumpea
   // visitCount. Evita que el CEO repitiendo "guarda Venta El Romeral" cree
   // 5 entradas.
-  const addPlaceToTenant = useCallback((payload) => {
+  // Aislamiento (07/07/2026): 2º arg memberId — cada place se guarda con
+  // el memberId de su creador. Dedup restringido a places del MISMO member
+  // (así "Bar Común" para Antonio y "Bar Común" para Elena coexisten como
+  // dos places distintos). Sin memberId → no-op silencioso: nunca creamos
+  // un place sin dueño porque quedaría huérfano fuera de filterMyPlaces.
+  const addPlaceToTenant = useCallback((payload, memberId) => {
+    if (memberId == null) {
+      console.warn("[addPlaceToTenant] llamada sin memberId — descartada por defensa de aislamiento");
+      return;
+    }
     setData(prev => {
       const places = Array.isArray(prev.places) ? prev.places : [];
-      const normName = (payload.name || "").trim().toLowerCase();
-      const existingIdx = places.findIndex(p =>
-        (p?.name || "").trim().toLowerCase() === normName &&
-        (p?.type || "otro") === (payload.type || "otro")
-      );
+      const existingIdx = findMyPlaceIndex(places, memberId, payload.name, payload.type);
       const nowIso = new Date().toISOString();
       if (existingIdx >= 0) {
         const merged = places.map((p, i) => i === existingIdx ? {
@@ -15059,6 +15077,7 @@ Estructura recomendada de una respuesta con documento:
         ...prev,
         places: [...places, {
           id,
+          memberId,
           name: payload.name,
           type: payload.type || "otro",
           address: payload.address || "",
@@ -15082,8 +15101,14 @@ Estructura recomendada de una respuesta con documento:
   // Los campos lastVisitedAt y visitCount NO se actualizan aquí — esos
   // son del dedup conversacional. La edición manual no debe alterar la
   // "frecuencia de uso" del lugar.
-  const updatePlaceInTenant = useCallback((id, patch) => {
+  // Aislamiento (07/07/2026): 3º arg memberId — la actualización solo se
+  // aplica si el place pertenece al member activo. Si otro member intenta
+  // editar un place ajeno vía id conocido, no-op silencioso (defensa
+  // adicional; el frontend ya no debería llegar aquí porque MisLugaresView
+  // solo lista los suyos).
+  const updatePlaceInTenant = useCallback((id, patch, memberId) => {
     if (!id || !patch || typeof patch !== "object") return;
+    if (memberId == null) return;
     const VALID_TYPES = new Set(["dormir","comer","visitar","cafe","gasolina","otro"]);
     const cleanName = typeof patch.name === "string" ? patch.name.trim() : "";
     if (!cleanName) return;  // name vacío → descarta sin error (el modal valida antes)
@@ -15106,8 +15131,8 @@ Estructura recomendada de una respuesta con documento:
     }
     setData(prev => {
       const places = Array.isArray(prev.places) ? prev.places : [];
-      const idx = places.findIndex(p => p?.id === id);
-      if (idx < 0) return prev;
+      const idx = places.findIndex(p => p?.id === id && p?.memberId === memberId);
+      if (idx < 0) return prev;  // no existe o no es del member
       const updated = places.map((p, i) => i === idx ? { ...p, ...cleanPatch } : p);
       return { ...prev, places: updated };
     });
@@ -15115,11 +15140,15 @@ Estructura recomendada de una respuesta con documento:
 
   // Mis Lugares — borrado desde MisLugaresView. Idempotente: si el id
   // no existe (ya borrado, race), no hace nada y no lanza error.
-  const deletePlaceFromTenant = useCallback((id) => {
-    if (!id) return;
+  // Aislamiento (07/07/2026): 2º arg memberId — solo borra si el place
+  // pertenece al member. Si no coincide, no-op silencioso (idempotente).
+  const deletePlaceFromTenant = useCallback((id, memberId) => {
+    if (!id || memberId == null) return;
     setData(prev => {
       const places = Array.isArray(prev.places) ? prev.places : [];
-      return { ...prev, places: places.filter(p => p?.id !== id) };
+      const next = places.filter(p => !(p?.id === id && p?.memberId === memberId));
+      if (next.length === places.length) return prev;
+      return { ...prev, places: next };
     });
   },[]);
 
@@ -15182,7 +15211,10 @@ Estructura recomendada de una respuesta con documento:
       addAccountingEntry,
       addInvoice,
       updateInvoice,
-      addPlace: addPlaceToTenant,
+      // Aislamiento (07/07/2026): Héctor guarda con el memberId del member
+      // activo cuando ejecuta save_place vía [ACTIONS]. Cada usuario tiene
+      // su repositorio propio, aunque compartan tenant.
+      addPlace: (payload) => addPlaceToTenant(payload, activeMember),
       defaultCompanyId,
       addToast,
       findProjectByCode: (code) => (dataRef.current?.projects || []).find(p => p.code === code),
@@ -15564,6 +15596,7 @@ Estructura recomendada de una respuesta con documento:
       })()}
       {showCommandPalette&&<CommandPalette
         data={data}
+        activeMember={activeMember}
         actions={paletteActions}
         onClose={()=>setShowCommandPalette(false)}
         onNavigateTask={task=>{
@@ -15587,7 +15620,7 @@ Estructura recomendada de una respuesta con documento:
         <PlaceModal
           mode="create"
           place={pendingPlaceSeed}
-          onSubmit={(payload)=>{ addPlaceToTenant(payload); setPendingPlaceSeed(null); addToast("✓ Lugar guardado en Mis Lugares"); }}
+          onSubmit={(payload)=>{ addPlaceToTenant(payload, activeMember); setPendingPlaceSeed(null); addToast("✓ Lugar guardado en Mis Lugares"); }}
           onDelete={()=>{}}
           onClose={()=>setPendingPlaceSeed(null)}
         />
@@ -15613,7 +15646,7 @@ Estructura recomendada de una respuesta con documento:
           {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false, block:"operacion"},
           {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:false, block:"operacion"},
           {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}, adminOnly:false, requiresPermission:"workspaces", block:"operacion"},
-          {id:"places",     icon:"📍", label:"Mis Lugares",  shortcut:"",    onClick:()=>{setActiveTab("places");}, adminOnly:false, requiresOwner:true, block:"operacion"},
+          {id:"places",     icon:"📍", label:"Mis Lugares",  shortcut:"",    onClick:()=>{setActiveTab("places");}, adminOnly:false, block:"operacion"},
           {id:"finance",    icon:"💰", label:"Finanzas",     shortcut:"",    onClick:()=>{setActiveTab("finance");}, adminOnly:false, requiresPermission:"finance", block:"patrimonio"},
           {id:"gobernanza", icon:"🏛️", label:"Gobernanza",   shortcut:"⌘⇧G", onClick:()=>{setActiveTab("gobernanza");}, adminOnly:false, requiresPermission:"gobernanza", block:"patrimonio"},
           {id:"dashboard",  icon:"📊", label:"Dashboard analítico", shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:false, requiresPermission:"dashboard", block:"inteligencia"},
@@ -15975,11 +16008,13 @@ Estructura recomendada de una respuesta con documento:
             if (!seed || !seed.name) { setPendingPlaceSeed(seed); return; }
             // (1) address ya viene en la seed → cortocircuito, no hay lookup.
             if (seed.address && seed.address.trim()) { setPendingPlaceSeed(seed); return; }
-            // (2) fallback: lookup en places por name+type normalizados.
-            const places = Array.isArray(data.places) ? data.places : [];
+            // (2) fallback: lookup en places del MEMBER activo (aislamiento
+            // 07/07/2026 — nunca leemos places de otros users aunque
+            // matchee name+type).
+            const myPlaces = filterMyPlaces(data.places || [], activeMember);
             const normName = seed.name.trim().toLowerCase();
             const seedType = seed.type || "otro";
-            const match = places.find(p =>
+            const match = myPlaces.find(p =>
               (p?.name || "").trim().toLowerCase() === normName &&
               (p?.type || "otro") === seedType
             );
@@ -16002,7 +16037,13 @@ Estructura recomendada de una respuesta con documento:
             return <FinanceView data={data} member={myMember} canEdit={canEdit} onAddMovement={addFinanceMovement} onUpdateMovement={updateFinanceMovement} onDeleteMovement={deleteFinanceMovement} onAddBankAccount={addBankAccount} onUpdateBankAccount={updateBankAccount} onDeleteBankAccount={deleteBankAccount} onAddBankMovement={addBankMovement} onUpdateBankMovement={updateBankMovement} onDeleteBankMovement={deleteBankMovement} onAddBankMovementsBatch={addBankMovementsBatch} onDeleteBankMovementsByBatch={deleteBankMovementsByBatch} onAddInvoice={addInvoice} onUpdateInvoice={updateInvoice} onDeleteInvoice={deleteInvoice} onReconcileMatches={reconcileMatches} onAddAccountingEntry={addAccountingEntry} onUpdateAccountingEntry={updateAccountingEntry} onDeleteAccountingEntry={deleteAccountingEntry} onAddCustomAccount={addCustomAccount} onCallAgent={callDiegoDirect} onRunAgentActions={runAgentActions} onToast={addToast}/>;
           })()}
           {activeTab==="workspaces"&&<WorkspacesView workspaces={data.workspaces||[]} projects={data.projects} boards={data.boards} pendingWorkspaceId={pendingWorkspaceId} onPendingConsumed={()=>setPendingWorkspaceId(null)} onCreate={()=>setWorkspaceModal("create")} onEdit={w=>setWorkspaceModal(w)} onSelectProject={i=>{setAP(i);setActiveTab("board");}}/>}
-          {activeTab==="places"&&<MisLugaresView data={data} onAdd={addPlaceToTenant} onUpdate={updatePlaceInTenant} onDelete={deletePlaceFromTenant}/>}
+          {activeTab==="places"&&<MisLugaresView
+            data={data}
+            activeMember={activeMember}
+            onAdd={(payload) => addPlaceToTenant(payload, activeMember)}
+            onUpdate={(id, patch) => updatePlaceInTenant(id, patch, activeMember)}
+            onDelete={(id) => deletePlaceFromTenant(id, activeMember)}
+          />}
           {activeTab==="gobernanza"&&(()=>{
             const myMember = (data.members||[]).find(x=>x.id===activeMember);
             const canView  = hasPermission(myMember, "gobernanza", "view", data.permissions);

@@ -19,6 +19,7 @@
 
 import React, { useMemo, useState, useEffect } from "react";
 import { renderNoteWithPhones } from "./Shared/RutaCard.jsx";
+import { filterMyPlaces } from "../lib/places.js";
 
 // Paleta coherente con TaskListCard (lista de elementos informativa).
 // Oro Kluxor como acento (no decoración).
@@ -606,11 +607,18 @@ function inputStyle(borderColor) {
   };
 }
 
-export default function MisLugaresView({ data, onAdd, onUpdate, onDelete }) {
+export default function MisLugaresView({ data, activeMember, onAdd, onUpdate, onDelete }) {
   const [filtroTipo, setFiltroTipo] = useState("todos");
   const [modalState, setModalState] = useState(null);  // null | "create" | place-object (edit)
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
-  const places = useMemo(() => Array.isArray(data?.places) ? data.places : [], [data]);
+  // Aislamiento por member (07/07/2026): filtramos SIEMPRE por
+  // activeMember — cada usuario ve solo los suyos, nunca los de otros
+  // users del mismo tenant. Defensa en profundidad; App.jsx además
+  // envuelve los mutators con activeMember.
+  const places = useMemo(
+    () => filterMyPlaces(data?.places || [], activeMember),
+    [data, activeMember]
+  );
 
   const conteoPorTipo = useMemo(() => {
     const c = {};

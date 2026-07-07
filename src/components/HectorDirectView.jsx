@@ -873,15 +873,18 @@ Reglas:
       const memBlock = isOwner ? formatCeoMemoryForPrompt(data?.ceoMemory) : "";
       const memBlockFormatted = memBlock ? "\n\n----\n" + memBlock : "";
 
-      // Mis Sitios — repositorio personal de lugares del CEO. Capa 50 más
-      // recientes para no saturar el prompt (mismo cap que CEO Memory).
-      // GATE: solo owner — los sitios son privados al CEO. Members no los
-      // ven. Se inyectan SIEMPRE (no filtramos por trayecto aquí — Héctor
-      // decide qué usar en cada turno según su consulta).
-      const placesRaw = isOwner && Array.isArray(data?.places) ? data.places : [];
+      // Mis Sitios — repositorio personal de lugares. Aislamiento por
+      // member (07/07/2026): cada usuario ve SOLO sus places, nunca los
+      // de otros users del mismo tenant. Cap 50 más recientes para no
+      // saturar el prompt (mismo cap que CEO Memory). Se inyectan
+      // SIEMPRE (no filtramos por trayecto aquí — Héctor decide qué
+      // usar en cada turno).
+      const placesRaw = Array.isArray(data?.places)
+        ? data.places.filter(p => p && p.memberId === userId)
+        : [];
       const placesRecent = placesRaw.slice(-50);
       const placesBlock = placesRecent.length === 0 ? "" : (
-        "\n\n----\nMIS SITIOS DEL CEO (" + placesRecent.length + " guardados — usa estos como paradas preferentes al planear rutas, son lugares ya validados por la experiencia personal del CEO):\n" +
+        "\n\n----\nMIS SITIOS (" + placesRecent.length + " guardados — usa estos como paradas preferentes al planear rutas, son lugares ya validados por la experiencia personal del usuario activo):\n" +
         placesRecent.map(p => {
           const parts = [
             "- " + (p.name || "(sin nombre)"),
