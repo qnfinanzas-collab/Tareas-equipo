@@ -2,8 +2,24 @@
 // de la app (taskflow_state) — un usuario logueado se resuelve a un
 // miembro existente por email. Si Supabase no está configurado,
 // authEnabled() devuelve false y el caller cae al user picker legacy.
+//
+// Helpers puros (hasPermission, canEditProject, canViewProject,
+// canEditDeal, canViewDeal, canUseAgent, isAccountOwner, ...) viven
+// en ./permissions.js — se pueden testear en Node sin cargar Supabase.
+// Los re-exportamos abajo para preservar los ~30 imports existentes.
 
 import { supa } from "./sync.js";
+export {
+  hasPermission,
+  canEditProject,
+  canViewProject,
+  canEditDeal,
+  canViewDeal,
+  COUNCIL_AGENT_KEYS,
+  canUseAgent,
+  isAccountOwner,
+  getAvailableAgents,
+} from "./permissions.js";
 
 export const authEnabled = () => !!supa;
 
@@ -73,127 +89,6 @@ export function resolveSessionMember(session, members){
   return { member: byEmail, role: byEmail.accountRole || "member" };
 }
 
-// Sistema de permisos granulares por feature reutilizable. data.permissions
-// es {[memberId]: {[feature]: {view, edit, admin}}}. Admin global de la
-// cuenta (accountRole==="admin") tiene acceso total a todos los features
-// automáticamente; el resto necesita el flag específico. Niveles
-// jerárquicos: admin ⊃ edit ⊃ view (un admin del módulo también puede
-// editar y ver). Pasamos `permissions` como argumento para no depender
-// de globals — el caller suele tener data.permissions a mano.
-export function hasPermission(member, feature, level = "view", permissions = null) {
-  if (!member) return false;
-  if (member.accountRole === "admin") return true;
-  if (!permissions || !feature) return false;
-  const memberPerms = permissions[member.id]?.[feature];
-  if (!memberPerms) return false;
-  if (level === "view")  return !!(memberPerms.view || memberPerms.edit || memberPerms.admin);
-  if (level === "edit")  return !!(memberPerms.edit || memberPerms.admin);
-  if (level === "admin") return !!memberPerms.admin;
-  return false;
-}
-
-// Permisos de proyecto. Edit ⊃ View. La edición exige pertenencia explícita
-// (owner o miembro). La visibilidad relaja según `project.visibility`:
-//   - "private" : solo owner + miembros (lo mismo que canEditProject).
-//   - "team"    : visible a cualquier autenticado de la organización.
-//   - "public"  : igual que team (placeholder por si en el futuro hay acceso
-//                 externo no autenticado — hoy son equivalentes en lectura).
-// Admin global (accountRole==="admin") tiene paso libre en ambas.
-export function canEditProject(member, project){
-  if (!member || !project) return false;
-  if (member.accountRole === "admin") return true;
-  if (project.ownerId === member.id) return true;
-  if (Array.isArray(project.members) && project.members.includes(member.id)) return true;
-  return false;
-}
-
-export function canViewProject(member, project){
-  if (canEditProject(member, project)) return true;
-  if (!project) return false;
-  if (project.visibility === "team")   return true;
-  if (project.visibility === "public") return true;
-  return false;
-}
-
-// Permisos de negociación. Misma semántica que canEditProject/canViewProject:
-// edit ⊃ view, "private" exige pertenencia explícita (owner o miembro de la
-// negociación), "team"/"public" relajan la visibilidad pero NO la edición.
-// Admin global tiene paso libre.
-export function canEditDeal(member, deal){
-  if (!member || !deal) return false;
-  if (member.accountRole === "admin") return true;
-  if (deal.ownerId === member.id) return true;
-  if (Array.isArray(deal.members) && deal.members.includes(member.id)) return true;
-  return false;
-}
-
-export function canViewDeal(member, deal){
-  if (canEditDeal(member, deal)) return true;
-  if (!deal) return false;
-  if (deal.visibility === "team")   return true;
-  if (deal.visibility === "public") return true;
-  return false;
-}
-
-// Set de claves del Consejo (especialistas exclusivos del dueño hoy).
-// Sus promptBase llevan identidad privada del CEO hardcodeada (p.ej. Jorge
-// arrastra "Antonio Díaz Molina / Alma Dimo Investments" fuera del bloque
-// PERFIL CEO). Hasta que se reescriba el contexto en la fase estructural
-// (issue P1 separado), los members no acceden ni siquiera con
-// data.permissions[agents][key] = true.
-export const COUNCIL_AGENT_KEYS = new Set(["mario","jorge","alvaro","gonzalo","diego"]);
-
-// Permisos por agente IA. data.permissions[memberId].agents = {mario:bool,
-// jorge:bool, alvaro:bool}. Admin global tiene paso libre. Si no hay entrada,
-// el agente no está disponible (falla cerrado).
-//
-// Excepción Consejo: Mario, Jorge, Álvaro, Gonzalo y Diego son HOY
-// exclusivos del dueño de la cuenta (accountRole==="admin"). Ignoramos las
-// flags de permissions para esos agentes. En el FUTURO los members
-// trabajarán con especialistas pero con contexto AISLADO — esa fase
-// (refactor de promptBase) abrirá el acceso vía permissions.
-export function canUseAgent(member, agentKey, permissions = null){
-  if (!member) return false;
-  if (member.accountRole === "admin") return true;
-  if (COUNCIL_AGENT_KEYS.has(agentKey)) return false;
-  if (!permissions || !agentKey) return false;
-  const agentPerms = permissions[member.id]?.agents;
-  if (!agentPerms) return false;
-  return agentPerms[agentKey] === true;
-}
-
-// ¿El miembro activo es el dueño de la cuenta (admin global)?
-// Fuente única de verdad para gatear el contexto PRIVADO del CEO que se
-// inyecta al LLM (ceoMemory, ceoBlock identidad, finanzas, gobernanza,
-// vault, decisiones, lecciones). Cualquier caller del LLM que vaya a
-// añadir esos bloques DEBE pasar primero por esta función con el
-// miembro activo y, si false, omitir el bloque.
-//
-// Reglas:
-//   - accountRole === "admin" → true (Antonio en producción).
-//   - legacyMode (Modo demo sin autenticación real) → SIEMPRE false.
-//     El demo se ve como un usuario no-dueño aunque la cuenta interna
-//     tenga rol admin. Evita que un demo público filtre datos reales.
-//   - cualquier otro caso (member, viewer, sin rol explícito) → false.
-//
-// Pensado para llamarse desde cualquier sitio que tenga el member:
-//   const isOwner = isAccountOwner(currentMember, { legacyMode });
-//   if (isOwner) prompt += ceoBlock;
-//
-// NUNCA usar esta función para gatear permisos de edición de
-// entidades (proyectos, negociaciones, tareas) — para eso están los
-// helpers canEdit/canView. isAccountOwner es EXCLUSIVAMENTE para
-// gatear el contexto privado que el LLM compone con datos del CEO.
-export function isAccountOwner(member, opts = {}) {
-  if (opts?.legacyMode) return false;
-  if (!member) return false;
-  return member.accountRole === "admin";
-}
-
-// Filtra una lista de agentes a los que el miembro tiene permiso. Cada
-// agente debe traer un campo `key` (mario | jorge | alvaro) que mapea con
-// data.permissions[member.id].agents[key].
-export function getAvailableAgents(member, allAgents, permissions = null){
-  if (!member || !Array.isArray(allAgents)) return [];
-  return allAgents.filter(a => canUseAgent(member, a.key, permissions));
-}
+// getAvailableAgents ya se re-exporta arriba desde ./permissions.js.
+// La definición local fue extraída ahí para permitir testing en Node
+// sin cargar Supabase.

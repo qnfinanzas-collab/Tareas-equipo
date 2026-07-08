@@ -155,6 +155,7 @@ const HECTOR_RUTA_RULES = [
 
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures, stripCeoProfile, buildSpecialistContext, parseRuta, cleanRutaBlock } from "../lib/agentActions.js";
 import { useCurrentLocation, hasUbicacionIntent } from "../lib/geolocation.js";
+import { filterVisibleProjects, filterVisibleNegotiations } from "../lib/visibility.js";
 import DayPlanBlock from "./Shared/DayPlanBlock.jsx";
 import { formatCeoMemoryForPrompt } from "../lib/memory.js";
 import { isAccountOwner } from "../lib/auth.js";
@@ -790,7 +791,14 @@ INSTRUCCIONES DE PRIVACIDAD:
       // 2) Proyectos activos (no archivados). Contamos tareas vivas
       // desde boards para que el dato no dependa de un campo .tasks
       // que el modelo Project no tiene.
-      const projRows = (data?.projects || [])
+      //
+      // Aislamiento intra-tenant (07/07/2026, incidente Elena veía
+      // proyectos de Antonio en el prompt): filtramos por visibilidad
+      // del usuario activo (owner ve todos; members solo los suyos).
+      // Sin este filtro, Héctor le hablaría a Elena de Marbella Club u
+      // otros proyectos ajenos como si fueran suyos.
+      const visibleProjectsForPrompt = filterVisibleProjects(data?.projects || [], usuarioActivo);
+      const projRows = visibleProjectsForPrompt
         .filter(p => p && !p.archived)
         .slice(0, 25)
         .map(p => {
@@ -802,9 +810,10 @@ INSTRUCCIONES DE PRIVACIDAD:
 
       // 3) Negociaciones activas. Status real: en_curso|pausado son las
       // vivas; el resto (cerrado_ganado/perdido/acuerdo_parcial) son
-      // cerradas en este modelo.
+      // cerradas en este modelo. Mismo aislamiento por visibilidad.
       const ACTIVE_NEG = new Set(["en_curso", "pausado"]);
-      const negRows = (data?.negotiations || [])
+      const visibleNegsForPrompt = filterVisibleNegotiations(data?.negotiations || [], usuarioActivo);
+      const negRows = visibleNegsForPrompt
         .filter(n => n && ACTIVE_NEG.has(n.status))
         .slice(0, 20)
         .map(n => `- [${n.code || "?"}] ${(n.title||"Sin título").slice(0,60)} | ${n.status||"—"} | contraparte:${n.counterparty || "?"}`);

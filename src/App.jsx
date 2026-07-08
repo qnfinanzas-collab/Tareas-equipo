@@ -33,6 +33,7 @@ import MiDiaView from "./components/MiDiaView.jsx";
 import MisLugaresView, { PlaceModal } from "./components/MisLugaresView.jsx";
 import { upsertDayPlan, deleteDayPlan as deleteDayPlanFromMap } from "./lib/dayPlans.js";
 import { filterMyPlaces, findMyPlaceIndex, backfillPlaceOwnership } from "./lib/places.js";
+import { filterVisibleProjects, filterVisibleNegotiations, filterMyDayPlans } from "./lib/visibility.js";
 import ConsejoView from "./components/ConsejoView.jsx";
 import MantenimientoView from "./components/MantenimientoView.jsx";
 import { CHAT_PALETTE } from "./components/Shared/ChatBubble.jsx";
@@ -8221,9 +8222,13 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
         allTasks.push({...t,projId:Number(pid),projName:proj?.name||"",projEmoji:proj?.emoji||"📋",colName:col.name,colId:col.id});
       }));
     });
-    // Aislamiento de places (07/07/2026): el ⌘K solo muestra los places
-    // del member activo, nunca los de otros users del mismo tenant.
+    // Aislamiento intra-tenant (07/07/2026 — incidente Elena veía todo):
+    // el ⌘K solo muestra proyectos/negociaciones VISIBLES al member activo
+    // + places del propio member. admin (accountRole:"admin") ve todo.
+    const activeMemberObj = (data.members||[]).find(m => m && m.id === activeMember) || null;
     const myPlacesAll = filterMyPlaces(data.places || [], activeMember);
+    const visibleProjectsAll = filterVisibleProjects(data.projects || [], activeMemberObj);
+    const visibleNegotiationsAll = filterVisibleNegotiations(data.negotiations || [], activeMemberObj);
     if(!q){
       return {
         tasks:[],
@@ -8245,11 +8250,11 @@ function CommandPalette({data,onClose,onNavigateTask,onNavigateWorkspace,onNavig
       tasks:        allTasks.filter(t=>matchTask(t, q)).slice(0,10),
       actions:      actions.filter(a=>fuzzyMatch(a.label, q)),
       workspaces:   (data.workspaces||[]).filter(w=>matchItemByCode(w, q)).slice(0,6),
-      projects:     data.projects.filter(p=>matchItemByCode(p, q)).slice(0,6),
+      projects:     visibleProjectsAll.filter(p=>matchItemByCode(p, q)).slice(0,6),
       // Negociaciones: filtra archivadas (consistente con DealRoom). Todos
       // los status (en_curso, pausado, cerrado_*) son buscables — el CEO
       // puede querer encontrar una negociación cerrada hace meses.
-      negotiations: (data.negotiations||[]).filter(n=>!n.archived&&matchNegByCode(n, q)).slice(0,8),
+      negotiations: visibleNegotiationsAll.filter(n=>!n.archived&&matchNegByCode(n, q)).slice(0,8),
       places:       myPlacesAll.filter(p=>matchPlaceByText(p, q)).slice(0,6),
     };
   },[query,data,actions,activeMember]);
@@ -15904,7 +15909,15 @@ Estructura recomendada de una respuesta con documento:
         <div style={{flex:1,overflow:"auto"}}>
           {activeTab==="home"      &&<HomeView data={data} activeMember={activeMember} isAdmin={isAdmin} critMineCount={critCount} alertMineCount={alerts.filter(a=>a.memberId===activeMember).length} onNavigate={id=>{setActiveTab(id);if(id==="dealroom"){setActiveNegId(null);setActiveSessId(null);}}} onOpenTask={id=>setOverlayTaskId(id)}/>}
           {activeTab==="mytasks"   &&<MyTasksView data={data} activeMember={activeMember} onOpenTask={id=>setOverlayTaskId(id)} onNavigate={id=>setActiveTab(id)} onUnarchiveTask={unarchiveTaskAnywhere}/>}
-          {activeTab==="midia"     &&<MiDiaView data={data} activeMember={activeMember} defaultProjectId={resolveMyDefaultProject(data, activeMember)?.id ?? null} onNavigateProjects={()=>setActiveTab("projects")} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)} onMoveTask={moveTaskAnywhere} onCreateTask={(pid,payload)=>addTaskToProject(pid,payload)} dayPlans={data.dayPlans||{}} onDeleteDayPlan={deleteDayPlanEntry}/>}
+          {activeTab==="midia"     &&(()=>{
+            // Aislamiento intra-tenant (07/07/2026): admin ve TODAS las
+            // rutas persistidas del tenant; members solo las que crearon
+            // ellos mismos (sourceUserId === activeMember).
+            const myMember = (data.members||[]).find(m => m && m.id === activeMember) || null;
+            const isMyAdmin = myMember?.accountRole === "admin";
+            const visibleDayPlansForMe = filterMyDayPlans(data.dayPlans || {}, activeMember, isMyAdmin);
+            return <MiDiaView data={data} activeMember={activeMember} defaultProjectId={resolveMyDefaultProject(data, activeMember)?.id ?? null} onNavigateProjects={()=>setActiveTab("projects")} onOpenTask={id=>setOverlayTaskId(id)} onCompleteTask={completeTaskAnywhere} onArchiveTask={archiveTaskAnywhere} onDeleteTask={deleteTaskAnywhere} onUpdateTask={(id,upd)=>updateTaskAnywhere(id,upd)} onMoveTask={moveTaskAnywhere} onCreateTask={(pid,payload)=>addTaskToProject(pid,payload)} dayPlans={visibleDayPlansForMe} onDeleteDayPlan={deleteDayPlanEntry}/>;
+          })()}
           {activeTab==="consejo"   &&<ConsejoView currentMember={(data.members||[]).find(m=>m.id===activeMember)} permissions={data.permissions} onCallMario={callMarioDirect} onCallJorge={callJorgeDirect} onCallAlvaro={callAlvaroDirect} onNavigate={id=>setActiveTab(id)} pendingDerivation={pendingDerivation} onSetPendingDerivation={setPendingDerivation} onBridgeToHector={(payload)=>{setPendingExecBridge(payload);setActiveTab("hector-direct");}} negTargets={consejoNegTargets} taskTargets={consejoTaskTargets} onSaveCouncilDocument={saveCouncilDocument}/>}
           {activeTab==="briefings" &&<BriefingsView data={data} onOpenNeg={nid=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(null);}} onOpenSession={(nid,sid)=>{setActiveTab("dealroom");setActiveNegId(nid);setActiveSessId(sid);}}/>}
           {activeTab==="memory"    &&<MemoryPanel ceoMemory={data.ceoMemory} onAddCeo={addCeoMemoryItems} onRemoveCeo={removeCeoMemoryItem} onAddNeg={addNegMemoryItems} onRemoveNeg={removeNegMemoryItem}/>}
