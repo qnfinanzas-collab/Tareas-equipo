@@ -15727,7 +15727,14 @@ Estructura recomendada de una respuesta con documento:
                   <div onClick={()=>{setUserMenuOpen(false);window.location.href="/antesala.html";}} style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>Ver antesala</div>
                   <div onClick={changeUser} style={{padding:"9px 12px",fontSize:12,color:"#374151",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🔄 Cambiar usuario</div>
                   <div onClick={()=>{ setUserMenuOpen(false); if(authSession) handleSignOut(); else logoutTemp(); }} style={{padding:"9px 12px",fontSize:12,color:"#A32D2D",cursor:"pointer",borderBottom:"0.5px solid #f3f4f6"}} onMouseEnter={e=>e.currentTarget.style.background="#FEF2F2"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🚪 Cerrar sesión</div>
-                  <div onClick={()=>{ if(!window.confirm("¿Borrar todos los datos guardados y volver al estado inicial?"))return; setUserMenuOpen(false); localStorage.removeItem(LS_KEY); window.location.reload(); }} style={{padding:"9px 12px",fontSize:11,color:"#6B7280",cursor:"pointer",fontStyle:"italic"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🗑 Resetear datos (dev)</div>
+                  {/* Solo visible en dev (npm run dev). En build de producción
+                      import.meta.env.DEV === false y este item no se renderiza:
+                      evita que un cliente pueda vaciar taskflow_v1 por accidente
+                      y propagar el borrado a Supabase vía pushState. La lógica
+                      de reset se preserva intacta para uso local. */}
+                  {import.meta.env.DEV && (
+                    <div onClick={()=>{ if(!window.confirm("¿Borrar todos los datos guardados y volver al estado inicial?"))return; setUserMenuOpen(false); localStorage.removeItem(LS_KEY); window.location.reload(); }} style={{padding:"9px 12px",fontSize:11,color:"#6B7280",cursor:"pointer",fontStyle:"italic"}} onMouseEnter={e=>e.currentTarget.style.background="#f9fafb"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>🗑 Resetear datos (dev)</div>
+                  )}
                 </div>
               </>
             )}
