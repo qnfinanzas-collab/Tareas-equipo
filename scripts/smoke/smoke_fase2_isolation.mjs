@@ -2,12 +2,18 @@
 //
 // CRÍTICO: protege que el cimiento RLS + tenant resolution siga funcionando.
 //
-// 5 queries reales contra Supabase producción con anon key:
-//   1) tenant_id de Antonio → fila id=1 con data.projects.length>=50.
-//   2) tenant_id inventado   → 0 filas (filtro mecánico OK).
-//   3) RPC current_tenant_id desde anon → 42501 (portero cerrado).
-//   4) tenant_members anon   → 0 filas (RLS estricta vacía).
-//   5) tenants anon          → 0 filas (idem).
+// LECTURA anon (todas deben devolver 0/vacío tras el cierre RLS 2026-07-12):
+//   1) taskflow_state por tenant Antonio → 0 filas (RLS bloquea SELECT anon).
+//   2) taskflow_state por tenant inventado → 0 filas.
+//   3) RPC current_tenant_id anon → 42501 (portero cerrado).
+//   4) tenant_members anon → 0 filas.
+//   5) tenants anon → 0 filas.
+//
+// ESCRITURA anon (paso 3 obligatorio tras el incidente 2026-07-12):
+//   6) UPDATE anon a taskflow_state id=1 → 0 filas afectadas.
+//   7) INSERT anon taskflow_state → rechazado (42501 o schema block).
+//   8) DELETE anon taskflow_state → 0 filas afectadas.
+//   9) UPDATE anon a tenants (fila Antonio) → 0 filas afectadas.
 //
 // Bundle check (puppeteer): el bundle servido por preview contiene los
 // markers de wiring de Fase 2B (RPC + tenant_id filter + logs).
@@ -24,15 +30,13 @@ const supa = createClient(SUPA_URL, SUPA_KEY);
 
 const results = {};
 
-// 1) tenant correcto → fila id=1 con data.
+// 1) taskflow_state por tenant Antonio: anon debe recibir NULL.
+// (Antes del cierre RLS 2026-07-12 devolvía la fila. Ahora RLS bloquea SELECT.)
 {
-  const { data, error } = await supa.from("taskflow_state").select("id, tenant_id, data").eq("tenant_id", TENANT_ANTONIO).maybeSingle();
-  results.queryAntonio = {
-    ok: !error && data && data.id === 1 && data.tenant_id === TENANT_ANTONIO && Array.isArray(data.data?.projects),
-    projects: Array.isArray(data?.data?.projects) ? data.data.projects.length : null,
-  };
+  const { data, error } = await supa.from("taskflow_state").select("id, tenant_id").eq("tenant_id", TENANT_ANTONIO).maybeSingle();
+  results.taskflowAnonBlind = { ok: !error && data === null, leaked: data };
 }
-// 2) tenant inventado → 0 filas.
+// 2) tenant inventado → 0 filas (mismo comportamiento antes y ahora).
 {
   const { data, error } = await supa.from("taskflow_state").select("id").eq("tenant_id", TENANT_INVENTED);
   results.queryInvented = { ok: !error && Array.isArray(data) && data.length === 0 };
@@ -52,6 +56,41 @@ const results = {};
   const { data, error } = await supa.from("tenants").select("*", { count: "exact", head: true });
   results.tenantsHidden = { ok: !error && (data === null || (Array.isArray(data) && data.length === 0)) };
 }
+
+// ── ESCRITURA anon: todas deben resultar en 0 filas afectadas. ────────────
+// Post-cierre RLS un UPDATE anon a una fila que no puede ver devuelve
+// data=[] sin error explícito. Ese es el signal de "0 rows affected".
+async function anonWriteRejected(name, promise) {
+  const { data, error } = await promise;
+  const explicitError = !!error;
+  const zeroRowsAffected = Array.isArray(data) && data.length === 0;
+  results[name] = {
+    ok: explicitError || zeroRowsAffected,
+    code: error?.code || null,
+    affectedRows: Array.isArray(data) ? data.length : (data ? "non-array-truthy" : "null"),
+  };
+}
+
+// 6) UPDATE anon a taskflow_state id=1: 0 filas.
+await anonWriteRejected(
+  "taskflowUpdateRejected",
+  supa.from("taskflow_state").update({ updated_at: "1999-12-31T23:59:59Z" }).eq("id", 1).select("id")
+);
+// 7) INSERT anon taskflow_state: rechazado.
+await anonWriteRejected(
+  "taskflowInsertRejected",
+  supa.from("taskflow_state").insert({ id: 99999, tenant_id: TENANT_INVENTED, data: {} }).select("id")
+);
+// 8) DELETE anon taskflow_state id=1: 0 filas.
+await anonWriteRejected(
+  "taskflowDeleteRejected",
+  supa.from("taskflow_state").delete().eq("id", 1).select("id")
+);
+// 9) UPDATE anon a tenants (fila Antonio): 0 filas.
+await anonWriteRejected(
+  "tenantsAntonioUpdateRejected",
+  supa.from("tenants").update({ name: "PROBE_2026-07-12" }).eq("id", TENANT_ANTONIO).select("id")
+);
 
 console.log("[isolation · supabase real]");
 for (const [k, v] of Object.entries(results)) {
@@ -90,5 +129,6 @@ const bundleOk = bundleProbe.hasRpcCall && bundleProbe.hasTenantFilter && bundle
 if (!bundleOk) { console.log("\nFAIL: parte 2 (bundle)"); process.exit(1); }
 
 console.log("\n=== ISOLATION SMOKE OK ===");
-console.log(`· Supabase real: tenant correcto devuelve fila id=1 (${results.queryAntonio.projects} projects); tenant inventado → 0; RPC anon 42501; tenants/tenant_members invisibles.`);
+console.log(`· Supabase real: taskflow_state invisible a anon; RPC 42501; tenants/tenant_members invisibles.`);
+console.log(`· Escritura anon: UPDATE/INSERT/DELETE de taskflow_state y UPDATE tenants → 0 filas afectadas.`);
 console.log(`· Bundle servido contiene markers de Fase 2B (RPC + tenant_id + logs).`);
