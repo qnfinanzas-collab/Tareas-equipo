@@ -1081,17 +1081,18 @@ function _migrate(d){
     return a;
   });
   // Patch ejecutor: inyecta CAPACIDAD DE EJECUCIÓN en TODOS los agentes
-  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v10".
-  // v10 amplía la REGLA CRÍTICA con un bloque PROHIBICIÓN ABSOLUTA que
-  // enumera explícitamente el lenguaje confirmatorio prohibido sin
-  // [ACTIONS] (he creado, ya está, se ha…) y articula la respuesta
-  // correcta cuando no se puede ejecutar. Sobre v9 (wording PERFIL CEO)
-  // sobre v8 (PERFIL CEO) sobre v7 (identidad) sobre v6 (regla crítica
-  // + ambigüedad) sobre v5 (stakeholders). Cortamos por marker
-  // "PERFIL CEO:" o "CAPACIDAD DE EJECUCIÓN" según versión previa.
+  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v15".
+  // v15 (13/07/2026) añade la sección "TAMAÑO Y ATOMICIDAD DE [ACTIONS]"
+  // que prohíbe bloques compuestos gigantes (create_project + create_negotiation
+  // + N tareas en un mismo bloque) — causa raíz de los tickets fake-success
+  // por truncado max_tokens o JSON roto en notes largas. Sobre v14 (task.links)
+  // sobre v10 (PROHIBICIÓN ABSOLUTA) sobre v9 (wording PERFIL CEO) sobre v8
+  // (PERFIL CEO) sobre v7 (identidad) sobre v6 (regla crítica + ambigüedad)
+  // sobre v5 (stakeholders). Cortamos por marker "PERFIL CEO:" o
+  // "CAPACIDAD DE EJECUCIÓN" según versión previa.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v14")) return a;            // ya v14
+    if(a.promptBase.includes("ACTIONS_v15")) return a;            // ya v15
     let cut = a.promptBase;
     if (cut.includes("PERFIL CEO:")) {
       cut = cut.split(/\n+PERFIL CEO:/)[0];
