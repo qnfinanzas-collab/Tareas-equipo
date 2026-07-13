@@ -2143,51 +2143,78 @@ function LoginScreen({onAuthed, onLegacySkip, forceRecovery=false, onRecoveryDon
     } finally { setBusy(false); }
   };
 
+  // Sistema visual Kluxor (13/07/2026) — mismo lenguaje que la landing
+  // pública: crema clara, tinta profunda, oro material como acento,
+  // Inter para todo, Instrument Serif italic solo para acentos dorados.
+  // Border-radius 0 en toda la card por contrato de marca.
+  //
+  // Fuera del UI (Antonio 13/07): "Modo demo" (con RLS cerrada dejó de
+  // servir), "¿Contraseña olvidada?" y "Registrarse". El código de
+  // onLegacySkip se conserva por si hace falta revivirlo — solo dejamos
+  // de exponerlo. La lógica de submit / submitNewPassword / recoveryMode
+  // sigue INTACTA: aquí solo cambia el JSX y los estilos.
   return(
-    <div style={{position:"fixed",inset:0,background:"linear-gradient(135deg,#7F77DD22,#E76AA122)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,zIndex:5000}}>
-      <div style={{background:"#fff",borderRadius:16,padding:"28px 28px 22px",width:380,maxWidth:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.18)",border:"0.5px solid #E5E7EB"}}>
-        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
-          <div style={{width:38,height:38,background:"#7F77DD",borderRadius:10,color:"#fff",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>SB</div>
-          <div>
-            <div style={{fontWeight:700,fontSize:16,color:"#111827"}}>Kluxor</div>
-            <div style={{fontSize:11,color:"#6B7280"}}>{recoveryMode ? "Crear nueva contraseña" : "Iniciar sesión"}</div>
-          </div>
+    <div style={{position:"fixed",inset:0,background:"#FBFAF7",display:"flex",alignItems:"center",justifyContent:"center",padding:20,zIndex:5000,fontFamily:"'Inter',system-ui,-apple-system,sans-serif"}}>
+      <style>{`
+        .kx-lg-btn{background:#0F0E0C;color:#fff;transition:background .2s ease,color .2s ease}
+        .kx-lg-btn:hover:not(:disabled){background:#C9A84C;color:#0F0E0C}
+        .kx-lg-btn:disabled{background:#4E4A42;cursor:wait}
+        .kx-lg-input:focus{border-color:#0F0E0C;outline:none}
+        .kx-lg-input::placeholder{color:#8A867F}
+        .kx-lg-link{color:#9A6F14;text-decoration:none;border-bottom:1px solid rgba(154,111,20,.35);transition:border-color .2s ease}
+        .kx-lg-link:hover{border-color:#9A6F14}
+        .kx-lg-linkbtn{background:none;border:none;padding:0;color:#4E4A42;cursor:pointer;font-family:inherit;font-size:12px;text-decoration:underline;text-underline-offset:2px}
+        .kx-lg-linkbtn:hover{color:#0F0E0C}
+      `}</style>
+      <div style={{background:"#fff",border:"1px solid rgba(15,14,12,.12)",padding:"44px 40px 32px",width:400,maxWidth:"100%"}}>
+        {/* Wordmark Kluxor con rombo dorado. */}
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:24}}>
+          <span aria-hidden="true" style={{display:"inline-block",width:11,height:11,background:"#C9A84C",transform:"rotate(45deg)"}}/>
+          <span style={{fontSize:22,fontWeight:600,letterSpacing:"-0.01em",color:"#0F0E0C"}}>Kluxor</span>
         </div>
+        {/* Eyebrow oro. */}
+        <div style={{fontSize:10.5,fontWeight:600,letterSpacing:"0.32em",textTransform:"uppercase",color:"#9A6F14",marginBottom:10}}>Acceso reservado</div>
+        {/* Tagline. */}
+        <p style={{fontSize:15,color:"#0F0E0C",lineHeight:1.5,marginBottom:28,fontWeight:400}}>{recoveryMode ? "Cree su nueva contraseña." : "Su Jefe de Gabinete le espera."}</p>
+
         {recoveryMode ? (
           resetOk ? (
-            <div style={{padding:"16px 14px",background:"#ECFDF5",border:"1px solid #6EE7B7",borderRadius:8,fontSize:13,color:"#065F46",textAlign:"center"}}>
-              ✓ Contraseña actualizada. Entrando…
+            <div style={{padding:"18px 16px",background:"#F5F0E4",border:"1px solid rgba(154,111,20,.25)",color:"#4E4A42",fontSize:13.5,lineHeight:1.5}}>
+              <span style={{fontFamily:"'Instrument Serif',Georgia,serif",fontStyle:"italic",color:"#9A6F14"}}>Contraseña actualizada.</span> Entrando…
             </div>
           ) : (
             <form onSubmit={submitNewPassword}>
-              <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Nueva contraseña</label>
-              <input type="password" autoFocus required value={newPwd} onChange={e=>setNewPwd(e.target.value)} placeholder="Mínimo 8 caracteres" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:12}}/>
-              <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Repite la contraseña</label>
-              <input type="password" required value={newPwd2} onChange={e=>setNewPwd2(e.target.value)} placeholder="••••••••" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:14}}/>
-              {err && <div style={{fontSize:11.5,color:"#B91C1C",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:6,padding:"7px 10px",marginBottom:12}}>{err}</div>}
-              <button type="submit" disabled={busy||!newPwd||!newPwd2} style={{width:"100%",padding:"10px 14px",borderRadius:8,background:busy?"#A7B0F5":"#7F77DD",color:"#fff",border:"none",fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit"}}>
+              <label style={{display:"block",fontSize:11.5,fontWeight:500,color:"#0F0E0C",marginBottom:6,letterSpacing:"0.01em"}}>Nueva contraseña</label>
+              <input className="kx-lg-input" type="password" autoFocus required value={newPwd} onChange={e=>setNewPwd(e.target.value)} placeholder="Mínimo 8 caracteres" disabled={busy} style={{width:"100%",padding:"12px 14px",border:"1px solid rgba(15,14,12,.18)",background:"#fff",fontSize:14,fontFamily:"inherit",color:"#0F0E0C",marginBottom:14,transition:"border-color .15s ease"}}/>
+              <label style={{display:"block",fontSize:11.5,fontWeight:500,color:"#0F0E0C",marginBottom:6}}>Repita la contraseña</label>
+              <input className="kx-lg-input" type="password" required value={newPwd2} onChange={e=>setNewPwd2(e.target.value)} placeholder="••••••••" disabled={busy} style={{width:"100%",padding:"12px 14px",border:"1px solid rgba(15,14,12,.18)",background:"#fff",fontSize:14,fontFamily:"inherit",color:"#0F0E0C",marginBottom:18,transition:"border-color .15s ease"}}/>
+              {err && <div style={{fontSize:12,color:"#8A2020",background:"#FBEFEF",border:"1px solid rgba(138,32,32,.2)",padding:"9px 12px",marginBottom:14,lineHeight:1.4}}>{err}</div>}
+              <button className="kx-lg-btn" type="submit" disabled={busy||!newPwd||!newPwd2} style={{width:"100%",padding:"13px 18px",border:"none",fontSize:13,fontFamily:"inherit",fontWeight:600,letterSpacing:"0.04em",cursor:busy?"wait":"pointer"}}>
                 {busy?"Guardando…":"Actualizar contraseña"}
               </button>
-              <div style={{marginTop:12,fontSize:11,color:"#9CA3AF",textAlign:"center"}}>
-                <button type="button" onClick={()=>{ setRecoveryMode(false); setErr(null); try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch {} onRecoveryDone?.(); }} style={{background:"none",border:"none",color:"#9CA3AF",cursor:"pointer",fontFamily:"inherit",padding:0,fontSize:11,textDecoration:"underline"}}>Volver al inicio de sesión</button>
+              <div style={{marginTop:20,textAlign:"center"}}>
+                <button type="button" className="kx-lg-linkbtn" onClick={()=>{ setRecoveryMode(false); setErr(null); try { window.history.replaceState(null, "", window.location.pathname + window.location.search); } catch {} onRecoveryDone?.(); }}>Volver al inicio de sesión</button>
               </div>
             </form>
           )
         ) : (
           <>
             <form onSubmit={submit}>
-              <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Email</label>
-              <input type="email" autoFocus required value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@email.com" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:12}}/>
-              <label style={{display:"block",fontSize:12,fontWeight:600,color:"#374151",marginBottom:4}}>Contraseña</label>
-              <input type="password" required value={pwd} onChange={e=>setPwd(e.target.value)} placeholder="••••••••" disabled={busy} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #D1D5DB",fontSize:14,fontFamily:"inherit",outline:"none",marginBottom:14}}/>
-              {err && <div style={{fontSize:11.5,color:"#B91C1C",background:"#FEF2F2",border:"1px solid #FCA5A5",borderRadius:6,padding:"7px 10px",marginBottom:12}}>{err}</div>}
-              <button type="submit" disabled={busy||!email.trim()||!pwd} style={{width:"100%",padding:"10px 14px",borderRadius:8,background:busy?"#A7B0F5":"#7F77DD",color:"#fff",border:"none",fontSize:14,fontWeight:600,cursor:busy?"wait":"pointer",fontFamily:"inherit"}}>
+              <label style={{display:"block",fontSize:11.5,fontWeight:500,color:"#0F0E0C",marginBottom:6}}>Email</label>
+              <input className="kx-lg-input" type="email" autoFocus required value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@email.com" disabled={busy} style={{width:"100%",padding:"12px 14px",border:"1px solid rgba(15,14,12,.18)",background:"#fff",fontSize:14,fontFamily:"inherit",color:"#0F0E0C",marginBottom:14,transition:"border-color .15s ease"}}/>
+              <label style={{display:"block",fontSize:11.5,fontWeight:500,color:"#0F0E0C",marginBottom:6}}>Contraseña</label>
+              <input className="kx-lg-input" type="password" required value={pwd} onChange={e=>setPwd(e.target.value)} placeholder="••••••••" disabled={busy} style={{width:"100%",padding:"12px 14px",border:"1px solid rgba(15,14,12,.18)",background:"#fff",fontSize:14,fontFamily:"inherit",color:"#0F0E0C",marginBottom:18,transition:"border-color .15s ease"}}/>
+              {err && <div style={{fontSize:12,color:"#8A2020",background:"#FBEFEF",border:"1px solid rgba(138,32,32,.2)",padding:"9px 12px",marginBottom:14,lineHeight:1.4}}>{err}</div>}
+              <button className="kx-lg-btn" type="submit" disabled={busy||!email.trim()||!pwd} style={{width:"100%",padding:"13px 18px",border:"none",fontSize:13,fontFamily:"inherit",fontWeight:600,letterSpacing:"0.04em",cursor:busy?"wait":"pointer"}}>
                 {busy?"Entrando…":"Entrar"}
               </button>
             </form>
-            <div style={{marginTop:12,fontSize:11,color:"#9CA3AF",textAlign:"center"}}>
-              Acceso restringido al equipo. Si no tienes cuenta, contacta con el administrador.
-              {onLegacySkip && <> · <button onClick={onLegacySkip} style={{background:"none",border:"none",color:"#9CA3AF",cursor:"pointer",fontFamily:"inherit",padding:0,fontSize:11,textDecoration:"underline"}}>Modo demo</button></>}
+            {/* Línea fina + copy final. Enlace vuelve a la landing. */}
+            <div style={{marginTop:28,paddingTop:20,borderTop:"1px solid rgba(15,14,12,.08)",fontSize:12.5,color:"#4E4A42",lineHeight:1.55,textAlign:"center"}}>
+              ¿No es miembro todavía?{" "}
+              <span style={{fontFamily:"'Instrument Serif',Georgia,serif",fontStyle:"italic",color:"#9A6F14"}}>Kluxor no se contrata. Se recibe.</span>
+              <br/>
+              <a href="/" className="kx-lg-link" style={{fontSize:12,marginTop:8,display:"inline-block"}}>Volver a la landing</a>
             </div>
           </>
         )}
@@ -15537,29 +15564,48 @@ Estructura recomendada de una respuesta con documento:
       return <div style={{position:"fixed",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#6B7280"}}>Cargando…</div>;
     }
     if(!authSession || isRecoveryFlow){
-      // Antesala pre-login (28/06/2026): si el visitante aterriza en raíz
-      // sin sesión y no está en flujo de recovery, lo redirigimos UNA VEZ
-      // por sesión a la antesala estática (public/antesala.html). El flag
-      // sessionStorage.kluxor_seen_antesala evita el bucle cuando vuelve
-      // a "/" tras pulsar el CTA. Usuarios CON sesión nunca pasan por aquí
-      // — entran directamente como hasta hoy. Reversible: quitando este
-      // bloque, comportamiento exacto previo.
-      if (!isRecoveryFlow && typeof window !== "undefined"
-          && window.location.pathname === "/"
-          && !sessionStorage.getItem("kluxor_seen_antesala")) {
-        try {
-          window.location.replace("/antesala.html");
-          return null;
-        } catch (_) { /* si falla, cae al LoginScreen normal */ }
+      // Landing pública (13/07/2026): visitante anónimo en "/" ve la landing
+      // ES; en "/en" ve la landing EN. Sin marker de sessionStorage — la
+      // landing es de venta, se ve SIEMPRE en visita anónima. La sesión
+      // activa la evita (usuarios CON sesión no entran en este bloque).
+      // Cualquier otra ruta ("/login", "/hector", "/home"…) cae al
+      // LoginScreen sin redirect. Los CTA "Acceder"/"Sign in" de las
+      // landings apuntan a "/login" para entrar aquí.
+      // Nota: antesala.html queda huérfana (deja de referenciarse) pero
+      // se conserva en public/ por si se vuelve a necesitar.
+      if (!isRecoveryFlow && typeof window !== "undefined") {
+        const path = window.location.pathname;
+        if (path === "/" || path === "") {
+          try { window.location.replace("/kluxor-landing-es.html"); return null; }
+          catch (_) { /* cae al LoginScreen */ }
+        } else if (path === "/en") {
+          try { window.location.replace("/kluxor-landing-en.html"); return null; }
+          catch (_) { /* cae al LoginScreen */ }
+        }
       }
       return <LoginScreen onAuthed={s=>{ setAuthSession(s); setIsRecoveryFlow(false); }} onLegacySkip={enableLegacyMode} forceRecovery={isRecoveryFlow} onRecoveryDone={()=>setIsRecoveryFlow(false)}/>;
     }
     if(!authMemberInfo?.member){
-      return <div style={{position:"fixed",inset:0,background:"linear-gradient(135deg,#7F77DD22,#E76AA122)",display:"flex",alignItems:"center",justifyContent:"center",padding:20,zIndex:5000}}>
-        <div style={{background:"#fff",borderRadius:16,padding:"28px",width:380,maxWidth:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.18)"}}>
-          <div style={{fontSize:15,fontWeight:700,color:"#B91C1C",marginBottom:8}}>Email no autorizado</div>
-          <div style={{fontSize:12.5,color:"#374151",lineHeight:1.5,marginBottom:14}}>El email <b>{authSession.user?.email}</b> no está vinculado a ningún miembro del equipo. Pide al administrador que lo añada al campo email del miembro correspondiente.</div>
-          <button onClick={handleSignOut} style={{padding:"8px 14px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cerrar sesión</button>
+      // Panel "email no autorizado" · sistema visual Kluxor (13/07/2026).
+      // Mismo lenguaje que LoginScreen: crema, tinta profunda, oro material.
+      return <div style={{position:"fixed",inset:0,background:"#FBFAF7",display:"flex",alignItems:"center",justifyContent:"center",padding:20,zIndex:5000,fontFamily:"'Inter',system-ui,-apple-system,sans-serif"}}>
+        <style>{`
+          .kx-nauth-btn{background:#0F0E0C;color:#fff;transition:background .2s ease,color .2s ease}
+          .kx-nauth-btn:hover{background:#C9A84C;color:#0F0E0C}
+        `}</style>
+        <div style={{background:"#fff",border:"1px solid rgba(15,14,12,.12)",padding:"36px 32px 28px",width:420,maxWidth:"100%"}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:20}}>
+            <span aria-hidden="true" style={{display:"inline-block",width:11,height:11,background:"#C9A84C",transform:"rotate(45deg)"}}/>
+            <span style={{fontSize:20,fontWeight:600,letterSpacing:"-0.01em",color:"#0F0E0C"}}>Kluxor</span>
+          </div>
+          <div style={{fontSize:10.5,fontWeight:600,letterSpacing:"0.32em",textTransform:"uppercase",color:"#9A6F14",marginBottom:10}}>Acceso no autorizado</div>
+          <p style={{fontSize:14,color:"#0F0E0C",lineHeight:1.55,marginBottom:8}}>
+            El email <b style={{fontWeight:600}}>{authSession.user?.email}</b> no está vinculado a ningún miembro del círculo.
+          </p>
+          <p style={{fontSize:13,color:"#4E4A42",lineHeight:1.55,marginBottom:22}}>
+            <span style={{fontFamily:"'Instrument Serif',Georgia,serif",fontStyle:"italic",color:"#9A6F14"}}>Kluxor no se contrata. Se recibe.</span> Pida a quien le invitó que vincule su email al equipo.
+          </p>
+          <button className="kx-nauth-btn" onClick={handleSignOut} style={{padding:"11px 20px",border:"none",fontSize:13,fontWeight:600,letterSpacing:"0.04em",cursor:"pointer",fontFamily:"inherit"}}>Cerrar sesión</button>
         </div>
       </div>;
     }
