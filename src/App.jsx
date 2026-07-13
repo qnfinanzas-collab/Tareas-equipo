@@ -12263,6 +12263,26 @@ export default function TaskFlow(){
     });
     return ()=>{ alive = false; unsub(); };
   },[]);
+  // Redirect a landing pública (13/07/2026, fix bug iOS Safari incógnito).
+  // Antes se hacía como side effect DURANTE el render, lo que en Safari
+  // incógnito lanzaba SecurityError que un try/catch tragaba silencioso
+  // → caía al LoginScreen. Ahora en useEffect post-render: sin try/catch,
+  // sin comportamiento raro. Ejecuta cuando authReady se estabiliza en
+  // false-session; con sesión activa no dispara — Antonio/Elena/Luis entran
+  // directos como hasta ahora.
+  useEffect(()=>{
+    if(!authEnabled()) return;
+    if(!authReady) return;
+    if(authSession) return;
+    if(isRecoveryFlow) return;
+    if(typeof window === "undefined") return;
+    const path = window.location.pathname;
+    if(path === "/" || path === ""){
+      window.location.replace("/kluxor-landing-es.html");
+    } else if(path === "/en"){
+      window.location.replace("/kluxor-landing-en.html");
+    }
+  },[authReady, authSession, isRecoveryFlow]);
   // Fase 2B — resolución asíncrona del tenant del usuario logueado.
   // tenantId truthy → sync.js usa el path nuevo (.eq("tenant_id", X) +
   // filtro realtime). tenantId null → fallback id=1 (compat shadow mode).
@@ -12329,7 +12349,14 @@ export default function TaskFlow(){
   // para no apilar entradas duplicadas en el history. Tabs sin slug
   // propio (board/eisenhower/reports/team) no actualizan la URL —
   // quedan en /projects.
+  //
+  // GATE authSession (13/07/2026): sin sesión NO propagamos activeTab a
+  // la URL. Antes este useEffect pusheaba "/hector" (default de activeTab)
+  // en la primera pasada de montaje, machacando el "/" que necesitaba
+  // el redirect a landing pública para leerlo. Bug reproducido en el
+  // smoke_landing_redirect. Con sesión, comportamiento intacto.
   useEffect(() => {
+    if (!authSession) return;
     const desired = pathFromTab(activeTab);
     if (!desired || desired === "/") return;
     try {
@@ -12337,7 +12364,7 @@ export default function TaskFlow(){
         window.history.pushState({ activeTab }, "", desired);
       }
     } catch {}
-  }, [activeTab]);
+  }, [activeTab, authSession]);
 
   // URL routing — Fase 1: sincroniza activeTab ← URL. Listener de popstate
   // para que botones atrás/adelante del navegador naveguen entre tabs.
@@ -12354,18 +12381,21 @@ export default function TaskFlow(){
     return () => window.removeEventListener("popstate", onPop);
   }, [activeTab]);
 
-  // URL routing — Fase 1: si el usuario aterriza en "/" tras montar, lo
-  // redirigimos a /hector con replaceState (no añade entrada al history).
-  // El initializer de activeTab ya defaulta a "hector-direct"; este
-  // efecto solo alinea la barra de direcciones.
+  // URL routing — Fase 1: si el usuario LOGUEADO aterriza en "/" tras
+  // montar, alineamos la barra a "/hector" con replaceState. Sin sesión
+  // NO tocamos la URL — la landing pública (redirect en useEffect de
+  // arriba) es prioritaria en "/" y "/en". Antes este useEffect corría
+  // sin gate y machacaba el pathname antes de que el redirect a landing
+  // lo leyera (bug 13/07/2026 en Safari incógnito iPhone).
   useEffect(() => {
+    if (!authSession) return;
     try {
       if (window.location.pathname === "/" || window.location.pathname === "") {
         window.history.replaceState({ activeTab: "hector-direct" }, "", "/hector");
       }
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authSession]);
   const handleSignOut = async ()=>{
     await signOut();
     setAuthSession(null);
@@ -15564,23 +15594,16 @@ Estructura recomendada de una respuesta con documento:
       return <div style={{position:"fixed",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#6B7280"}}>Cargando…</div>;
     }
     if(!authSession || isRecoveryFlow){
-      // Landing pública (13/07/2026): visitante anónimo en "/" ve la landing
-      // ES; en "/en" ve la landing EN. Sin marker de sessionStorage — la
-      // landing es de venta, se ve SIEMPRE en visita anónima. La sesión
-      // activa la evita (usuarios CON sesión no entran en este bloque).
-      // Cualquier otra ruta ("/login", "/hector", "/home"…) cae al
-      // LoginScreen sin redirect. Los CTA "Acceder"/"Sign in" de las
-      // landings apuntan a "/login" para entrar aquí.
-      // Nota: antesala.html queda huérfana (deja de referenciarse) pero
-      // se conserva en public/ por si se vuelve a necesitar.
+      // Landing pública (13/07/2026): el redirect real vive en un useEffect
+      // top-level (buscar "Redirect a landing pública"). Aquí solo pintamos
+      // un fondo crema neutro mientras el navegador ejecuta la navegación,
+      // para evitar flash del LoginScreen en "/" o "/en". Cualquier otra
+      // ruta ("/login", "/hector"…) cae al LoginScreen.
+      // Nota: antesala.html queda huérfana pero se conserva en public/.
       if (!isRecoveryFlow && typeof window !== "undefined") {
         const path = window.location.pathname;
-        if (path === "/" || path === "") {
-          try { window.location.replace("/kluxor-landing-es.html"); return null; }
-          catch (_) { /* cae al LoginScreen */ }
-        } else if (path === "/en") {
-          try { window.location.replace("/kluxor-landing-en.html"); return null; }
-          catch (_) { /* cae al LoginScreen */ }
+        if (path === "/" || path === "" || path === "/en") {
+          return <div style={{position:"fixed",inset:0,background:"#FBFAF7"}}/>;
         }
       }
       return <LoginScreen onAuthed={s=>{ setAuthSession(s); setIsRecoveryFlow(false); }} onLegacySkip={enableLegacyMode} forceRecovery={isRecoveryFlow} onRecoveryDone={()=>setIsRecoveryFlow(false)}/>;
