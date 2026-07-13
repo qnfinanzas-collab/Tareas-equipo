@@ -1081,18 +1081,19 @@ function _migrate(d){
     return a;
   });
   // Patch ejecutor: inyecta CAPACIDAD DE EJECUCIÓN en TODOS los agentes
-  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v15".
-  // v15 (13/07/2026) añade la sección "TAMAÑO Y ATOMICIDAD DE [ACTIONS]"
-  // que prohíbe bloques compuestos gigantes (create_project + create_negotiation
-  // + N tareas en un mismo bloque) — causa raíz de los tickets fake-success
-  // por truncado max_tokens o JSON roto en notes largas. Sobre v14 (task.links)
-  // sobre v10 (PROHIBICIÓN ABSOLUTA) sobre v9 (wording PERFIL CEO) sobre v8
-  // (PERFIL CEO) sobre v7 (identidad) sobre v6 (regla crítica + ambigüedad)
-  // sobre v5 (stakeholders). Cortamos por marker "PERFIL CEO:" o
-  // "CAPACIDAD DE EJECUCIÓN" según versión previa.
+  // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v16".
+  // v16 (13/07/2026 tarde) añade la sección REGLA "YA EXISTE" — VERIFICACIÓN
+  // OBLIGATORIA CONTRA CONTEXTO. Corrige el patrón observado post-v15 en que
+  // Héctor, forzado a atomicidad, evadía la ejecución afirmando "ya lo creé
+  // antes" sin verificar que la entidad existiera en el contexto real
+  // (data.projects, data.negotiations). Sobre v15 (TAMAÑO Y ATOMICIDAD)
+  // sobre v14 (task.links) sobre v10 (PROHIBICIÓN ABSOLUTA) sobre v9 (wording
+  // PERFIL CEO) sobre v8 (PERFIL CEO) sobre v7 (identidad) sobre v6 (regla
+  // crítica + ambigüedad) sobre v5 (stakeholders). Cortamos por marker
+  // "PERFIL CEO:" o "CAPACIDAD DE EJECUCIÓN" según versión previa.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v15")) return a;            // ya v15
+    if(a.promptBase.includes("ACTIONS_v16")) return a;            // ya v16
     let cut = a.promptBase;
     if (cut.includes("PERFIL CEO:")) {
       cut = cut.split(/\n+PERFIL CEO:/)[0];
