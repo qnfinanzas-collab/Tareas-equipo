@@ -9,6 +9,10 @@
 // Excepciones fuera del scope de este módulo:
 //   - /vault/<token>     → guest view, captura previa con parseVaultGuestPath
 //   - /landing.html      → estático servido por Vercel
+//   - /vitrina           → landing pública La Vitrina, rewrite en vercel.json
+//                          hacia /vitrina.html (SLUG RESERVADO — no añadir
+//                          entrada con "vitrina" a TAB_TO_SLUG abajo o la
+//                          SPA capturaría la ruta antes que el rewrite).
 //   - #type=recovery&... → flow de recovery de Supabase Auth (lee hash)
 
 export const TAB_TO_SLUG = {

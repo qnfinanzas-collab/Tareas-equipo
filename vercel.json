@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/landing.html", "destination": "/landing.html" },
+    { "source": "/vitrina", "destination": "/vitrina.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
