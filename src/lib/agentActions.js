@@ -48,21 +48,64 @@ export function parseAgentActions(responseText) {
   if (!responseText || typeof responseText !== "string") return null;
   const m = responseText.match(ACTIONS_RE);
   if (!m) return null;
+  let raw = m[1].trim();
+  // Tolerancia: si el modelo envuelve en ```json...``` lo limpiamos.
+  raw = raw.replace(/^```json\s*|\s*```$/g, "").replace(/^```\s*|\s*```$/g, "");
+
+  // Intento normal.
+  let parsed = null;
+  let originalError = null;
   try {
-    let raw = m[1].trim();
-    // Tolerancia: si el modelo envuelve en ```json...``` lo limpiamos.
-    raw = raw.replace(/^```json\s*|\s*```$/g, "").replace(/^```\s*|\s*```$/g, "");
-    const parsed = JSON.parse(raw);
-    if (!parsed || !Array.isArray(parsed.actions)) return null;
-    return {
-      actions: parsed.actions,
-      confirmRequired: parsed.confirmRequired !== false,
-      summary: parsed.summary || "El agente propone las siguientes acciones",
-    };
-  } catch (e) {
-    console.warn("[agentActions] parse fallo:", e?.message);
+    parsed = JSON.parse(raw);
+  } catch (e1) {
+    originalError = e1;
+    // Reparación de brackets faltantes al final. Bug del modelo emitiendo
+    // JSON con cierres olvidados — observado 2026-07-14 en ticket
+    // e81089bd (Héctor emitió }] cuando faltaba }]}]}). Patrón copiado
+    // de parseHectorDecision en HectorPanel.jsx:180-218 (mismo precedente
+    // ya en el proyecto). LIFO por stack de aperturas sin cerrar.
+    try {
+      let repaired = raw;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        repaired = repaired.replace(/,\s*$/, "");
+        const opens  = (repaired.match(/[\[{]/g) || []).length;
+        const closes = (repaired.match(/[\]}]/g) || []).length;
+        if (opens - closes <= 0) break;
+        const stack = [];
+        for (const ch of repaired) {
+          if (ch === "{" || ch === "[") stack.push(ch);
+          else if (ch === "}") { if (stack[stack.length - 1] === "{") stack.pop(); }
+          else if (ch === "]") { if (stack[stack.length - 1] === "[") stack.pop(); }
+        }
+        let suffix = "";
+        while (stack.length) {
+          const c = stack.pop();
+          suffix += (c === "{" ? "}" : "]");
+        }
+        try {
+          parsed = JSON.parse(repaired + suffix);
+          console.warn(`[agentActions] parse reparado con +${suffix.length} cierre(s) LIFO tras fallo original: ${originalError?.message}`);
+          break;
+        } catch {}
+        // Si sigue fallando, cortar el último valor inacabado (tras la última coma) y reintentar.
+        const lastComma = repaired.lastIndexOf(",");
+        const lastBrace = Math.max(repaired.lastIndexOf("}"), repaired.lastIndexOf("]"));
+        if (lastBrace > lastComma) break;
+        repaired = repaired.slice(0, lastComma);
+      }
+    } catch {}
+  }
+
+  if (!parsed) {
+    if (originalError) console.warn("[agentActions] parse fallo (irrecuperable):", originalError.message);
     return null;
   }
+  if (!Array.isArray(parsed.actions)) return null;
+  return {
+    actions: parsed.actions,
+    confirmRequired: parsed.confirmRequired !== false,
+    summary: parsed.summary || "El agente propone las siguientes acciones",
+  };
 }
 
 // Quita el bloque [ACTIONS]...[/ACTIONS] del texto antes de mostrarlo en

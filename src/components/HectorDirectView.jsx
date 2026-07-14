@@ -1235,7 +1235,15 @@ Reglas:
       // Parser de [RUTA] — desplazamientos por carretera. Falla silencioso:
       // si malformado, devuelve null y la prosa sale como texto normal.
       const ruta = parseRuta(reply);
-      const afterActions = proposal ? cleanAgentResponse(reply) : reply;
+      // Failsafe visual (2026-07-14, bug ticket e81089bd): oculta el bloque
+      // [ACTIONS]…[/ACTIONS] SIEMPRE, exista o no `proposal` válido. Antes
+      // sólo se limpiaba si el parser recuperaba proposal → JSON malformado
+      // del modelo se mostraba en crudo al CEO. Ahora: si parseAgentActions
+      // (con reparación LIFO de brackets, Fix A) no consigue extraer proposal,
+      // el bloque se oculta igualmente y el CEO sólo ve la prose. El detector
+      // fake-success sigue cazando el "Listo Antonio…" residual → banner
+      // amarillo + ticket en Mantenimiento hacen visible el problema.
+      const afterActions = cleanAgentResponse(reply);
       const afterTasks   = cleanTasksListBlock(afterActions);
       const afterRuta    = cleanRutaBlock(afterTasks);
       let   cleanText    = stripInvokes(afterRuta);
