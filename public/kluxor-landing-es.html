@@ -156,10 +156,34 @@
   .verdict em{font-family:var(--s);font-style:italic;font-weight:400;color:var(--gold)}
 
   /* qué aprende */
-  .learn{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin-top:56px;text-align:left}
-  .lc{border:1px solid var(--line);background:var(--white);padding:22px;box-shadow:0 14px 40px -30px rgba(15,14,12,.3)}
-  .lc b{display:block;font-size:17px;font-weight:700;letter-spacing:-.02em}
-  .lc p{font-size:14.5px;color:var(--ink-2);margin-top:7px;line-height:1.55;font-weight:500}
+  /* Rediseño editorial (14/07/2026, prompt "colegial"): grid 2×2 explícito
+     con aire generoso, border-left dorado como acento editorial, numeración
+     romana en oro italic, cabecera serif con divisor fino dorado debajo. */
+  .learn{
+    display:grid;grid-template-columns:repeat(2,1fr);
+    gap:clamp(24px,3vw,44px);margin-top:72px;
+    max-width:1080px;margin-left:auto;margin-right:auto;text-align:left;
+  }
+  .lc{
+    position:relative;background:transparent;border:none;box-shadow:none;
+    border-left:2px solid var(--gold-lite);
+    padding:clamp(28px,3vw,42px) clamp(28px,3vw,42px) clamp(28px,3vw,42px) clamp(30px,3.4vw,48px);
+  }
+  .lc-num{
+    display:block;font-family:var(--s);font-style:italic;font-weight:400;
+    font-size:13px;letter-spacing:.28em;text-transform:uppercase;
+    color:var(--gold);margin-bottom:16px;
+  }
+  .lc b{
+    display:block;font-family:var(--s);font-weight:400;font-style:normal;
+    font-size:clamp(22px,2.4vw,28px);color:var(--ink);letter-spacing:-.01em;
+    margin-bottom:16px;padding-bottom:16px;
+    border-bottom:1px solid rgba(201,168,76,.32);
+  }
+  .lc p{
+    font-size:15px;color:var(--ink-2);margin-top:0;line-height:1.65;font-weight:400;
+  }
+  @media(max-width:720px){.learn{grid-template-columns:1fr;gap:20px;margin-top:48px}}
   .cross{
     margin-top:56px;text-align:left;max-width:760px;margin-left:auto;margin-right:auto;
     border:1.5px solid var(--gold-lite);background:var(--white);padding:24px 26px;
@@ -433,14 +457,61 @@
 
   /* ===== BENTO ===== */
   .bento-sec{padding-top:clamp(80px,13vh,150px)}
-  .bento{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));margin-top:48px;text-align:left}
-  .cell{border:1px solid var(--line);background:var(--white);padding:26px;position:relative;overflow:hidden;cursor:pointer;box-shadow:0 14px 40px -30px rgba(15,14,12,.3);transition:border-color .4s,box-shadow .5s,transform .5s cubic-bezier(.16,1,.3,1)}
+  /* Rediseño editorial (14/07/2026): grid 6-cols asimétrico. Memoria y
+     Deal Room como protagonistas (span 3, cabecera italic serif grande).
+     Resto span 2 (3 por fila). Border-left dorado + numeración romana. */
+  .bento{
+    display:grid;grid-template-columns:repeat(6,1fr);
+    gap:clamp(20px,2.4vw,32px);margin-top:56px;text-align:left;
+  }
+  .cell{
+    position:relative;background:var(--white);
+    border:none;border-left:2px solid var(--gold-lite);box-shadow:none;
+    padding:clamp(28px,3vw,40px);overflow:hidden;cursor:pointer;
+    transition:border-left-color .35s ease,transform .5s cubic-bezier(.16,1,.3,1);
+    grid-column:span 2;
+  }
+  .cell:nth-child(1),.cell:nth-child(2){grid-column:span 3}
+  .cell:hover{border-left-color:var(--gold)}
+  .cn-num{
+    display:block;font-family:var(--s);font-style:italic;font-weight:400;
+    font-size:13px;letter-spacing:.28em;text-transform:uppercase;
+    color:var(--gold);margin-bottom:14px;
+  }
+  @media(max-width:900px){
+    .bento{grid-template-columns:repeat(2,1fr)}
+    .cell,.cell:nth-child(1),.cell:nth-child(2){grid-column:span 1}
+    .cell:nth-child(1),.cell:nth-child(2){grid-column:span 2}
+  }
+  @media(max-width:640px){
+    .bento{grid-template-columns:1fr;gap:16px}
+    .cell,.cell:nth-child(1),.cell:nth-child(2){grid-column:span 1}
+  }
+  .cell-legacy-hidden-marker{display:none}
   .cell:hover,.cell.open{border-color:var(--gold-lite);box-shadow:0 30px 66px -36px rgba(154,111,20,.55);transform:translateY(-4px)}
-  .cell .cn{font-size:22px;font-weight:700;letter-spacing:-.025em}
-  .cell .cs{font-size:15px;color:var(--ink-2);margin-top:7px;line-height:1.5;font-weight:500}
-  .cell .cm{font-size:14.5px;line-height:1.6;color:var(--ink-2);max-height:0;opacity:0;margin-top:0;transition:max-height .55s cubic-bezier(.16,1,.3,1),opacity .45s,margin-top .45s}
-  .cell:hover .cm,.cell.open .cm{max-height:240px;opacity:1;margin-top:14px}
-  .cell .cv{display:block;margin-top:12px;font-family:var(--s);font-style:italic;font-size:17px;color:var(--gold);line-height:1.4}
+  .cell .cn{
+    font-family:var(--s);font-weight:400;font-style:normal;
+    font-size:clamp(22px,2.4vw,28px);color:var(--ink);letter-spacing:-.01em;
+    margin-bottom:0;
+  }
+  .cell:nth-child(1) .cn,.cell:nth-child(2) .cn{
+    font-style:italic;font-size:clamp(26px,2.9vw,34px);
+  }
+  .cell .cs{
+    font-size:15px;color:var(--ink-2);margin-top:14px;padding-top:14px;
+    border-top:1px solid rgba(201,168,76,.28);
+    line-height:1.55;font-weight:400;
+  }
+  .cell .cm{
+    font-size:14.5px;line-height:1.65;color:var(--ink-2);
+    max-height:0;opacity:0;margin-top:0;
+    transition:max-height .55s cubic-bezier(.16,1,.3,1),opacity .45s,margin-top .45s;
+  }
+  .cell:hover .cm,.cell.open .cm{max-height:280px;opacity:1;margin-top:16px}
+  .cell .cv{
+    display:block;margin-top:16px;font-family:var(--s);font-style:italic;
+    font-size:17px;color:var(--gold);line-height:1.45;
+  }
   .cell::after{content:'';position:absolute;left:0;bottom:0;width:100%;height:3px;background:var(--gold-lite);transform:scaleX(0);transform-origin:left;transition:transform .5s cubic-bezier(.16,1,.3,1)}
   .cell:hover::after,.cell.open::after{transform:scaleX(1)}
   .hint{text-align:center;font-size:13px;color:var(--ink-3);font-weight:500;margin-top:18px}
@@ -747,10 +818,10 @@
     </div>
 
     <div class="learn">
-      <div class="lc rv" data-d="1"><b>Su empresa</b><p>Quién es quién, qué se decidió, qué quedó abierto y por qué.</p></div>
-      <div class="lc rv" data-d="2"><b>Su criterio</b><p>Dónde cede y dónde no. Cómo decide usted, no cómo decide un manual.</p></div>
-      <div class="lc rv" data-d="3"><b>Sus frentes</b><p>Cada negociación, con su historia entera detrás. Nada empieza de cero.</p></div>
-      <div class="lc rv" data-d="4"><b>Lo que le ronda</b><p>Lo que piensa en voz alta y no le dice a nadie. Vuelve cuando hace falta.</p></div>
+      <div class="lc rv" data-d="1"><span class="lc-num">I</span><b>Su empresa</b><p>Quién es quién, qué se decidió, qué quedó abierto y por qué.</p></div>
+      <div class="lc rv" data-d="2"><span class="lc-num">II</span><b>Su criterio</b><p>Dónde cede y dónde no. Cómo decide usted, no cómo decide un manual.</p></div>
+      <div class="lc rv" data-d="3"><span class="lc-num">III</span><b>Sus frentes</b><p>Cada negociación, con su historia entera detrás. Nada empieza de cero.</p></div>
+      <div class="lc rv" data-d="4"><span class="lc-num">IV</span><b>Lo que le ronda</b><p>Lo que piensa en voz alta y no le dice a nadie. Vuelve cuando hace falta.</p></div>
     </div>
 
     <div class="cross rv">
@@ -1018,14 +1089,14 @@
     </p>
 
     <div class="bento">
-      <div class="cell rv" data-d="1"><p class="cn">Memoria</p><p class="cs">El corazón de Kluxor.</p><div class="cm">Todo lo que le cuenta queda, se conecta y vuelve cuando hace falta. Héctor no empieza de cero ninguna mañana.<span class="cv">Otros asistentes olvidan al cerrar. Kluxor no.</span></div></div>
-      <div class="cell rv" data-d="1"><p class="cn">Deal Room</p><p class="cs">Un expediente vivo por operación.</p><div class="cm">Contratos, informes, interesados, tareas y proyectos dentro de la negociación. Con su propio Héctor: lee lo que adjunta, convoca al Consejo y no la deja enfriarse.<span class="cv">Un CRM organiza contactos. Kluxor piensa la operación.</span></div></div>
-      <div class="cell rv" data-d="2"><p class="cn">Tareas y proyectos</p><p class="cs">Tableros del equipo, asignados.</p><div class="cm">Cree, reparta y siga el trabajo de todos. Cada persona recibe lo suyo al instante — y su Héctor se lo recuerda.<span class="cv">Un tablero muestra. Kluxor reparte y persigue.</span></div></div>
-      <div class="cell rv" data-d="2"><p class="cn">Mi Día</p><p class="cs">Su agenda por horas, con ruta.</p><div class="cm">Dónde estará a cada hora, qué encaja en cada tramo, cuánto se tarda entre paradas. El día montado.<span class="cv">Un calendario apunta. Kluxor organiza.</span></div></div>
-      <div class="cell rv" data-d="3"><p class="cn">Mis Lugares</p><p class="cs">Dónde durmió, comió, visitó.</p><div class="cm">Sus sitios guardados. Héctor los usa al planear cada ruta — sus datos ganan siempre a los de la máquina.<span class="cv">Un mapa busca. Kluxor le conoce.</span></div></div>
-      <div class="cell rv" data-d="3"><p class="cn">Vault Personal</p><p class="cs">Su caja fuerte de documentos.</p><div class="cm">Pactos, contratos, escrituras. A mano en cada negociación, lejos de miradas.<span class="cv">Una nube almacena. Kluxor custodia.</span></div></div>
-      <div class="cell rv" data-d="4"><p class="cn">Planificador IA</p><p class="cs">El trabajo, sobre disponibilidad real.</p><div class="cm">Quién puede, cuándo puede, qué pesa más. El plan del equipo sin reunirse para planificar.<span class="cv">Se acabó reunirse para repartir trabajo.</span></div></div>
-      <div class="cell rv" data-d="4"><p class="cn">Patrimonio</p><p class="cs">Finanzas, holdings, compliance.</p><div class="cm">Tesorería, estructura societaria y documentos del grupo. Los especialistas citan fuentes oficiales — verificable.<span class="cv">Lo que exigía tres despachos.</span></div></div>
+      <div class="cell rv" data-d="1"><span class="cn-num">I</span><p class="cn">Memoria</p><p class="cs">El corazón de Kluxor.</p><div class="cm">Todo lo que le cuenta queda, se conecta y vuelve cuando hace falta. Héctor no empieza de cero ninguna mañana.<span class="cv">Otros asistentes olvidan al cerrar. Kluxor no.</span></div></div>
+      <div class="cell rv" data-d="1"><span class="cn-num">II</span><p class="cn">Deal Room</p><p class="cs">Un expediente vivo por operación.</p><div class="cm">Contratos, informes, interesados, tareas y proyectos dentro de la negociación. Con su propio Héctor: lee lo que adjunta, convoca al Consejo y no la deja enfriarse.<span class="cv">Un CRM organiza contactos. Kluxor piensa la operación.</span></div></div>
+      <div class="cell rv" data-d="2"><span class="cn-num">III</span><p class="cn">Tareas y proyectos</p><p class="cs">Tableros del equipo, asignados.</p><div class="cm">Cree, reparta y siga el trabajo de todos. Cada persona recibe lo suyo al instante — y su Héctor se lo recuerda.<span class="cv">Un tablero muestra. Kluxor reparte y persigue.</span></div></div>
+      <div class="cell rv" data-d="2"><span class="cn-num">IV</span><p class="cn">Mi Día</p><p class="cs">Su agenda por horas, con ruta.</p><div class="cm">Dónde estará a cada hora, qué encaja en cada tramo, cuánto se tarda entre paradas. El día montado.<span class="cv">Un calendario apunta. Kluxor organiza.</span></div></div>
+      <div class="cell rv" data-d="3"><span class="cn-num">V</span><p class="cn">Mis Lugares</p><p class="cs">Dónde durmió, comió, visitó.</p><div class="cm">Sus sitios guardados. Héctor los usa al planear cada ruta — sus datos ganan siempre a los de la máquina.<span class="cv">Un mapa busca. Kluxor le conoce.</span></div></div>
+      <div class="cell rv" data-d="3"><span class="cn-num">VI</span><p class="cn">Vault Personal</p><p class="cs">Su caja fuerte de documentos.</p><div class="cm">Pactos, contratos, escrituras. A mano en cada negociación, lejos de miradas.<span class="cv">Una nube almacena. Kluxor custodia.</span></div></div>
+      <div class="cell rv" data-d="4"><span class="cn-num">VII</span><p class="cn">Planificador IA</p><p class="cs">El trabajo, sobre disponibilidad real.</p><div class="cm">Quién puede, cuándo puede, qué pesa más. El plan del equipo sin reunirse para planificar.<span class="cv">Se acabó reunirse para repartir trabajo.</span></div></div>
+      <div class="cell rv" data-d="4"><span class="cn-num">VIII</span><p class="cn">Patrimonio</p><p class="cs">Finanzas, holdings, compliance.</p><div class="cm">Tesorería, estructura societaria y documentos del grupo. Los especialistas citan fuentes oficiales — verificable.<span class="cv">Lo que exigía tres despachos.</span></div></div>
     </div>
     <p class="hint rv">Pase el ratón por cada pieza — o tóquela en el móvil.</p>
   </div>
