@@ -1284,9 +1284,29 @@ Reglas:
           });
           if (fixedTasks.length > 0) incidents.push({ type: "stale-date-fix", tasks: fixedTasks });
         }
-        if (propositiveIncident) {
-          incidents.push({ type: "non-propositive-summary", ...propositiveIncident });
-        }
+        // Ticket "non-propositive-summary" eliminado (14/07/2026, falso
+        // positivo por diseño). La reescritura propositiva sigue haciéndose
+        // arriba (propositive-summary-v1 en L1120-1129 y propositive-prose-v1
+        // en L1250-1259) — cinturón invisible que evita que "Proyecto FJU
+        // creado" confunda al CEO cuando aún tiene que pulsar "Crear todo".
+        //
+        // Pero por CONSTRUCCIÓN del código, propositiveIncident solo se
+        // llena cuando hay proposal válido con confirmRequired !== false
+        // (y actions.length > 0 en el caso de prose). Es decir, cada vez
+        // que se llenaba, el flujo era CORRECTO: Héctor emitió ficha oro,
+        // el proyecto se creó tras "Crear todo". El ticket era ruido en
+        // Mantenimiento (0% cierto positivo).
+        //
+        // HectorPanel (Sala de Mando) ya opera así desde siempre: aplica
+        // rewriteToPropositive a thought/summary/reply sin registrar ticket.
+        // Este cambio alinea HectorDirectView con ese patrón.
+        //
+        // Los detectores REALES (false-success, fabricated-tasks,
+        // stale-date-fix) siguen registrando incidentes intactos.
+        //
+        // NO reactivar sin plan aparte: si en el futuro rewriteToPropositive
+        // se aplicara a prosa libre SIN proposal, sí sería útil registrar
+        // — pero requiere rediseño del consumidor, no del ticket.
         if (fabricatedRemoved.length > 0) {
           incidents.push({ type: "fabricated-tasks", removed: fabricatedRemoved });
         }
