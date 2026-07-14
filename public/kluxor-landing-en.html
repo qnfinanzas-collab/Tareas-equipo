@@ -500,42 +500,70 @@
   .dark-band .recall{color:#F5F0E8}
   .dark-band .chip{background:rgba(201,168,76,.10);color:#F5F0E8;border-color:rgba(201,168,76,.28)}
 
-  /* Prompt 2 (2026-07-14): biological brain, full viewport.
-     Canvas 2D with organic gold blobs, canvas absolute top (70vh), copy below. */
+  /* Prompt 2 v2 (2026-07-14): anatomical biological brain, full viewport.
+     SVG with recognisable brain silhouette (frontal, two hemispheres) +
+     gold neurons lighting up INSIDE the silhouette (clipPath). Copy on top,
+     brain below. */
   .brain-hero{
     position:relative;min-height:100vh;min-height:100dvh;
-    display:flex;flex-direction:column;overflow:hidden;padding:0;
+    display:flex;flex-direction:column;overflow:hidden;
+    padding:clamp(60px,8vh,90px) 0 clamp(30px,5vh,60px);
     background:#0A0A0A;color:#F5F0E8;
   }
-  .brain-canvas{
-    position:absolute;top:0;left:0;
-    width:100%;height:70vh;height:70dvh;
-    display:block;z-index:1;pointer-events:none;
-  }
   .brain-copy{
-    position:relative;z-index:2;margin-top:auto;
-    padding:0 clamp(20px,5vw,64px) clamp(48px,7vh,80px);
-    text-align:center;
+    padding:0 clamp(20px,5vw,64px);text-align:center;flex-shrink:0;
   }
-  .brain-copy .kicker{display:block;margin-bottom:16px;color:var(--gold-lite)}
+  .brain-copy .kicker{display:block;margin-bottom:14px;color:var(--gold-lite)}
   .brain-copy h2{
-    font-family:var(--s);font-weight:400;font-style:normal;
-    font-size:clamp(30px,4.6vw,60px);line-height:1.12;letter-spacing:-.015em;
-    color:#F5F0E8;margin-bottom:24px;
+    font-family:var(--s);font-weight:400;
+    font-size:clamp(28px,4.4vw,58px);line-height:1.12;letter-spacing:-.015em;
+    color:#F5F0E8;margin-bottom:20px;
   }
   .brain-copy h2 em{
     font-family:var(--s);font-style:italic;font-weight:400;color:var(--gold-lite);
   }
   .brain-copy .lede{
-    color:#C8C4B6;max-width:62ch;margin:0 auto;
-    font-size:clamp(15px,1.7vw,18px);line-height:1.6;
+    color:#C8C4B6;max-width:60ch;margin:0 auto;
+    font-size:clamp(14px,1.55vw,17px);line-height:1.6;
   }
-  @media(max-height:700px){
-    .brain-canvas{height:58vh;height:58dvh}
-    .brain-copy{padding-bottom:32px}
+  .brain-stage{
+    flex:1;display:flex;align-items:center;justify-content:center;
+    min-height:0;padding:clamp(16px,3vh,40px) 20px 0;
   }
+  .brain-svg{
+    width:100%;max-width:780px;height:auto;max-height:100%;
+    display:block;pointer-events:none;
+  }
+  .brain-svg .brain-outline{
+    fill:none;stroke:#C9A84C;stroke-width:1.7;
+    opacity:0;transition:opacity 1.4s ease-out;
+  }
+  .brain-svg .brain-outline.on{opacity:.62}
+  .brain-svg .brain-lines path{
+    fill:none;stroke:#C9A84C;stroke-width:.9;stroke-linecap:round;
+    opacity:0;transition:opacity 1.8s ease-out;
+  }
+  .brain-svg .brain-lines.on path{opacity:.35}
+  .brain-svg .n-glow{
+    fill:rgba(232,201,106,.16);
+    opacity:0;transition:opacity .9s ease-out;
+  }
+  .brain-svg .n-glow.on{opacity:1}
+  .brain-svg .n-dot{
+    fill:#E8C96A;
+    opacity:0;transform-origin:center;
+    transition:opacity .7s ease-out;
+    filter:drop-shadow(0 0 3px rgba(232,201,106,.85));
+  }
+  .brain-svg .n-dot.on{opacity:1}
+  .brain-svg .edge{
+    fill:none;stroke:#C9A84C;stroke-linecap:round;
+    opacity:0;transition:opacity 1.3s ease-out;
+  }
+  .brain-svg .edge.on{opacity:.42}
   @media(max-width:640px){
-    .brain-canvas{height:60vh;height:60dvh}
+    .brain-hero{padding-top:clamp(48px,7vh,70px)}
+    .brain-svg{max-width:100%}
   }
   footer{background:#0B0B0A;padding:26px 20px 44px;text-align:center;font-size:12px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#57534B;border-top:1px solid rgba(201,168,76,.14)}
 
@@ -573,18 +601,44 @@
   </div>
 </section>
 
-<!-- ═══ LEARNS FAST — biological brain (Prompt 2, 2026-07-14).
-     Replaces the SVG web with a Canvas 2D of organic gold blobs that
-     grow across 20 s up to ~50 neurons, then freeze. Resets when the
-     block re-enters the viewport. Full 100vh block. Old brain IIFE
-     (JS ~L1084) stays inert because #net no longer exists — the
-     early guard `if(!svg)` bails out. ═══ -->
+<!-- ═══ LEARNS FAST — anatomical biological brain (Prompt 2 v2,
+     2026-07-14). Replaces v1 (canvas of scattered neurons) with an SVG
+     silhouette recognisable as a human brain (frontal view, two
+     hemispheres with evocative gyri). Copy on top, brain below. Neurons
+     appear INSIDE the silhouette via clipPath. Old canvas IIFE (brainNet)
+     stays inert via its own guard `if (!canvas) return;`. ═══ -->
 <section class="brain-hero" id="memoria-brain">
-  <canvas id="brainNet" class="brain-canvas" aria-hidden="true"></canvas>
   <div class="brain-copy">
     <p class="kicker rv">Learns fast</p>
     <h2 class="rv" data-d="1">A mind that thinks.<br><em>And that remembers you</em>.</h2>
     <p class="lede rv" data-d="2">Héctor learns. The more you talk and interact with him, the better he knows you — your business, your judgment, your priorities. He does not give ready-made answers: he thinks with what you teach him.</p>
+  </div>
+  <div class="brain-stage">
+    <svg id="brainSvg" class="brain-svg" viewBox="0 0 800 550" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <defs>
+        <clipPath id="brainClip">
+          <path d="M 400 48 C 355 44, 305 50, 268 68 C 228 85, 192 112, 165 145 C 138 180, 118 220, 108 265 C 98 315, 106 362, 130 402 C 160 445, 208 468, 260 478 C 300 486, 345 484, 380 486 C 390 500, 410 500, 420 486 C 455 484, 500 486, 540 478 C 592 468, 640 445, 670 402 C 694 362, 702 315, 692 265 C 682 220, 662 180, 635 145 C 608 112, 572 85, 532 68 C 495 50, 445 44, 400 48 Z"/>
+        </clipPath>
+      </defs>
+      <path class="brain-outline" d="M 400 48 C 355 44, 305 50, 268 68 C 228 85, 192 112, 165 145 C 138 180, 118 220, 108 265 C 98 315, 106 362, 130 402 C 160 445, 208 468, 260 478 C 300 486, 345 484, 380 486 C 390 500, 410 500, 420 486 C 455 484, 500 486, 540 478 C 592 468, 640 445, 670 402 C 694 362, 702 315, 692 265 C 682 220, 662 180, 635 145 C 608 112, 572 85, 532 68 C 495 50, 445 44, 400 48 Z"/>
+      <g class="brain-lines">
+        <path d="M 400 52 Q 402 180 400 300 Q 398 400 400 484"/>
+        <path d="M 232 110 Q 285 96 338 116"/>
+        <path d="M 462 116 Q 515 96 568 110"/>
+        <path d="M 180 180 Q 250 168 320 190"/>
+        <path d="M 480 190 Q 550 168 620 180"/>
+        <path d="M 155 250 Q 240 240 335 262"/>
+        <path d="M 465 262 Q 560 240 645 250"/>
+        <path d="M 175 320 Q 260 312 340 335"/>
+        <path d="M 460 335 Q 540 312 625 320"/>
+        <path d="M 210 390 Q 285 380 350 395"/>
+        <path d="M 450 395 Q 515 380 590 390"/>
+      </g>
+      <g clip-path="url(#brainClip)">
+        <g id="brainEdges"></g>
+        <g id="brainNodes"></g>
+      </g>
+    </svg>
   </div>
 </section>
 
@@ -1352,11 +1406,143 @@
   }
 })();
 
-/* ═══ BIOLOGICAL BRAIN (Prompt 2 · 2026-07-14) ══════════════════════════════
-   Canvas 2D with organic gold blobs that gradually appear over 20 s until
-   forming a network of ~50 neurons. Freezes when done, resets on re-entry
-   into viewport. No mouse interaction.
+/* ═══ ANATOMICAL BIOLOGICAL BRAIN (Prompt 2 v2 · 2026-07-14) ═════════════════
+   SVG silhouette recognisable as a human brain (frontal view, two hemispheres)
+   + gold neurons lighting up INSIDE the silhouette (clipPath). Neurons appear
+   gradually over 20 s up to ~45. Freezes when done, resets on re-entry.
+   The v1 canvas IIFE below stays inert via its own `if (!canvas) return;`.
    ============================================================================ */
+(function(){
+  const svg = document.getElementById('brainSvg');
+  if (!svg) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  const nodesG  = document.getElementById('brainNodes');
+  const edgesG  = document.getElementById('brainEdges');
+  const outline = svg.querySelector('.brain-outline');
+  const lines   = svg.querySelector('.brain-lines');
+  const reduce  = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const S = {
+    neurons: [], tStart: 0, nextSpawnAt: 0,
+    total: 45, duration: 20000,
+    done: false, inView: false,
+  };
+
+  const CX = 400, CY = 275, RX = 275, RY = 205;
+  function randomBrainPoint(){
+    for (let i = 0; i < 40; i++){
+      const x = 130 + Math.random() * 540;
+      const y = 80 + Math.random() * 400;
+      const dx = (x - CX) / RX, dy = (y - CY) / RY;
+      if (dx*dx + dy*dy < 0.90 && Math.abs(x - CX) > 22) return { x, y };
+    }
+    return { x: CX + (Math.random() - 0.5) * 200, y: CY + (Math.random() - 0.5) * 150 };
+  }
+
+  function spawnNeuron(){
+    const p = randomBrainPoint();
+    const isBig = Math.random() < 0.20;
+    const r = isBig ? 4.5 + Math.random() * 2.5 : 2.2 + Math.random() * 2;
+
+    const glow = document.createElementNS(NS, 'circle');
+    glow.setAttribute('cx', p.x);
+    glow.setAttribute('cy', p.y);
+    glow.setAttribute('r', r * 3.6);
+    glow.setAttribute('class', 'n-glow');
+    nodesG.appendChild(glow);
+
+    const dot = document.createElementNS(NS, 'circle');
+    dot.setAttribute('cx', p.x);
+    dot.setAttribute('cy', p.y);
+    dot.setAttribute('r', r);
+    dot.setAttribute('class', 'n-dot');
+    nodesG.appendChild(dot);
+
+    requestAnimationFrame(() => {
+      glow.classList.add('on');
+      dot.classList.add('on');
+    });
+
+    const neuron = { x: p.x, y: p.y, r };
+    S.neurons.push(neuron);
+
+    if (S.neurons.length > 1){
+      const others = S.neurons.slice(0, -1)
+        .map((m, i) => ({ i, d: Math.hypot(m.x - p.x, m.y - p.y) }))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 2 + Math.floor(Math.random() * 2));
+      others.forEach(({ i }) => {
+        const other = S.neurons[i];
+        if (Math.hypot(other.x - p.x, other.y - p.y) > 240) return;
+        const dx = other.x - p.x, dy = other.y - p.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const off = (Math.random() - 0.5) * len * 0.28;
+        const cpX = (p.x + other.x) / 2 + (-dy / len) * off;
+        const cpY = (p.y + other.y) / 2 + ( dx / len) * off;
+        const path = document.createElementNS(NS, 'path');
+        path.setAttribute('d', `M${p.x} ${p.y} Q${cpX} ${cpY} ${other.x} ${other.y}`);
+        path.setAttribute('class', 'edge');
+        path.setAttribute('stroke-width', (0.55 + Math.random() * 0.65).toFixed(2));
+        edgesG.appendChild(path);
+        requestAnimationFrame(() => path.classList.add('on'));
+      });
+    }
+  }
+
+  function reset(){
+    outline.classList.add('on');
+    lines.classList.add('on');
+    nodesG.innerHTML = '';
+    edgesG.innerHTML = '';
+    S.neurons = [];
+    S.done = false;
+    S.tStart = performance.now();
+    S.nextSpawnAt = S.tStart + 400;
+    setTimeout(() => {
+      if (!S.inView) return;
+      for (let i = 0; i < 3; i++) spawnNeuron();
+    }, 500);
+    if (reduce){
+      setTimeout(() => {
+        if (!S.inView) return;
+        while (S.neurons.length < S.total) spawnNeuron();
+        S.done = true;
+      }, 300);
+      return;
+    }
+  }
+
+  let raf = 0;
+  function tick(){
+    const now = performance.now();
+    if (!S.done && now >= S.nextSpawnAt && S.neurons.length < S.total){
+      spawnNeuron();
+      S.nextSpawnAt = now + (500 + Math.random() * 300);
+    }
+    if (!S.done && S.neurons.length >= S.total && now - S.tStart > S.duration){
+      S.done = true;
+    }
+    if (!S.done && S.inView) raf = requestAnimationFrame(tick);
+  }
+
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting){
+        if (!S.inView){
+          S.inView = true;
+          reset();
+          if (!reduce) raf = requestAnimationFrame(tick);
+        }
+      } else {
+        S.inView = false;
+        cancelAnimationFrame(raf);
+      }
+    });
+  }, { threshold: 0.25 });
+  io.observe(svg.parentElement);
+})();
+
+/* ═══ BRAIN v1 (canvas — inert after v2) ═══════════════════════════════════ */
 (function(){
   const canvas = document.getElementById('brainNet');
   if (!canvas) return;
