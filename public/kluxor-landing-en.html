@@ -455,6 +455,50 @@
   .close .btn{margin-top:36px;background:var(--gold-lite);border-color:var(--gold-lite);color:#0B0B0A}
   .close .btn:hover{background:transparent;color:var(--gold-lite)}
   .quote{margin-top:60px;font-family:var(--s);font-style:italic;font-size:clamp(15px,1.6vw,18px);color:#6E6A61}
+
+  /* Prompt 1 redesign (2026-07-14): H monogram, gold divider, additive
+     dark bands, Seneca quote in hero, learn-fast section moved out of .mem. */
+  .mono-h{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:96px;height:96px;border-radius:50%;
+    background:#F5F0E8;border:1px solid var(--gold-lite);
+    font-family:var(--s);font-weight:400;font-size:56px;line-height:1;color:var(--gold-lite);
+    margin-bottom:40px;
+  }
+  @media(max-width:640px){.mono-h{width:78px;height:78px;font-size:44px;margin-bottom:28px}}
+  .hero-quote{
+    margin-top:34px;font-family:var(--s);font-style:italic;
+    font-size:clamp(15px,1.6vw,18px);color:var(--ink-2);
+  }
+  .divisor-oro{
+    display:flex;align-items:center;justify-content:center;gap:22px;
+    padding:80px clamp(20px,5vw,64px);
+  }
+  .divisor-oro::before,.divisor-oro::after{
+    content:"";display:block;height:1px;width:120px;background:var(--gold-lite);
+  }
+  .divisor-oro span{color:var(--gold-lite);font-size:16px;line-height:1}
+  @media(max-width:640px){.divisor-oro{padding:56px 20px;gap:14px}.divisor-oro::before,.divisor-oro::after{width:56px}}
+  .learn-fast-sec{padding-top:clamp(70px,10vh,110px);padding-bottom:clamp(60px,9vh,100px)}
+  .dark-band{background:#0A0A0A;color:#F5F0E8}
+  .dark-band .kicker{color:var(--gold-lite)}
+  .dark-band h2,.dark-band h3{color:#F5F0E8}
+  .dark-band h2 em,.dark-band h3 em,.dark-band .growh em,.dark-band .moat em{color:var(--gold-lite)}
+  .dark-band .big,.dark-band .lede,.dark-band p{color:#D8D3C7}
+  .dark-band .lc b,.dark-band .cx-h,.dark-band .cx-b b{color:#F5F0E8}
+  .dark-band .lc p,.dark-band .cx-b,.dark-band .cx-f{color:#D8D3C7}
+  .dark-band .bb-top{border-bottom-color:rgba(201,168,76,.28)}
+  .dark-band .bb-count b{color:#F5F0E8}
+  .dark-band .bb-count span,.dark-band .bb-stage b{color:var(--gold-lite)}
+  .dark-band .bb-stage span{color:#F5F0E8}
+  .dark-band .tline{background:rgba(245,240,232,.15)}
+  .dark-band .core-lbl{color:#F5F0E8}
+  .dark-band #core{fill:#F5F0E8;stroke:var(--gold-lite)}
+  .dark-band .lab{background:#131313;border-color:rgba(201,168,76,.22)}
+  .dark-band .lab-bar{background:#1a1a1a;border-bottom-color:rgba(245,240,232,.08);color:#8A857A}
+  .dark-band .ans{color:#D8D3C7}
+  .dark-band .recall{color:#F5F0E8}
+  .dark-band .chip{background:rgba(201,168,76,.10);color:#F5F0E8;border-color:rgba(201,168,76,.28)}
   footer{background:#0B0B0A;padding:26px 20px 44px;text-align:center;font-size:12px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#57534B;border-top:1px solid rgba(201,168,76,.14)}
 
   .rv{opacity:0;transform:translateY(28px);transition:opacity .8s cubic-bezier(.16,1,.3,1),transform .8s cubic-bezier(.16,1,.3,1)}
@@ -480,16 +524,44 @@
 <!-- ═══ HERO ═══ -->
 <section class="hero">
   <div class="wrap">
-    <div class="pill rv"><i></i>The CEO’s operating system</div>
-    <h1 class="rv" data-d="1">It’s not a tool.<br>It’s your <em>second memory</em>.</h1>
+    <div class="mono-h rv" aria-hidden="true">H</div>
+    <h1 class="rv" data-d="1">You lead.<br><em>I never forget</em>.</h1>
     <p class="lede rv" data-d="2">
-      Héctor, your Chief of Staff. <b>Unload your mind on him</b> —what you think, what worries you,
-      what you decided and why— and he holds it for you. He learns your business and your judgement,
-      <b>grows every day you talk to him</b>, and directs five specialists who work for you.
+      I’m Héctor. Your Chief of Staff. I organise your day, run your team,
+      follow your suppliers, keep your decisions, and give you back the one
+      asset that never comes back: your time.
     </p>
-    <div class="btns rv" data-d="3">
-      <a class="btn" href="/login">Sign in</a>
-      <a class="btn ghost" href="#memoria">See how he learns</a>
+    <p class="hero-quote rv" data-d="3">“It is not that we have a short time to live, but that we waste a lot of it.” — Seneca</p>
+  </div>
+</section>
+
+<!-- ═══ HE LEARNS FAST — sub-block moved out of .mem (Prompt 1). Wrapped
+     in .learn-fast-sec + .dark-band for the black background. Internal IDs
+     (memn, stg, stgt, net, edges, nodes, core, fill, marks) preserved so
+     the brain animation keeps working. ═══ -->
+<section class="learn-fast-sec dark-band center">
+  <div class="wrap">
+    <p class="kicker rv">He learns fast</p>
+    <h3 class="growh rv" data-d="1">Every decision you make today,<br>he processes <em>today</em>.</h3>
+
+    <div class="brainbox rv" data-d="2">
+      <div class="bb-top">
+        <div class="bb-count"><b id="memn">0</b><span>connected memories</span></div>
+        <div class="bb-stage"><b id="stg">Day 1</b><span id="stgt">He listens. Whatever you tell him is never lost again.</span></div>
+      </div>
+
+      <div class="brain">
+        <svg id="net" viewBox="0 0 900 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <g id="edges"></g><g id="nodes"></g>
+          <circle id="core" cx="450" cy="200" r="26"/>
+        </svg>
+        <span class="core-lbl">Héctor</span>
+      </div>
+
+      <div class="track">
+        <div class="tline"><i id="fill"></i></div>
+        <div class="tmarks" id="marks"></div>
+      </div>
     </div>
   </div>
 </section>
@@ -605,35 +677,15 @@
       <span class="cx-f">2 deals · 1 pattern · no one else saw it</span>
     </div>
 
-    <p class="kicker rv" style="margin-top:64px">He learns fast</p>
-    <h3 class="growh rv" data-d="1">Every decision you make today,<br>he processes <em>today</em>.</h3>
-
-    <div class="brainbox rv" data-d="2">
-      <div class="bb-top">
-        <div class="bb-count"><b id="memn">0</b><span>connected memories</span></div>
-        <div class="bb-stage"><b id="stg">Day 1</b><span id="stgt">He listens. Whatever you tell him is never lost again.</span></div>
-      </div>
-
-      <div class="brain">
-        <svg id="net" viewBox="0 0 900 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-          <g id="edges"></g><g id="nodes"></g>
-          <circle id="core" cx="450" cy="200" r="26"/>
-        </svg>
-        <span class="core-lbl">Héctor</span>
-      </div>
-
-      <div class="track">
-        <div class="tline"><i id="fill"></i></div>
-        <div class="tmarks" id="marks"></div>
-      </div>
-    </div>
-
     <p class="moat rv">Switching tools costs you an afternoon.<br><em>Starting your memory over doesn’t.</em></p>
   </div>
 </section>
 
 <!-- ═══ EL CONSEJO ═══ -->
-<section class="delib-sec center">
+<!-- Divider A · between memory block and Your cabinet. -->
+<div class="divisor-oro" aria-hidden="true"><span>◆</span></div>
+
+<section class="delib-sec dark-band center">
   <div class="wrap">
     <p class="kicker rv">Your cabinet</p>
     <h2 class="rv" data-d="1">Héctor doesn’t work alone.<br><em>He runs a cabinet.</em></h2>
@@ -682,7 +734,7 @@
 </section>
 
 <!-- ═══ DEAL ROOM ═══ -->
-<section class="dr-sec center">
+<section class="dr-sec dark-band center">
   <div class="wrap">
     <p class="kicker rv">Deal Room</p>
     <h2 class="rv" data-d="1">A deal isn’t a task.<br>It’s a <em>file that thinks</em>.</h2>
@@ -824,6 +876,9 @@
 </section>
 
 <!-- ═══ EL SALTO ═══ -->
+<!-- Divider B · between "Away from the office" and "The leap". -->
+<div class="divisor-oro" aria-hidden="true"><span>◆</span></div>
+
 <section class="flujo-sec center">
   <div class="wrap">
     <p class="kicker rv">The leap</p>
@@ -869,7 +924,7 @@
 <section class="bento-sec center">
   <div class="wrap">
     <p class="kicker rv">All in one</p>
-    <h2 class="rv" data-d="1">Five scattered tools,<br>or <em>one conversation</em>.</h2>
+    <h2 class="rv" data-d="1">Five scattered services,<br>or <em>one conversation</em>.</h2>
     <p class="big rv" data-d="2">
       Tasks, projects, CRM, calendar, routes, documents, advice. Everything you handle today with
       five subscriptions that don’t talk to each other — and don’t know you.
