@@ -499,6 +499,44 @@
   .dark-band .ans{color:#D8D3C7}
   .dark-band .recall{color:#F5F0E8}
   .dark-band .chip{background:rgba(201,168,76,.10);color:#F5F0E8;border-color:rgba(201,168,76,.28)}
+
+  /* Prompt 2 (2026-07-14): biological brain, full viewport.
+     Canvas 2D with organic gold blobs, canvas absolute top (70vh), copy below. */
+  .brain-hero{
+    position:relative;min-height:100vh;min-height:100dvh;
+    display:flex;flex-direction:column;overflow:hidden;padding:0;
+    background:#0A0A0A;color:#F5F0E8;
+  }
+  .brain-canvas{
+    position:absolute;top:0;left:0;
+    width:100%;height:70vh;height:70dvh;
+    display:block;z-index:1;pointer-events:none;
+  }
+  .brain-copy{
+    position:relative;z-index:2;margin-top:auto;
+    padding:0 clamp(20px,5vw,64px) clamp(48px,7vh,80px);
+    text-align:center;
+  }
+  .brain-copy .kicker{display:block;margin-bottom:16px;color:var(--gold-lite)}
+  .brain-copy h2{
+    font-family:var(--s);font-weight:400;font-style:normal;
+    font-size:clamp(30px,4.6vw,60px);line-height:1.12;letter-spacing:-.015em;
+    color:#F5F0E8;margin-bottom:24px;
+  }
+  .brain-copy h2 em{
+    font-family:var(--s);font-style:italic;font-weight:400;color:var(--gold-lite);
+  }
+  .brain-copy .lede{
+    color:#C8C4B6;max-width:62ch;margin:0 auto;
+    font-size:clamp(15px,1.7vw,18px);line-height:1.6;
+  }
+  @media(max-height:700px){
+    .brain-canvas{height:58vh;height:58dvh}
+    .brain-copy{padding-bottom:32px}
+  }
+  @media(max-width:640px){
+    .brain-canvas{height:60vh;height:60dvh}
+  }
   footer{background:#0B0B0A;padding:26px 20px 44px;text-align:center;font-size:12px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:#57534B;border-top:1px solid rgba(201,168,76,.14)}
 
   .rv{opacity:0;transform:translateY(28px);transition:opacity .8s cubic-bezier(.16,1,.3,1),transform .8s cubic-bezier(.16,1,.3,1)}
@@ -535,34 +573,18 @@
   </div>
 </section>
 
-<!-- ═══ HE LEARNS FAST — sub-block moved out of .mem (Prompt 1). Wrapped
-     in .learn-fast-sec + .dark-band for the black background. Internal IDs
-     (memn, stg, stgt, net, edges, nodes, core, fill, marks) preserved so
-     the brain animation keeps working. ═══ -->
-<section class="learn-fast-sec dark-band center">
-  <div class="wrap">
-    <p class="kicker rv">He learns fast</p>
-    <h3 class="growh rv" data-d="1">Every decision you make today,<br>he processes <em>today</em>.</h3>
-
-    <div class="brainbox rv" data-d="2">
-      <div class="bb-top">
-        <div class="bb-count"><b id="memn">0</b><span>connected memories</span></div>
-        <div class="bb-stage"><b id="stg">Day 1</b><span id="stgt">He listens. Whatever you tell him is never lost again.</span></div>
-      </div>
-
-      <div class="brain">
-        <svg id="net" viewBox="0 0 900 400" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-          <g id="edges"></g><g id="nodes"></g>
-          <circle id="core" cx="450" cy="200" r="26"/>
-        </svg>
-        <span class="core-lbl">Héctor</span>
-      </div>
-
-      <div class="track">
-        <div class="tline"><i id="fill"></i></div>
-        <div class="tmarks" id="marks"></div>
-      </div>
-    </div>
+<!-- ═══ LEARNS FAST — biological brain (Prompt 2, 2026-07-14).
+     Replaces the SVG web with a Canvas 2D of organic gold blobs that
+     grow across 20 s up to ~50 neurons, then freeze. Resets when the
+     block re-enters the viewport. Full 100vh block. Old brain IIFE
+     (JS ~L1084) stays inert because #net no longer exists — the
+     early guard `if(!svg)` bails out. ═══ -->
+<section class="brain-hero" id="memoria-brain">
+  <canvas id="brainNet" class="brain-canvas" aria-hidden="true"></canvas>
+  <div class="brain-copy">
+    <p class="kicker rv">Learns fast</p>
+    <h2 class="rv" data-d="1">A mind that thinks.<br><em>And that remembers you</em>.</h2>
+    <p class="lede rv" data-d="2">Héctor learns. The more you talk and interact with him, the better he knows you — your business, your judgment, your priorities. He does not give ready-made answers: he thinks with what you teach him.</p>
   </div>
 </section>
 
@@ -1328,6 +1350,213 @@
       c.classList.toggle('open');
     }));
   }
+})();
+
+/* ═══ BIOLOGICAL BRAIN (Prompt 2 · 2026-07-14) ══════════════════════════════
+   Canvas 2D with organic gold blobs that gradually appear over 20 s until
+   forming a network of ~50 neurons. Freezes when done, resets on re-entry
+   into viewport. No mouse interaction.
+   ============================================================================ */
+(function(){
+  const canvas = document.getElementById('brainNet');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const section = canvas.parentElement;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let W = 0, H = 0, dpr = 1;
+  function resize(){
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = canvas.getBoundingClientRect();
+    W = rect.width || 800; H = rect.height || 500;
+    canvas.width  = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  const S = {
+    neurons: [], edges: [],
+    tStart: 0, done: false,
+    total: 50, duration: 20000,
+    nextSpawnAt: 0, inView: false,
+  };
+
+  function gaussian(){
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+
+  function makeBlob(size){
+    const N = 7 + Math.floor(Math.random() * 3);
+    const pts = [];
+    for (let i = 0; i < N; i++){
+      const a = (i / N) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
+      const r = size * (0.72 + Math.random() * 0.48);
+      pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+    }
+    return pts;
+  }
+
+  function spawnNeuron(){
+    const cx = W / 2, cy = H / 2;
+    let x, y, tries = 0;
+    do {
+      const ang = Math.random() * Math.PI * 2;
+      const r = Math.abs(gaussian()) * Math.min(W, H) * 0.30;
+      x = cx + Math.cos(ang) * r * 1.35;
+      y = cy + Math.sin(ang) * r * 0.85;
+      tries++;
+    } while ((x < 40 || x > W - 40 || y < 40 || y > H - 40) && tries < 10);
+
+    const bigOne = Math.random() < 0.16;
+    const size = bigOne ? 14 + Math.random() * 6 : 6 + Math.random() * 5;
+    const n = { x, y, size, blob: makeBlob(size), born: performance.now() };
+    S.neurons.push(n);
+
+    if (S.neurons.length > 1){
+      const others = S.neurons.slice(0, -1)
+        .map((m, i) => ({ i, d: Math.hypot(m.x - n.x, m.y - n.y) }))
+        .sort((a, b) => a.d - b.d)
+        .slice(0, 2 + Math.floor(Math.random() * 2));
+      others.forEach(({ i }) => {
+        const other = S.neurons[i];
+        const dx = other.x - n.x, dy = other.y - n.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const off = (Math.random() - 0.5) * len * 0.30;
+        S.edges.push({
+          a: n, b: other,
+          cpX: (n.x + other.x) / 2 + (-dy / len) * off,
+          cpY: (n.y + other.y) / 2 + ( dx / len) * off,
+          born: performance.now(),
+          width: 0.7 + Math.random() * 0.8,
+        });
+      });
+    }
+  }
+
+  function render(){
+    ctx.clearRect(0, 0, W, H);
+    const now = performance.now();
+
+    for (let i = 0; i < S.edges.length; i++){
+      const e = S.edges[i];
+      const age = (now - e.born) / 1400;
+      const alpha = Math.min(1, age) * 0.40;
+      if (alpha < 0.02) continue;
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(201, 168, 76, ' + alpha + ')';
+      ctx.lineWidth = e.width;
+      ctx.moveTo(e.a.x, e.a.y);
+      ctx.quadraticCurveTo(e.cpX, e.cpY, e.b.x, e.b.y);
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < S.neurons.length; i++){
+      const n = S.neurons[i];
+      const age = (now - n.born) / 900;
+      const t = Math.min(1, age);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const scale = 0.55 + eased * 0.45;
+
+      ctx.save();
+      ctx.translate(n.x, n.y);
+      ctx.scale(scale, scale);
+
+      const halo = ctx.createRadialGradient(0, 0, n.size * 0.3, 0, 0, n.size * 2.6);
+      halo.addColorStop(0,   'rgba(232, 201, 106, ' + (0.28 * eased) + ')');
+      halo.addColorStop(0.4, 'rgba(201, 168, 76, ' + (0.14 * eased) + ')');
+      halo.addColorStop(1,   'rgba(201, 168, 76, 0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(0, 0, n.size * 2.6, 0, Math.PI * 2);
+      ctx.fill();
+
+      const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, n.size * 1.4);
+      grad.addColorStop(0,    'rgba(255, 245, 210, ' + eased + ')');
+      grad.addColorStop(0.30, 'rgba(232, 201, 106, ' + eased + ')');
+      grad.addColorStop(0.70, 'rgba(201, 168, 76, '  + (eased * 0.85) + ')');
+      grad.addColorStop(1,    'rgba(139, 105, 20, '  + (eased * 0.55) + ')');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      const pts = n.blob;
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let k = 0; k < pts.length; k++){
+        const cur = pts[k], nxt = pts[(k + 1) % pts.length];
+        ctx.quadraticCurveTo(cur.x, cur.y, (cur.x + nxt.x) / 2, (cur.y + nxt.y) / 2);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      const core = ctx.createRadialGradient(0, 0, 0, 0, 0, n.size * 0.55);
+      core.addColorStop(0,   'rgba(255, 252, 240, ' + eased + ')');
+      core.addColorStop(0.5, 'rgba(255, 225, 150, ' + (eased * 0.75) + ')');
+      core.addColorStop(1,   'rgba(232, 201, 106, 0)');
+      ctx.fillStyle = core;
+      ctx.beginPath();
+      ctx.arc(0, 0, n.size * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  let raf = 0;
+  function tick(){
+    const now = performance.now();
+    if (!S.done && now >= S.nextSpawnAt && S.neurons.length < S.total){
+      spawnNeuron();
+      S.nextSpawnAt = now + (500 + Math.random() * 300);
+    }
+    render();
+    if (!S.done){
+      if (S.neurons.length >= S.total && now - S.tStart > S.duration){
+        S.done = true;
+      }
+      raf = requestAnimationFrame(tick);
+    } else {
+      const growing = S.neurons.some(n => now - n.born < 900)
+                   || S.edges.some(e => now - e.born < 1400);
+      if (growing) raf = requestAnimationFrame(tick);
+    }
+  }
+
+  function start(){
+    cancelAnimationFrame(raf);
+    resize();
+    S.neurons = []; S.edges = [];
+    S.tStart = performance.now();
+    S.nextSpawnAt = S.tStart;
+    S.done = false;
+    for (let i = 0; i < 4; i++) spawnNeuron();
+
+    if (reduce){
+      while (S.neurons.length < S.total) spawnNeuron();
+      const old = performance.now() - 1500;
+      S.neurons.forEach(n => n.born = old);
+      S.edges.forEach(e => e.born = old);
+      S.done = true;
+      render();
+      return;
+    }
+    raf = requestAnimationFrame(tick);
+  }
+
+  window.addEventListener('resize', () => { resize(); if (S.done) render(); });
+
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting){
+        if (!S.inView){ S.inView = true; start(); }
+      } else {
+        S.inView = false;
+        cancelAnimationFrame(raf);
+      }
+    });
+  }, { threshold: 0.20 });
+
+  requestAnimationFrame(() => { resize(); io.observe(section); });
 })();
 </script>
 </body>
