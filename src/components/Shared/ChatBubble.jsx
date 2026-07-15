@@ -141,6 +141,107 @@ export function ProposalExecutedBanner({ executedAt, executedActions, paddingLef
   );
 }
 
+// LinkifiedText — MNT-009 Fase 2 (Camino B-scoped, 15/07/2026).
+// Recibe texto plano de Héctor y un mapa {upperCode → {kind, id}}
+// construido desde el catálogo REAL del tenant. Detecta 3 tipos:
+//   · NEG-N     → negotiation (buscar en map).
+//   · CODE-N    → task del proyecto CODE (linkifyMap.patterns.taskProjectCodes)
+//                 — no navegamos a la tarea concreta porque solo tenemos code+num
+//                 en el texto (no el id de la tarea); onOpenTask recibe el
+//                 código para que el consumidor decida (buscar por code o
+//                 degradar a lista de tareas).
+//   · CODE      → project (si aparece aislado en el texto).
+// Códigos que no están en linkifyMap se dejan como texto plano (evita falsos
+// positivos sobre siglas inventadas por el LLM). Preserva saltos de línea
+// (whiteSpace pre-wrap del padre) usando fragments.
+function LinkifiedText({ text, linkifyMap, onOpenTask, onOpenNegotiation, onOpenProject }) {
+  if (!text || typeof text !== "string") return text || null;
+  const { codes, patterns } = linkifyMap || {};
+  if (!codes || codes.size === 0) return text;
+
+  // Regex único que caza cualquier candidato posible. Ordenado por
+  // especificidad: NEG-N y CODE-N antes que CODE suelto para evitar
+  // que el regex de CODE se coma el prefijo de un CODE-N.
+  const codeAlt = [...codes.keys()].map(escapeRe).join("|");
+  const taskAlt = [...(patterns?.taskProjectCodes || [])].map(escapeRe).join("|");
+  const parts = [];
+  if (taskAlt) parts.push(`\\b(${taskAlt})-\\d+\\b`);
+  if (codeAlt) parts.push(`\\b(${codeAlt})\\b`);
+  if (parts.length === 0) return text;
+  const RE = new RegExp(parts.join("|"), "g");
+
+  const out = [];
+  let cursor = 0;
+  let m;
+  while ((m = RE.exec(text)) !== null) {
+    if (m.index > cursor) out.push(text.slice(cursor, m.index));
+    const matched = m[0];
+    const upper = matched.toUpperCase();
+    // ¿Es CODE-N?
+    const dashIdx = matched.indexOf("-");
+    const isTaskLike = dashIdx > 0 && /\d/.test(matched.slice(dashIdx + 1));
+    let kind = null, id = null, label = matched;
+    if (isTaskLike) {
+      const projectCode = upper.slice(0, dashIdx);
+      const entry = codes.get(projectCode);
+      // Si el matched literal completo (NEG-100) está en el map, ese gana
+      // sobre la interpretación de "tarea del proyecto NEG".
+      const literalEntry = codes.get(upper);
+      if (literalEntry) {
+        kind = literalEntry.kind;
+        id = literalEntry.id;
+      } else if (entry && entry.kind === "project") {
+        kind = "task";
+        id = null; // no tenemos id de la tarea; degradación a onOpenTask con code
+        label = matched;
+      }
+    } else {
+      const entry = codes.get(upper);
+      if (entry) {
+        kind = entry.kind;
+        id = entry.id;
+      }
+    }
+    if (!kind) {
+      // No matcheó ninguna entidad real → texto plano.
+      out.push(matched);
+    } else {
+      const handler = kind === "task" ? onOpenTask
+                    : kind === "negotiation" ? onOpenNegotiation
+                    : kind === "project" ? onOpenProject
+                    : null;
+      const style = {
+        cursor: handler ? "pointer" : "default",
+        color: "#9A6F14",
+        background: "rgba(201,168,76,.10)",
+        borderBottom: "1px dotted #C9A84C",
+        padding: "0 3px",
+        fontWeight: 500,
+      };
+      out.push(
+        <span
+          key={`lnk-${m.index}`}
+          role={handler ? "link" : undefined}
+          tabIndex={handler ? 0 : undefined}
+          aria-label={handler ? `Abrir ${kind} ${matched}` : matched}
+          style={style}
+          onClick={handler ? () => handler(id != null ? id : matched) : undefined}
+          onKeyDown={handler ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handler(id != null ? id : matched); } } : undefined}
+        >
+          {matched}
+        </span>
+      );
+    }
+    cursor = m.index + matched.length;
+  }
+  if (cursor < text.length) out.push(text.slice(cursor));
+  return <>{out}</>;
+}
+
+function escapeRe(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export default function ChatBubble({
   message,
   userInitials,
@@ -156,6 +257,15 @@ export default function ChatBubble({
   // message.ruta. Misma idea que renderTaskList. HectorDirect lo pasa,
   // los demás no — sin él la card no aparece (degradación silenciosa).
   renderRuta,
+  // MNT-009 Fase 2 · Camino B-scoped (15/07/2026): mapa de códigos
+  // precomputado {kind, id} y handlers de navegación. Cuando Héctor
+  // menciona un código real del tenant (MAR, NEG-100, MAR-042…) lo
+  // envolvemos en un <span> clicable que abre la entidad. Si linkifyMap
+  // es null o falta un handler, degrada a texto plano sin romper.
+  linkifyMap = null,
+  onOpenTask,
+  onOpenNegotiation,
+  onOpenProject,
 }) {
   const isUser = message.role === "user";
   const text = message.text || "";
@@ -185,7 +295,15 @@ export default function ChatBubble({
           wordBreak: "break-word",
           border: message.error ? "1px solid #FCA5A5" : "none",
         }}>
-          {text}
+          {isUser || !linkifyMap ? text : (
+            <LinkifiedText
+              text={text}
+              linkifyMap={linkifyMap}
+              onOpenTask={onOpenTask}
+              onOpenNegotiation={onOpenNegotiation}
+              onOpenProject={onOpenProject}
+            />
+          )}
         </div>
       </div>
       {showTimestamp && message.ts && (

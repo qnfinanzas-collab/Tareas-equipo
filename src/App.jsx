@@ -16083,7 +16083,7 @@ Estructura recomendada de una respuesta con documento:
               onToggleFavorite={toggleFavoriteNegotiation}
             />;
           })()}
-          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} financeContext={financeContext} pendingExecBridge={pendingExecBridge} onConsumePendingExecBridge={()=>setPendingExecBridge(null)} onSaveCouncilDocument={saveCouncilDocument} onPersistRuta={saveDayPlan} onRequestSavePlace={(seed)=>{
+          {activeTab==="hector-direct" && <HectorDirectView data={data} userId={activeMember} authUid={authSession?.user?.id || null} onRunAgentActions={runAgentActions} onNavigate={setActiveTab} onOpenTask={id=>setOverlayTaskId(id)} onOpenNegotiation={openNegotiationById} onOpenProject={pid=>{ const idx=data.projects.findIndex(p=>p.id===pid); if(idx>=0){setAP(idx);setActiveTab("board");} }} financeContext={financeContext} pendingExecBridge={pendingExecBridge} onConsumePendingExecBridge={()=>setPendingExecBridge(null)} onSaveCouncilDocument={saveCouncilDocument} onPersistRuta={saveDayPlan} onRequestSavePlace={(seed)=>{
             // Prioridad de address al guardar una parada como lugar:
             //   1. seed.address del propio schema [RUTA] — Héctor lo emite
             //      cuando confirma la dirección postal por web_search

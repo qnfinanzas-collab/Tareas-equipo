@@ -10,7 +10,7 @@
 // Diseño: layout vertical fijo con header (64px), apertura colapsable,
 // chat scrollable (flex:1) y compositor de mensajes (input + mic + send).
 // Responsive: maxWidth 680px en desktop, 600px en tablet, 100% en móvil.
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { callAgentSafe, PLAIN_TEXT_RULE, HECTOR_SEARCH_TOOL } from "../lib/agent.js";
 
 // Reglas de uso de web_search para Héctor. Disparadores explícitos +
@@ -156,6 +156,7 @@ const HECTOR_RUTA_RULES = [
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, parseTasksList, cleanTasksListBlock, correctActionsDates, flattenRealTasks, detectProjectCodeFilter, validateTasksAgainstDatabase, rewriteToPropositive, collectHectorFailures, stripCeoProfile, buildSpecialistContext, parseRuta, cleanRutaBlock } from "../lib/agentActions.js";
 import { useCurrentLocation, hasUbicacionIntent } from "../lib/geolocation.js";
 import { filterVisibleProjects, filterVisibleNegotiations } from "../lib/visibility.js";
+import { detectMentionedContext, collectRecentTasks, collectMentionedTasks, collectRecentNegotiations, buildLinkifyMap } from "../lib/hectorContext.js";
 import DayPlanBlock from "./Shared/DayPlanBlock.jsx";
 import { formatCeoMemoryForPrompt } from "../lib/memory.js";
 import { isAccountOwner } from "../lib/auth.js";
@@ -346,12 +347,62 @@ CÓMO COMUNICARTE:
 `;
 }
 
-export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, financeContext, pendingExecBridge, onConsumePendingExecBridge, onSaveCouncilDocument, onRequestSavePlace, onPersistRuta }) {
+export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, onOpenTask, onOpenNegotiation, onOpenProject, financeContext, pendingExecBridge, onConsumePendingExecBridge, onSaveCouncilDocument, onRequestSavePlace, onPersistRuta }) {
   const userKey = userId != null ? userId : "anon";
   // Misma clave que usa HectorPanel.jsx → conversación compartida.
   const CHAT_KEY = `kluxor.hector.chat.${userKey}`;
   const userName = (data?.members || []).find(m => m.id === userId)?.name || "CEO";
   const userInitials = userName.split(" ").map(w => (w[0]||"").toUpperCase()).slice(0, 2).join("") || "CE";
+  const memberForCtx = (data?.members || []).find(m => m && m.id === userId) || null;
+
+  // MNT-009 Fase 2 · Camino B-scoped (15/07/2026): precomputamos el mapa
+  // de códigos reales visibles al member activo. ChatBubble/LinkifiedText
+  // usa este mapa para envolver códigos mencionados por Héctor en spans
+  // clicables. Se recalcula solo cuando cambian projects/negotiations o el
+  // member activo — no en cada render del chat.
+  const linkifyMap = useMemo(
+    () => buildLinkifyMap(data, memberForCtx),
+    [data?.projects, data?.negotiations, memberForCtx?.id, memberForCtx?.accountRole]
+  );
+
+  // Handler unificado para TaskListCard: recibe {code, title} de una tarea
+  // emitida por Héctor en [TASKS_LIST]. Como el LLM no emite el id de BD,
+  // buscamos por code+title en data.boards. Si encontramos el id, abrimos
+  // el modal de tarea directo; si no, degradación a onNavigate("mytasks")
+  // (lista general — mejor llevar al usuario ahí que no responder).
+  const handleTaskListClick = useCallback((clickedTask) => {
+    if (!clickedTask) return;
+    const wantedCode = String(clickedTask.code || "").toUpperCase();
+    const wantedTitle = String(clickedTask.title || "").toLowerCase().trim();
+    let foundId = null;
+    if (data?.boards && wantedTitle) {
+      const projectsByCode = new Map((data.projects || []).map(p => [String(p.code || "").toUpperCase(), p.id]));
+      const targetProjectId = wantedCode ? projectsByCode.get(wantedCode) : null;
+      const scan = (pid, cols) => {
+        for (const col of (cols || [])) {
+          for (const t of (col?.tasks || [])) {
+            if (!t || t.archived) continue;
+            const tt = String(t.title || "").toLowerCase().trim();
+            if (tt === wantedTitle || tt.includes(wantedTitle) || wantedTitle.includes(tt)) {
+              return t.id;
+            }
+          }
+        }
+        return null;
+      };
+      if (targetProjectId != null) {
+        foundId = scan(targetProjectId, data.boards[targetProjectId]);
+      }
+      if (!foundId) {
+        for (const [pid, cols] of Object.entries(data.boards)) {
+          foundId = scan(Number(pid), cols);
+          if (foundId) break;
+        }
+      }
+    }
+    if (foundId && typeof onOpenTask === "function") onOpenTask(foundId);
+    else if (typeof onNavigate === "function") onNavigate("mytasks");
+  }, [data?.boards, data?.projects, onOpenTask, onNavigate]);
 
   const [chatHistory, setChatHistory] = useState(() => {
     if (!userId) return [];
@@ -766,10 +817,18 @@ INSTRUCCIONES DE PRIVACIDAD:
       // gobernanza. Cada bloque tiene su guard: si el dato no existe
       // o está vacío, no se añade.
 
-      // 1) Tareas urgentes/vencidas. Las tareas viven en data.boards
-      // ({[projectId]: [{name, tasks:[]}]}), NO en data.tasks. Aplanamos.
+      // 1) Contexto de tareas (HD-context-v2, 15/07/2026 — MNT-009 Fase 2).
+      // Antes Héctor solo recibía urgentes/vencidas + alta (tope 15). Si el
+      // CEO creaba una tarea normal (priority media) y la mencionaba, no la
+      // veía y le preguntaba cosas que ya existían. Ahora tres secciones:
+      //   a) URGENTES/VENCIDAS + alta (tope 15) — comportamiento actual.
+      //   b) RECIENTES (últimas 48 h) (tope 20) — "lo que acabas de hacer".
+      //   c) MENCIONADAS (proyecto/negociación citado en el mensaje) (tope 20)
+      //      — "de qué estamos hablando ahora mismo".
+      // Dedup entre las 3 por task.id. Cada tarea también lleva projectCode
+      // como prefijo para que Héctor pueda referenciarla como [MAR-042] etc.
       const todayMs = Date.now();
-      const urgentRows = [];
+      const urgentTasks = []; // objetos {id,title,priority,dueDate,projectCode,isOverdue}
       Object.entries(data?.boards || {}).forEach(([pid, cols]) => {
         const proj = (data?.projects || []).find(p => p.id === Number(pid));
         (cols || []).forEach(col => {
@@ -780,12 +839,41 @@ INSTRUCCIONES DE PRIVACIDAD:
             const isOverdue = !isNaN(dueMs) && dueMs < todayMs;
             const isHigh = t.priority === "alta";
             if (!isOverdue && !isHigh) return;
-            urgentRows.push(`- [${proj?.code || "?"}] ${(t.title||"sin título").slice(0,70)} | prio:${t.priority||"—"} | vence:${t.dueDate || "sin fecha"}${isOverdue?" ⚠VENCIDA":""}`);
+            urgentTasks.push({
+              id: t.id, title: t.title || "sin título",
+              priority: t.priority || "—",
+              dueDate: t.dueDate || null,
+              projectCode: proj?.code || null,
+              isOverdue,
+            });
           });
         });
       });
-      const urgentBlock = urgentRows.length
-        ? `\n\n---\nTAREAS URGENTES O VENCIDAS (top ${Math.min(15, urgentRows.length)}):\n${urgentRows.slice(0,15).join("\n")}`
+      const urgentTop = urgentTasks.slice(0, 15);
+      const urgentIds = new Set(urgentTop.map(t => t.id));
+
+      const mentioned = detectMentionedContext(txt, data, usuarioActivo);
+      const mentionedRaw = collectMentionedTasks(data, mentioned, urgentIds);
+      const mentionedTop = mentionedRaw.slice(0, 20);
+      const mentionedIds = new Set(mentionedTop.map(t => t.id));
+
+      const excludedForRecent = new Set([...urgentIds, ...mentionedIds]);
+      const recentRaw = collectRecentTasks(data, excludedForRecent, todayMs);
+      const recentTop = recentRaw.slice(0, 20);
+
+      const fmtTaskRow = (t) => {
+        const codeTag = t.projectCode ? `[${t.projectCode}]` : "[?]";
+        const due = t.dueDate ? `vence:${t.dueDate}${t.isOverdue ? " ⚠VENCIDA" : ""}` : "sin fecha";
+        return `- ${codeTag} ${String(t.title).slice(0,80)} | prio:${t.priority || "—"} | ${due}`;
+      };
+      const urgentBlock = urgentTop.length
+        ? `\n\n---\nTAREAS URGENTES O VENCIDAS (top ${urgentTop.length}):\n${urgentTop.map(fmtTaskRow).join("\n")}`
+        : "";
+      const recentBlock = recentTop.length
+        ? `\n\n---\nTAREAS RECIENTES (creadas o modificadas en las últimas 48 h, top ${recentTop.length}):\n${recentTop.map(fmtTaskRow).join("\n")}`
+        : "";
+      const mentionedBlock = mentionedTop.length
+        ? `\n\n---\nCONTEXTO POR MENCIÓN (tareas del proyecto/negociación que el CEO ha citado en su mensaje, top ${mentionedTop.length}):\n${mentionedTop.map(fmtTaskRow).join("\n")}`
         : "";
 
       // 2) Proyectos activos (no archivados). Contamos tareas vivas
@@ -808,16 +896,33 @@ INSTRUCCIONES DE PRIVACIDAD:
         });
       const projBlock = projRows.length ? `\n\n---\nPROYECTOS ACTIVOS:\n${projRows.join("\n")}` : "";
 
-      // 3) Negociaciones activas. Status real: en_curso|pausado son las
-      // vivas; el resto (cerrado_ganado/perdido/acuerdo_parcial) son
-      // cerradas en este modelo. Mismo aislamiento por visibilidad.
+      // 3) Negociaciones — ACTIVAS + RECIENTES + MENCIONADAS (HD-context-v2).
+      // Antes solo activas (tope 20). Ahora igual patrón que tareas: dedup
+      // entre secciones para no duplicar. Las MENCIONADAS incluyen las
+      // vinculadas al proyecto/neg citado por el CEO — trae contexto real.
       const ACTIVE_NEG = new Set(["en_curso", "pausado"]);
       const visibleNegsForPrompt = filterVisibleNegotiations(data?.negotiations || [], usuarioActivo);
-      const negRows = visibleNegsForPrompt
-        .filter(n => n && ACTIVE_NEG.has(n.status))
-        .slice(0, 20)
-        .map(n => `- [${n.code || "?"}] ${(n.title||"Sin título").slice(0,60)} | ${n.status||"—"} | contraparte:${n.counterparty || "?"}`);
-      const negBlock = negRows.length ? `\n\n---\nNEGOCIACIONES ACTIVAS:\n${negRows.join("\n")}` : "";
+      const negActive = visibleNegsForPrompt.filter(n => n && ACTIVE_NEG.has(n.status)).slice(0, 20);
+      const negActiveIds = new Set(negActive.map(n => n.id));
+
+      // Mencionadas: incluyen las citadas por code/nombre + las asociadas a
+      // los proyectos mencionados (via projectId o linkedProjectCodes).
+      const negMentionedSet = new Set();
+      for (const n of visibleNegsForPrompt) {
+        if (!n || negActiveIds.has(n.id)) continue;
+        if (mentioned.negIds.has(n.id)) negMentionedSet.add(n.id);
+        else if (n.projectId && mentioned.projectIds.has(n.projectId)) negMentionedSet.add(n.id);
+      }
+      const negMentioned = visibleNegsForPrompt.filter(n => negMentionedSet.has(n.id)).slice(0, 10);
+      const negMentionedIds = new Set(negMentioned.map(n => n.id));
+
+      const negRecentExclude = new Set([...negActiveIds, ...negMentionedIds]);
+      const negRecent = collectRecentNegotiations(visibleNegsForPrompt, negRecentExclude, todayMs).slice(0, 10);
+
+      const fmtNegRow = (n) => `- [${n.code || "?"}] ${(n.title||"Sin título").slice(0,60)} | ${n.status||"—"} | contraparte:${n.counterparty || "?"}`;
+      const negBlock = negActive.length ? `\n\n---\nNEGOCIACIONES ACTIVAS:\n${negActive.map(fmtNegRow).join("\n")}` : "";
+      const negRecentBlock = negRecent.length ? `\n\n---\nNEGOCIACIONES RECIENTES (últimas 48 h):\n${negRecent.map(fmtNegRow).join("\n")}` : "";
+      const negMentionedBlock = negMentioned.length ? `\n\n---\nNEGOCIACIONES CITADAS (matched con el mensaje del CEO):\n${negMentioned.map(fmtNegRow).join("\n")}` : "";
 
       // 4) Resumen financiero — viene precomputado como prop. Formateamos
       // los números con Intl para que Héctor vea cifras legibles, no
@@ -925,7 +1030,7 @@ Reglas:
         ? hectorPromptBase + "\n\n" + PLAIN_TEXT_RULE
         : "Eres Héctor, Jefe de Gabinete estratégico. " + PLAIN_TEXT_RULE)
         + memBlockFormatted
-        + membersBlock + urgentBlock + projBlock + negBlock + finBlockGated + govBlockGated + tasksListBlock + placesBlock
+        + membersBlock + urgentBlock + recentBlock + mentionedBlock + projBlock + negBlock + negRecentBlock + negMentionedBlock + finBlockGated + govBlockGated + tasksListBlock + placesBlock
         + "\n\n" + HECTOR_SEARCH_RULES
         + "\n\n" + HECTOR_NODATE_RULES
         + "\n\n" + HECTOR_RUTA_RULES;
@@ -1728,8 +1833,12 @@ Reglas:
                   onRunAgentActions={onRunAgentActions}
                   onDiscardProposal={() => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
                   onConfirmProposal={(executedActions) => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalExecuted: true, executedAt: Date.now(), executedActions } : x))}
-                  renderTaskList={(tasksList) => <TaskListCard tasksList={tasksList} />}
+                  renderTaskList={(tasksList) => <TaskListCard tasksList={tasksList} onTaskClick={handleTaskListClick} />}
                   renderRuta={(ruta) => <DayPlanBlock ruta={ruta} data={data} memberId={null} onSavePlace={onRequestSavePlace || null} />}
+                  linkifyMap={linkifyMap}
+                  onOpenTask={onOpenTask}
+                  onOpenNegotiation={onOpenNegotiation}
+                  onOpenProject={onOpenProject}
                 />
           ))}
         {isLoading && <TypingIndicator />}
@@ -2213,14 +2322,19 @@ function formatDueES(due) {
   return `${dia}-${mes}`;
 }
 
-function TaskRow({ task, vencida }) {
+function TaskRow({ task, vencida, onTaskClick }) {
   const prio = (task.priority || "media").toLowerCase();
   const prioColor = TASK_PRIO_COLOR[prio] || "#6B6B6B";
   const dueLabel = formatDueES(task.due);
+  const clickable = typeof onTaskClick === "function";
   return (
     <div
       onMouseEnter={e => e.currentTarget.style.background = TASK_HOVER}
       onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+      onClick={clickable ? () => onTaskClick(task) : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTaskClick(task); } } : undefined}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
       style={{
         display: "flex",
         alignItems: "center",
@@ -2230,6 +2344,7 @@ function TaskRow({ task, vencida }) {
         color: "#1A1A1A",
         borderBottom: "0.5px dashed #E5E0D5",
         transition: "background .15s ease",
+        cursor: clickable ? "pointer" : "default",
       }}
     >
       <span style={{ fontSize: 11, color: "#6B6B6B", fontWeight: 600, minWidth: 44 }}>
@@ -2263,7 +2378,7 @@ function TaskRow({ task, vencida }) {
   );
 }
 
-function TaskListCard({ tasksList }) {
+function TaskListCard({ tasksList, onTaskClick }) {
   if (!tasksList) return null;
   const vencidas = Array.isArray(tasksList.vencidas) ? tasksList.vencidas : [];
   const proximas = Array.isArray(tasksList.proximas) ? tasksList.proximas : [];
@@ -2294,7 +2409,7 @@ function TaskListCard({ tasksList }) {
             ▼ Vencidas ({vencidas.length})
           </div>
           <div>
-            {vencidas.map((t, i) => <TaskRow key={`v-${i}`} task={t} vencida={true} />)}
+            {vencidas.map((t, i) => <TaskRow key={`v-${i}`} task={t} vencida={true} onTaskClick={onTaskClick} />)}
           </div>
         </div>
       )}
@@ -2306,7 +2421,7 @@ function TaskListCard({ tasksList }) {
             ▼ Próximas ({proximas.length})
           </div>
           <div>
-            {proximas.map((t, i) => <TaskRow key={`p-${i}`} task={t} vencida={false} />)}
+            {proximas.map((t, i) => <TaskRow key={`p-${i}`} task={t} vencida={false} onTaskClick={onTaskClick} />)}
           </div>
         </div>
       )}
