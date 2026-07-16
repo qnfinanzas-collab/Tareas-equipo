@@ -15282,6 +15282,11 @@ Estructura recomendada de una respuesta con documento:
       defaultCompanyId,
       addToast,
       findProjectByCode: (code) => (dataRef.current?.projects || []).find(p => p.code === code),
+      // Fix 16/07/2026 — alinear ruta B (Héctor) con A y C: si la acción
+      // no trae projectCode válido, el executor cae al proyecto por
+      // defecto del usuario. Lee de dataRef (siempre fresco).
+      activeMemberId: activeMember,
+      resolveDefaultProject: (memberId) => resolveMyDefaultProject(dataRef.current, memberId),
     };
     // Pasada 1: crear proyectos. Esto encola setData. Esperamos al flush
     // con un microtask antes de meter las tareas.

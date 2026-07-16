@@ -807,6 +807,11 @@ export function executeAgentActions(actions, helpers) {
     defaultCompanyId,     // string|null — empresa filtrada en la UI cuando aplica
     addToast,             // (msg, level, opts?) → side-effect — visibilidad de fallos
     newlyCreatedProjects = [], // [{id, code}] — proyectos creados en pass-1 del MISMO bloque [ACTIONS]; usado para auto-link en CREATE_NEGOTIATION cuando Héctor no provee codes (no puede anticiparlos antes de la ejecución).
+    // Fix 16/07/2026 — bug ruta B (Héctor) no respetaba el proyecto por
+    // defecto del usuario. Rutas A (Mi Día "+") y C (Nueva tarea topbar)
+    // ya lo hacían vía resolveMyDefaultProject; aquí replicamos.
+    activeMemberId = null,       // memberId del usuario ejecutante (para lookup del default)
+    resolveDefaultProject,       // (memberId) → project | null (App.jsx cierra sobre dataRef)
   } = helpers || {};
 
   for (const action of actions) {
@@ -849,12 +854,29 @@ export function executeAgentActions(actions, helpers) {
         }
 
         case AGENT_ACTION_TYPES.CREATE_TASKS: {
-          const project = findProjectByCode?.(action.projectCode);
+          let project = findProjectByCode?.(action.projectCode);
+          let usedDefault = false;
+          // Fix 16/07/2026 — si no hay projectCode válido, intentamos el
+          // proyecto por defecto del usuario ejecutante. Alinea la ruta B
+          // (Héctor) con las rutas A (Mi Día "+") y C (Nueva tarea topbar),
+          // que ya respetan data.permissions[memberId].defaultTaskProjectId.
+          if (!project && typeof resolveDefaultProject === "function" && activeMemberId != null) {
+            const fallback = resolveDefaultProject(activeMemberId);
+            if (fallback && fallback.id != null) {
+              project = fallback;
+              usedDefault = true;
+              console.log("[Executor] projectCode ausente/inválido — usando proyecto por defecto del usuario:", fallback.code || fallback.id);
+            }
+          }
           if (!project) {
             console.error("[Executor] Proyecto no encontrado para code:", action.projectCode, "— acción omitida:", action.type);
-            addToast?.(`⚠ Proyecto "${action.projectCode}" no encontrado — tareas no creadas`, "warn");
-            results.push({ type: "error", action: action.type, error: `Proyecto con code ${action.projectCode} no encontrado` });
+            addToast?.("⚠ Sin destino: marca un proyecto por defecto en Proyectos o pide a Héctor que use un código concreto.", "warn");
+            results.push({ type: "error", action: action.type, error: `Proyecto con code ${action.projectCode} no encontrado y sin proyecto por defecto configurado` });
             break;
+          }
+          if (usedDefault) {
+            const codeLabel = project.code || project.name || "tu default";
+            addToast?.(`ℹ Usé tu proyecto por defecto (${codeLabel}) porque no especificaste destino.`, "info");
           }
           let count = 0;
           for (const task of (action.tasks || [])) {
