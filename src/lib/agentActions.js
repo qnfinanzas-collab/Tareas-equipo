@@ -812,7 +812,19 @@ export function executeAgentActions(actions, helpers) {
     // ya lo hacían vía resolveMyDefaultProject; aquí replicamos.
     activeMemberId = null,       // memberId del usuario ejecutante (para lookup del default)
     resolveDefaultProject,       // (memberId) → project | null (App.jsx cierra sobre dataRef)
+    // Fix 25/07/2026 — Capa 2 defensiva ACTIONS_v17. HectorDirectView pasa
+    // el conjunto de projectIds que el CEO mencionó en el mensaje del turno
+    // actual (calculado con detectMentionedContext). El executor de
+    // CREATE_TASKS lo usa para detectar codes inventados por Héctor y
+    // sustituirlos por el default (si hay) o avisar (si no lo hay).
+    mentionedProjectIds = null,  // Set<number> | Array<number> | null
   } = helpers || {};
+
+  // Normaliza mentionedProjectIds a Set para lookup O(1) sin importar el
+  // formato de entrada (App.jsx puede pasarlo como Array serializable).
+  const mentionedSet = (mentionedProjectIds instanceof Set)
+    ? mentionedProjectIds
+    : (Array.isArray(mentionedProjectIds) ? new Set(mentionedProjectIds) : null);
 
   for (const action of actions) {
     try {
@@ -856,6 +868,31 @@ export function executeAgentActions(actions, helpers) {
         case AGENT_ACTION_TYPES.CREATE_TASKS: {
           let project = findProjectByCode?.(action.projectCode);
           let usedDefault = false;
+          let substitutedInventedCode = null; // code que Héctor inventó y descartamos
+          let keptInventedCode = null;        // code inventado que respetamos por falta de default
+          // Fix 25/07/2026 — Capa 2 defensiva ACTIONS_v17: Héctor sigue
+          // inventando projectCode aunque el prompt v17 se lo prohíba.
+          // Si el projectCode que emitió es VÁLIDO (existe en BD) PERO el
+          // CEO NO lo mencionó en el mensaje del turno actual, lo tratamos
+          // como inventado. Dos ramas:
+          //   (a) hay default configurado y es DISTINTO al inventado
+          //       → sustituimos por default (toast info).
+          //   (b) no hay default (o coincide) → respetamos lo emitido pero
+          //       avisamos (toast warn) para que el CEO configure el default.
+          if (project && mentionedSet && activeMemberId != null && !mentionedSet.has(project.id)) {
+            const defaultProj = typeof resolveDefaultProject === "function"
+              ? resolveDefaultProject(activeMemberId)
+              : null;
+            if (defaultProj && defaultProj.id != null && defaultProj.id !== project.id) {
+              substitutedInventedCode = project.code || project.name || String(project.id);
+              console.warn("[Executor] projectCode inventado por Héctor:", substitutedInventedCode, "— sustituido por default del CEO:", defaultProj.code || defaultProj.id);
+              project = defaultProj;
+              usedDefault = true;
+            } else if (!defaultProj) {
+              keptInventedCode = project.code || project.name || String(project.id);
+              console.warn("[Executor] projectCode inventado por Héctor:", keptInventedCode, "— sin default configurado, respetamos lo emitido con aviso");
+            }
+          }
           // Fix 16/07/2026 — si no hay projectCode válido, intentamos el
           // proyecto por defecto del usuario ejecutante. Alinea la ruta B
           // (Héctor) con las rutas A (Mi Día "+") y C (Nueva tarea topbar),
@@ -874,7 +911,12 @@ export function executeAgentActions(actions, helpers) {
             results.push({ type: "error", action: action.type, error: `Proyecto con code ${action.projectCode} no encontrado y sin proyecto por defecto configurado` });
             break;
           }
-          if (usedDefault) {
+          if (substitutedInventedCode) {
+            const codeLabel = project.code || project.name || "tu default";
+            addToast?.(`ℹ Usé tu proyecto por defecto (${codeLabel}) porque no mencionaste ${substitutedInventedCode}.`, "info");
+          } else if (keptInventedCode) {
+            addToast?.(`⚠ Héctor eligió ${keptInventedCode} aunque no lo mencionaste. Configura un proyecto por defecto para más control.`, "warn");
+          } else if (usedDefault) {
             const codeLabel = project.code || project.name || "tu default";
             addToast?.(`ℹ Usé tu proyecto por defecto (${codeLabel}) porque no especificaste destino.`, "info");
           }
@@ -1278,11 +1320,11 @@ PERFIL CEO:
 Antonio Díaz · CEO ALMA DIMO INVESTMENTS S.L.
 Visionario digital desde 1998. Ha liderado equipos de diseño, marketing, programación, finanzas y ventas. Comunicación directa · opciones concretas · impacto de negocio · móvil primero · tiempo es el activo real. En documentos legales es SIEMPRE la parte principal.
 
-CAPACIDAD DE EJECUCIÓN (ACTIONS_v16):
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v17):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 
-Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags,links}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode (string, un solo proyecto, formato viejo),linkedProjectCodes (array de codes, para vincular varios proyectos; el primer code del array se considera "principal" y los demás "relacionado". Usar este campo cuando el CEO pida vincular más de un proyecto a la negociación)}; "create_tasks" {projectCode,tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags,links}]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario); "save_place" {name,placeType("dormir"|"comer"|"visitar"|"cafe"|"gasolina"|"otro"),address?,rating?(0-5),notes?,tags?} (Mis Sitios: guarda un lugar que el CEO menciona haber visitado o querer recordar — hotel donde durmió, restaurante donde comió, lugar visitado, área de servicio, etc. IMPORTANTE: el campo se llama "placeType" para no colisionar con el campo "type" que identifica la acción. Emite SOLO si el CEO lo pide explícitamente con verbos como "guarda", "registra", "recuerda este sitio", "añade a mis sitios". El sistema lo persiste para futuras consultas y para que tú lo uses al planear rutas como parada preferente. Una acción por sitio — si el CEO menciona varios, emite varias save_place en el mismo bloque [ACTIONS]).
+Tipos: "create_project" {name,code(3 letras mayúsculas),description,emoji,assignees:["admin","marc"],tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags,links}]}; "create_negotiation" {title,notes,counterparty,assignees,facts,redFlags,stakeholders:[{name,role,company}] (lista de personas EXTERNAS mencionadas por el CEO — candidatos, colaboradores, clientes, proveedores. NUNCA incluyas tu propio nombre ni el de ningún agente IA. Si el CEO no menciona ninguna persona concreta, usa stakeholders: []),linkedProjectCode (string, un solo proyecto, formato viejo),linkedProjectCodes (array de codes, para vincular varios proyectos; el primer code del array se considera "principal" y los demás "relacionado". Usar este campo cuando el CEO pida vincular más de un proyecto a la negociación)}; "create_tasks" {projectCode(OPCIONAL — ver sección ELECCIÓN DE PROYECTO),tasks:[{title,description,priority(alta|media|baja),startDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),startTime("HH:MM"),dueDate("hoy"|"mañana"|"+7d"|YYYY-MM-DD),tags,links}]}; "create_movement" {concept,amount,movementType("expense"|"income"),category,date}; "update_bank_movement" {id,category?,subcategory?,reconciled?,notes?,concept?} (Diego: categorizar/conciliar movimientos del extracto, usa el id real); "add_bank_movement" {accountId,date,concept,amount,category?,notes?,reconciled?} (Diego: añadir movimiento manual); "add_accounting_entry" {companyId,date,description,lines:[{account(código PGC),accountName,debit,credit}],invoiceId?,bankMovementId?,status?("borrador"|"confirmado")} (Diego: asiento contable; cada línea solo tiene debit O credit, total debit DEBE = total credit, mínimo 2 líneas, usa cuentas del PGC pyme español: 100/170 financiación, 213/281 inmovilizado, 300 mercaderías, 400/410/430/472/473/475/476 acreedores y deudores, 523/570/572 financieras, 600/621/623/625/626/627/628/629/631/640/642/681 compras y gastos, 700/705/759/769 ventas e ingresos; subcuentas formato XXXNNNN ej 2130001); "add_invoice" {companyId,type("emitida"|"recibida"),counterparty:{name,cif?,address?},number?,date,dueDate?,lines:[{description,quantity,unitPrice,vatRate}]|total+vatRate,irpfRate?,notes?,status?} (Diego: nueva factura; counterparty.name y total/líneas obligatorios); "update_invoice" {id,status?,paidAmount?,paidDate?,bankMovementId?,notes?,dueDate?,irpfRate?,lines?} (Diego: actualizar factura existente, p.ej. marcar como pagada o vincular movimiento bancario); "save_place" {name,placeType("dormir"|"comer"|"visitar"|"cafe"|"gasolina"|"otro"),address?,rating?(0-5),notes?,tags?} (Mis Sitios: guarda un lugar que el CEO menciona haber visitado o querer recordar — hotel donde durmió, restaurante donde comió, lugar visitado, área de servicio, etc. IMPORTANTE: el campo se llama "placeType" para no colisionar con el campo "type" que identifica la acción. Emite SOLO si el CEO lo pide explícitamente con verbos como "guarda", "registra", "recuerda este sitio", "añade a mis sitios". El sistema lo persiste para futuras consultas y para que tú lo uses al planear rutas como parada preferente. Una acción por sitio — si el CEO menciona varios, emite varias save_place en el mismo bloque [ACTIONS]).
 
 ENLACES DE TAREA (campo task.links):
 Formato del campo links en cada tarea (opcional): array de objetos {url,label?,icon?}. Solo URLs http(s):// completas. Se renderizan en la pestaña Enlaces de la tarea, separadas de la descripción.
@@ -1357,6 +1399,15 @@ Cuando el CEO pide varios elementos (proyecto + negociación + tareas):
 - Si unos existen y otros no, di explícitamente cuáles ves y cuáles vas a crear: "La negociación X ya existe (id=neg_YYY). El proyecto FJU no lo veo en tus proyectos actuales. Creo ahora FJU." + [ACTIONS] con solo el create_project para FJU.
 
 Escribir un [ACTIONS] en un turno anterior NO garantiza que se ejecutara — si no ves la entidad en el contexto actual, NO existe. Punto.
+
+ELECCIÓN DE PROYECTO PARA create_tasks (ACTIONS_v17):
+El campo projectCode de create_tasks es OPCIONAL. Sigue estas reglas duras:
+- Si el CEO menciona explícitamente un code de proyecto (ej. "en MAR", "para FJU") o el nombre de un proyecto suyo ("para el proyecto Marbella Club") → emite projectCode con ese code exacto tal como aparece en el contexto.
+- Si el CEO NO menciona ni code ni nombre de proyecto → OMITE projectCode (déjalo sin emitir o como null). El sistema resolverá al proyecto por defecto del CEO configurado en Proyectos. Esto es lo correcto y esperado.
+- PROHIBIDO elegir un projectCode por cuenta propia basándote en "el proyecto activo", "el más reciente", "el más usado", "el que aparece más veces en el contexto" o cualquier otro criterio de inferencia. Rellenar el hueco con un code no mencionado por el CEO es un error grave — puede crear tareas en el proyecto equivocado y desviar el trabajo del CEO.
+- Si tienes una pista contextual FUERTE pero NO literal (ej. el CEO dice "reunión con Rafa" y ves un proyecto llamado "Rafa"), PUEDES sugerir el proyecto en tu prosa ("¿lo creo en el proyecto Rafa?"), pero DEJA projectCode vacío. El CEO decide al pulsar "Crear todo" o te lo confirma en el siguiente turno.
+
+Recuerda: es preferible omitir projectCode diez veces que inventarlo una sola vez.
 
 REGLA STAKEHOLDERS: En cualquier acción que incluya el campo stakeholders, usa exclusivamente nombres de personas reales externas mencionadas por el CEO. Jamás uses tu nombre (Héctor) ni el de ningún agente (Mario, Jorge, Álvaro, Gonzalo, Diego). Si no hay personas concretas mencionadas: stakeholders: []
 

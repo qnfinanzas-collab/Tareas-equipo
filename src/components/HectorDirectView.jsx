@@ -1461,6 +1461,13 @@ Reglas:
         // [ACTIONS] y se entra en un bucle de "(sin texto)".
         replyRaw: reply,
         proposal: proposal || null,
+        // Fix 25/07/2026 · Capa 2 defensiva ACTIONS_v17: projectIds que el
+        // CEO mencionó en el mensaje que generó este assistant reply. El
+        // executor lo usa para detectar codes inventados por Héctor y
+        // sustituirlos por el default. Se serializa como Array (JSON-safe).
+        // Persistir en chatHistory garantiza que si el CEO tarda en pulsar
+        // "Crear todo" y refresca la app, el contexto de mención se preserva.
+        mentionedProjectIds: mentioned && mentioned.projectIds ? [...mentioned.projectIds] : [],
         tasksList: tasksList || null,
         // ruta: bloque [RUTA] parseado. ChatBubble lo renderiza como
         // RutaCard al pie. Null si Héctor no emitió ruta o si el JSON
@@ -1830,7 +1837,7 @@ Reglas:
                   key={i}
                   message={{ ...m, text: stripSystemMarker(m.text) }}
                   userInitials={userInitials}
-                  onRunAgentActions={onRunAgentActions}
+                  onRunAgentActions={(selected) => onRunAgentActions(selected, { mentionedProjectIds: m.mentionedProjectIds || [] })}
                   onDiscardProposal={() => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalDiscarded: true } : x))}
                   onConfirmProposal={(executedActions) => setChatHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalExecuted: true, executedAt: Date.now(), executedActions } : x))}
                   renderTaskList={(tasksList) => <TaskListCard tasksList={tasksList} onTaskClick={handleTaskListClick} />}

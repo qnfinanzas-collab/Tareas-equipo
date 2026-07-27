@@ -1082,18 +1082,22 @@ function _migrate(d){
   });
   // Patch ejecutor: inyecta CAPACIDAD DE EJECUCIÓN en TODOS los agentes
   // que tengan promptBase. Idempotente con marca de versión "ACTIONS_v16".
-  // v16 (13/07/2026 tarde) añade la sección REGLA "YA EXISTE" — VERIFICACIÓN
-  // OBLIGATORIA CONTRA CONTEXTO. Corrige el patrón observado post-v15 en que
-  // Héctor, forzado a atomicidad, evadía la ejecución afirmando "ya lo creé
-  // antes" sin verificar que la entidad existiera en el contexto real
-  // (data.projects, data.negotiations). Sobre v15 (TAMAÑO Y ATOMICIDAD)
-  // sobre v14 (task.links) sobre v10 (PROHIBICIÓN ABSOLUTA) sobre v9 (wording
-  // PERFIL CEO) sobre v8 (PERFIL CEO) sobre v7 (identidad) sobre v6 (regla
-  // crítica + ambigüedad) sobre v5 (stakeholders). Cortamos por marker
-  // "PERFIL CEO:" o "CAPACIDAD DE EJECUCIÓN" según versión previa.
+  // v17 (25/07/2026) añade la sección ELECCIÓN DE PROYECTO PARA create_tasks.
+  // Corrige el patrón observado post-v16 en que Héctor rellenaba el campo
+  // projectCode con codes inventados (típicamente "MAR") cuando el CEO no
+  // mencionaba proyecto, saltándose el proyecto por defecto configurado. La
+  // regla v17 marca projectCode como OPCIONAL y prohíbe elegirlo por
+  // inferencia — si el CEO no lo dice, Héctor lo omite y el executor cae al
+  // default. Complementa el parche defensivo del ejecutor (agentActions.js
+  // CREATE_TASKS) que además sustituye codes no-mencionados por el default.
+  // Sobre v16 (REGLA "YA EXISTE") sobre v15 (TAMAÑO Y ATOMICIDAD) sobre v14
+  // (task.links) sobre v10 (PROHIBICIÓN ABSOLUTA) sobre v9 (wording PERFIL
+  // CEO) sobre v8 (PERFIL CEO) sobre v7 (identidad) sobre v6 (regla crítica
+  // + ambigüedad) sobre v5 (stakeholders). Cortamos por marker "PERFIL CEO:"
+  // o "CAPACIDAD DE EJECUCIÓN" según versión previa.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v16")) return a;            // ya v16
+    if(a.promptBase.includes("ACTIONS_v17")) return a;            // ya v17
     let cut = a.promptBase;
     if (cut.includes("PERFIL CEO:")) {
       cut = cut.split(/\n+PERFIL CEO:/)[0];
@@ -15287,6 +15291,13 @@ Estructura recomendada de una respuesta con documento:
       // defecto del usuario. Lee de dataRef (siempre fresco).
       activeMemberId: activeMember,
       resolveDefaultProject: (memberId) => resolveMyDefaultProject(dataRef.current, memberId),
+      // Fix 25/07/2026 · Capa 2 defensiva ACTIONS_v17: HectorDirectView
+      // pasa por opts el set de projectIds mencionados por el CEO en el
+      // mensaje del turno. Se propaga al executor para detectar codes
+      // inventados por Héctor y sustituirlos por el default cuando
+      // procede. Otros callers (Diego, Gobernanza) no lo pasan → check
+      // se omite silenciosamente (comportamiento actual preservado).
+      mentionedProjectIds: Array.isArray(opts?.mentionedProjectIds) ? opts.mentionedProjectIds : null,
     };
     // Pasada 1: crear proyectos. Esto encola setData. Esperamos al flush
     // con un microtask antes de meter las tareas.
