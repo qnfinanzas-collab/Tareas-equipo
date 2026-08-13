@@ -428,10 +428,19 @@ const SUCCESS_PATTERNS = [
   /\bnegociación creada\b/i,
   /\bya está\b/i,
   /\bya he\b/i,
-  /\blisto\b/i,
-  /\bhecho\b/i,
+  // Muletillas de confirmación estrechadas 13/08/2026 (ticket 4155d543).
+  // El patrón previo /\blisto\b/i disparaba en "listo para X" y "listo
+  // cuando Y" (uso adjetivo). Ahora solo matchea cuando "listo/hecho" va
+  // precedido por "ya"/"ya está" (ack de acción ejecutada). Si aparece un
+  // caso nuevo de falso negativo, se añade un patrón específico nuevo —
+  // NUNCA se ensancha uno existente.
+  /\bya\s+(est[áa]\s+)?listo\b/i,
+  /\bya\s+(est[áa]\s+)?hecho\b/i,
   /\bguardado\b/i,
-  /\becho\b/i,
+  // Eliminado 13/08/2026: /\becho\b/i era errata por "hecho" sin h.
+  // "echo" en español es del verbo echar y garantizaba falsos positivos
+  // ("echo un vistazo", "echo de menos", "echo el cierre"). Los casos
+  // legítimos de "hecho" quedan cubiertos por el patrón de arriba.
   /\bcompletado\b/i,
   /\bañadido al sistema\b/i,
   /\bregistrado en\b/i,
