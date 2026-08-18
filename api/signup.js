@@ -116,12 +116,16 @@ export default async function handler(req, res) {
   }
 
   // 6) Registrar como owner en tenant_members.
+  //    Nota (18/08/2026): NO escribimos `email` aquí. La tabla real no
+  //    tiene esa columna (4 columnas: tenant_id, user_uid, role,
+  //    created_at). El email ya vive en auth.users vía user_uid — evitamos
+  //    duplicación que puede divergir. Diagnóstico completo en el commit
+  //    que introduce este cambio.
   const { error: memErr } = await supaAdmin
     .from("tenant_members")
     .insert({
       tenant_id: newTenantId,
       user_uid: userId,
-      email,
       role: "owner",
     });
   if (memErr) {
