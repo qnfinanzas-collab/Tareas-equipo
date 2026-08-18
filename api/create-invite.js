@@ -27,6 +27,12 @@ export default async function handler(req, res) {
   catch { return json(res, 400, { error: "body inválido (no es JSON)" }); }
   const email = (body?.email || "").trim().toLowerCase();
   if (!EMAIL_RE.test(email)) return json(res, 400, { error: "email inválido" });
+  // F1.2 El Umbral (18/08/2026): aceptamos nombre del invitado para
+  // personalizar tarjeta y mensaje. Nullable en BD, guardamos tal cual
+  // (sin validación de formato — nombres tienen todas las formas del
+  // mundo). Tope defensivo para evitar payloads absurdos.
+  const name = (body?.name || "").trim();
+  if (name.length > 120) return json(res, 400, { error: "nombre demasiado largo (máx 120)" });
 
   // 3) Verificar que el caller es OWNER de algún tenant.
   //    Se puede invitar a alguien nuevo solo si tú ya tienes un tenant.
@@ -50,11 +56,12 @@ export default async function handler(req, res) {
     .insert({
       token,
       email,
+      name: name || null,        // opcional, se rellena si el owner lo dio
       invited_by: user.id,
       tenant_id: null,           // el tenant se crea al aceptar el signup
       expires_at: expiresAt,
     })
-    .select("id, token, expires_at")
+    .select("id, token, name, expires_at")
     .single();
 
   if (insErr) {
@@ -69,6 +76,7 @@ export default async function handler(req, res) {
   return json(res, 200, {
     url,
     token: inv.token,
+    name: inv.name,
     expires_at: inv.expires_at,
   });
 }

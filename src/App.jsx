@@ -44,7 +44,11 @@ import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
 import VaultGuestView, { parseVaultGuestPath } from "./components/Vault/VaultGuestView.jsx";
 import SignupView, { parseSignupPath } from "./components/SignupView.jsx";
-import InviteCEO from "./components/InviteCEO.jsx";
+// InviteCEO obsoleto tras F1.2 rediseño (18/08/2026): la convocatoria
+// vive ahora en <UmbralView/> como sección propia bajo Administración.
+// TeamView ya no lo renderiza; el fichero se conserva por si se
+// reutiliza en un flujo futuro, pero no se importa.
+import UmbralView from "./components/UmbralView.jsx";
 import { generatePersonalDocuments } from "./components/Vault/personalTemplates.js";
 import { AGENT_ACTIONS_ADDON, suggestNegotiationEmoji, NEGOTIATION_EMOJIS, parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, correctActionsDates, stripCeoProfile, buildSpecialistContext } from "./lib/agentActions.js";
 import ActionProposal from "./components/Shared/ActionProposal.jsx";
@@ -5059,6 +5063,7 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
     { id:"memory",        title:"Memoria",             valor:"Lo que Kluxor recuerda de usted y de cada negociación.",                              block:"inteligencia",   pictogram:"memory",      requiresPermission:"memory" },
     { id:"planner",       title:"Planificador IA",     valor:"Planifique el trabajo del equipo sobre su disponibilidad real.",                      block:"administracion", pictogram:"planner",     adminOnly:true },
     { id:"vault",         title:"Vault Personal",      valor:"Su caja fuerte de documentos.",                                                       block:"administracion", pictogram:"vault",       adminOnly:true },
+    { id:"umbral",        title:"El Umbral",           valor:"Convoque a un nuevo CEO. Kluxor no se contrata; se recibe.",                          block:"administracion", pictogram:"umbral",      adminOnly:true },
     { id:"users",         title:"Usuarios",            valor:"Su equipo: miembros, IDs de socio y permisos.",                                       block:"administracion", pictogram:"users",       adminOnly:true },
     { id:"mantenimiento", title:"Mantenimiento",       valor:"La salud del sistema: incidencias y mejoras.",                                        block:"administracion", pictogram:"mantenimiento", adminOnly:true },
   ];
@@ -7159,12 +7164,12 @@ function ProjectsView({projects,members,boards,currentMember,myDefaultProjectId=
 }
 
 // ── Team View ─────────────────────────────────────────────────────────────────
-// authSession + isOwner (18/08/2026, F1.2 Antesala): se pasan desde el
-// caller para gatear e invocar <InviteCEO/> conectado a /api/create-invite.
-// El input placebo "Invitar al proyecto" con selector Editor/Viewer/Manager
-// se quitó — engañaba: parecía "añadir al proyecto" pero el endpoint crea
-// un tenant nuevo. Se reemplaza por <InviteCEO/> con copy honesto.
-function TeamView({project,members,projects,onSelectProject,onEditProfile,authSession,isOwner}){
+// authSession + isOwner ya no se necesitan aquí (18/08/2026): el flujo de
+// convocatoria se movió a la sección propia "El Umbral" en administración.
+// TeamView vuelve a ser lo que su nombre dice: la vista del equipo del
+// proyecto activo. Se conserva la firma sin esos props para no romper
+// el JSX del caller.
+function TeamView({project,members,projects,onSelectProject,onEditProfile}){
   return(
     <div style={{padding:20,maxWidth:760}}>
       <div style={{background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:16,overflow:"hidden"}}>
@@ -7177,7 +7182,6 @@ function TeamView({project,members,projects,onSelectProject,onEditProfile,authSe
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10,marginBottom:24}}>
             {project.members.map(mid=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; const avH=m?.avail?.hoursPerDay||7; const icsOk=!!m?.avail?.icsUrl; return <div key={mid} style={{background:mp2.light,border:`2px solid ${mp2.solid}`,borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}><div style={{width:40,height:40,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,flexShrink:0}}>{m?.initials}</div><div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:700,color:mp2.solid}}>{m?.name}</div><div style={{fontSize:11,color:"#6b7280"}}>{m?.role} · {avH}h/d</div><div style={{display:"flex",gap:4,marginTop:3}}>{m?.avail?.whatsapp&&<span style={{fontSize:9,background:"#dcfce7",color:"#166534",padding:"1px 5px",borderRadius:6}}>WA</span>}{icsOk&&<span style={{fontSize:9,background:"#dbeafe",color:"#1e40af",padding:"1px 5px",borderRadius:6}}>Cal</span>}</div></div><button onClick={()=>onEditProfile(m)} style={{background:"none",border:`1px solid ${mp2.solid}`,borderRadius:8,padding:"4px 8px",fontSize:11,cursor:"pointer",color:mp2.solid,fontWeight:600}}>Editar</button></div>; })}
           </div>
-          <InviteCEO authSession={authSession} isOwner={isOwner}/>
           <div style={{borderTop:"0.5px solid #e5e7eb",paddingTop:16,marginTop:20}}>
             <div style={{fontSize:13,fontWeight:500,marginBottom:10}}>Todos los proyectos</div>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>{projects.map((p,i)=><div key={p.id} onClick={()=>onSelectProject(i)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:"#f9fafb",borderRadius:10,cursor:"pointer"}}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:10,height:10,borderRadius:"50%",background:p.color}}/><span style={{fontSize:13,fontWeight:500}}>{p.name}</span></div><span style={{fontSize:11,color:"#6b7280"}}>{p.members.length} miembros</span></div>)}</div>
@@ -15768,6 +15772,7 @@ Estructura recomendada de una respuesta con documento:
           {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:false, requiresPermission:"memory", block:"inteligencia"},
           {id:"planner",    icon:"⚡", label:"Planificador IA", shortcut:"", onClick:()=>{setActiveTab("planner");}, adminOnly:true, block:"administracion"},
           {id:"vault",      icon:"🔐", label:"Vault Personal", shortcut:"⌘⇧V", onClick:()=>{setActiveTab("vault");}, adminOnly:true, block:"administracion"},
+          {id:"umbral",     icon:"🔑", label:"El Umbral",    shortcut:"",    onClick:()=>{setActiveTab("umbral");}, adminOnly:true, block:"administracion"},
           {id:"users",      icon:"👥", label:"Usuarios",     shortcut:"⌘⇧U", onClick:()=>{setActiveTab("users");}, adminOnly:true, block:"administracion"},
           {id:"mantenimiento", icon:"🛠️", label:"Mantenimiento", shortcut:"", onClick:()=>{setActiveTab("mantenimiento");}, adminOnly:true, block:"administracion"},
         ];
@@ -16155,6 +16160,7 @@ Estructura recomendada de una respuesta con documento:
           {activeTab==="dashboard" &&<DashboardView data={data} onGoPlanner={()=>setActiveTab("planner")} onGoProjects={()=>setActiveTab("projects")} onGoBoard={i=>{setAP(i);setActiveTab("board");}} onOpenTask={(t,pi)=>{setAP(pi);setActiveTab("board");setPendingOpenTaskId(t.id);}} onOpenBriefing={()=>setScopeAvatar("global")} onCompleteTask={completeTaskAnywhere} onPostponeTask={postponeTaskAnywhere}/>}
           {activeTab==="projects"  &&<ProjectsView projects={data.projects} members={data.members} boards={data.boards} favoriteProjectIds={data.favoriteProjectIds||[]} currentMember={(data.members||[]).find(m=>m.id===activeMember)} myDefaultProjectId={resolveMyDefaultProject(data, activeMember)?.id ?? null} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onCreateProject={()=>setProjModal("create")} onEditProject={i=>setProjModal(i)} onDeleteProject={deleteProject} onArchiveProject={archiveProject} onUnarchiveProject={unarchiveProject} onToggleFavorite={toggleFavoriteProject}/>}
           {activeTab==="users"     &&<UsersView members={data.members} projects={data.projects} permissions={data.permissions} onEdit={m=>setMemberModal(m)} onCreate={()=>setMemberModal("create")} onDelete={deleteMember} onSetPermission={setMemberPermission} onSetAgentPermission={setMemberAgentPermission}/>}
+          {activeTab==="umbral"    &&<UmbralView authSession={authSession} isOwner={isAccountOwner(me, { legacyMode: typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1" })} ownerName={me?.name || ""}/>}
           {activeTab==="mantenimiento" && <MantenimientoView authUid={authSession?.user?.id || null}/>}
           {activeTab==="finance"   &&(()=>{
             const myMember = (data.members||[]).find(x=>x.id===activeMember);
@@ -16190,7 +16196,7 @@ Estructura recomendada de una respuesta con documento:
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
           {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile} onUpdateTask={updateTaskAnywhere}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
-          {activeTab==="team"      &&<TeamView project={proj} members={data.members} projects={data.projects} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onEditProfile={m=>setPM(m)} authSession={authSession} isOwner={isAccountOwner(me, { legacyMode: typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1" })}/>}
+          {activeTab==="team"      &&<TeamView project={proj} members={data.members} projects={data.projects} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onEditProfile={m=>setPM(m)}/>}
         </div>
       </div>
 

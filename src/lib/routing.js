@@ -32,6 +32,7 @@ export const TAB_TO_SLUG = {
   "vault":         "vault",
   "users":         "users",
   "mantenimiento": "mantenimiento",
+  "umbral":        "umbral",
 };
 
 export const SLUG_TO_TAB = Object.fromEntries(
