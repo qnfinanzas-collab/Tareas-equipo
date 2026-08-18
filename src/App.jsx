@@ -49,6 +49,18 @@ import SignupView, { parseSignupPath } from "./components/SignupView.jsx";
 // TeamView ya no lo renderiza; el fichero se conserva por si se
 // reutiliza en un flujo futuro, pero no se importa.
 import UmbralView from "./components/UmbralView.jsx";
+// Iconografía del sidebar — sustitución de emojis por lucide-react
+// (18/08/2026 noche). Trazo fino uniforme, monocromo, hereda
+// currentColor del CSS padre. Import individual para tree-shake:
+// Vite empaqueta solo los 20 iconos que se usan.
+// NOTA: el emoji 🧙 SE MANTIENE en el avatar de Héctor dentro del
+// chat y en las burbujas de especialistas — es identidad de
+// personaje, no navegación. Solo cambia el sidebar.
+import {
+  Home, Wand2, Scale, LayoutDashboard, CalendarDays, Handshake,
+  ListChecks, FolderKanban, LayoutGrid, MapPin, Landmark, Building,
+  BarChart3, FileText, Archive, Sparkles, Vault, KeyRound, Users, Wrench,
+} from "lucide-react";
 import { generatePersonalDocuments } from "./components/Vault/personalTemplates.js";
 import { AGENT_ACTIONS_ADDON, suggestNegotiationEmoji, NEGOTIATION_EMOJIS, parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, correctActionsDates, stripCeoProfile, buildSpecialistContext } from "./lib/agentActions.js";
 import ActionProposal from "./components/Shared/ActionProposal.jsx";
@@ -15755,26 +15767,26 @@ Estructura recomendada de una respuesta con documento:
         // Los demás se agrupan bajo títulos de sección oro. Si tras el filtro
         // de permisos un bloque queda vacío, su título no se renderiza.
         const ALL_PRIMARY=[
-          {id:"home",       icon:"🏠", label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}, adminOnly:false, block:null},
-          {id:"hector-direct", icon:"🧙", label:"Héctor",       shortcut:"",    onClick:()=>{setActiveTab("hector-direct");}, adminOnly:false, block:"tu-dia"},
-          {id:"consejo",    icon:"💼", label:"El Consejo",   shortcut:"",    onClick:()=>{setActiveTab("consejo");}, adminOnly:false, requiresOwner:true, block:"tu-dia"},
-          {id:"command",    icon:"🎯", label:"Sala de Mando",shortcut:"",    onClick:()=>{setActiveTab("command");}, adminOnly:false, block:"tu-dia"},
-          {id:"midia",      icon:"📅", label:"Mi Día",       shortcut:"",    onClick:()=>{setActiveTab("midia");}, adminOnly:false, block:"tu-dia"},
-          {id:"dealroom",   icon:"🤝", label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:false, block:"operacion"},
-          {id:"mytasks",    icon:"✅", label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false, block:"operacion"},
-          {id:"projects",   icon:"📁", label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:false, block:"operacion"},
-          {id:"workspaces", icon:"🏢", label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}, adminOnly:false, requiresPermission:"workspaces", block:"operacion"},
-          {id:"places",     icon:"📍", label:"Mis Lugares",  shortcut:"",    onClick:()=>{setActiveTab("places");}, adminOnly:false, block:"operacion"},
-          {id:"finance",    icon:"💰", label:"Finanzas",     shortcut:"",    onClick:()=>{setActiveTab("finance");}, adminOnly:false, requiresPermission:"finance", block:"patrimonio"},
-          {id:"gobernanza", icon:"🏛️", label:"Gobernanza",   shortcut:"⌘⇧G", onClick:()=>{setActiveTab("gobernanza");}, adminOnly:false, requiresPermission:"gobernanza", block:"patrimonio"},
-          {id:"dashboard",  icon:"📊", label:"Dashboard analítico", shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:false, requiresPermission:"dashboard", block:"inteligencia"},
-          {id:"briefings",  icon:"🧠", label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:false, requiresPermission:"briefings", block:"inteligencia"},
-          {id:"memory",     icon:"🧩", label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:false, requiresPermission:"memory", block:"inteligencia"},
-          {id:"planner",    icon:"⚡", label:"Planificador IA", shortcut:"", onClick:()=>{setActiveTab("planner");}, adminOnly:true, block:"administracion"},
-          {id:"vault",      icon:"🔐", label:"Vault Personal", shortcut:"⌘⇧V", onClick:()=>{setActiveTab("vault");}, adminOnly:true, block:"administracion"},
-          {id:"umbral",     icon:"🔑", label:"El Umbral",    shortcut:"",    onClick:()=>{setActiveTab("umbral");}, adminOnly:true, block:"administracion"},
-          {id:"users",      icon:"👥", label:"Usuarios",     shortcut:"⌘⇧U", onClick:()=>{setActiveTab("users");}, adminOnly:true, block:"administracion"},
-          {id:"mantenimiento", icon:"🛠️", label:"Mantenimiento", shortcut:"", onClick:()=>{setActiveTab("mantenimiento");}, adminOnly:true, block:"administracion"},
+          {id:"home",       Icon:Home,             label:"Home",         shortcut:"⌘⇧H", onClick:()=>{setActiveTab("home");}, adminOnly:false, block:null},
+          {id:"hector-direct", Icon:Wand2,         label:"Héctor",       shortcut:"",    onClick:()=>{setActiveTab("hector-direct");}, adminOnly:false, block:"tu-dia"},
+          {id:"consejo",    Icon:Scale,            label:"El Consejo",   shortcut:"",    onClick:()=>{setActiveTab("consejo");}, adminOnly:false, requiresOwner:true, block:"tu-dia"},
+          {id:"command",    Icon:LayoutDashboard,  label:"Sala de Mando",shortcut:"",    onClick:()=>{setActiveTab("command");}, adminOnly:false, block:"tu-dia"},
+          {id:"midia",      Icon:CalendarDays,     label:"Mi Día",       shortcut:"",    onClick:()=>{setActiveTab("midia");}, adminOnly:false, block:"tu-dia"},
+          {id:"dealroom",   Icon:Handshake,        label:"Deal Room",    shortcut:"⌘⇧D", onClick:()=>{setActiveTab("dealroom");setActiveNegId(null);setActiveSessId(null);}, adminOnly:false, block:"operacion"},
+          {id:"mytasks",    Icon:ListChecks,       label:"Mis tareas",   shortcut:"⌘⇧T", onClick:()=>{setActiveTab("mytasks");}, adminOnly:false, block:"operacion"},
+          {id:"projects",   Icon:FolderKanban,     label:"Proyectos",    shortcut:"⌘⇧P", onClick:()=>{setActiveTab("projects");}, adminOnly:false, block:"operacion"},
+          {id:"workspaces", Icon:LayoutGrid,       label:"Workspaces",   shortcut:"⌘⇧W", onClick:()=>{setActiveTab("workspaces");}, adminOnly:false, requiresPermission:"workspaces", block:"operacion"},
+          {id:"places",     Icon:MapPin,           label:"Mis Lugares",  shortcut:"",    onClick:()=>{setActiveTab("places");}, adminOnly:false, block:"operacion"},
+          {id:"finance",    Icon:Landmark,         label:"Finanzas",     shortcut:"",    onClick:()=>{setActiveTab("finance");}, adminOnly:false, requiresPermission:"finance", block:"patrimonio"},
+          {id:"gobernanza", Icon:Building,         label:"Gobernanza",   shortcut:"⌘⇧G", onClick:()=>{setActiveTab("gobernanza");}, adminOnly:false, requiresPermission:"gobernanza", block:"patrimonio"},
+          {id:"dashboard",  Icon:BarChart3,        label:"Dashboard analítico", shortcut:"⌘⇧A", onClick:()=>{setActiveTab("dashboard");}, adminOnly:false, requiresPermission:"dashboard", block:"inteligencia"},
+          {id:"briefings",  Icon:FileText,         label:"Briefings IA", shortcut:"⌘⇧B", onClick:()=>{setActiveTab("briefings");}, adminOnly:false, requiresPermission:"briefings", block:"inteligencia"},
+          {id:"memory",     Icon:Archive,          label:"Memoria",      shortcut:"⌘⇧M", onClick:()=>{setActiveTab("memory");}, adminOnly:false, requiresPermission:"memory", block:"inteligencia"},
+          {id:"planner",    Icon:Sparkles,         label:"Planificador IA", shortcut:"", onClick:()=>{setActiveTab("planner");}, adminOnly:true, block:"administracion"},
+          {id:"vault",      Icon:Vault,            label:"Vault Personal", shortcut:"⌘⇧V", onClick:()=>{setActiveTab("vault");}, adminOnly:true, block:"administracion"},
+          {id:"umbral",     Icon:KeyRound,         label:"El Umbral",    shortcut:"",    onClick:()=>{setActiveTab("umbral");}, adminOnly:true, block:"administracion"},
+          {id:"users",      Icon:Users,            label:"Usuarios",     shortcut:"⌘⇧U", onClick:()=>{setActiveTab("users");}, adminOnly:true, block:"administracion"},
+          {id:"mantenimiento", Icon:Wrench,        label:"Mantenimiento", shortcut:"", onClick:()=>{setActiveTab("mantenimiento");}, adminOnly:true, block:"administracion"},
         ];
         // Orden y títulos de los bloques. null = sin título (Home).
         const BLOCK_TITLES = [
@@ -15871,7 +15883,7 @@ Estructura recomendada de una respuesta con documento:
                     const active = activeTab===it.id;
                     return(
                       <div key={it.id} onClick={it.onClick} title={sidebarCollapsed?`${it.label} · ${it.shortcut}`:it.shortcut} style={{display:"flex",alignItems:"center",gap:sidebarCollapsed?0:10,padding:sidebarCollapsed?"9px 0":"8px 10px",borderRadius:8,cursor:"pointer",fontSize:13,background:active?"#EEEDFE":"transparent",color:active?"#7F77DD":"#4b5563",fontWeight:active?600:500,justifyContent:sidebarCollapsed?"center":"flex-start",marginBottom:2}} onMouseEnter={e=>{if(!active) e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{if(!active) e.currentTarget.style.background="transparent";}}>
-                        <span style={{fontSize:16,flexShrink:0}}>{it.icon}</span>
+                        {it.Icon && <it.Icon size={18} strokeWidth={1.5} aria-hidden="true" style={{flexShrink:0}}/>}
                         {!sidebarCollapsed&&<>
                           <span style={{flex:1}}>{it.label}</span>
                           <span style={{fontSize:10,color:active?"#7F77DD99":"#9CA3AF",fontFamily:"ui-monospace,monospace"}}>{it.shortcut}</span>
@@ -16342,10 +16354,10 @@ Estructura recomendada de una respuesta con documento:
           hamburguesa. Reusa setActiveTab para no duplicar lógica. */}
       <nav className="tf-bottom-nav" aria-label="Navegación principal móvil">
         {[
-          { id: "hector-direct", icon: "🧙", label: "Héctor",    onClick: () => setActiveTab("hector-direct") },
-          { id: "mytasks",       icon: "✅", label: "Tareas",    onClick: () => setActiveTab("mytasks") },
-          { id: "dealroom",      icon: "🤝", label: "Negs",      onClick: () => { setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null); } },
-          { id: "projects",      icon: "📁", label: "Proyectos", onClick: () => setActiveTab("projects") },
+          { id: "hector-direct", Icon: Wand2,        label: "Héctor",    onClick: () => setActiveTab("hector-direct") },
+          { id: "mytasks",       Icon: ListChecks,   label: "Tareas",    onClick: () => setActiveTab("mytasks") },
+          { id: "dealroom",      Icon: Handshake,    label: "Negs",      onClick: () => { setActiveTab("dealroom"); setActiveNegId(null); setActiveSessId(null); } },
+          { id: "projects",      Icon: FolderKanban, label: "Proyectos", onClick: () => setActiveTab("projects") },
         ].map(item => (
           <button
             key={item.id}
@@ -16354,7 +16366,7 @@ Estructura recomendada de una respuesta con documento:
             onClick={item.onClick}
             aria-current={activeTab === item.id ? "page" : undefined}
           >
-            <span className="tf-bn-icon" aria-hidden="true">{item.icon}</span>
+            <span className="tf-bn-icon" aria-hidden="true">{item.Icon && <item.Icon size={18} strokeWidth={1.5}/>}</span>
             <span className="tf-bn-label">{item.label}</span>
           </button>
         ))}
