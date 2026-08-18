@@ -1702,7 +1702,11 @@ Reglas:
         }
       `}</style>
 
-      {/* ZONA 1 — HEADER */}
+      {/* ZONA 1 — HEADER CONSOLIDADO (19/08/2026)
+          Fusiona la cabecera Héctor + el antiguo link "Ver Sala de Mando"
+          (que ocupaba franja propia de ~30px). Ahora Sala vive como
+          icono discreto a la derecha del nombre. Ahorra 30px verticales
+          en móvil. En desktop se ve idéntico. */}
       <div style={headerStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
           <AgentAvatar agent="hector" size={40} />
@@ -1718,25 +1722,35 @@ Reglas:
             </div>
           </div>
         </div>
-        <div style={{ fontSize: 12, color: C.textTertiary, fontWeight: 500 }}>Jefe de Gabinete</div>
-      </div>
-
-      {/* ZONA 1b — LINK SALA DE MANDO. Acceso discreto al panel completo
-          (HectorPanel) para quien quiera el modo "centro de control" con
-          tabs, urgentes, especialistas, etc. Compartem historial via
-          localStorage, así que volver allí no pierde el contexto. */}
-      {onNavigate && (
-        <div style={{ textAlign: "right", padding: "4px 20px 6px", borderBottom: `0.5px solid ${C.borderTertiary}`, flexShrink: 0, background: C.bgPrimary }}>
-          <span
-            onClick={() => onNavigate("command")}
-            onMouseEnter={e => e.currentTarget.style.color = C.brandHover}
-            onMouseLeave={e => e.currentTarget.style.color = C.brand}
-            style={{ fontSize: 12, color: C.brand, cursor: "pointer", textDecoration: "underline" }}
-          >
-            Ver Sala de Mando →
-          </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ fontSize: 12, color: C.textTertiary, fontWeight: 500 }}>Jefe de Gabinete</div>
+          {onNavigate && (
+            <button
+              type="button"
+              onClick={() => onNavigate("command")}
+              title="Ver Sala de Mando"
+              aria-label="Ver Sala de Mando"
+              onMouseEnter={e => e.currentTarget.style.color = C.brandHover}
+              onMouseLeave={e => e.currentTarget.style.color = C.brand}
+              style={{
+                background: "transparent", border: "none", padding: "8px",
+                cursor: "pointer", color: C.brand, display: "flex",
+                alignItems: "center", justifyContent: "center", fontSize: 16,
+                fontFamily: "inherit", minWidth: 40, minHeight: 40,
+              }}
+            >
+              {/* Icono LayoutDashboard inline SVG en trazo fino oro —
+                  homogéneo con la iconografía lucide del sidebar. */}
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="7" height="9"/>
+                <rect x="14" y="3" width="7" height="5"/>
+                <rect x="14" y="12" width="7" height="9"/>
+                <rect x="3" y="16" width="7" height="5"/>
+              </svg>
+            </button>
+          )}
         </div>
-      )}
+      </div>
 
       {/* ZONA 1c — BANNER PUENTE DESDE EL CONSEJO. Aparece tras pulsar
           "Accionar con Héctor" en un chat de especialista. El input ya
@@ -2483,17 +2497,21 @@ function TypingIndicator() {
 // ── Estilos ─────────────────────────────────────────────────────────
 
 const rootStyle = {
-  // height: 100% para llenar el área main-content de App.jsx (que ya está
-  // BAJO el topbar). 100dvh tomaba el viewport completo y empujaba el
-  // header de HectorDirect fuera de pantalla en móvil (oculto tras el
-  // topbar de la app).
-  // HD-v3: paddingBottom reserva el espacio del bottom nav (64px +
-  // safe-area). main-content ya añade ese padding via CSS global, pero
-  // como el root usa overflow:hidden, el inputBar se quedaba debajo
-  // del nav. Reservamos el espacio aquí también para que el input quede
-  // pegado por encima del nav en móvil.
+  // Layout de chat verdadero (19/08/2026, revisión completa):
+  //   - height: 100% llena el <div flex:1 overflow:auto> de App.jsx.
+  //   - overflow: hidden + flex column → SOLO chatStyle scrollea, el
+  //     resto son franjas fixed en flujo (header + input).
+  //   - minHeight: 0 crítico para que los hijos flex puedan encogerse
+  //     bajo su intrinsic size (bug clásico de flexbox — sin él el
+  //     chat empuja al input fuera del viewport en iOS Safari).
+  //   - paddingBottom: 0 en móvil (regla @media abajo). El shell
+  //     [data-tf="main-content"] YA aplica el compensation del bottom
+  //     nav (index.html:180). Duplicarlo aquí generaba el hueco muerto
+  //     entre input y bottom nav que reportó el CEO el 19/08.
+  //     En desktop no hay bottom nav → paddingBottom irrelevante.
   height: "100%",
-  paddingBottom: "calc(64px + env(safe-area-inset-bottom))",
+  minHeight: 0,
+  paddingBottom: 0,
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
@@ -2551,6 +2569,13 @@ const chatStyle = {
   flex: 1,
   overflowY: "auto",
   overflowX: "hidden",
+  // overscrollBehavior:contain (19/08/2026): impide que el scroll del
+  // chat se propague al padre cuando el CEO llega al top/bottom de la
+  // lista. Sin esto, iOS Safari arrastraba el body entero al hacer
+  // pull-to-refresh o al llegar al fondo del chat, moviendo la
+  // cabecera y el input fuera de la pantalla.
+  overscrollBehavior: "contain",
+  WebkitOverflowScrolling: "touch",
   padding: "16px 20px",
   display: "flex",
   flexDirection: "column",
