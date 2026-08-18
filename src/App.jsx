@@ -43,6 +43,8 @@ import FinanceView from "./components/Finanzas/FinanceView.jsx";
 import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
 import VaultView from "./components/Vault/VaultView.jsx";
 import VaultGuestView, { parseVaultGuestPath } from "./components/Vault/VaultGuestView.jsx";
+import SignupView, { parseSignupPath } from "./components/SignupView.jsx";
+import InviteCEO from "./components/InviteCEO.jsx";
 import { generatePersonalDocuments } from "./components/Vault/personalTemplates.js";
 import { AGENT_ACTIONS_ADDON, suggestNegotiationEmoji, NEGOTIATION_EMOJIS, parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, correctActionsDates, stripCeoProfile, buildSpecialistContext } from "./lib/agentActions.js";
 import ActionProposal from "./components/Shared/ActionProposal.jsx";
@@ -7157,9 +7159,12 @@ function ProjectsView({projects,members,boards,currentMember,myDefaultProjectId=
 }
 
 // ── Team View ─────────────────────────────────────────────────────────────────
-function TeamView({project,members,projects,onSelectProject,onEditProfile}){
-  const [email,setEmail]=useState(""); const [role,setRole]=useState("Editor"); const [fb,setFb]=useState("");
-  const invite=()=>{ if(!email.trim())return; setFb(`Invitacion enviada a ${email.trim()} como ${role}`); setEmail(""); setTimeout(()=>setFb(""),3000); };
+// authSession + isOwner (18/08/2026, F1.2 Antesala): se pasan desde el
+// caller para gatear e invocar <InviteCEO/> conectado a /api/create-invite.
+// El input placebo "Invitar al proyecto" con selector Editor/Viewer/Manager
+// se quitó — engañaba: parecía "añadir al proyecto" pero el endpoint crea
+// un tenant nuevo. Se reemplaza por <InviteCEO/> con copy honesto.
+function TeamView({project,members,projects,onSelectProject,onEditProfile,authSession,isOwner}){
   return(
     <div style={{padding:20,maxWidth:760}}>
       <div style={{background:"#fff",border:"0.5px solid #e5e7eb",borderRadius:16,overflow:"hidden"}}>
@@ -7172,16 +7177,8 @@ function TeamView({project,members,projects,onSelectProject,onEditProfile}){
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:10,marginBottom:24}}>
             {project.members.map(mid=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; const avH=m?.avail?.hoursPerDay||7; const icsOk=!!m?.avail?.icsUrl; return <div key={mid} style={{background:mp2.light,border:`2px solid ${mp2.solid}`,borderRadius:12,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}><div style={{width:40,height:40,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,flexShrink:0}}>{m?.initials}</div><div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:700,color:mp2.solid}}>{m?.name}</div><div style={{fontSize:11,color:"#6b7280"}}>{m?.role} · {avH}h/d</div><div style={{display:"flex",gap:4,marginTop:3}}>{m?.avail?.whatsapp&&<span style={{fontSize:9,background:"#dcfce7",color:"#166534",padding:"1px 5px",borderRadius:6}}>WA</span>}{icsOk&&<span style={{fontSize:9,background:"#dbeafe",color:"#1e40af",padding:"1px 5px",borderRadius:6}}>Cal</span>}</div></div><button onClick={()=>onEditProfile(m)} style={{background:"none",border:`1px solid ${mp2.solid}`,borderRadius:8,padding:"4px 8px",fontSize:11,cursor:"pointer",color:mp2.solid,fontWeight:600}}>Editar</button></div>; })}
           </div>
-          <div style={{borderTop:"0.5px solid #e5e7eb",paddingTop:16,marginBottom:16}}>
-            <div style={{fontSize:13,fontWeight:500,marginBottom:10}}>Invitar al proyecto</div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-              <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email del nuevo miembro..." onKeyDown={e=>e.key==="Enter"&&invite()} style={{flex:1,minWidth:180,padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,outline:"none",fontFamily:"inherit"}}/>
-              <select value={role} onChange={e=>setRole(e.target.value)} style={{padding:"7px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,background:"#fff",fontFamily:"inherit"}}><option>Editor</option><option>Viewer</option><option>Manager</option></select>
-              <button onClick={invite} style={{padding:"7px 16px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:500}}>Invitar</button>
-            </div>
-            {fb&&<div style={{fontSize:12,color:"#1D9E75",marginTop:8}}>{fb}</div>}
-          </div>
-          <div style={{borderTop:"0.5px solid #e5e7eb",paddingTop:16}}>
+          <InviteCEO authSession={authSession} isOwner={isOwner}/>
+          <div style={{borderTop:"0.5px solid #e5e7eb",paddingTop:16,marginTop:20}}>
             <div style={{fontSize:13,fontWeight:500,marginBottom:10}}>Todos los proyectos</div>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>{projects.map((p,i)=><div key={p.id} onClick={()=>onSelectProject(i)} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 12px",background:"#f9fafb",borderRadius:10,cursor:"pointer"}}><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:10,height:10,borderRadius:"50%",background:p.color}}/><span style={{fontSize:13,fontWeight:500}}>{p.name}</span></div><span style={{fontSize:11,color:"#6b7280"}}>{p.members.length} miembros</span></div>)}</div>
           </div>
@@ -12088,6 +12085,10 @@ export default function TaskFlow(){
   // Persiste mutaciones contra el state principal para que el CEO vea los
   // cambios cuando vuelva a abrir la app normal.
   const guestVaultToken = typeof window !== "undefined" ? parseVaultGuestPath(window.location.pathname) : null;
+  // F1.2 Antesala (18/08/2026): ruta /signup?token=X&email=Y aterriza al
+  // invitado en su pantalla de alta, ANTES del auth gate. Patrón heredado
+  // de parseVaultGuestPath — short-circuit total del shell de Kluxor.
+  const signupInvite = typeof window !== "undefined" ? parseSignupPath(window.location.pathname, window.location.search) : null;
   const [data,setData]             = useState(_saved);
   // Espejo de `data` en ref para leer estado actual desde callbacks sin
   // depender del timing de setState (útil en flujos async como auto-learn
@@ -15603,6 +15604,27 @@ Estructura recomendada de una respuesta con documento:
     return <VaultGuestView token={guestVaultToken} data={data} onUpdateVault={updateVault}/>;
   }
 
+  // F1.2 Antesala: si la URL trae token de invitación válido, pintamos
+  // SignupView pantalla completa. onSuccess recibe la sesión ya creada
+  // (signIn programático post-signup) — igual que LoginScreen.onAuthed.
+  // Si el user ya está logueado le mostramos aviso "cierra sesión primero".
+  if(signupInvite){
+    return <SignupView
+      token={signupInvite.token}
+      initialEmail={signupInvite.email}
+      isLoggedIn={!!authSession}
+      onSuccess={(s)=>{
+        setAuthSession(s);
+        // Limpiamos la URL para que un refresh no reintente el signup.
+        try { window.history.replaceState(null, "", "/"); } catch {}
+      }}
+      onAlreadyLoggedIn={()=>{
+        try { window.history.replaceState(null, "", "/"); } catch {}
+        window.location.reload();
+      }}
+    />;
+  }
+
   // Auth gate: cuando Supabase Auth está disponible y el usuario no está
   // en modo demo, mostramos LoginScreen hasta que tenga sesión válida con
   // email que case con un member. Si la sesión existe pero el email no
@@ -16168,7 +16190,7 @@ Estructura recomendada de una respuesta con documento:
           {activeTab==="eisenhower"&&<EisenhowerView boards={data.boards} members={data.members} activeMemberId={activeMember} projects={data.projects}/>}
           {activeTab==="planner"   &&<PlannerView data={data} onApplySchedule={applySchedule} saveMemberProfile={saveMemberProfile} onUpdateTask={updateTaskAnywhere}/>}
           {activeTab==="reports"   &&<TimeReportsView boards={data.boards} members={data.members} projects={data.projects}/>}
-          {activeTab==="team"      &&<TeamView project={proj} members={data.members} projects={data.projects} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onEditProfile={m=>setPM(m)}/>}
+          {activeTab==="team"      &&<TeamView project={proj} members={data.members} projects={data.projects} onSelectProject={i=>{setAP(i);setActiveTab("board");}} onEditProfile={m=>setPM(m)} authSession={authSession} isOwner={isAccountOwner(me, { legacyMode: typeof window !== "undefined" && localStorage.getItem("kluxor.legacyMode") === "1" })}/>}
         </div>
       </div>
 
