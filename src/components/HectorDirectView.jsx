@@ -171,7 +171,7 @@ const CHAT_MAX = 50;
 // regex INVOCAR; agentName mapea al campo `name` del agente en
 // data.agents (lo que necesita callAgentSafe para localizar promptBase).
 const SPECIALIST_META = {
-  mario:   { label: "Mario Legal",         emoji: "⚖️", color: "#7C3AED", agentName: "Mario Legal" },
+  mario:   { label: "Mario Legal",         emoji: "⚖️", color: "#4E4A42", agentName: "Mario Legal" },
   jorge:   { label: "Jorge Finanzas",      emoji: "📊", color: "#0369A1", agentName: "Jorge Finanzas" },
   alvaro:  { label: "Álvaro Inmobiliario", emoji: "🏠", color: "#B45309", agentName: "Álvaro Inmobiliario" },
   gonzalo: { label: "Gonzalo Gobernanza",  emoji: "🏛️", color: "#065F46", agentName: "Gonzalo Gobernanza" },

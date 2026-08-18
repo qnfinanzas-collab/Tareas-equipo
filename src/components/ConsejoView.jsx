@@ -136,10 +136,10 @@ function _docFromSegment(seg, spec) {
 // Definición de los 5 especialistas. `mode` decide el comportamiento de la
 // card: "chat" embebe el chat en esta vista; "navigate" salta a otra vista.
 const COUNCIL = [
-  { key: "mario",   emoji: "⚖️", name: "Mario",   role: "Abogado mercantil",                    accent: "#7C3AED", bg: "#F3EEFF", border: "#D8B4FE", mode: "chat" },
+  { key: "mario",   emoji: "⚖️", name: "Mario",   role: "Abogado mercantil",                    accent: "#4E4A42", bg: "#F0EDE5", border: "#E5E0D5", mode: "chat" },
   { key: "jorge",   emoji: "📊", name: "Jorge",   role: "Analista de inversión",                accent: "#0E7C5A", bg: "#ECFDF5", border: "#86EFAC", mode: "chat" },
   { key: "alvaro",  emoji: "🏠", name: "Álvaro",  role: "Inmobiliario y fiscalidad",            accent: "#92400E", bg: "#FEF3C7", border: "#FCD34D", mode: "chat" },
-  { key: "gonzalo", emoji: "🏛️", name: "Gonzalo", role: "Holdings y gobernanza",                accent: "#6B21A8", bg: "#F5EEFA", border: "#D8B4FE", mode: "navigate", target: "gobernanza" },
+  { key: "gonzalo", emoji: "🏛️", name: "Gonzalo", role: "Holdings y gobernanza",                accent: "#6B6B6B", bg: "#F0EDE5", border: "#E5E0D5", mode: "navigate", target: "gobernanza" },
   { key: "diego",   emoji: "💰", name: "Diego",   role: "Analista financiero",                  accent: "#B91C1C", bg: "#FEF2F2", border: "#FCA5A5", mode: "navigate", target: "finance" },
 ];
 
@@ -645,8 +645,8 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-start", maxWidth: "82%" }}>
                   {!isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : spec.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{spec.emoji}</div>}
                   <div style={{
-                    background: isUser ? "#7F77DD" : (m.error ? "#FEE2E2" : spec.bg),
-                    color: isUser ? "#fff" : (m.error ? "#991B1B" : "#1F2937"),
+                    background: isUser ? "#0A0A0A" : (m.error ? "#FEE2E2" : spec.bg),
+                    color: isUser ? "#F5F0E8" : (m.error ? "#991B1B" : "#1F2937"),
                     border: m.error ? "1px solid #FCA5A5" : "0.5px solid #E5E7EB",
                     padding: "10px 14px",
                     fontSize: 13.5,

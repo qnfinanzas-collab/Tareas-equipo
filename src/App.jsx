@@ -504,7 +504,7 @@ const INITIAL_DATA = {
     {id:7,name:"Albert Díaz",  initials:"AL",role:"Editor", email:"albertquicknex@gmail.com",supabaseUid:"61cfb1d3-1751-4a76-a54a-e26e5ac77d57", avail:{...BASE_AVAIL,whatsapp:"",hoursPerDay:8}},
   ],
   projects:[
-    {id:1,name:"App móvil",    color:"#7F77DD",members:[0,1,2],desc:"App móvil principal",emoji:"📱"},
+    {id:1,name:"App móvil",    color:"#0A0A0A",members:[0,1,2],desc:"App móvil principal",emoji:"📱"},
     {id:2,name:"Web rediseño", color:"#1D9E75",members:[0,2,3],desc:"Rediseño web corporativa",emoji:"🌐"},
     {id:3,name:"Backend API",  color:"#378ADD",members:[1,3,4],desc:"Backend y documentación",emoji:"⚙️"},
     {id:4,name:"Proyecto Díaz",color:"#D85A30",members:[5,6,7],desc:"Equipo Díaz",emoji:"🚀"},
@@ -551,7 +551,7 @@ const INITIAL_DATA = {
       name:"Mario Legal",
       role:"Abogado mercantil senior (25+ años)",
       emoji:"⚖️",
-      color:"#3C3489",
+      color:"#1A1A1A",
       voice:{gender:"male",rate:0.95,pitch:0.95,tone:"profesional"},
       specialties:["contratos","compliance","laboral","IP","RGPD","Joint Ventures","MiFID II","AIFMD","arrendamientos LALI"],
       opener:"Soy Mario, abogado mercantil senior. Revisemos los riesgos legales de esta tarea antes de seguir — mejor prevenir que litigar.",
@@ -704,7 +704,7 @@ NUNCA:
       name:"Gonzalo Gobernanza",
       role:"Estratega de Gobernanza Empresarial (25+ años)",
       emoji:"🏛️",
-      color:"#8E44AD",
+      color:"#4E4A42",
       voice:{gender:"male",rate:1.0,pitch:0.92,tone:"profesional"},
       specialties:["estructura societaria","holdings","consolidación fiscal","transfer pricing","internacionalización","planificación sucesoria","reestructuraciones","gobierno corporativo"],
       opener:"Soy Gonzalo, estratega de gobernanza empresarial. Antes de tomar decisión societaria, repasamos estructura, ahorro fiscal real, calendario de obligaciones y riesgo de inspección. Sin sustancia real, no hay optimización legal.",
@@ -1729,7 +1729,7 @@ function seedRegistroKluxor(d){
     id: PROJ_ID,
     name: "Registro y Protección Kluxor",
     desc: "Gestión completa del registro de marca, protección de propiedad intelectual, constitución societaria y protección de código fuente",
-    color: "#8E44AD",
+    color: "#4E4A42",
     emoji: "🛡️",
     code: "REG",
     members: [adminId, marcId],
@@ -2615,8 +2615,8 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
         onDrop={onDrop}
         onClick={()=>fileInputRef.current?.click()}
         style={{
-          border:`2px dashed ${dragOver?"#7F77DD":"#D1D5DB"}`,
-          background: dragOver?"#F5F3FF":"#F9FAFB",
+          border:`2px dashed ${dragOver?"#0A0A0A":"#D1D5DB"}`,
+          background: dragOver?"#F0EDE5":"#F9FAFB",
           borderRadius:10, padding:"16px 14px", textAlign:"center",
           cursor:busy?"wait":"pointer", transition:"all .15s",
         }}
@@ -3371,7 +3371,7 @@ function ProfileModal({member,onClose,onSave}){
                 {cached===null?(
                   <div style={{fontSize:10,background:"#FEF3C7",color:"#92400E",border:"1px solid #F59E0B",borderRadius:6,padding:"3px 8px"}}>📅 Sin sincronizar aún — ejecuta el Planificador IA para cargar eventos</div>
                 ):(
-                  <div style={{fontSize:10,background:cached.length>0?"#EEF2FF":"#FEE2E2",color:cached.length>0?"#3730A3":"#991B1B",border:`1px solid ${cached.length>0?"#6366F1":"#EF4444"}`,borderRadius:6,padding:"3px 8px"}}>📅 {cached.length} eventos cargados · hoy: {todayEvs?.length||0} {cached.length===0?"— revisa la URL o el proxy CORS":""}</div>
+                  <div style={{fontSize:10,background:cached.length>0?"#F0EDE5":"#FEE2E2",color:cached.length>0?"#4E4A42":"#991B1B",border:`1px solid ${cached.length>0?"#4E4A42":"#EF4444"}`,borderRadius:6,padding:"3px 8px"}}>📅 {cached.length} eventos cargados · hoy: {todayEvs?.length||0} {cached.length===0?"— revisa la URL o el proxy CORS":""}</div>
                 )}
                 <button onClick={()=>{delete ICS_CACHE[member.id];alert("Caché ICS limpiada. Ejecuta el planificador para recargar.");}} style={{alignSelf:"flex-start",fontSize:10,padding:"2px 8px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",cursor:"pointer",color:"#6b7280"}}>🔄 Limpiar caché ICS</button>
               </div>
@@ -3468,8 +3468,8 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
           {members.filter(m=>icsStatus[m.id]).map(m=>{
             const st=icsStatus[m.id]; const mp2=MP[m.id]||MP[0];
             return(
-              <div key={m.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:500,background:st==="ok"?"#E1F5EE":st==="error"?"#FCEBEB":"#EEEDFE",color:st==="ok"?"#085041":st==="error"?"#A32D2D":"#3C3489",border:`1px solid ${st==="ok"?"#1D9E75":st==="error"?"#E24B4A":"#7F77DD"}`}}>
-                <div style={{width:8,height:8,borderRadius:"50%",background:st==="ok"?"#1D9E75":st==="error"?"#E24B4A":"#7F77DD"}}/>
+              <div key={m.id} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",borderRadius:20,fontSize:11,fontWeight:500,background:st==="ok"?"#E1F5EE":st==="error"?"#FCEBEB":"#F0EDE5",color:st==="ok"?"#085041":st==="error"?"#A32D2D":"#1A1A1A",border:`1px solid ${st==="ok"?"#1D9E75":st==="error"?"#E24B4A":"#0A0A0A"}`}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:st==="ok"?"#1D9E75":st==="error"?"#E24B4A":"#0A0A0A"}}/>
                 {m.initials} Google Calendar: {st==="loading"?"Leyendo...":st==="ok"?"Sincronizado":"Error"}
               </div>
             );
@@ -3486,7 +3486,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {result&&<button onClick={()=>members.forEach(m=>m.avail?.whatsapp&&setTimeout(()=>sendWA(m),200*m.id))} style={{padding:"8px 14px",borderRadius:8,background:"#25D366",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Notificar todos (WA)</button>}
           {result&&<button onClick={()=>onApplySchedule(result.schedule)} style={{padding:"8px 16px",borderRadius:8,background:"#1D9E75",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Aplicar plan</button>}
-          <button onClick={run} disabled={running} style={{padding:"8px 20px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600,opacity:running?0.7:1}}>
+          <button onClick={run} disabled={running} style={{padding:"8px 20px",borderRadius:8,background:"#0A0A0A",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600,opacity:running?0.7:1}}>
             {running?"Planificando...":"Planificar ahora"}
           </button>
         </div>
@@ -3503,7 +3503,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
                 {workDays.map(d=>{
                   const isToday=d===fmt(TODAY);
                   return(
-                    <th key={d} style={{padding:"4px 6px",textAlign:"center",borderBottom:"1px solid #e5e7eb",fontWeight:isToday?700:500,color:isToday?"#7F77DD":"#374151",minWidth:50,background:isToday?"#EEEDFE":"transparent"}}>
+                    <th key={d} style={{padding:"4px 6px",textAlign:"center",borderBottom:"1px solid #e5e7eb",fontWeight:isToday?700:500,color:isToday?"#9A6F14":"#374151",minWidth:50,background:isToday?"#F0EDE5":"transparent"}}>
                       <div>{dayName(d)}</div>
                       <div style={{fontSize:10,color:"#9ca3af",fontWeight:400}}>{d.slice(5)}</div>
                     </th>
@@ -3638,7 +3638,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
             <div style={{display:"grid",gridTemplateColumns:`120px repeat(${workDays.length},1fr)`,gap:2,minWidth:600}}>
               <div style={{padding:"4px 8px",fontSize:11,fontWeight:600,color:"#9ca3af"}}>Persona</div>
               {workDays.map(d=>(
-                <div key={d} style={{padding:"4px 4px",textAlign:"center",fontSize:10,fontWeight:d===fmt(TODAY)?700:400,color:d===fmt(TODAY)?"#7F77DD":"#6b7280",background:d===fmt(TODAY)?"#EEEDFE":"transparent",borderRadius:4}}>
+                <div key={d} style={{padding:"4px 4px",textAlign:"center",fontSize:10,fontWeight:d===fmt(TODAY)?700:400,color:d===fmt(TODAY)?"#9A6F14":"#6b7280",background:d===fmt(TODAY)?"#F0EDE5":"transparent",borderRadius:4}}>
                   {dayName(d)}<br/><span style={{fontSize:9}}>{d.slice(5)}</span>
                 </div>
               ))}
@@ -3678,7 +3678,7 @@ function PlannerView({data,onApplySchedule,saveMemberProfile,onUpdateTask}){
           <div style={{fontSize:32,marginBottom:12}}>⚡</div>
           <div style={{fontSize:14,fontWeight:600,marginBottom:6}}>Listo para planificar</div>
           <div style={{fontSize:12,color:"#6b7280",marginBottom:16}}>El agente analizara tareas, Eisenhower y el calendario real de Marc para asignar automaticamente los bloques optimos</div>
-          <button onClick={run} style={{padding:"10px 24px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:14,cursor:"pointer",fontWeight:600}}>Planificar ahora</button>
+          <button onClick={run} style={{padding:"10px 24px",borderRadius:10,background:"#0A0A0A",color:"#fff",border:"none",fontSize:14,cursor:"pointer",fontWeight:600}}>Planificar ahora</button>
         </div>
       )}
 
@@ -3785,7 +3785,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
 
   return(
     <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&handleClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:1000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,paddingBottom:20,overflowY:"auto"}}>
-      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${p2?p2.cardBorder:"#7F77DD"}`,marginBottom:20}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${p2?p2.cardBorder:"#0A0A0A"}`,marginBottom:20}}>
         {(()=>{
           // Proyecto principal + vinculados (si existen). Permiten contexto
           // visual del proyecto al que pertenece la tarea y de los proyectos
@@ -3820,7 +3820,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
           {!editing&&<RefBadge code={task.ref}/>}
           {editing
-            ?<input value={draft.title} onChange={e=>set("title",e.target.value)} style={{flex:1,fontSize:15,fontWeight:600,border:"none",outline:"2px solid #7F77DD",borderRadius:6,padding:"4px 8px",fontFamily:"inherit"}}/>
+            ?<input value={draft.title} onChange={e=>set("title",e.target.value)} style={{flex:1,fontSize:15,fontWeight:600,border:"none",outline:"2px solid #0A0A0A",borderRadius:6,padding:"4px 8px",fontFamily:"inherit"}}/>
             :(()=>{
                 // Última actualización: el timestamp más reciente del timeline.
                 const tl = task.timeline || [];
@@ -3842,10 +3842,10 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
           <div style={{display:"flex",gap:6}}>
             {!editing
               ?<>
-                <button onClick={()=>setAvatarOpen(true)} title="Hablar con asesor IA" style={{padding:"5px 12px",borderRadius:7,border:"none",background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",fontSize:12,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>🎙️ Asesor IA</button>
+                <button onClick={()=>setAvatarOpen(true)} title="Hablar con asesor IA" style={{padding:"5px 12px",borderRadius:7,border:"none",background:"#0A0A0A",color:"#F5F0E8",fontSize:12,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:5}}>🎙️ Asesor IA</button>
                 <button onClick={()=>{setEditing(true);setDraft({...task});}} style={{padding:"5px 12px",borderRadius:7,border:"0.5px solid #d1d5db",background:"#f9fafb",fontSize:12,cursor:"pointer",fontWeight:500}}>Editar</button>
               </>
-              :<><button onClick={saveEdits} style={{padding:"5px 12px",borderRadius:7,border:"none",background:"#7F77DD",color:"#fff",fontSize:12,cursor:"pointer",fontWeight:500}}>Guardar</button><button onClick={()=>setEditing(false)} style={{padding:"5px 10px",borderRadius:7,border:"0.5px solid #d1d5db",background:"transparent",fontSize:12,cursor:"pointer"}}>X</button></>
+              :<><button onClick={saveEdits} style={{padding:"5px 12px",borderRadius:7,border:"none",background:"#0A0A0A",color:"#fff",fontSize:12,cursor:"pointer",fontWeight:500}}>Guardar</button><button onClick={()=>setEditing(false)} style={{padding:"5px 10px",borderRadius:7,border:"0.5px solid #d1d5db",background:"transparent",fontSize:12,cursor:"pointer"}}>X</button></>
             }
             <button onClick={handleClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#6b7280",lineHeight:1}}>x</button>
           </div>
@@ -3882,7 +3882,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
         {/* Tabs */}
         <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",padding:"0 20px"}}>
           {[["detail","Detalle"],["subtasks","Subtareas"],["links","Enlaces"],["time","Tiempo"],["timeline","Avance"],["documents","Documentos"]].map(([k,l])=>(
-            <div key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400,marginBottom:-0.5}}>{l}{k==="subtasks"&&subs.length>0?` ${subsDone}/${subs.length}`:""}{k==="links"&&links.length>0?` (${links.length})`:""}{k==="time"&&totalLogged>0?` · ${fmtH(totalLogged)}`:""}{k==="timeline"&&(task.timeline||[]).length>0?` (${task.timeline.length})`:""}{k==="documents"&&(task.documents||[]).length>0?` (${(task.documents||[]).length})`:""}</div>
+            <div key={k} onClick={()=>setTab(k)} style={{padding:"9px 14px",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #0A0A0A":"2px solid transparent",color:tab===k?"#0A0A0A":"#6b7280",fontWeight:tab===k?600:400,marginBottom:-0.5}}>{l}{k==="subtasks"&&subs.length>0?` ${subsDone}/${subs.length}`:""}{k==="links"&&links.length>0?` (${links.length})`:""}{k==="time"&&totalLogged>0?` · ${fmtH(totalLogged)}`:""}{k==="timeline"&&(task.timeline||[]).length>0?` (${task.timeline.length})`:""}{k==="documents"&&(task.documents||[]).length>0?` (${(task.documents||[]).length})`:""}</div>
           ))}
         </div>
         <div style={{padding:20}}>
@@ -3930,7 +3930,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                   <div style={{position:"relative"}}>
                     <textarea value={draft.desc||""} onChange={e=>set("desc",e.target.value)} rows={3} style={{width:"100%",padding:"8px 38px 8px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:13,resize:"vertical",fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
                     <div style={{position:"absolute",right:6,top:6}}>
-                      <VoiceMicButton size="sm" color="#7F77DD" title="Dictar descripción" initialText={draft.desc||""} onInterim={t=>set("desc",t)} onFinal={t=>set("desc",t)}/>
+                      <VoiceMicButton size="sm" color="#0A0A0A" title="Dictar descripción" initialText={draft.desc||""} onInterim={t=>set("desc",t)} onFinal={t=>set("desc",t)}/>
                     </div>
                   </div>
                   {(agents||[]).length>0 && <>
@@ -3976,7 +3976,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                       <FL c="Proyectos vinculados"/>
                       {onTransferProject && (projects||[]).length>1 && !transferOpen && (
-                        <button onClick={()=>{setTransferOpen(true); setTransferTarget("");}} title="Mover el proyecto principal a otro" style={{padding:"3px 10px",borderRadius:6,background:"#fff",color:"#7F77DD",border:"1px solid #CFC9F3",fontSize:11,cursor:"pointer",fontWeight:600,fontFamily:"inherit"}}>↪ Cambiar principal</button>
+                        <button onClick={()=>{setTransferOpen(true); setTransferTarget("");}} title="Mover el proyecto principal a otro" style={{padding:"3px 10px",borderRadius:6,background:"#fff",color:"#0A0A0A",border:"1px solid #E5E0D5",fontSize:11,cursor:"pointer",fontWeight:600,fontFamily:"inherit"}}>↪ Cambiar principal</button>
                       )}
                     </div>
                     {transferOpen && (()=>{
@@ -3998,7 +3998,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                           )}
                           <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
                             <button onClick={()=>{setTransferOpen(false); setTransferTarget("");}} style={{padding:"5px 10px",borderRadius:6,background:"transparent",color:"#6B7280",border:"1px solid #D1D5DB",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
-                            <button onClick={()=>{ if(target){ onTransferProject(target.id); setTransferOpen(false); setTransferTarget(""); } }} disabled={!target} style={{padding:"5px 12px",borderRadius:6,background:target?"#7F77DD":"#E5E7EB",color:target?"#fff":"#9CA3AF",border:"none",fontSize:11,cursor:target?"pointer":"not-allowed",fontWeight:600,fontFamily:"inherit"}}>Confirmar traspaso</button>
+                            <button onClick={()=>{ if(target){ onTransferProject(target.id); setTransferOpen(false); setTransferTarget(""); } }} disabled={!target} style={{padding:"5px 12px",borderRadius:6,background:target?"#0A0A0A":"#E5E7EB",color:target?"#fff":"#9CA3AF",border:"none",fontSize:11,cursor:target?"pointer":"not-allowed",fontWeight:600,fontFamily:"inherit"}}>Confirmar traspaso</button>
                           </div>
                         </div>
                       );
@@ -4085,7 +4085,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                     <span style={{fontWeight:600,color:subPct===100?"#085041":"#374151"}}>{subsDone}/{subs.length} completadas · {subPct}%</span>
                   </div>
                   <div style={{height:8,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}>
-                    <div style={{height:"100%",width:`${subPct}%`,background:subPct===100?"#1D9E75":"#7F77DD",borderRadius:20,transition:"width .2s"}}/>
+                    <div style={{height:"100%",width:`${subPct}%`,background:subPct===100?"#1D9E75":"#C9A84C",borderRadius:20,transition:"width .2s"}}/>
                   </div>
                 </div>
               )}
@@ -4101,7 +4101,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                     <div key={sub.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:sub.done?"#f0fdf7":"#f9fafb",border:`1px solid ${sub.done?"#c6efd9":"#e5e7eb"}`,borderRadius:8}}>
                       <input type="checkbox" checked={sub.done} onChange={()=>toggleSub(sub.id)} style={{width:16,height:16,cursor:"pointer",accentColor:"#1D9E75",flexShrink:0}}/>
                       {isEd
-                        ?<input autoFocus value={editSubDraft} onChange={e=>setEditSubDraft(e.target.value)} onBlur={commitEditSub} onKeyDown={e=>{if(e.key==="Enter")e.target.blur();if(e.key==="Escape"){setEditingSubId(null);}}} style={{flex:1,padding:"4px 8px",border:"1px solid #7F77DD",borderRadius:6,fontSize:13,outline:"none",fontFamily:"inherit",minWidth:0}}/>
+                        ?<input autoFocus value={editSubDraft} onChange={e=>setEditSubDraft(e.target.value)} onBlur={commitEditSub} onKeyDown={e=>{if(e.key==="Enter")e.target.blur();if(e.key==="Escape"){setEditingSubId(null);}}} style={{flex:1,padding:"4px 8px",border:"1px solid #0A0A0A",borderRadius:6,fontSize:13,outline:"none",fontFamily:"inherit",minWidth:0}}/>
                         :<div onClick={()=>{setEditingSubId(sub.id);setEditSubDraft(sub.title);}} style={{flex:1,fontSize:13,cursor:"text",textDecoration:sub.done?"line-through":"none",color:sub.done?"#9ca3af":"#1f2937",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{sub.title}</div>
                       }
                       <input type="date" value={sub.dueDate||""} onChange={e=>patchSub(sub.id,{dueDate:e.target.value})} title="Fecha límite" style={{fontSize:11,padding:"3px 6px",borderRadius:6,border:"0.5px solid #d1d5db",color:dueC,fontWeight:due!==null&&(due<0||due===0)&&!sub.done?600:400,background:"#fff",fontFamily:"inherit",width:128,flexShrink:0}}/>
@@ -4116,7 +4116,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
               </div>
               <div style={{display:"flex",gap:8}}>
                 <input value={newSubTitle} onChange={e=>setNewSubTitle(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addSubtask();}} placeholder="Añadir subtarea y pulsa Enter..." style={{flex:1,padding:"8px 12px",border:"0.5px solid #d1d5db",borderRadius:8,fontSize:13,outline:"none",fontFamily:"inherit"}}/>
-                <button onClick={addSubtask} disabled={!newSubTitle.trim()} style={{padding:"8px 16px",borderRadius:8,background:newSubTitle.trim()?"#7F77DD":"#e5e7eb",color:newSubTitle.trim()?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:newSubTitle.trim()?"pointer":"default",fontWeight:600}}>+ Añadir</button>
+                <button onClick={addSubtask} disabled={!newSubTitle.trim()} style={{padding:"8px 16px",borderRadius:8,background:newSubTitle.trim()?"#0A0A0A":"#e5e7eb",color:newSubTitle.trim()?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:newSubTitle.trim()?"pointer":"default",fontWeight:600}}>+ Añadir</button>
               </div>
             </>
           )}
@@ -4128,7 +4128,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                 {links.map(l=>(
                   <div key={l.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",background:"#f9fafb",border:"0.5px solid #e5e7eb",borderRadius:8}}>
                     <span style={{fontSize:14}}>{l.icon||"🔗"}</span>
-                    <a href={l.url} target="_blank" rel="noreferrer" style={{flex:1,fontSize:13,color:"#7F77DD",textDecoration:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label}</a>
+                    <a href={l.url} target="_blank" rel="noreferrer" style={{flex:1,fontSize:13,color:"#0A0A0A",textDecoration:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.label}</a>
                     <span style={{fontSize:10,color:"#9ca3af",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:180}}>{l.url}</span>
                     <button onClick={()=>delLink(l.id)} style={{background:"none",border:"none",fontSize:14,color:"#9ca3af",cursor:"pointer",padding:0,width:22,height:22}}>×</button>
                   </div>
@@ -4138,14 +4138,14 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                 <input value={newLink.icon} onChange={e=>setNewLink(l=>({...l,icon:e.target.value}))} style={{width:40,padding:"7px 6px",border:"0.5px solid #d1d5db",borderRadius:7,fontSize:13,textAlign:"center",fontFamily:"inherit"}}/>
                 <input value={newLink.label} onChange={e=>setNewLink(l=>({...l,label:e.target.value}))} placeholder="Etiqueta" style={{width:140,padding:"7px 10px",border:"0.5px solid #d1d5db",borderRadius:7,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
                 <input value={newLink.url} onChange={e=>setNewLink(l=>({...l,url:e.target.value}))} onKeyDown={e=>{if(e.key==="Enter")addLink();}} placeholder="https://..." style={{flex:1,padding:"7px 10px",border:"0.5px solid #d1d5db",borderRadius:7,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-                <button onClick={addLink} disabled={!newLink.url.trim()} style={{padding:"7px 14px",borderRadius:7,background:newLink.url.trim()?"#7F77DD":"#e5e7eb",color:newLink.url.trim()?"#fff":"#9ca3af",border:"none",fontSize:12,cursor:newLink.url.trim()?"pointer":"default",fontWeight:600}}>+ Añadir</button>
+                <button onClick={addLink} disabled={!newLink.url.trim()} style={{padding:"7px 14px",borderRadius:7,background:newLink.url.trim()?"#0A0A0A":"#e5e7eb",color:newLink.url.trim()?"#fff":"#9ca3af",border:"none",fontSize:12,cursor:newLink.url.trim()?"pointer":"default",fontWeight:600}}>+ Añadir</button>
               </div>
               {(workspaceLinks&&workspaceLinks.length>0)&&(
                 <div style={{marginTop:18,paddingTop:14,borderTop:"0.5px dashed #e5e7eb"}}>
                   <div style={{fontSize:10,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:8}}>🏢 Enlaces del workspace</div>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                     {workspaceLinks.map(l=>(
-                      <a key={l.id} href={l.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,background:"#EEEDFE",color:"#3C3489",fontSize:11,textDecoration:"none",fontWeight:500,border:"0.5px solid #AFA9EC"}}>
+                      <a key={l.id} href={l.url} target="_blank" rel="noreferrer" style={{display:"flex",alignItems:"center",gap:5,padding:"5px 10px",borderRadius:7,background:"#F0EDE5",color:"#1A1A1A",fontSize:11,textDecoration:"none",fontWeight:500,border:"0.5px solid #E5E0D5"}}>
                         <span>{l.icon||"🔗"}</span>{l.label}
                       </a>
                     ))}
@@ -4165,7 +4165,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                 </div>
                 <div style={{display:"flex",gap:8,alignItems:"center"}}>
                   <input value={note} onChange={e=>setNote(e.target.value)} placeholder="Nota (opcional)" style={{flex:1,padding:"6px 10px",borderRadius:8,border:"0.5px solid #d1d5db",fontSize:12,outline:"none",fontFamily:"inherit"}}/>
-                  <button onClick={saveTime} disabled={elapsed<1} style={{padding:"6px 14px",borderRadius:8,background:elapsed>0?"#7F77DD":"#e5e7eb",color:elapsed>0?"#fff":"#9ca3af",border:"none",fontSize:12,cursor:elapsed>0?"pointer":"default",fontWeight:600}}>{saved?"Guardado":"Guardar"}</button>
+                  <button onClick={saveTime} disabled={elapsed<1} style={{padding:"6px 14px",borderRadius:8,background:elapsed>0?"#0A0A0A":"#e5e7eb",color:elapsed>0?"#fff":"#9ca3af",border:"none",fontSize:12,cursor:elapsed>0?"pointer":"default",fontWeight:600}}>{saved?"Guardado":"Guardar"}</button>
                 </div>
               </div>
               {(task.timeLogs||[]).length>0&&(
@@ -4302,7 +4302,7 @@ function AvatarModal({task,members,connectedAgents,ceoMemory,isOwner=false,onClo
         <div className="tf-modal" style={{background:"#fff",borderRadius:14,padding:24,maxWidth:420}}>
           <div style={{fontSize:15,fontWeight:600,marginBottom:8}}>Tu navegador no soporta voz</div>
           <div style={{fontSize:13,color:"#6b7280",marginBottom:14}}>Prueba en Chrome, Edge o Safari recientes.</div>
-          <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",cursor:"pointer"}}>Cerrar</button>
+          <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,background:"#0A0A0A",color:"#fff",border:"none",cursor:"pointer"}}>Cerrar</button>
         </div>
       </div>
     );
@@ -4334,7 +4334,7 @@ function AvatarModal({task,members,connectedAgents,ceoMemory,isOwner=false,onClo
         <div style={{flex:1,overflowY:"auto",padding:"14px 18px",display:"flex",flexDirection:"column",gap:10,minHeight:200}}>
           {messages.map((m,i)=>(
             <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
-              <div style={{maxWidth:"85%",padding:"9px 13px",borderRadius:12,background:m.role==="user"?"#EEEDFE":av.color+"12",border:`1px solid ${m.role==="user"?"#7F77DD55":av.color+"33"}`,fontSize:13,lineHeight:1.45,color:"#1f2937",whiteSpace:"pre-wrap"}}>{m.text}</div>
+              <div style={{maxWidth:"85%",padding:"9px 13px",borderRadius:12,background:m.role==="user"?"#F0EDE5":av.color+"12",border:`1px solid ${m.role==="user"?"#C9A84C55":av.color+"33"}`,fontSize:13,lineHeight:1.45,color:"#1f2937",whiteSpace:"pre-wrap"}}>{m.text}</div>
             </div>
           ))}
           {interim&&(
@@ -4454,7 +4454,7 @@ function ScopeAvatarModal({scope,data,activeProjectId,activeMemberId,onClose,onM
         <div style={{flex:1,overflowY:"auto",padding:"14px 18px",display:"flex",flexDirection:"column",gap:10,minHeight:220}}>
           {messages.map((m,i)=>(
             <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
-              <div style={{maxWidth:"85%",padding:"9px 13px",borderRadius:12,background:m.role==="user"?"#EEEDFE":av.color+"12",border:`1px solid ${m.role==="user"?"#7F77DD55":av.color+"33"}`,fontSize:13,lineHeight:1.45,color:"#1f2937",whiteSpace:"pre-wrap"}}>{m.text}</div>
+              <div style={{maxWidth:"85%",padding:"9px 13px",borderRadius:12,background:m.role==="user"?"#F0EDE5":av.color+"12",border:`1px solid ${m.role==="user"?"#C9A84C55":av.color+"33"}`,fontSize:13,lineHeight:1.45,color:"#1f2937",whiteSpace:"pre-wrap"}}>{m.text}</div>
             </div>
           ))}
           {interim&&(
@@ -4586,14 +4586,14 @@ function TaskCard({task,members,aiSchedule,projects,projectColor,onColorChange,o
           <QBadge q={q}/>
           {task.startDate&&<span style={{fontSize:10,color:"#6b7280"}}>Inicio: {task.startDate}</span>}
           {task.dueDate&&<span style={{fontSize:10,color:isOver?"#A32D2D":isToday?"#854F0B":"#9ca3af",fontWeight:isOver||isToday?600:400}}>{isOver?"Vencida":isToday?"Hoy":"Fin"}: {task.dueDate}{task.dueTime?` · ${task.dueTime}`:""}</span>}
-          {sched.length>0&&<span style={{fontSize:10,color:"#7F77DD",fontWeight:600}}>Planificado</span>}
+          {sched.length>0&&<span style={{fontSize:10,color:"#9A6F14",fontWeight:600}}>Planificado</span>}
         </div>
       )}
       {est>0&&totalLogged>0&&<div style={{marginBottom:4}}><div style={{height:4,background:"#e5e7eb",borderRadius:0,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(Math.round(totalLogged/est*100),100)}%`,background:totalLogged>est?"#E24B4A":totalLogged/est>0.8?"#EF9F27":"#1D9E75",borderRadius:0}}/></div></div>}
       {/* Footer: asignados + prioridad + badges secundarios */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div style={{display:"flex"}}>{task.assignees.map((mid,i)=>{ const m=members.find(x=>x.id===mid); const mp2=MP[mid]||MP[0]; return <div key={mid} title={m?.name} style={{marginLeft:i>0?-7:0,zIndex:task.assignees.length-i,position:"relative",width:24,height:24,borderRadius:"50%",background:mp2.solid,color:"#fff",border:"2px solid #fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700}}>{m?.initials||"?"}</div>; })}</div>
-        <div style={{display:"flex",alignItems:"center",gap:5}}><PriBadge p={task.priority}/>{subs.length>0&&<span title={`${subDone}/${subs.length} subtareas`} style={{fontSize:10,padding:"1px 6px",borderRadius:0,background:subAllDone?"#E1F5EE":"#f3f4f6",color:subAllDone?"#085041":"#6b7280",fontWeight:600,border:`0.5px solid ${subAllDone?"#1D9E75":"#e5e7eb"}`}}>☑ {subDone}/{subs.length}</span>}{(task.links||[]).length>0&&<span title={`${task.links.length} enlace${task.links.length>1?"s":""}`} style={{fontSize:10,padding:"1px 6px",borderRadius:0,background:"#EEEDFE",color:"#3C3489",fontWeight:600,border:"0.5px solid #AFA9EC"}}>🔗 {task.links.length}</span>}{(task.timeline||[]).length>0&&<span title={`${task.timeline.length} actualizacion${task.timeline.length>1?"es":""}`} style={{fontSize:11,color:"#9ca3af"}}>💬 {task.timeline.length}</span>}</div>
+        <div style={{display:"flex",alignItems:"center",gap:5}}><PriBadge p={task.priority}/>{subs.length>0&&<span title={`${subDone}/${subs.length} subtareas`} style={{fontSize:10,padding:"1px 6px",borderRadius:0,background:subAllDone?"#E1F5EE":"#f3f4f6",color:subAllDone?"#085041":"#6b7280",fontWeight:600,border:`0.5px solid ${subAllDone?"#1D9E75":"#e5e7eb"}`}}>☑ {subDone}/{subs.length}</span>}{(task.links||[]).length>0&&<span title={`${task.links.length} enlace${task.links.length>1?"s":""}`} style={{fontSize:10,padding:"1px 6px",borderRadius:0,background:"#F0EDE5",color:"#1A1A1A",fontWeight:600,border:"0.5px solid #E5E0D5"}}>🔗 {task.links.length}</span>}{(task.timeline||[]).length>0&&<span title={`${task.timeline.length} actualizacion${task.timeline.length>1?"es":""}`} style={{fontSize:11,color:"#9ca3af"}}>💬 {task.timeline.length}</span>}</div>
       </div>
     </div>
   );
@@ -4733,7 +4733,7 @@ function CriticalTaskCard({task,proj,members,onComplete,onPostpone,onOpenModal})
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
           {task.assignees.slice(0,3).map((mid,i)=>{ const mp2=MP[mid]||MP[0]; const mm=members.find(x=>x.id===mid); return <div key={mid} style={{marginLeft:i>0?-6:0,width:22,height:22,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,border:"1.5px solid #fff"}}>{mm?.initials}</div>; })}
-          <span style={{fontSize:11,color:"#7F77DD",fontWeight:600,marginLeft:4,userSelect:"none"}}>{expanded?"▴":"⚡ Acciones"}</span>
+          <span style={{fontSize:11,color:"#9A6F14",fontWeight:600,marginLeft:4,userSelect:"none"}}>{expanded?"▴":"⚡ Acciones"}</span>
         </div>
       </div>
       {expanded&&!leaving&&(
@@ -6078,12 +6078,12 @@ function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask,onOpe
         <div style={{fontSize:18,fontWeight:700,marginBottom:3}}>Dashboard</div>
         <div style={{fontSize:12,color:"#6b7280"}}>Vista global del equipo · {today}</div>
         </div>
-        <button onClick={onOpenBriefing} style={{padding:"10px 16px",borderRadius:10,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",boxShadow:"0 4px 14px rgba(127,119,221,0.3)"}}>🎙️ Briefing del día</button>
+        <button onClick={onOpenBriefing} style={{padding:"10px 16px",borderRadius:10,background:"#0A0A0A",color:"#F5F0E8",border:"none",fontSize:13,cursor:"pointer",fontWeight:600,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",boxShadow:"0 4px 14px rgba(10,10,10,0.25)"}}>🎙️ Briefing del día</button>
       </div>
 
       {/* KPIs */}
       <div className="tf-kpi-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:20}}>
-        <KPI label="Tareas activas" value={active.length} sub={`${done.length} completadas`} color="#7F77DD" onClick={onGoProjects}/>
+        <KPI label="Tareas activas" value={active.length} sub={`${done.length} completadas`} color="#0A0A0A" onClick={onGoProjects}/>
         <KPI label="Vencidas" value={overdue.length} sub={dueToday.length>0?`+${dueToday.length} vencen hoy`:"Al día"} color={overdue.length>0?"#E24B4A":"#1D9E75"}/>
         <KPI label="Horas esta semana" value={weekHours.toFixed(1)+"h"} sub={`${weekLogs.length} registros`} color="#EF9F27"/>
         <KPI label="Progreso estimado" value={completionPct+"%"} sub={`${logTotal.toFixed(0)}h de ${estTotal.toFixed(0)}h`} color="#1D9E75"/>
@@ -6155,7 +6155,7 @@ function DashboardView({data,onGoPlanner,onGoProjects,onGoBoard,onOpenTask,onOpe
       <div style={{background:"#fff",border:"1px solid #e5e7eb",borderRadius:12,padding:14,marginBottom:20}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
           <div style={{fontSize:13,fontWeight:600}}>Carga del equipo — próximos 7 días</div>
-          <button onClick={onGoPlanner} style={{fontSize:11,padding:"4px 10px",borderRadius:6,border:"1px solid #7F77DD",background:"#fff",color:"#7F77DD",cursor:"pointer",fontWeight:600}}>Ir al planificador →</button>
+          <button onClick={onGoPlanner} style={{fontSize:11,padding:"4px 10px",borderRadius:6,border:"1px solid #0A0A0A",background:"#fff",color:"#0A0A0A",cursor:"pointer",fontWeight:600}}>Ir al planificador →</button>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {loadByMember.map(({m,logged,scheduled,capacity,pct})=>{
@@ -6243,7 +6243,7 @@ function TimeReportsView({boards,members,projects}){
         <div style={{display:"flex",gap:8}}><select value={fm} onChange={e=>setFm(Number(e.target.value))} style={{fontSize:12,padding:"5px 10px",borderRadius:8,border:"0.5px solid #d1d5db",background:"#fff"}}><option value={-1}>Todos</option>{members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select></div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:20}}>
-        {[{l:"Total registrado",v:fmtH(grand),c:"#7F77DD",bg:"#EEEDFE"},{l:"Total estimado",v:fmtH(grandEst),c:"#378ADD",bg:"#E6F1FB"},{l:"Desviacion",v:grandEst>0?`${Math.round((grand/grandEst-1)*100)}%`:"—",c:grand>grandEst?"#A32D2D":"#085041",bg:grand>grandEst?"#FCEBEB":"#E1F5EE"},{l:"Tareas activas",v:allT.filter(t=>t.colName!=="Hecho").length,c:"#633806",bg:"#FAEEDA"}].map((k,i)=><div key={i} style={{background:k.bg,borderRadius:10,padding:"12px 14px"}}><div style={{fontSize:10,fontWeight:600,color:k.c,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>{k.l}</div><div style={{fontSize:22,fontWeight:700,color:k.c}}>{k.v}</div></div>)}
+        {[{l:"Total registrado",v:fmtH(grand),c:"#0A0A0A",bg:"#F0EDE5"},{l:"Total estimado",v:fmtH(grandEst),c:"#378ADD",bg:"#E6F1FB"},{l:"Desviacion",v:grandEst>0?`${Math.round((grand/grandEst-1)*100)}%`:"—",c:grand>grandEst?"#A32D2D":"#085041",bg:grand>grandEst?"#FCEBEB":"#E1F5EE"},{l:"Tareas activas",v:allT.filter(t=>t.colName!=="Hecho").length,c:"#633806",bg:"#FAEEDA"}].map((k,i)=><div key={i} style={{background:k.bg,borderRadius:10,padding:"12px 14px"}}><div style={{fontSize:10,fontWeight:600,color:k.c,textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>{k.l}</div><div style={{fontSize:22,fontWeight:700,color:k.c}}>{k.v}</div></div>)}
       </div>
       <div style={{fontSize:13,fontWeight:600,marginBottom:10}}>Por miembro</div>
       {mStats.map(m=>{ const mp2=MP[m.id]||MP[0]; const pct=m.est>0?Math.min(Math.round(m.total/m.est*100),100):null; const over=pct!==null&&pct>100; return <div key={m.id} style={{background:"#fff",border:"0.5px solid #e5e7eb",borderLeft:`4px solid ${mp2.solid}`,borderRadius:10,padding:"12px 14px",marginBottom:8}}><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:pct!==null?8:0}}><div style={{width:32,height:32,borderRadius:"50%",background:mp2.solid,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,flexShrink:0}}>{m.initials}</div><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:mp2.solid}}>{m.name}</div><div style={{fontSize:11,color:"#6b7280"}}>{m.role}</div></div><div style={{textAlign:"right"}}><div style={{fontSize:16,fontWeight:700,color:over?"#A32D2D":mp2.solid}}>{fmtH(m.total)}</div>{m.est>0&&<div style={{fontSize:10,color:"#6b7280"}}>de {fmtH(m.est)}</div>}</div>{m.eff!==null&&<div style={{background:over?"#FCEBEB":"#E1F5EE",color:over?"#A32D2D":"#085041",border:`1px solid ${over?"#E24B4A":"#1D9E75"}`,borderRadius:20,padding:"3px 9px",fontSize:11,fontWeight:700,flexShrink:0}}>{m.eff}%</div>}</div>{pct!==null&&<div><div style={{height:6,background:"#e5e7eb",borderRadius:20,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(pct,100)}%`,background:over?"#E24B4A":pct>80?"#EF9F27":"#1D9E75",borderRadius:20}}/></div>{over&&<div style={{fontSize:10,color:"#A32D2D",marginTop:3}}>Superado en {fmtH(m.total-m.est)}</div>}</div>}</div>; })}
@@ -6596,7 +6596,7 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
       if(t.archived) return;                                    // ocultas en Sala de Mando
       if(!t.assignees?.includes(activeMember)) return;
       const assigneeNames = (t.assignees||[]).map(id=>(members||[]).find(m=>m.id===id)?.name).filter(Boolean);
-      myTasks.push({...t, colId:col.id, colName:col.name, projId:Number(pid), projName:proj?.name||"", projColor:proj?.color||"#7F77DD", projEmoji:proj?.emoji||"📋", projCode:proj?.code, assigneeNames, assigneeName:assigneeNames[0]||null});
+      myTasks.push({...t, colId:col.id, colName:col.name, projId:Number(pid), projName:proj?.name||"", projColor:proj?.color||"#0A0A0A", projEmoji:proj?.emoji||"📋", projCode:proj?.code, assigneeNames, assigneeName:assigneeNames[0]||null});
     }));
   });
   const active = myTasks.filter(t=>t.colName!=="Hecho");
@@ -7085,7 +7085,7 @@ function ProjectsView({projects,members,boards,currentMember,myDefaultProjectId=
             title={showArchived ? "Volver a proyectos activos" : "Ver proyectos archivados"}
             style={{padding:"6px 12px",borderRadius:0,background:showArchived?"#FBF6E6":"transparent",border:showArchived?"1px solid #C9A84C":"1px solid #E5E0D5",color:showArchived?"#876C1E":"#6B6B6B",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}
           >📦 {showArchived ? `Volver a activos` : `Archivados (${archivedEntries.length})`}</button>
-          {!showArchived && <button onClick={onCreateProject} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo proyecto</button>}
+          {!showArchived && <button onClick={onCreateProject} style={{padding:"8px 18px",borderRadius:10,background:"#0A0A0A",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo proyecto</button>}
         </div>
       </div>
       {/* Barra de filtros por categoría — chips clicables. Solo aparece
@@ -7219,7 +7219,7 @@ function MemberEditModal({member, allMembers, onClose, onSave, onDelete}){
   const [icsUrl,   setIcsUrl]   = useState(member?.avail?.icsUrl   || "");
   const [hours,    setHours]    = useState(member?.avail?.hoursPerDay || 8);
   const [colorIdx, setColorIdx] = useState(
-    isEdit ? MEMBER_COLORS.findIndex(c => c === (MP[member.id]?.solid || "#7F77DD")) : allMembers.length % MEMBER_COLORS.length
+    isEdit ? MEMBER_COLORS.findIndex(c => c === (MP[member.id]?.solid || "#0A0A0A")) : allMembers.length % MEMBER_COLORS.length
   );
   const [confirmDel, setConfirmDel] = useState(false);
   const [pendingClose,setPendingClose] = useState(false);
@@ -7227,7 +7227,7 @@ function MemberEditModal({member, allMembers, onClose, onSave, onDelete}){
     name:member?.name||"", email:member?.email||"", role:member?.role||"Editor",
     whatsapp:member?.avail?.whatsapp||"", icsUrl:member?.avail?.icsUrl||"",
     hours:member?.avail?.hoursPerDay||8,
-    colorIdx:isEdit?MEMBER_COLORS.findIndex(c=>c===(MP[member.id]?.solid||"#7F77DD")):allMembers.length%MEMBER_COLORS.length,
+    colorIdx:isEdit?MEMBER_COLORS.findIndex(c=>c===(MP[member.id]?.solid||"#0A0A0A")):allMembers.length%MEMBER_COLORS.length,
   }));
   const isDirty = JSON.stringify({name,email,role,whatsapp,icsUrl,hours,colorIdx})!==initialSnap;
   const handleClose = ()=>{ if(isDirty) setPendingClose(true); else onClose(); };
@@ -7288,11 +7288,11 @@ function MemberEditModal({member, allMembers, onClose, onSave, onDelete}){
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:4}}>
             <div>
               <FL c="Nombre completo"/>
-              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Nombre Apellido" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${name?"#7F77DD":"#d1d5db"}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Nombre Apellido" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${name?"#0A0A0A":"#d1d5db"}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
             </div>
             <div>
               <FL c="Email"/>
-              <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="correo@empresa.com" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${email?"#7F77DD":"#d1d5db"}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="correo@empresa.com" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:`1.5px solid ${email?"#0A0A0A":"#d1d5db"}`,fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
             </div>
           </div>
 
@@ -7382,12 +7382,12 @@ function UsersView({members,projects,permissions,onEdit,onCreate,onDelete,onSetP
           <div style={{fontSize:16,fontWeight:700,marginBottom:2}}>{tab==="users"?"Usuarios del sistema":tab==="agents"?"Agentes IA por miembro":"Gestión de permisos"}</div>
           <div style={{fontSize:12,color:"#6b7280"}}>{tab==="users"?`${members.length} usuarios registrados`:tab==="agents"?"Asigna qué agentes IA puede usar cada miembro":"Acceso granular por miembro y módulo"}</div>
         </div>
-        {tab==="users" && <button onClick={onCreate} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo usuario</button>}
+        {tab==="users" && <button onClick={onCreate} style={{padding:"8px 18px",borderRadius:10,background:"#0A0A0A",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo usuario</button>}
       </div>
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,borderBottom:"0.5px solid #E5E7EB"}}>
         {[["users","👤 Miembros"],["permissions","🔐 Permisos por módulo"],["agents","🤖 Agentes"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setTab(k)} style={{padding:"8px 14px",background:"transparent",border:"none",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",fontSize:13,fontWeight:tab===k?600:500,color:tab===k?"#7F77DD":"#6B7280",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+          <button key={k} onClick={()=>setTab(k)} style={{padding:"8px 14px",background:"transparent",border:"none",borderBottom:tab===k?"2px solid #0A0A0A":"2px solid transparent",fontSize:13,fontWeight:tab===k?600:500,color:tab===k?"#0A0A0A":"#6B7280",cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
         ))}
       </div>
       {tab==="permissions" && (
@@ -7405,7 +7405,7 @@ function UsersView({members,projects,permissions,onEdit,onCreate,onDelete,onSetP
           const userProjects=projects.filter(p=>p.members.includes(m.id));
           const icsOk=!!m.avail?.icsUrl;
           const waOk=!!m.avail?.whatsapp;
-          const rc={Manager:{bg:"#EEEDFE",text:"#3C3489"},Editor:{bg:"#E1F5EE",text:"#085041"},Viewer:{bg:"#F1EFE8",text:"#444441"}}[m.role]||{bg:"#F1EFE8",text:"#444441"};
+          const rc={Manager:{bg:"#F0EDE5",text:"#1A1A1A"},Editor:{bg:"#E1F5EE",text:"#085041"},Viewer:{bg:"#F1EFE8",text:"#444441"}}[m.role]||{bg:"#F1EFE8",text:"#444441"};
           const isPending=pendingDel===m.id;
 
           return(
@@ -7493,10 +7493,10 @@ const PERMISSION_FEATURES = [
 // "🤖 Agentes" de UsersView. Si añades un nuevo agente al sistema multi-
 // agente (Mario/Jorge/Álvaro/...), añádelo aquí para exponer el toggle.
 const AGENT_PERMISSIONS = [
-  { key: "mario",   label: "Mario Legal",          emoji: "⚖️", color: "#3C3489", desc: "Contratos, cláusulas, compliance, jurisprudencia" },
+  { key: "mario",   label: "Mario Legal",          emoji: "⚖️", color: "#1A1A1A", desc: "Contratos, cláusulas, compliance, jurisprudencia" },
   { key: "jorge",   label: "Jorge Finanzas",       emoji: "📊", color: "#B45309", desc: "Modelos financieros, ROI, waterfall, sensibilidades" },
   { key: "alvaro",  label: "Álvaro Inmobiliario",  emoji: "🏠", color: "#E67E22", desc: "Alquileres LAU, fiscalidad, inversión, alquiler turístico" },
-  { key: "gonzalo", label: "Gonzalo Gobernanza",   emoji: "🏛️", color: "#8E44AD", desc: "Estructura societaria, holdings, calendario fiscal, sucesión" },
+  { key: "gonzalo", label: "Gonzalo Gobernanza",   emoji: "🏛️", color: "#4E4A42", desc: "Estructura societaria, holdings, calendario fiscal, sucesión" },
 ];
 // Cada columna de módulo tiene su propio ancho mínimo (200px) para que
 // quepan los 3 toggles V/E/A sin compresión. La 1ª columna (Miembro) usa
@@ -7524,7 +7524,7 @@ function PermissionsTable({ members, permissions, onSetPermission }) {
               type="checkbox"
               checked={!!fp[level]}
               onChange={(e) => onSetPermission?.(m.id, f.key, level, e.target.checked)}
-              style={{ cursor: "pointer", accentColor: "#7F77DD" }}
+              style={{ cursor: "pointer", accentColor: "#C9A84C" }}
             />
             <span>{label}</span>
           </label>
@@ -7644,7 +7644,7 @@ function AlertPanel({alerts,members,activeMemberId,onClose,onEmailSend,onOpenTas
     <div className="tf-overlay" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.35)",zIndex:2000,display:"flex",alignItems:"flex-start",justifyContent:"flex-end",paddingTop:60,paddingRight:20}}>
       <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:420,maxHeight:"80vh",display:"flex",flexDirection:"column",border:"0.5px solid #e5e7eb",overflow:"hidden"}}>
         <div style={{padding:"14px 18px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}><div style={{fontWeight:600,fontSize:14}}>Centro de alertas</div><button onClick={onClose} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"#6b7280"}}>x</button></div>
-        <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",flexShrink:0}}>{[["mine","Mis alertas"],["advisor","Asesor IA"],["team","Equipo"]].map(([k,l])=><div key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"9px 0",textAlign:"center",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #7F77DD":"2px solid transparent",color:tab===k?"#7F77DD":"#6b7280",fontWeight:tab===k?600:400}}>{l}</div>)}</div>
+        <div style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",flexShrink:0}}>{[["mine","Mis alertas"],["advisor","Asesor IA"],["team","Equipo"]].map(([k,l])=><div key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"9px 0",textAlign:"center",fontSize:12,cursor:"pointer",borderBottom:tab===k?"2px solid #0A0A0A":"2px solid transparent",color:tab===k?"#0A0A0A":"#6b7280",fontWeight:tab===k?600:400}}>{l}</div>)}</div>
         <div style={{flex:1,overflowY:"auto",padding:12}}>
           {shown.length===0&&<div style={{textAlign:"center",padding:30,color:"#9ca3af",fontSize:13}}>Sin alertas activas</div>}
           {shown.map(alert=>{ const s=ls[alert.level]||ls.info; const m=members.find(x=>x.id===alert.memberId); const wu=waUrl(m,`Alerta Kluxor: ${alert.taskTitle||"Aviso"} — ${alert.msg}`);
@@ -8038,7 +8038,7 @@ function WorkspacesView({workspaces,projects,boards,onCreate,onEdit,onSelectProj
           <div style={{fontSize:16,fontWeight:700,marginBottom:2}}>Workspaces</div>
           <div style={{fontSize:12,color:"#6b7280"}}>{workspaces.length} cliente{workspaces.length!==1?"s":""} · control operativo</div>
         </div>
-        <button onClick={onCreate} style={{padding:"8px 18px",borderRadius:10,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo workspace</button>
+        <button onClick={onCreate} style={{padding:"8px 18px",borderRadius:10,background:"#0A0A0A",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo workspace</button>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
         {workspaces.map(w=>{
@@ -8079,12 +8079,15 @@ function WorkspacesView({workspaces,projects,boards,onCreate,onEdit,onSelectProj
 
 // ── Agents: edit modal + view ─────────────────────────────────────────────────
 const AGENT_EMOJIS = ["⚖️","📣","✍️","💰","🧠","🎯","🩺","🛡️","🎨","📊","💡","🧑‍💼","🧾","🗣️","🔬","🧱"];
-const AGENT_COLORS = ["#7F77DD","#E76AA1","#378ADD","#1D9E75","#E24B4A","#EF9F27","#3C3489","#9E5C22","#8B5CF6","#0EA5E9"];
+// Auditoría color 19/08/2026: fuera los 3 lilas/violetas (#7F77DD,
+// #3C3489, #8B5CF6). Antonio: meter grises y tierras, NO #0A0A0A
+// (avatar negro se confunde con la interfaz). Paleta baja de 10 a 9.
+const AGENT_COLORS = ["#4E4A42","#E76AA1","#378ADD","#1D9E75","#E24B4A","#EF9F27","#6B6B6B","#9E5C22","#0EA5E9"];
 
 function AgentEditModal({agent,onClose,onSave,onDelete}){
   const isNew = !agent;
   const DEFAULT_DRAFT = {
-    name:"", role:"", emoji:"🤖", color:"#7F77DD",
+    name:"", role:"", emoji:"🤖", color:"#0A0A0A",
     voice:{gender:"male",rate:1.0,pitch:1.0},
     specialties:[],
     opener:"", style:"", promptBase:"",
@@ -8217,14 +8220,14 @@ function AgentsView({agents,onCreate,onEdit}){
           <div style={{fontSize:18,fontWeight:700,marginBottom:3}}>Agentes IA</div>
           <div style={{fontSize:12,color:"#6b7280"}}>Asesores especializados (abogados, marketing, comunicación…) que se conectan a tus tareas</div>
         </div>
-        <button onClick={onCreate} style={{padding:"8px 14px",borderRadius:8,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo agente</button>
+        <button onClick={onCreate} style={{padding:"8px 14px",borderRadius:8,background:"#0A0A0A",color:"#F5F0E8",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Nuevo agente</button>
       </div>
       {agents.length===0 ? (
         <div style={{background:"#fff",border:"1px dashed #d1d5db",borderRadius:12,padding:"40px 20px",textAlign:"center"}}>
           <div style={{fontSize:40,marginBottom:10}}>🤖</div>
           <div style={{fontSize:15,fontWeight:600,marginBottom:5}}>Aún no tienes agentes</div>
           <div style={{fontSize:12,color:"#6b7280",marginBottom:16}}>Crea tu primer asesor especializado — abogado, marketer, analista financiero…</div>
-          <button onClick={onCreate} style={{padding:"9px 18px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Crear primer agente</button>
+          <button onClick={onCreate} style={{padding:"9px 18px",borderRadius:8,background:"#0A0A0A",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>Crear primer agente</button>
         </div>
       ) : (
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}}>
@@ -8508,7 +8511,7 @@ const NEG_STATUSES = [
   { id:"pausado",         label:"Pausado",          color:"#F59E0B" },
   { id:"cerrado_ganado",  label:"Cerrado ganado",   color:"#3B82F6" },
   { id:"cerrado_perdido", label:"Cerrado perdido",  color:"#E24B4A" },
-  { id:"acuerdo_parcial", label:"Acuerdo parcial",  color:"#7F77DD" },
+  { id:"acuerdo_parcial", label:"Acuerdo parcial",  color:"#0A0A0A" },
 ];
 // IDs de status que disparan el modal de cierre + extracción de lecciones.
 const CLOSED_STATUSES = new Set(["cerrado_ganado","cerrado_perdido","acuerdo_parcial"]);
@@ -8607,7 +8610,7 @@ function NegotiationCloseModal({negotiation, outcomeStatus, onSave, onCancel}){
   };
   return(
     <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onCancel()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:3500,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:30,paddingBottom:20,overflowY:"auto"}}>
-      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:"4px solid #7F77DD",marginBottom:20}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:580,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:"4px solid #C9A84C",marginBottom:20}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb"}}>
           <div style={{fontSize:15,fontWeight:700,color:"#111827"}}>Cerrar negociación</div>
           <div style={{fontSize:12,color:"#6B7280",marginTop:2}}>{negotiation?.title} — {labelByStatus[outcomeStatus]}</div>
@@ -8627,7 +8630,7 @@ function NegotiationCloseModal({negotiation, outcomeStatus, onSave, onCancel}){
             <div style={{fontSize:11,fontWeight:600,color:"#374151",marginBottom:4}}>Contraparte cumplió expectativas</div>
             <div style={{display:"flex",gap:6}}>
               {["Sí","Parcialmente","No"].map(opt=>(
-                <button key={opt} onClick={()=>setRating(opt)} style={{padding:"6px 12px",borderRadius:6,background:rating===opt?"#7F77DD":"#fff",color:rating===opt?"#fff":"#374151",border:`1px solid ${rating===opt?"#7F77DD":"#D1D5DB"}`,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{opt}</button>
+                <button key={opt} onClick={()=>setRating(opt)} style={{padding:"6px 12px",borderRadius:6,background:rating===opt?"#0A0A0A":"#fff",color:rating===opt?"#fff":"#374151",border:`1px solid ${rating===opt?"#0A0A0A":"#D1D5DB"}`,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{opt}</button>
               ))}
             </div>
           </div>
@@ -8644,14 +8647,14 @@ function NegotiationCloseModal({negotiation, outcomeStatus, onSave, onCancel}){
             <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
               {NEG_STRATEGIES.map(s=>{
                 const sel = strategies.has(s);
-                return <button key={s} onClick={()=>toggleStrategy(s)} style={{padding:"5px 11px",borderRadius:14,background:sel?"#EEEDFE":"#fff",color:sel?"#3C3489":"#6B7280",border:`1px solid ${sel?"#7F77DD":"#E5E7EB"}`,fontSize:11.5,fontWeight:sel?600:500,cursor:"pointer",fontFamily:"inherit"}}>{sel?"✓ ":""}{s}</button>;
+                return <button key={s} onClick={()=>toggleStrategy(s)} style={{padding:"5px 11px",borderRadius:14,background:sel?"#F0EDE5":"#fff",color:sel?"#1A1A1A":"#6B7280",border:`1px solid ${sel?"#0A0A0A":"#E5E7EB"}`,fontSize:11.5,fontWeight:sel?600:500,cursor:"pointer",fontFamily:"inherit"}}>{sel?"✓ ":""}{s}</button>;
               })}
             </div>
           </div>
         </div>
         <div style={{padding:"12px 20px",borderTop:"0.5px solid #e5e7eb",display:"flex",justifyContent:"flex-end",gap:8,background:"#fafafa",borderBottomLeftRadius:16,borderBottomRightRadius:16}}>
           <button onClick={onCancel} style={{padding:"8px 16px",borderRadius:8,background:"transparent",color:"#374151",border:"0.5px solid #D1D5DB",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Cancelar</button>
-          <button onClick={submit} style={{padding:"8px 18px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cerrar y aprender</button>
+          <button onClick={submit} style={{padding:"8px 18px",borderRadius:8,background:"#0A0A0A",color:"#fff",border:"none",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cerrar y aprender</button>
         </div>
       </div>
     </div>
@@ -10119,7 +10122,7 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
     "Decisión Tipo 2":    {bg:"#DBEAFE",border:"#93C5FD",text:"#1E40AF"},
     "Riesgo alto":        {bg:"#FEE2E2",border:"#FCA5A5",text:"#991B1B"},
     "Riesgo bajo":        {bg:"#E1F5EE",border:"#86EFAC",text:"#065F46"},
-    "Delegable":          {bg:"#EDE9FE",border:"#C4B5FD",text:"#5B21B6"},
+    "Delegable":          {bg:"#F0EDE5",border:"#C4B5FD",text:"#5B21B6"},
     "Urgente":            {bg:"#FEF3C7",border:"#FCD34D",text:"#92400E"},
   };
   const tagStyle = (t)=>TAG_STYLES[t]||{bg:"#F3F4F6",border:"#D1D5DB",text:"#374151"};
@@ -10996,7 +10999,7 @@ ${taskLines||"(ninguna)"}`;
                           "Mario Legal":          {bg:"#EFF6FF",border:"#BFDBFE",accent:"#1E40AF"},
                           "Jorge Finanzas":       {bg:"#F0FDF4",border:"#86EFAC",accent:"#0E7C5A"},
                           "Álvaro Inmobiliario":  {bg:"#FFFBEB",border:"#FCD34D",accent:"#92400E"},
-                          "Gonzalo Gobernanza":   {bg:"#F5EEFA",border:"#D8B4FE",accent:"#6B21A8"},
+                          "Gonzalo Gobernanza":   {bg:"#F0EDE5",border:"#E5E0D5",accent:"#4E4A42"},
                         };
                         const palette = SPEC_PALETTE[m.specialistName] || {bg:"#F3F4F6",border:"#D1D5DB",accent:"#374151"};
                         const bg = palette.bg, border = palette.border, accent = palette.accent;
@@ -11169,7 +11172,7 @@ ${taskLines||"(ninguna)"}`;
                 {canUseAgent(currentMember,"mario",permissions) && <button data-spec-chip onClick={()=>handleManualSpecialist("mario")} disabled={chatLoading} title="Pedir intervención de Mario Legal" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#1E40AF",border:"1px solid #BFDBFE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>⚖️ Mario</button>}
                 {canUseAgent(currentMember,"jorge",permissions) && <button data-spec-chip onClick={()=>handleManualSpecialist("jorge")} disabled={chatLoading} title="Pedir intervención de Jorge Finanzas" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#0E7C5A",border:"1px solid #86EFAC",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>📊 Jorge</button>}
                 {canUseAgent(currentMember,"alvaro",permissions) && <button data-spec-chip onClick={()=>handleManualSpecialist("alvaro")} disabled={chatLoading} title="Pedir intervención de Álvaro Inmobiliario" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#92400E",border:"1px solid #FCD34D",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏠 Álvaro</button>}
-                {canUseAgent(currentMember,"gonzalo",permissions) && <button data-spec-chip onClick={()=>handleManualSpecialist("gonzalo")} disabled={chatLoading} title="Pedir intervención de Gonzalo Gobernanza" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#6B21A8",border:"1px solid #D8B4FE",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏛️ Gonzalo</button>}
+                {canUseAgent(currentMember,"gonzalo",permissions) && <button data-spec-chip onClick={()=>handleManualSpecialist("gonzalo")} disabled={chatLoading} title="Pedir intervención de Gonzalo Gobernanza" style={{padding:"3px 10px",borderRadius:14,background:"#fff",color:"#4E4A42",border:"1px solid #E5E0D5",fontSize:11,cursor:chatLoading?"not-allowed":"pointer",fontWeight:600,fontFamily:"inherit"}}>🏛️ Gonzalo</button>}
                 <div style={{flex:1}}/>
                 <label style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:10,color:"#6B7280",cursor:"pointer"}} title="Cuando está activo, Héctor delega automáticamente en Mario o Jorge si la respuesta lo requiere.">
                   <input type="checkbox" checked={autoSpecialistsOn} onChange={toggleAutoSpecialists} style={{cursor:"pointer"}}/>
@@ -11282,7 +11285,7 @@ function SessionDetailView({negotiation,session,agent,relatedProject,onBack,onEd
         <button onClick={onAddNote} style={{padding:"9px 16px",borderRadius:10,background:"#3B82F6",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>+ Añadir nota</button>
         <button onClick={()=>onEditSession(session)} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Editar sesión</button>
         <button onClick={autoSummary} style={{padding:"9px 16px",borderRadius:10,background:"#fff",color:"#3B82F6",border:"0.5px solid #3B82F6",fontSize:13,cursor:"pointer",fontWeight:500}}>✨ Generar resumen</button>
-        {agent&&<button onClick={onRequestAdvice} style={{padding:"9px 16px",borderRadius:10,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>🤖 Pedir consejo a {agent.name.split(" ")[0]}</button>}
+        {agent&&<button onClick={onRequestAdvice} style={{padding:"9px 16px",borderRadius:10,background:"#0A0A0A",color:"#F5F0E8",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>🤖 Pedir consejo a {agent.name.split(" ")[0]}</button>}
         {relatedProject&&<button onClick={onGenerateTasks} style={{padding:"9px 16px",borderRadius:10,background:"#10B981",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600}}>📋 Generar tareas</button>}
       </div>
 
@@ -11476,9 +11479,9 @@ function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialRespon
 
   return(
     <div className="tf-overlay" onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:3000,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
-      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:720,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${agent.color||"#7F77DD"}`,marginBottom:24}}>
+      <div className="tf-modal" style={{background:"#fff",borderRadius:16,width:720,maxWidth:"96vw",border:"0.5px solid #e5e7eb",borderTop:`4px solid ${agent.color||"#0A0A0A"}`,marginBottom:24}}>
         <div style={{padding:"14px 20px",borderBottom:"0.5px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:40,height:40,borderRadius:10,background:(agent.color||"#7F77DD")+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{agent.emoji||"🤖"}</div>
+          <div style={{width:40,height:40,borderRadius:10,background:(agent.color||"#0A0A0A")+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{agent.emoji||"🤖"}</div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontSize:15,fontWeight:700}}>{kind==="briefing"?"🎯 Briefing":"💬 Consejo en tiempo real"} — {agent.name}</div>
             <div style={{fontSize:11,color:"#6B7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{negotiation.title}{session?` · ${formatDateTimeES(session.date)}`:""}</div>
@@ -11504,7 +11507,7 @@ function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialRespon
               value={response}
               onChange={e=>setResponse(e.target.value)}
               rows={16}
-              style={{width:"100%",padding:14,borderRadius:10,background:(agent.color||"#7F77DD")+"08",border:`1px solid ${(agent.color||"#7F77DD")}44`,fontSize:13,color:"#1f2937",lineHeight:1.6,fontFamily:"inherit",resize:"vertical"}}
+              style={{width:"100%",padding:14,borderRadius:10,background:(agent.color||"#0A0A0A")+"08",border:`1px solid ${(agent.color||"#0A0A0A")}44`,fontSize:13,color:"#1f2937",lineHeight:1.6,fontFamily:"inherit",resize:"vertical"}}
             />
           )}
         </div>
@@ -11524,7 +11527,7 @@ function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialRespon
           )}
           <button onClick={onClose} style={{padding:"8px 16px",borderRadius:8,background:"transparent",color:"#374151",border:"0.5px solid #d1d5db",fontSize:13,cursor:"pointer"}}>Cerrar</button>
           {kind==="briefing"&&onSaveBriefing&&(
-            <button onClick={handleSaveBriefing} disabled={loading||!response.trim()||saved} style={{padding:"8px 20px",borderRadius:8,background:saved?"#10B981":(loading||!response.trim())?"#e5e7eb":agent.color||"#7F77DD",color:(saved||(!loading&&response.trim()))?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:(loading||!response.trim())?"default":"pointer",fontWeight:600}}>{saved?"✓ Guardado":"💾 Guardar como briefing"}</button>
+            <button onClick={handleSaveBriefing} disabled={loading||!response.trim()||saved} style={{padding:"8px 20px",borderRadius:8,background:saved?"#10B981":(loading||!response.trim())?"#e5e7eb":agent.color||"#0A0A0A",color:(saved||(!loading&&response.trim()))?"#fff":"#9ca3af",border:"none",fontSize:13,cursor:(loading||!response.trim())?"default":"pointer",fontWeight:600}}>{saved?"✓ Guardado":"💾 Guardar como briefing"}</button>
           )}
         </div>
       </div>
@@ -11635,7 +11638,7 @@ function MyTasksView({data,activeMember,onOpenTask,onNavigate,onUnarchiveTask}){
     const proj=data.projects.find(p=>p.id===Number(pid));
     cols.forEach(col=>col.tasks.forEach(t=>{
       if(!t.assignees?.includes(activeMember)) return;
-      allMine.push({...t, colName:col.name, colId:col.id, projId:Number(pid), projName:proj?.name||"", projEmoji:proj?.emoji||"📋", projColor:proj?.color||"#7F77DD"});
+      allMine.push({...t, colName:col.name, colId:col.id, projId:Number(pid), projName:proj?.name||"", projEmoji:proj?.emoji||"📋", projColor:proj?.color||"#0A0A0A"});
     }));
   });
   const today = fmt(TODAY);
@@ -11726,7 +11729,7 @@ function MemorySection({label, category, items, onAdd, onRemove, open, onToggle}
   const submit = ()=>{ const t=newText.trim(); if(!t) return; onAdd?.(category, t); setNewText(""); };
   return(
     <section style={{border:"1px solid #E5E7EB",borderRadius:10,overflow:"hidden",marginBottom:10,background:"#fff"}}>
-      <button onClick={onToggle} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:open?"#F5F3FF":"#fff",border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600,color:"#111827",textAlign:"left",transition:"background .12s"}}>
+      <button onClick={onToggle} style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:open?"#F0EDE5":"#fff",border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:13,fontWeight:600,color:"#111827",textAlign:"left",transition:"background .12s"}}>
         <span style={{fontSize:11,color:"#9CA3AF"}}>{open?"▼":"▶"}</span>
         <span style={{flex:1}}>{label}</span>
         <span style={{fontSize:11,color:"#6B7280",background:"#F3F4F6",padding:"2px 8px",borderRadius:10,fontWeight:500}}>{items.length}</span>
@@ -11737,13 +11740,13 @@ function MemorySection({label, category, items, onAdd, onRemove, open, onToggle}
           {items.length>0 && (
             <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
               {items.slice().reverse().map(item=>(
-                <div key={item.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",background:"#F9FAFB",borderRadius:8,borderLeft:`3px solid ${item.source&&item.source!=="manual"?"#378ADD":"#7F77DD"}`}}>
+                <div key={item.id} style={{display:"flex",alignItems:"flex-start",gap:8,padding:"8px 10px",background:"#F9FAFB",borderRadius:8,borderLeft:`3px solid ${item.source&&item.source!=="manual"?"#378ADD":"#0A0A0A"}`}}>
                   <div style={{flex:1,minWidth:0,fontSize:12.5,color:"#1F2937"}}>
                     <RichText text={item.text} style={{fontSize:12.5,color:"#1F2937"}}/>
                     {item.negotiationTitle && <div style={{fontSize:10,color:"#9CA3AF",marginTop:2,fontStyle:"italic"}}>↳ de "{item.negotiationTitle}"</div>}
                   </div>
                   <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2,flexShrink:0}}>
-                    <span style={{fontSize:10,color:item.source&&item.source!=="manual"?"#1E40AF":"#6D28D9",background:item.source&&item.source!=="manual"?"#DBEAFE":"#EDE9FE",padding:"1px 6px",borderRadius:4,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.04em"}}>{item.source&&item.source!=="manual"?(item.source==="auto-summary"?"resumen":"auto"):"manual"}</span>
+                    <span style={{fontSize:10,color:item.source&&item.source!=="manual"?"#1E40AF":"#4E4A42",background:item.source&&item.source!=="manual"?"#DBEAFE":"#F0EDE5",padding:"1px 6px",borderRadius:4,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.04em"}}>{item.source&&item.source!=="manual"?(item.source==="auto-summary"?"resumen":"auto"):"manual"}</span>
                     <span style={{fontSize:10,color:"#9CA3AF"}}>{new Date(item.createdAt).toLocaleDateString("es-ES")}</span>
                   </div>
                   <button onClick={()=>onRemove?.(category,item.id)} title="Eliminar" style={{width:22,height:22,borderRadius:5,background:"transparent",border:"none",cursor:"pointer",fontSize:13,color:"#B91C1C",padding:0,flexShrink:0}}>✕</button>
@@ -11759,7 +11762,7 @@ function MemorySection({label, category, items, onAdd, onRemove, open, onToggle}
               placeholder="Añadir entrada manual…"
               style={{flex:1,padding:"6px 10px",borderRadius:6,border:"1px solid #D1D5DB",fontSize:12,fontFamily:"inherit",outline:"none"}}
             />
-            <button onClick={submit} disabled={!newText.trim()} style={{padding:"6px 12px",borderRadius:6,background:newText.trim()?"#7F77DD":"#E5E7EB",color:newText.trim()?"#fff":"#9CA3AF",border:"none",fontSize:12,fontWeight:600,cursor:newText.trim()?"pointer":"default",fontFamily:"inherit"}}>+ Añadir</button>
+            <button onClick={submit} disabled={!newText.trim()} style={{padding:"6px 12px",borderRadius:6,background:newText.trim()?"#0A0A0A":"#E5E7EB",color:newText.trim()?"#fff":"#9CA3AF",border:"none",fontSize:12,fontWeight:600,cursor:newText.trim()?"pointer":"default",fontFamily:"inherit"}}>+ Añadir</button>
           </div>
         </div>
       )}
@@ -11940,7 +11943,7 @@ function BriefingsView({data,onOpenNeg,onOpenSession}){
             {briefings.map(({neg,briefing,agent})=>{
               const preview = briefing.content.length>300 ? briefing.content.slice(0,300)+"…" : briefing.content;
               return(
-                <div key={neg.id} className="tf-lift" style={{background:"#fff",border:"2px solid #E5E7EB",borderLeft:`4px solid ${agent?.color||"#7F77DD"}`,borderRadius:12,padding:"14px 16px"}}>
+                <div key={neg.id} className="tf-lift" style={{background:"#fff",border:"2px solid #E5E7EB",borderLeft:`4px solid ${agent?.color||"#0A0A0A"}`,borderRadius:12,padding:"14px 16px"}}>
                   <div onClick={()=>onOpenNeg(neg.id)} style={{cursor:"pointer"}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:6,flexWrap:"wrap"}}>
                       <div style={{fontSize:14,fontWeight:600,color:"#111827"}}>💼 {neg.title}</div>
@@ -12062,7 +12065,7 @@ function UserSelectionModal({members,onSelectUser}){
   };
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(17,24,39,0.65)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20,animation:"tf-fade-in .2s ease",opacity:leaving?0:1,transition:"opacity .2s"}}>
-      <div style={{background:"#fff",borderRadius:16,width:480,maxWidth:"96vw",maxHeight:"92vh",display:"flex",flexDirection:"column",borderTop:"4px solid #7F77DD",boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
+      <div style={{background:"#fff",borderRadius:16,width:480,maxWidth:"96vw",maxHeight:"92vh",display:"flex",flexDirection:"column",borderTop:"4px solid #C9A84C",boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
         <div style={{padding:"20px 24px 10px",textAlign:"center"}}>
           <div style={{fontSize:18,fontWeight:700,marginBottom:4}}>Bienvenido a Kluxor</div>
           <div style={{fontSize:13,color:"#6b7280"}}>Selecciona tu usuario:</div>
@@ -12672,7 +12675,7 @@ export default function TaskFlow(){
   // 21/06/2026). El id=0 es seguro porque hasSelectedProject queda false
   // y la UI del board no se monta; los callbacks dependientes existen
   // pero no se invocan sin selección.
-  const EMPTY_PROJ = { id: 0, name: "", members: [], color: "#7F77DD", emoji: "📋", code: "" };
+  const EMPTY_PROJ = { id: 0, name: "", members: [], color: "#0A0A0A", emoji: "📋", code: "" };
   const proj         = hasSelectedProject ? data.projects[activeProject] : (data.projects[0] || EMPTY_PROJ);
   const selectedProj = hasSelectedProject ? data.projects[activeProject] : null;
   // Tablero derivado: incluye tareas vinculadas desde otros proyectos cuyo
@@ -15819,7 +15822,12 @@ Estructura recomendada de una respuesta con documento:
               Cuando colapsado el header pasa a column: logo arriba, botón abajo.
               Cuando expandido layout en row con botón pegado a la derecha. */}
           <div style={{padding:sidebarCollapsed?"10px 6px":"14px 14px 12px",borderBottom:"0.5px solid #e5e7eb",display:"flex",flexDirection:sidebarCollapsed?"column":"row",alignItems:"center",gap:sidebarCollapsed?8:10}}>
-            <div title="Kluxor" style={{width:30,height:30,background:"#7F77DD",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700,flexShrink:0}}>SB</div>
+            {/* Wordmark Kluxor 19/08/2026 — cuadrado negro + rombo oro rotado 45°.
+                Consistente con LoginScreen y UmbralCard. Antes: cuadro lila con
+                "SB" (residuo SoulBaric). */}
+            <div title="Kluxor" style={{width:30,height:30,background:"#0A0A0A",borderRadius:0,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <span aria-hidden="true" style={{display:"inline-block",width:11,height:11,background:"#C9A84C",transform:"rotate(45deg)"}}/>
+            </div>
             {!sidebarCollapsed&&<>
               <span style={{fontWeight:600,fontSize:15,flex:1}}>Kluxor</span>
               <span title={syncStatus==="connected"?"Sincronizado con Supabase":syncStatus==="connecting"?"Conectando…":syncStatus==="error"?"Error de sincronización":"Solo local (sin sync)"} style={{width:8,height:8,borderRadius:"50%",background:syncStatus==="connected"?"#10b981":syncStatus==="connecting"?"#f59e0b":syncStatus==="error"?"#ef4444":"#9ca3af",flexShrink:0}}/>
@@ -15882,11 +15890,11 @@ Estructura recomendada de una respuesta con documento:
                   {items.map(it=>{
                     const active = activeTab===it.id;
                     return(
-                      <div key={it.id} onClick={it.onClick} title={sidebarCollapsed?`${it.label} · ${it.shortcut}`:it.shortcut} style={{display:"flex",alignItems:"center",gap:sidebarCollapsed?0:10,padding:sidebarCollapsed?"9px 0":"8px 10px",borderRadius:8,cursor:"pointer",fontSize:13,background:active?"#EEEDFE":"transparent",color:active?"#7F77DD":"#4b5563",fontWeight:active?600:500,justifyContent:sidebarCollapsed?"center":"flex-start",marginBottom:2}} onMouseEnter={e=>{if(!active) e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{if(!active) e.currentTarget.style.background="transparent";}}>
+                      <div key={it.id} onClick={it.onClick} title={sidebarCollapsed?`${it.label} · ${it.shortcut}`:it.shortcut} style={{display:"flex",alignItems:"center",gap:sidebarCollapsed?0:10,padding:sidebarCollapsed?"9px 0":"8px 10px",paddingLeft:sidebarCollapsed?0:(active?8:10),borderRadius:0,cursor:"pointer",fontSize:13,background:active?"#F0EDE5":"transparent",color:active?"#1A1A1A":"#4b5563",fontWeight:active?600:500,justifyContent:sidebarCollapsed?"center":"flex-start",marginBottom:2,borderLeft:active?"2px solid #C9A84C":"2px solid transparent"}} onMouseEnter={e=>{if(!active) e.currentTarget.style.background="#F9FAFB";}} onMouseLeave={e=>{if(!active) e.currentTarget.style.background="transparent";}}>
                         {it.Icon && <it.Icon size={18} strokeWidth={1.5} aria-hidden="true" style={{flexShrink:0}}/>}
                         {!sidebarCollapsed&&<>
                           <span style={{flex:1}}>{it.label}</span>
-                          <span style={{fontSize:10,color:active?"#7F77DD99":"#9CA3AF",fontFamily:"ui-monospace,monospace"}}>{it.shortcut}</span>
+                          <span style={{fontSize:10,color:active?"#6B6B6B":"#9CA3AF",fontFamily:"ui-monospace,monospace"}}>{it.shortcut}</span>
                         </>}
                       </div>
                     );
@@ -15992,7 +16000,7 @@ Estructura recomendada de una respuesta con documento:
 
           {/* Nueva ▾ */}
           <div style={{position:"relative",flexShrink:0}}>
-            <button onClick={()=>setNuevaOpen(o=>!o)} title="Nueva (⌘⇧N)" style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:8,background:"#7F77DD",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600,fontFamily:"inherit"}}>
+            <button onClick={()=>setNuevaOpen(o=>!o)} title="Nueva (⌘⇧N)" style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",borderRadius:8,background:"#0A0A0A",color:"#fff",border:"none",fontSize:13,cursor:"pointer",fontWeight:600,fontFamily:"inherit"}}>
               <span>Nueva</span><span style={{fontSize:10,marginLeft:2}}>▾</span>
             </button>
             {nuevaOpen&&(
@@ -16026,7 +16034,7 @@ Estructura recomendada de una respuesta con documento:
               );})()}
             </div>
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            {activeTab==="board"&&<button onClick={()=>setScopeAvatar("board")} style={{padding:"6px 12px",borderRadius:8,background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>🎙️ Asesor del tablero</button>}
+            {activeTab==="board"&&<button onClick={()=>setScopeAvatar("board")} style={{padding:"6px 12px",borderRadius:8,background:"#0A0A0A",color:"#F5F0E8",border:"none",fontSize:12,cursor:"pointer",fontWeight:600}}>🎙️ Asesor del tablero</button>}
             <button onClick={()=>setShowAlerts(true)} style={{position:"relative",padding:"6px 14px",borderRadius:8,background:critCount>0?"#fff5f5":"#f9fafb",color:critCount>0?"#A32D2D":"#374151",border:`1px solid ${critCount>0?"#E24B4A":"#d1d5db"}`,fontSize:13,cursor:"pointer",fontWeight:500,display:"flex",alignItems:"center",gap:6}}>
               Alertas {critCount>0&&<span style={{background:"#E24B4A",color:"#fff",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700}}>{critCount}</span>}
             </button>
@@ -16035,7 +16043,7 @@ Estructura recomendada de una respuesta con documento:
         )}
         {hasSelectedProject&&activeTab!=="home"&&activeTab!=="dashboard"&&activeTab!=="projects"&&activeTab!=="planner"&&activeTab!=="users"&&activeTab!=="workspaces"&&activeTab!=="agents"&&activeTab!=="dealroom"&&activeTab!=="mytasks"&&activeTab!=="midia"&&activeTab!=="briefings"&&(
           <div data-tf-bar="project-tabs" style={{display:"flex",borderBottom:"0.5px solid #e5e7eb",background:"#fff",padding:"0 20px",flexShrink:0,overflowX:"auto"}}>
-            {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #7F77DD":"2px solid transparent",color:activeTab===tab.key?"#7F77DD":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
+            {TABS.map(tab=><div key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:activeTab===tab.key?"2px solid #0A0A0A":"2px solid transparent",color:activeTab===tab.key?"#0A0A0A":"#6b7280",fontWeight:activeTab===tab.key?500:400,marginBottom:-0.5,whiteSpace:"nowrap"}}>{tab.l}</div>)}
           </div>
         )}
         {activeTab==="board"&&<DailyDigest boards={data.boards} members={data.members} activeMemberId={activeMember} projectMemberIds={proj?.members||[]}/>}
@@ -16335,7 +16343,7 @@ Estructura recomendada de una respuesta con documento:
           donde la propia vista es ya un canal conversacional con IA y el FAB
           se solapa con el bottom nav y el botón "Pro" (📁). */}
       {activeTab !== "hector-direct" && (
-        <button className="tf-fab" onClick={()=>setScopeAvatar(activeTab||"global")} title="Asesor IA — habla sobre lo que estás viendo" style={{position:"fixed",bottom:24,right:24,zIndex:1500,width:60,height:60,borderRadius:"50%",background:"linear-gradient(135deg,#7F77DD,#E76AA1)",color:"#fff",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 8px 24px rgba(127,119,221,0.4)",display:"flex",alignItems:"center",justifyContent:"center"}}>🎙️</button>
+        <button className="tf-fab" onClick={()=>setScopeAvatar(activeTab||"global")} title="Asesor IA — habla sobre lo que estás viendo" style={{position:"fixed",bottom:24,right:24,zIndex:1500,width:60,height:60,borderRadius:"50%",background:"#0A0A0A",color:"#C9A84C",border:"none",fontSize:26,cursor:"pointer",boxShadow:"0 8px 24px rgba(10,10,10,0.35)",display:"flex",alignItems:"center",justifyContent:"center"}}>🎙️</button>
       )}
 
       {scopeAvatar && <ScopeAvatarModal

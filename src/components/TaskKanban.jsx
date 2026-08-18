@@ -7,7 +7,7 @@ import React from "react";
 import { daysUntil, fmt } from "../lib/date.js";
 
 const COLUMN_DEFS = [
-  { key: "todo",     label: "Por hacer",   color: "#7F77DD", match: t => t.colName !== "Hecho" && t.colName !== "En progreso" },
+  { key: "todo",     label: "Por hacer",   color: "#C9A84C", match: t => t.colName !== "Hecho" && t.colName !== "En progreso" },
   { key: "doing",    label: "En progreso", color: "#3B82F6", match: t => t.colName === "En progreso" },
   { key: "donetoday", label: "Hecho hoy",  color: "#1D9E75", match: t => t.colName === "Hecho" && (t.timeLogs || []).some(l => l.date === fmt(new Date())) },
 ];

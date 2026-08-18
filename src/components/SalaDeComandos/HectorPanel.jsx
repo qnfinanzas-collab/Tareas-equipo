@@ -60,7 +60,7 @@ const SKILL_COLORS = {
   personas:   "#E91E63",
   legal:      "#34495E",
   alquileres: "#E67E22",
-  gobernanza: "#8E44AD",
+  gobernanza: "#4E4A42",
 };
 
 const speakRecommendation = (text) => {

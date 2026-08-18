@@ -1,6 +1,9 @@
 // Paletas y constantes visuales
+// MP[0] recoloreado 19/08/2026: el lila #7F77DD sale de la paleta de
+// marca (auditoría color). El member id=0 pasa a negro sobre crema,
+// consistente con la paleta operativa Kluxor.
 export const MP = [
-  { solid:"#7F77DD", light:"#EEEDFE", cardBorder:"#7F77DD", cardBg:"#f5f4ff" },
+  { solid:"#0A0A0A", light:"#F0EDE5", cardBorder:"#0A0A0A", cardBg:"#FAFAF7" },
   { solid:"#E24B4A", light:"#FCEBEB", cardBorder:"#E24B4A", cardBg:"#fff5f5" },
   { solid:"#1D9E75", light:"#E1F5EE", cardBorder:"#1D9E75", cardBg:"#f0fdf7" },
   { solid:"#EF9F27", light:"#FAEEDA", cardBorder:"#EF9F27", cardBg:"#fffbf0" },
@@ -29,8 +32,11 @@ export const QM = {
 
 // Color por defecto al crear un proyecto. Oro Kluxor (#C9A84C). Va el
 // primero en PROJECT_COLORS para que aparezca destacado en el selector.
+// Auditoría color 19/08/2026: #7F77DD (lila) sale de la paleta. Se
+// añaden #4E4A42 y #6B6B6B (grises tierra sobrios) en su lugar. El oro
+// es acento de marca — no se ofrece como opción de picker adicional.
 export const DEFAULT_PROJECT_COLOR = "#C9A84C";
-export const PROJECT_COLORS = ["#C9A84C","#7F77DD","#E24B4A","#1D9E75","#EF9F27","#378ADD","#D85A30","#993556","#3B6D11"];
+export const PROJECT_COLORS = ["#C9A84C","#4E4A42","#E24B4A","#1D9E75","#EF9F27","#378ADD","#D85A30","#993556","#3B6D11","#6B6B6B"];
 export const PROJECT_EMOJIS = ["🚀","📱","🌐","⚙️","🎯","💡","📊","🔧","✨","🏗️"];
 export const DOW = ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
 export const TRANSPORT_KW = ["clase","inglés","ingles","curs","curso","class","jocs","training","entreno","gimnàs","gimnasio","gym","academia","formació","formacion"];

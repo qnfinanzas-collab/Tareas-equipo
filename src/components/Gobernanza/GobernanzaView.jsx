@@ -47,10 +47,10 @@ export default function GobernanzaView({ data, currentMember, onUpdateGovernance
                 padding: "9px 16px",
                 background: "transparent",
                 border: "none",
-                borderBottom: active ? "2px solid #8E44AD" : "2px solid transparent",
+                borderBottom: active ? "2px solid #4E4A42" : "2px solid transparent",
                 fontSize: 13,
                 fontWeight: active ? 700 : 500,
-                color: active ? "#8E44AD" : "#6B7280",
+                color: active ? "#4E4A42" : "#6B7280",
                 cursor: "pointer",
                 fontFamily: "inherit",
               }}
@@ -72,7 +72,7 @@ export default function GobernanzaView({ data, currentMember, onUpdateGovernance
 // filiales), KPIs de gobernanza (tax rate, compliance, fondos propios) y
 // alertas activas (vencimientos próximos, documentación pendiente).
 const COMPANY_TYPE_META = {
-  holding:    { label: "Holding",     icon: "🏛️", bg: "#F5EEFA", border: "#B07DD8", color: "#6B21A8" },
+  holding:    { label: "Holding",     icon: "🏛️", bg: "#F0EDE5", border: "#4E4A42", color: "#4E4A42" },
   operativa:  { label: "Operativa",   icon: "⚙️", bg: "#EFF6FF", border: "#93C5FD", color: "#1E40AF" },
   patrimonial:{ label: "Patrimonial", icon: "🏠", bg: "#FFF7ED", border: "#FDBA74", color: "#9A3412" },
   spv:        { label: "SPV",         icon: "📦", bg: "#F0FDF4", border: "#86EFAC", color: "#065F46" },
@@ -127,7 +127,7 @@ function GovDashboardTab({ governance, onUpdateGovernance }) {
       <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, padding: 20 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>📊 Estructura del Grupo</div>
-          <button onClick={() => { setAdding(true); setEditingCompany({ name: "", type: "operativa", parentId: holdings[0]?.id || null, cif: "", participation: 100 }); }} style={{ padding: "6px 12px", borderRadius: 8, background: "#8E44AD", color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>+ Añadir empresa</button>
+          <button onClick={() => { setAdding(true); setEditingCompany({ name: "", type: "operativa", parentId: holdings[0]?.id || null, cif: "", participation: 100 }); }} style={{ padding: "6px 12px", borderRadius: 8, background: "#4E4A42", color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>+ Añadir empresa</button>
         </div>
         {companies.length === 0 ? (
           <div style={{ padding: "32px 16px", textAlign: "center", color: "#9CA3AF", fontSize: 13, background: "#FAFAFA", border: "1px dashed #E5E7EB", borderRadius: 10 }}>
@@ -162,7 +162,7 @@ function GovDashboardTab({ governance, onUpdateGovernance }) {
           <KpiTile label="Tax rate efectivo" value={taxRate != null ? `${taxRate}%` : "—"} hint={taxRate != null && taxRate < 25 ? "Por debajo del 25% nominal" : "IS general 25%"} color="#27AE60" />
           <KpiTile label="Compliance" value={`${compliance}%`} hint={compliance >= 90 ? "OK" : "Revisar alertas críticas"} color={compliance >= 90 ? "#27AE60" : "#E67E22"} />
           <KpiTile label="Fondos propios" value={fondosPropios != null ? formatEur(fondosPropios) : "—"} hint="≥ 50% capital social" color="#3498DB" />
-          <KpiTile label="Patrimonio neto" value={patrimonioNeto != null ? formatEur(patrimonioNeto) : "—"} hint="Vigila desequilibrio (art.363 LSC)" color="#8E44AD" />
+          <KpiTile label="Patrimonio neto" value={patrimonioNeto != null ? formatEur(patrimonioNeto) : "—"} hint="Vigila desequilibrio (art.363 LSC)" color="#4E4A42" />
         </div>
       </div>
 
@@ -253,7 +253,7 @@ function CompanyEditModal({ company, isNew, companies, onClose, onSave, onDelete
   };
   return (
     <div onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: "#fff", borderRadius: 14, width: 460, maxWidth: "94vw", borderTop: "4px solid #8E44AD", overflow: "hidden" }}>
+      <div style={{ background: "#fff", borderRadius: 14, width: 460, maxWidth: "94vw", borderTop: "4px solid #4E4A42", overflow: "hidden" }}>
         <div style={{ padding: "14px 18px", borderBottom: "0.5px solid #E5E7EB", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ fontSize: 14, fontWeight: 700 }}>{isNew ? "Añadir empresa" : "Editar empresa"}</div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#6B7280" }}>×</button>
@@ -294,7 +294,7 @@ function CompanyEditModal({ company, isNew, companies, onClose, onSave, onDelete
             )}
             <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
               <button onClick={onClose} style={{ padding: "8px 14px", borderRadius: 8, background: "transparent", border: "1px solid #D1D5DB", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>Cancelar</button>
-              <button onClick={handleSave} disabled={!canSave} style={{ padding: "8px 18px", borderRadius: 8, background: canSave ? "#8E44AD" : "#E5E7EB", color: canSave ? "#fff" : "#9CA3AF", border: "none", fontSize: 12, fontWeight: 600, cursor: canSave ? "pointer" : "default", fontFamily: "inherit" }}>{isNew ? "Crear" : "Guardar"}</button>
+              <button onClick={handleSave} disabled={!canSave} style={{ padding: "8px 18px", borderRadius: 8, background: canSave ? "#4E4A42" : "#E5E7EB", color: canSave ? "#fff" : "#9CA3AF", border: "none", fontSize: 12, fontWeight: 600, cursor: canSave ? "pointer" : "default", fontFamily: "inherit" }}>{isNew ? "Crear" : "Guardar"}</button>
             </div>
           </div>
         </div>
@@ -425,7 +425,7 @@ function GovCalendarTab({ governance, onUpdateGovernance }) {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           {yearObs.length === 0 && (
-            <button onClick={seedYear} style={{ padding: "7px 14px", borderRadius: 8, background: "#8E44AD", color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>+ Generar plantilla {year}</button>
+            <button onClick={seedYear} style={{ padding: "7px 14px", borderRadius: 8, background: "#4E4A42", color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>+ Generar plantilla {year}</button>
           )}
         </div>
       </div>
@@ -444,7 +444,7 @@ function GovCalendarTab({ governance, onUpdateGovernance }) {
                 title={`${MONTHS_FULL[m]} ${year} · ${agg.count} obligación${agg.count !== 1 ? "es" : ""}`}
                 style={{
                   background: palette.bg,
-                  border: `1.5px solid ${isSelected ? "#8E44AD" : palette.border}`,
+                  border: `1.5px solid ${isSelected ? "#4E4A42" : palette.border}`,
                   borderRadius: 8,
                   padding: "10px 6px",
                   cursor: "pointer",
@@ -491,7 +491,7 @@ function GovCalendarTab({ governance, onUpdateGovernance }) {
                   </div>
                   <span style={{ fontSize: 10.5, fontWeight: 600, padding: "2px 8px", borderRadius: 10, background: "#fff", border: `1px solid ${palette.border}`, color: "#374151" }}>{palette.icon} {stateLabel}</span>
                   {state !== "filed" && (
-                    <button onClick={() => updateObligation(o.id, { status: "filed", filedAt: new Date().toISOString() })} style={{ padding: "4px 10px", borderRadius: 6, background: "#8E44AD", color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Marcar presentado</button>
+                    <button onClick={() => updateObligation(o.id, { status: "filed", filedAt: new Date().toISOString() })} style={{ padding: "4px 10px", borderRadius: 6, background: "#4E4A42", color: "#fff", border: "none", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Marcar presentado</button>
                   )}
                   {state === "filed" && (
                     <button onClick={() => updateObligation(o.id, { status: "pending", filedAt: null })} style={{ padding: "4px 10px", borderRadius: 6, background: "transparent", border: "1px solid #D1D5DB", fontSize: 11, color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>Reabrir</button>
@@ -623,13 +623,13 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
   return (
     <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 520 }}>
       {/* Header del chat */}
-      <div style={{ padding: "12px 16px", borderBottom: "0.5px solid #E5E7EB", display: "flex", alignItems: "center", gap: 10, background: "linear-gradient(90deg,#F5EEFA,#FFFFFF)" }}>
-        <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#8E44AD", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🏛️</div>
+      <div style={{ padding: "12px 16px", borderBottom: "0.5px solid #E5E7EB", display: "flex", alignItems: "center", gap: 10, background: "linear-gradient(90deg,#F0EDE5,#FFFFFF)" }}>
+        <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#4E4A42", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🏛️</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>Gonzalo Gobernanza</div>
-          <div style={{ fontSize: 11, color: "#6B21A8" }}>Estructura societaria, holdings, calendario fiscal, internacionalización</div>
+          <div style={{ fontSize: 11, color: "#4E4A42" }}>Estructura societaria, holdings, calendario fiscal, internacionalización</div>
         </div>
-        <button onClick={toggleMute} title={muted ? "Activar voz" : "Silenciar voz"} style={{ background: "transparent", border: "1px solid #E5E7EB", borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: "pointer", color: muted ? "#9CA3AF" : "#8E44AD" }}>{muted ? "🔇" : "🔊"}</button>
+        <button onClick={toggleMute} title={muted ? "Activar voz" : "Silenciar voz"} style={{ background: "transparent", border: "1px solid #E5E7EB", borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: "pointer", color: muted ? "#9CA3AF" : "#4E4A42" }}>{muted ? "🔇" : "🔊"}</button>
         <button onClick={clear} title="Borrar conversación" style={{ background: "transparent", border: "1px solid #E5E7EB", borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: "pointer", color: "#6B7280" }}>🗑</button>
       </div>
 
@@ -648,10 +648,10 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
           return (
             <div key={i} style={{ display: "flex", gap: 8, justifyContent: isUser ? "flex-end" : "flex-start", flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
               <div style={{ display: "flex", gap: 8, alignItems: "flex-start", maxWidth: "82%" }}>
-                {!isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : "#8E44AD", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>🏛️</div>}
+                {!isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : "#4E4A42", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>🏛️</div>}
                 <div style={{
-                  background: isUser ? "#7F77DD" : (m.error ? "#FEE2E2" : "#F5EEFA"),
-                  color: isUser ? "#fff" : (m.error ? "#991B1B" : "#1F2937"),
+                  background: isUser ? "#0A0A0A" : (m.error ? "#FEE2E2" : "#F0EDE5"),
+                  color: isUser ? "#F5F0E8" : (m.error ? "#991B1B" : "#1F2937"),
                   border: m.error ? "1px solid #FCA5A5" : "0.5px solid #E5E7EB",
                   borderRadius: 12,
                   padding: "10px 14px",
@@ -685,8 +685,8 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
                   {/* Normativa Viva — fuentes consultadas al pie del mensaje
                       del especialista. Lista vertical de chips con URL. */}
                   {!isUser && Array.isArray(m.citations) && m.citations.length > 0 && (
-                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: "0.5px solid #D8B4FE40" }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "#6B21A8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5 }}>
+                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: "0.5px solid #E5E0D540" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#4E4A42", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 5 }}>
                         📚 Fuentes consultadas ({m.citations.length})
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -699,14 +699,14 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
                             title={c.cited_text || c.url}
                             style={{
                               fontSize: 11,
-                              color: "#6B21A8",
+                              color: "#4E4A42",
                               textDecoration: "none",
                               display: "flex",
                               gap: 6,
                               alignItems: "baseline",
                               padding: "3px 6px",
-                              border: "0.5px solid #D8B4FE",
-                              background: "#F5EEFA",
+                              border: "0.5px solid #E5E0D5",
+                              background: "#F0EDE5",
                               borderRadius: 4,
                               wordBreak: "break-all",
                             }}
@@ -728,7 +728,7 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
                     proposal={m.proposal}
                     agentName="Gonzalo"
                     agentEmoji="🏛️"
-                    color="#8E44AD"
+                    color="#4E4A42"
                     onConfirm={async (selected) => {
                       await onRunAgentActions(selected);
                       setHistory(prev => prev.map((x, idx) => idx === i ? { ...x, proposal: null, proposalExecuted: true, executedAt: Date.now(), executedActions: selected } : x));
@@ -749,8 +749,8 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
         })}
         {loading && (
           <div style={{ display: "flex", gap: 8 }}>
-            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#8E44AD", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🏛️</div>
-            <div style={{ background: "#F5EEFA", border: "0.5px solid #E5E7EB", borderRadius: 12, padding: "10px 14px", fontSize: 12.5, color: "#6B21A8", fontStyle: "italic" }}>
+            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#4E4A42", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>🏛️</div>
+            <div style={{ background: "#F0EDE5", border: "0.5px solid #E5E7EB", borderRadius: 12, padding: "10px 14px", fontSize: 12.5, color: "#4E4A42", fontStyle: "italic" }}>
               🔍 Gonzalo está consultando fuentes…
             </div>
           </div>
@@ -767,8 +767,8 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
           rows={1}
           style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "0.5px solid #D1D5DB", fontSize: 13, fontFamily: "inherit", outline: "none", resize: "none", lineHeight: 1.4, maxHeight: 120 }}
         />
-        <button onClick={startListen} title={listening ? "Detener" : "Hablar"} style={{ width: 38, height: 38, borderRadius: 10, background: listening ? "#E24B4A" : "#fff", color: listening ? "#fff" : "#8E44AD", border: `1px solid ${listening ? "#E24B4A" : "#D8B4FE"}`, cursor: "pointer", fontSize: 16, fontFamily: "inherit" }}>{listening ? "⏹" : "🎤"}</button>
-        <button onClick={() => send()} disabled={!input.trim() || loading} style={{ padding: "9px 16px", borderRadius: 10, background: input.trim() && !loading ? "#8E44AD" : "#E5E7EB", color: input.trim() && !loading ? "#fff" : "#9CA3AF", border: "none", fontSize: 13, fontWeight: 600, cursor: input.trim() && !loading ? "pointer" : "not-allowed", fontFamily: "inherit" }}>{loading ? "…" : "Enviar"}</button>
+        <button onClick={startListen} title={listening ? "Detener" : "Hablar"} style={{ width: 38, height: 38, borderRadius: 10, background: listening ? "#E24B4A" : "#fff", color: listening ? "#fff" : "#4E4A42", border: `1px solid ${listening ? "#E24B4A" : "#E5E0D5"}`, cursor: "pointer", fontSize: 16, fontFamily: "inherit" }}>{listening ? "⏹" : "🎤"}</button>
+        <button onClick={() => send()} disabled={!input.trim() || loading} style={{ padding: "9px 16px", borderRadius: 10, background: input.trim() && !loading ? "#4E4A42" : "#E5E7EB", color: input.trim() && !loading ? "#fff" : "#9CA3AF", border: "none", fontSize: 13, fontWeight: 600, cursor: input.trim() && !loading ? "pointer" : "not-allowed", fontFamily: "inherit" }}>{loading ? "…" : "Enviar"}</button>
       </div>
     </div>
   );

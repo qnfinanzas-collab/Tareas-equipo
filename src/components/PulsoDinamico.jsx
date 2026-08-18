@@ -79,7 +79,7 @@ export default function PulsoDinamico({ active, negotiations, onOpenTask, RefBad
         width: 260,
         padding: "10px 12px",
         background: "#fff",
-        border: `1px solid ${pinned ? "#7F77DD" : "#E5E7EB"}`,
+        border: `1px solid ${pinned ? "#0A0A0A" : "#E5E7EB"}`,
         borderRadius: 10,
         boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
         zIndex: 50,
@@ -107,7 +107,7 @@ export default function PulsoDinamico({ active, negotiations, onOpenTask, RefBad
             </div>
             {pinned && (
               <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                <button onClick={(e) => { e.stopPropagation(); onOpenTask?.(t.id, t.projId); setPinnedBlock(null); }} style={{ flex: 1, padding: "6px 10px", borderRadius: 6, background: "#7F77DD", color: "#fff", border: "none", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>→ Abrir tarea</button>
+                <button onClick={(e) => { e.stopPropagation(); onOpenTask?.(t.id, t.projId); setPinnedBlock(null); }} style={{ flex: 1, padding: "6px 10px", borderRadius: 6, background: "#0A0A0A", color: "#fff", border: "none", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>→ Abrir tarea</button>
                 <button onClick={(e) => { e.stopPropagation(); setPinnedBlock(null); }} style={{ padding: "6px 10px", borderRadius: 6, background: "transparent", color: "#6B7280", border: "1px solid #D1D5DB", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Cerrar</button>
               </div>
             )}
@@ -156,7 +156,7 @@ export default function PulsoDinamico({ active, negotiations, onOpenTask, RefBad
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                outline: isPinned ? "2px solid #7F77DD" : "none",
+                outline: isPinned ? "2px solid #0A0A0A" : "none",
               }}
             >
               {i % 2 === 0 && <span style={{ fontSize: 9, color: "#374151", fontWeight: 600, opacity: 0.7 }}>{b.label}</span>}

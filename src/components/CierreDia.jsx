@@ -70,11 +70,11 @@ export default function CierreDia({ user, data, onClose }) {
 
   return (
     <div className="tf-overlay" onClick={e => e.target === e.currentTarget && handleClose()} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 4000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 16, width: 560, maxWidth: "94vw", overflow: "hidden", borderTop: "4px solid #6366F1" }}>
+      <div style={{ background: "#fff", borderRadius: 16, width: 560, maxWidth: "94vw", overflow: "hidden", borderTop: "4px solid #C9A84C" }}>
         <div style={{ padding: "16px 20px", borderBottom: "0.5px solid #e5e7eb", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 38, height: 38, borderRadius: "50%", background: "linear-gradient(135deg,#6366F1,#4F46E5)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🌙</div>
+          <div style={{ width: 38, height: 38, borderRadius: "50%", background: "#0A0A0A", color: "#C9A84C", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🌙</div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#4338CA" }}>Cierre del día</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1A1A" }}>Cierre del día</div>
             <div style={{ fontSize: 11, color: "#6B7280" }}>Lo que pasó hoy en una mirada</div>
           </div>
         </div>
@@ -93,13 +93,13 @@ export default function CierreDia({ user, data, onClose }) {
               <div style={{ fontSize: 22, fontWeight: 700, color: "#B91C1C" }}>{summary.overdueOpen.length}</div>
             </div>
           </div>
-          <div style={{ background: "#F5F3FF", border: "1px solid #DDD6FE", borderRadius: 10, padding: "12px 14px", fontSize: 13, color: "#4C1D95", lineHeight: 1.55, whiteSpace: "pre-wrap", minHeight: 70 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#6D28D9", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>Observación de Héctor</div>
+          <div style={{ background: "#F0EDE5", border: "1px solid #E5E0D5", borderRadius: 10, padding: "12px 14px", fontSize: 13, color: "#1A1A1A", lineHeight: 1.55, whiteSpace: "pre-wrap", minHeight: 70 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#9A6F14", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>Observación de Héctor</div>
             {loading ? <span style={{ fontStyle: "italic", color: "#6B7280" }}>Resumiendo el día…</span> : (observation || "Sin observación disponible.")}
           </div>
         </div>
         <div style={{ padding: "12px 20px", borderTop: "0.5px solid #e5e7eb", background: "#fafafa", display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button onClick={handleClose} disabled={loading} style={{ padding: "9px 18px", borderRadius: 8, background: loading ? "#E5E7EB" : "#6366F1", color: loading ? "#9CA3AF" : "#fff", border: "none", fontSize: 13, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>Buenas noches 🌙</button>
+          <button onClick={handleClose} disabled={loading} style={{ padding: "9px 18px", borderRadius: 8, background: loading ? "#E5E7EB" : "#0A0A0A", color: loading ? "#9CA3AF" : "#F5F0E8", border: "none", fontSize: 13, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", fontFamily: "inherit" }}>Buenas noches 🌙</button>
         </div>
       </div>
     </div>

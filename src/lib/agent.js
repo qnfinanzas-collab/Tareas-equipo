@@ -239,13 +239,13 @@ export const AVATARS = {
     style: "analítico y orientado a números",
   },
   legal: {
-    key: "legal", label: "Legal", icon: "⚖️", color: "#3C3489",
+    key: "legal", label: "Legal", icon: "⚖️", color: "#4E4A42",
     voice: { gender: "male", rate: 0.95, pitch: 0.92 },
     opener: "Hola, soy tu asesor legal.",
     style: "prudente y preciso",
   },
   estrategia: {
-    key: "estrategia", label: "Estrategia", icon: "🧠", color: "#7F77DD",
+    key: "estrategia", label: "Estrategia", icon: "🧠", color: "#C9A84C",
     voice: { gender: "male", rate: 1.0, pitch: 0.97 },
     opener: "Hola, soy tu asesor estratégico.",
     style: "estructurado y con visión de largo plazo",
@@ -257,7 +257,7 @@ export const AVATAR_KEYS = Object.keys(AVATARS);
 // Esquema del agente personalizado (guardado en data.agents)
 export const AGENT_DEFAULTS = {
   emoji: "🤖",
-  color: "#7F77DD",
+  color: "#C9A84C",
   voice: { gender: "male", rate: 1.0, pitch: 1.0 },
   specialties: [],
   opener: "Hola, soy tu asesor.",
@@ -280,7 +280,7 @@ export function agentToAvatar(agent){
     key: `agent_${agent.id}`,
     label: agent.name,
     icon: agent.emoji || "🤖",
-    color: agent.color || "#7F77DD",
+    color: agent.color || "#C9A84C",
     voice: agent.voice || { gender: "male", rate: 1.0, pitch: 1.0 },
     opener: agent.opener || `Hola, soy ${agent.name}.`,
     style: agent.style || "profesional",

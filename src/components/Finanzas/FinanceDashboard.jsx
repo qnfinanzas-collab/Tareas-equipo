@@ -23,7 +23,7 @@ const C = {
   blue: "#3498DB",
   amber: "#E67E22",
   gray: "#6B7280",
-  purple: "#8E44AD",
+  purple: "#4E4A42",
 };
 
 export default function FinanceDashboard({ data, selectedCompanyId = "all", onNavigate }) {

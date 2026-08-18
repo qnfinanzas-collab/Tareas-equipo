@@ -15,7 +15,7 @@ import React, { useMemo, useState } from "react";
 const PRIORITY_LABEL = { alta: "Alta", media: "Media", baja: "Baja" };
 const PRIORITY_COLOR = { alta: "#B91C1C", media: "#92400E", baja: "#0E7C5A" };
 
-export default function ActionProposal({ proposal, agentName = "Agente", agentEmoji = "🤖", color = "#8E44AD", onConfirm, onCancel }) {
+export default function ActionProposal({ proposal, agentName = "Agente", agentEmoji = "🤖", color = "#4E4A42", onConfirm, onCancel }) {
   // Estado local: sets de IDs deseleccionados por acción / tarea.
   // Por defecto todo seleccionado. El CEO puede desactivar tareas
   // individuales o acciones enteras.

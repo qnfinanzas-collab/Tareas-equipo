@@ -306,11 +306,11 @@ export default function DocumentacionTab({ governance, currentMember, onUpdateGo
         onDragLeave={onGlobalDragLeave}
         onClick={!processingFile ? onGlobalPick : undefined}
         style={{
-          border: `2px dashed ${isDragOverGlobal ? "#8E44AD" : "#BDC3C7"}`,
+          border: `2px dashed ${isDragOverGlobal ? "#4E4A42" : "#BDC3C7"}`,
           borderRadius: 12,
           padding: "32px 24px",
           textAlign: "center",
-          backgroundColor: isDragOverGlobal ? "#F5EEFA" : "#FAFAFA",
+          backgroundColor: isDragOverGlobal ? "#F0EDE5" : "#FAFAFA",
           cursor: processingFile ? "wait" : "pointer",
           transition: "all 0.2s",
         }}
@@ -355,8 +355,8 @@ export default function DocumentacionTab({ governance, currentMember, onUpdateGo
           return (
             <button key={f.key} onClick={() => setFilter(f.key)} style={{
               padding: "6px 14px", borderRadius: 16,
-              border: `1px solid ${active ? "#8E44AD" : "#E5E7EB"}`,
-              background: active ? "#8E44AD" : "#fff",
+              border: `1px solid ${active ? "#4E4A42" : "#E5E7EB"}`,
+              background: active ? "#4E4A42" : "#fff",
               color: active ? "#fff" : "#6B7280",
               fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
             }}>{f.label}</button>
@@ -967,7 +967,7 @@ function DocumentRow({ doc, onUpdate, currentMember, company, showToast }) {
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: i > 0 ? "0.5px dashed #E5E7EB" : "none" }}>
                   <span style={{ fontSize: 12, color: "#111827", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v.fileName || "(sin nombre)"}</span>
                   <span style={{ fontSize: 10.5, color: "#9CA3AF" }}>{v.archivedAt ? new Date(v.archivedAt).toLocaleDateString("es-ES",{day:"numeric",month:"short",year:"numeric"}) : ""}</span>
-                  <a href={v.fileUrl} download={v.fileName} style={{ fontSize: 11, color: "#8E44AD", textDecoration: "none" }}>📥</a>
+                  <a href={v.fileUrl} download={v.fileName} style={{ fontSize: 11, color: "#4E4A42", textDecoration: "none" }}>📥</a>
                   <button onClick={() => restoreVersion(i)} style={{ fontSize: 11, padding: "2px 6px", borderRadius: 6, background: "transparent", border: "1px solid #D1D5DB", color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>↩ Restaurar</button>
                 </div>
               ))}

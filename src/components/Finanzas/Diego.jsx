@@ -399,8 +399,8 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
               <div style={{ display: "flex", gap: 8, alignItems: "flex-start", maxWidth: "82%" }}>
                 {!isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : "#27AE60", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>💹</div>}
                 <div style={{
-                  background: isUser ? "#7F77DD" : (m.error ? "#FEE2E2" : "#F0FDF4"),
-                  color: isUser ? "#fff" : (m.error ? "#991B1B" : "#1F2937"),
+                  background: isUser ? "#0A0A0A" : (m.error ? "#FEE2E2" : "#F0FDF4"),
+                  color: isUser ? "#F5F0E8" : (m.error ? "#991B1B" : "#1F2937"),
                   border: m.error ? "1px solid #FCA5A5" : "0.5px solid #E5E7EB",
                   borderRadius: 12,
                   padding: "10px 14px",

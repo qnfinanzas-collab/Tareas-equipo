@@ -114,7 +114,7 @@ const PALETTE = {
   text:         "#111827",
   textMuted:    "#6B7280",
   textFaint:    "#9CA3AF",
-  accent:       "#7F77DD",
+  accent:       "#0A0A0A",
   danger:       "#E24B4A",
   success:      "#1D9E75",
   warn:         "#EF9F27",
