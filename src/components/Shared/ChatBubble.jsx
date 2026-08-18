@@ -283,7 +283,7 @@ export default function ChatBubble({
         ) : (
           <AgentAvatar agent="hector" size={32} />
         )}
-        <div style={{
+        <div data-hd-bubble style={{
           background: isUser ? C.brandLight : (message.error ? "#FEF2F2" : C.bgSecondary),
           color: message.error ? "#991B1B" : C.textPrimary,
           borderRadius: isUser ? "16px 4px 16px 16px" : "4px 16px 16px 16px",

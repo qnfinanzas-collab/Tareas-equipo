@@ -1699,6 +1699,23 @@ Reglas:
             z-index: 1100;
             box-shadow: 0 4px 12px rgba(201, 168, 76, 0.35);
           }
+          /* Ajuste fino ancho burbuja (19/08/2026): antes se sumaban 3
+             paddings (chat 20px + bubble 14px) + maxWidth 78% =
+             ~146px perdidos de 393px en iPhone (37%). En móvil
+             reducimos el padding del chat y ampliamos la burbuja al
+             92% con padding interno 12px. Mínimos preservados: 10px
+             de aire respecto a pantalla + 12px dentro de la burbuja.
+             En desktop (>768px) queda intacto — ancho actual óptimo
+             de lectura, ampliarlo empeoraría la longitud de línea. */
+          [data-hd="chat"] {
+            padding-left: 10px !important;
+            padding-right: 10px !important;
+          }
+          [data-hd-bubble] {
+            max-width: 92% !important;
+            padding-left: 12px !important;
+            padding-right: 12px !important;
+          }
         }
       `}</style>
 
@@ -1817,7 +1834,7 @@ Reglas:
       )}
 
       {/* ZONA 3 — CHAT */}
-      <div style={chatStyle}>
+      <div style={chatStyle} data-hd="chat">
         {chatHistory.length === 0 && !showAperturaBlock && (
           <div style={{ fontSize: 13, color: C.textTertiary, fontStyle: "italic", textAlign: "center", padding: "20px 0" }}>
             Escribe el primer mensaje a Héctor.
