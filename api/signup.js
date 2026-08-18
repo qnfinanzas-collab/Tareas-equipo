@@ -7,9 +7,12 @@
 //   2) Crea auth.user con service_role.
 //   3) Crea nueva fila en tenants (id UUID auto, owner_uid = user, plan='trial',
 //      status='active', trial_start=NULL — se marca en el primer login efectivo).
-//   4) Crea nueva fila en taskflow_state con el BLANK_STATE y el tenant nuevo.
-//      CRÍTICO: nunca id=1. Si la tabla es SERIAL, va a la siguiente.
-//   5) Registra al owner en tenant_members (rol 'owner').
+//   4) Crea nueva fila en taskflow_state con BLANK_STATE + memberSeed del
+//      invitado (accountRole='admin') — sin ese seed, el auth gate del
+//      cliente lo rechazaría por "email no autorizado".
+//      CRÍTICO: nunca id=1. Postgres asigna vía IDENTITY (migración 18/08).
+//   5) Registra al invitado en tenant_members con role='admin' (CHECK
+//      solo admite admin|member — nunca 'owner', que es concepto de tenants).
 //   6) Marca invitations.used_at.
 //
 // Si CUALQUIER paso falla después de crear el auth.user, hace rollback.
@@ -92,14 +95,43 @@ export default async function handler(req, res) {
   if (tErr || !newTenant?.id) return rollback("tenants.insert", tErr);
   const newTenantId = newTenant.id;
 
-  // 5) Crear fila taskflow_state con blank state. id auto (SERIAL o similar).
-  //    Guard extra: verificar tras el INSERT que id !== 1 (si por bug se
-  //    reasignara la fila crown-jewel, abortar).
+  // 5) Crear fila taskflow_state con el estado inicial + member seed del
+  //    invitado. IDENTITY sobre `id` desde la migración
+  //    2026-08-18-taskflow-state-identity.sql — Postgres asigna el
+  //    siguiente id automáticamente.
+  //
+  //    CRÍTICO (18/08/2026): NO insertar BLANK_STATE tal cual. Ese blank
+  //    tiene `members: []` vacío, y el auth gate del cliente
+  //    (App.jsx:15651 con resolveSessionMember) falla si no encuentra al
+  //    user auth en data.members[]. El invitado se autenticaría bien pero
+  //    vería pantalla "Acceso no autorizado". Precedente: el mismo bug
+  //    lo resolvió a mano scripts/onboard-robert.mjs:126-138 al onboarding
+  //    manual de Robert — replicamos el patrón aquí para signups vía
+  //    /api/signup normales.
+  //
+  //    Guard extra defensivo: si por bug se reasignara id=1 (fila
+  //    crown-jewel del tenant fundacional), abortar.
+  const memberSeed = {
+    id: 0,
+    name: tenantName,
+    initials: ((tenantName[0] || "?") + (tenantName[1] || "")).toUpperCase(),
+    role: "Editor",             // rol interno UI (Editor/Viewer/Manager) — legacy
+    email,
+    supabaseUid: userId,
+    accountRole: "admin",       // rol funcional: owner del tenant nuevo
+    avail: { hoursPerDay: 8, whatsapp: "" },
+  };
+  const seededData = {
+    ...BLANK_STATE,
+    members: [memberSeed],
+    ceoProfile: { ...BLANK_STATE.ceoProfile, name: tenantName },
+  };
+
   const { data: newRow, error: rowErr } = await supaAdmin
     .from("taskflow_state")
     .insert({
       tenant_id: newTenantId,
-      data: BLANK_STATE,
+      data: seededData,
     })
     .select("id")
     .single();
@@ -108,25 +140,28 @@ export default async function handler(req, res) {
     return rollback("taskflow_state.insert", rowErr);
   }
   if (newRow.id === 1) {
-    // Debería ser imposible con id serial (ya existe la fila 1), pero
-    // defensivo por si acaso: borrar todo y no seguir.
+    // Debería ser imposible con IDENTITY (secuencia empezó en MAX+1),
+    // pero defensivo por si algún día se restaurara la tabla con
+    // DEFAULT 1: borrar todo y no seguir.
     await supaAdmin.from("taskflow_state").delete().eq("id", newRow.id).eq("tenant_id", newTenantId);
     await supaAdmin.from("tenants").delete().eq("id", newTenantId);
     return rollback("taskflow_state.insert (id=1 rechazado)", "invariante violada");
   }
 
-  // 6) Registrar como owner en tenant_members.
-  //    Nota (18/08/2026): NO escribimos `email` aquí. La tabla real no
-  //    tiene esa columna (4 columnas: tenant_id, user_uid, role,
-  //    created_at). El email ya vive en auth.users vía user_uid — evitamos
-  //    duplicación que puede divergir. Diagnóstico completo en el commit
-  //    que introduce este cambio.
+  // 6) Registrar como admin en tenant_members.
+  //    Nota (18/08/2026): NO escribimos `email` aquí (columna no existe).
+  //    Nota (18/08/2026 tarde): role='admin' NO 'owner'. La CHECK
+  //    tenant_members_role_check solo admite ('admin','member'). Y la
+  //    app en toda su capa de permisos (auth.js, permissions.js, App.jsx)
+  //    compara accountRole contra 'admin'/'member' — nunca 'owner'.
+  //    El owner del tenant es un concepto de la tabla tenants (owner_uid),
+  //    no un rol en tenant_members.
   const { error: memErr } = await supaAdmin
     .from("tenant_members")
     .insert({
       tenant_id: newTenantId,
       user_uid: userId,
-      role: "owner",
+      role: "admin",
     });
   if (memErr) {
     await supaAdmin.from("taskflow_state").delete().eq("id", newRow.id);
