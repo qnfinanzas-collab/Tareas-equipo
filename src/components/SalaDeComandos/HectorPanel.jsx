@@ -1143,7 +1143,7 @@ Reglas:
               type: "ai",
               author: "Héctor",
               authorId: "hector",
-              authorAvatar: "🧙",
+              authorAvatar: null,
               text: t.action ? `${t.action}\nMotivo: ${t.urgency || ""}` : (t.urgency || ""),
               relatedRecommendationId: recId,
             });
@@ -1694,7 +1694,7 @@ Reglas para block_task:
   };
   const publishTimeline = (taskId, text) => {
     if (!onAddTimelineEntry || !taskId) return;
-    onAddTimelineEntry(taskId, { type: "ai", author: "Héctor", authorId: "hector", authorAvatar: "🧙", text });
+    onAddTimelineEntry(taskId, { type: "ai", author: "Héctor", authorId: "hector", authorAvatar: null, text });
   };
   // Guard común para los handlers de las cards (BUG 1 commit 11).
   // Activa el ref y el state (UI feedback), ejecuta el efecto, y libera

@@ -728,7 +728,7 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
                   <ActionProposal
                     proposal={m.proposal}
                     agentName="Gonzalo"
-                    agentEmoji="🏛️"
+                    agentKey="gonzalo"
                     color="#4E4A42"
                     onConfirm={async (selected) => {
                       await onRunAgentActions(selected);

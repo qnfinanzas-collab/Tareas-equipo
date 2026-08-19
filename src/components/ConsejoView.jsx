@@ -19,10 +19,10 @@ import React, { useState, useRef, useEffect } from "react";
 import { canUseAgent } from "../lib/auth.js";
 import DocumentViewer, { downloadAsPdf, downloadAsMd } from "./Shared/DocumentViewer.jsx";
 import { renderAgentText } from "../lib/formatting.jsx";
+import AgentAvatar from "./Shared/AgentAvatar.jsx";
 
 const CHAT_MAX = 50;
 const NAME_BY_KEY = { mario: "Mario", jorge: "Jorge", alvaro: "Álvaro", gonzalo: "Gonzalo", diego: "Diego" };
-const EMOJI_BY_KEY = { mario: "⚖️", jorge: "📊", alvaro: "🏠", gonzalo: "🏛️", diego: "💰" };
 
 // Parser del marker [DERIVAR:agente:razón]. Diseño v2 (tolerante):
 //   - Escaneo global del texto: el marker puede estar en cualquier línea.
@@ -137,11 +137,11 @@ function _docFromSegment(seg, spec) {
 // Definición de los 5 especialistas. `mode` decide el comportamiento de la
 // card: "chat" embebe el chat en esta vista; "navigate" salta a otra vista.
 const COUNCIL = [
-  { key: "mario",   emoji: "⚖️", name: "Mario",   role: "Abogado mercantil",                    accent: "#4E4A42", bg: "#F0EDE5", border: "#E5E0D5", mode: "chat" },
-  { key: "jorge",   emoji: "📊", name: "Jorge",   role: "Analista de inversión",                accent: "#0E7C5A", bg: "#ECFDF5", border: "#86EFAC", mode: "chat" },
-  { key: "alvaro",  emoji: "🏠", name: "Álvaro",  role: "Inmobiliario y fiscalidad",            accent: "#92400E", bg: "#FEF3C7", border: "#FCD34D", mode: "chat" },
-  { key: "gonzalo", emoji: "🏛️", name: "Gonzalo", role: "Holdings y gobernanza",                accent: "#6B6B6B", bg: "#F0EDE5", border: "#E5E0D5", mode: "navigate", target: "gobernanza" },
-  { key: "diego",   emoji: "💰", name: "Diego",   role: "Analista financiero",                  accent: "#B91C1C", bg: "#FEF2F2", border: "#FCA5A5", mode: "navigate", target: "finance" },
+  { key: "mario",   name: "Mario",   role: "Abogado mercantil",                    accent: "#4E4A42", bg: "#F0EDE5", border: "#E5E0D5", mode: "chat" },
+  { key: "jorge",   name: "Jorge",   role: "Analista de inversión",                accent: "#0E7C5A", bg: "#ECFDF5", border: "#86EFAC", mode: "chat" },
+  { key: "alvaro",  name: "Álvaro",  role: "Inmobiliario y fiscalidad",            accent: "#92400E", bg: "#FEF3C7", border: "#FCD34D", mode: "chat" },
+  { key: "gonzalo", name: "Gonzalo", role: "Holdings y gobernanza",                accent: "#6B6B6B", bg: "#F0EDE5", border: "#E5E0D5", mode: "navigate", target: "gobernanza" },
+  { key: "diego",   name: "Diego",   role: "Analista financiero",                  accent: "#B91C1C", bg: "#FEF2F2", border: "#FCA5A5", mode: "navigate", target: "finance" },
 ];
 
 export default function ConsejoView({ currentMember, permissions, onCallMario, onCallJorge, onCallAlvaro, onNavigate, pendingDerivation, onSetPendingDerivation, onBridgeToHector, negTargets = [], taskTargets = [], onSaveCouncilDocument }) {
@@ -213,7 +213,7 @@ export default function ConsejoView({ currentMember, permissions, onCallMario, o
               onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = "#E5E7EB"; e.currentTarget.style.boxShadow = "none"; } }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>{c.emoji}</span>
+                <AgentAvatar agent={c.key} size={32} />
                 <h3 style={{ fontSize: 15, fontWeight: 600, color: "#111827", margin: 0 }}>{c.name}</h3>
                 {c.mode === "navigate" && (
                   <span style={{ marginLeft: "auto", fontSize: 11, color: c.accent, fontWeight: 600 }}>↗</span>
@@ -524,7 +524,7 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
     <div style={{ background: "#fff", border: "1px solid #E5E7EB", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 480 }}>
       {/* Header */}
       <div style={{ padding: "12px 16px", borderBottom: "0.5px solid #E5E7EB", display: "flex", alignItems: "center", gap: 10, background: `linear-gradient(90deg, ${spec.bg}, #FFFFFF)` }}>
-        <div style={{ width: 36, height: 36, borderRadius: "50%", background: spec.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{spec.emoji}</div>
+        <AgentAvatar agent={spec.key} size={36} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{spec.name}</div>
           <div style={{ fontSize: 11, color: spec.accent }}>{spec.role}</div>
@@ -538,8 +538,10 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
         <div style={{ background: "#FFFBEB", borderBottom: "1px solid #FCD34D", padding: "12px 16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <span style={{ fontSize: 15 }}>📥</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#92400E" }}>
-              Derivación recibida de {EMOJI_BY_KEY[derivationContext.fromKey]} {NAME_BY_KEY[derivationContext.fromKey] || derivationContext.fromKey}
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#92400E", display: "inline-flex", alignItems: "center", gap: 6 }}>
+              Derivación recibida de
+              <AgentAvatar agent={derivationContext.fromKey} size={16} />
+              {NAME_BY_KEY[derivationContext.fromKey] || derivationContext.fromKey}
             </span>
           </div>
           {derivationContext.reason && (
@@ -623,7 +625,7 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
                     }
                     return (
                       <div key={si} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                        {si === 0 && !isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : spec.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{spec.emoji}</div>}
+                        {si === 0 && !isUser && <AgentAvatar agent={spec.key} size={28} />}
                         {si > 0 && !isUser && <div style={{ width: 28, flexShrink: 0 }}/>}
                         <div style={{
                           background: m.error ? "#FEE2E2" : spec.bg,
@@ -644,7 +646,7 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
                 </div>
               ) : (
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-start", maxWidth: "82%" }}>
-                  {!isUser && <div style={{ width: 28, height: 28, borderRadius: "50%", background: m.error ? "#FCA5A5" : spec.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, flexShrink: 0 }}>{spec.emoji}</div>}
+                  {!isUser && <AgentAvatar agent={spec.key} size={28} />}
                   <div style={{
                     background: isUser ? "#0A0A0A" : (m.error ? "#FEE2E2" : spec.bg),
                     color: isUser ? "#F5F0E8" : (m.error ? "#991B1B" : "#1F2937"),
@@ -686,7 +688,7 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
                       onMouseEnter={e => { e.currentTarget.style.background = spec.bg; }}
                       onMouseLeave={e => { e.currentTarget.style.background = "#fff"; }}
                     >
-                      → Consultar a {EMOJI_BY_KEY[m.derivation.toKey]} {NAME_BY_KEY[m.derivation.toKey]}
+                      → Consultar a <AgentAvatar agent={m.derivation.toKey} size={14} style={{marginLeft:4,marginRight:4}}/> {NAME_BY_KEY[m.derivation.toKey]}
                     </button>
                   )}
                   {onBridgeToHector && (
@@ -742,7 +744,7 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
         })}
         {loading && (
           <div style={{ display: "flex", gap: 8 }}>
-            <div style={{ width: 28, height: 28, borderRadius: "50%", background: spec.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>{spec.emoji}</div>
+            <AgentAvatar agent={spec.key} size={28} />
             <div style={{ background: spec.bg, border: "0.5px solid #E5E7EB", padding: "10px 14px", fontSize: 12.5, color: spec.accent, fontStyle: "italic" }}>
               {spec.name} está pensando…
             </div>

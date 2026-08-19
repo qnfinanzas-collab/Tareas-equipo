@@ -444,7 +444,7 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
                   <ActionProposal
                     proposal={m.proposal}
                     agentName="Diego"
-                    agentEmoji="💹"
+                    agentKey="diego"
                     color="#27AE60"
                     onConfirm={async (selected) => {
                       // Pasamos selectedCompanyId explícito para que el

@@ -315,7 +315,7 @@ export default function ChatBubble({
           <ActionProposal
             proposal={message.proposal}
             agentName="Héctor"
-            agentEmoji="🧙"
+            agentKey="hector"
             color={C.brand}
             onConfirm={async (selected) => {
               // runAgentActions devuelve {results}. Solo marcamos la

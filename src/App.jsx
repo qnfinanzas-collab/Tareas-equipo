@@ -37,7 +37,7 @@ import { filterVisibleProjects, filterVisibleNegotiations, filterMyDayPlans } fr
 import ConsejoView from "./components/ConsejoView.jsx";
 import MantenimientoView from "./components/MantenimientoView.jsx";
 import { CHAT_PALETTE } from "./components/Shared/ChatBubble.jsx";
-import AgentAvatar from "./components/Shared/AgentAvatar.jsx";
+import AgentAvatar, { canonicalAgentKey } from "./components/Shared/AgentAvatar.jsx";
 import DocumentViewer from "./components/Shared/DocumentViewer.jsx";
 import FinanceView from "./components/Finanzas/FinanceView.jsx";
 import GobernanzaView from "./components/Gobernanza/GobernanzaView.jsx";
@@ -1757,8 +1757,8 @@ function seedRegistroKluxor(d){
         id: `tl_reg_${n}_g`,
         type: "ai",
         author: "Gonzalo Gobernanza",
-        authorId: null,
-        authorAvatar: "🏛️",
+        authorId: "gonzalo",
+        authorAvatar: null,
         text: gonzaloNote,
         timestamp: nowIso,
         isMilestone: false,
@@ -2740,7 +2740,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
                         color: respAgent?.color || "#6B7280",
                         fontSize:10,fontWeight:600,
                       }}>
-                        <span>{respAgent?.emoji || "🤖"}</span>
+                        {(() => { const k = canonicalAgentKey(respAgent); return k ? <AgentAvatar agent={k} size={12}/> : <span>{respAgent?.emoji || "🤖"}</span>; })()}
                         <span>{responsible.name}</span>
                       </span>
                     )}
@@ -2789,7 +2789,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
                       onMouseEnter={e=>e.currentTarget.style.background="#F3F4F6"}
                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}
                     >
-                      <span>{a.emoji||"🤖"}</span>
+                      {(() => { const k = canonicalAgentKey(a); return k ? <AgentAvatar agent={k} size={16}/> : <span>{a.emoji||"🤖"}</span>; })()}
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontWeight:600}}>{a.name}</div>
                         {a.role && <div style={{fontSize:10,color:"#6B7280"}}>{a.role}</div>}
@@ -2851,7 +2851,7 @@ function DocumentUploader({ownerKey, documents = [], onChange, agents = [], cont
                       background: headerAgent?.color ? `${headerAgent.color}10` : "#F3F4F6",
                       borderRadius:4,
                     }}>
-                      <span>{group.isUploaded ? "📥" : (headerAgent?.emoji || "🤖")}</span>
+                      {group.isUploaded ? <span>📥</span> : (() => { const k = canonicalAgentKey(headerAgent); return k ? <AgentAvatar agent={k} size={12}/> : <span>{headerAgent?.emoji || "🤖"}</span>; })()}
                       <span style={{flex:1}}>{group.name}</span>
                       <span style={{opacity:0.7}}>({group.docs.length})</span>
                     </div>
@@ -3944,7 +3944,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                             const cur=draft.agentIds||[];
                             set("agentIds", sel?cur.filter(x=>x!==a.id):[...cur,a.id]);
                           }} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:20,border:`1.5px solid ${sel?a.color:"#e5e7eb"}`,background:sel?`${a.color}15`:"#fff",cursor:"pointer",fontFamily:"inherit",fontSize:12,fontWeight:600,color:sel?a.color:"#6b7280"}}>
-                            <span>{a.emoji}</span> {a.name}
+                            {(() => { const k = canonicalAgentKey(a); return k ? <AgentAvatar agent={k} size={16}/> : <span>{a.emoji}</span>; })()} {a.name}
                           </button>
                         );
                       })}
@@ -4068,7 +4068,7 @@ function TaskModal({task,colId,cols,members,activeMemberId,workspaceLinks,agents
                     <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                       {task.agentIds.map(aid=>{ const a=(agents||[]).find(x=>x.id===aid); if(!a) return null; return (
                         <div key={aid} style={{display:"flex",alignItems:"center",gap:6,background:`${a.color}15`,border:`1.5px solid ${a.color}`,borderRadius:20,padding:"4px 12px 4px 8px",fontSize:12,fontWeight:600,color:a.color}}>
-                          <span>{a.emoji}</span> {a.name}
+                          {(() => { const k = canonicalAgentKey(a); return k ? <AgentAvatar agent={k} size={16}/> : <span>{a.emoji}</span>; })()} {a.name}
                         </div>
                       ); })}
                     </div>
@@ -5458,7 +5458,7 @@ function HomeView({data,activeMember,isAdmin,critMineCount,alertMineCount,onNavi
                   marginBottom: 14,
                   transition: "border-color .25s ease, box-shadow .25s ease",
                 }}>
-                  {ag.emoji}
+                  {(() => { const k = canonicalAgentKey(ag); return k ? <AgentAvatar agent={k} size={56}/> : <span>{ag.emoji}</span>; })()}
                 </div>
                 <div style={{
                   fontFamily: KX_SERIF,
@@ -7618,7 +7618,7 @@ function AgentsPermissionsTable({ members, permissions, onSetAgentPermission }) 
                         onChange={(e) => onSetAgentPermission?.(m.id, a.key, e.target.checked)}
                         style={{ cursor: "pointer", accentColor: a.color, margin: 0 }}
                       />
-                      <span style={{ fontSize: 16 }}>{a.emoji}</span>
+                      {(() => { const k = canonicalAgentKey(a); return k ? <AgentAvatar agent={k} size={18}/> : <span style={{ fontSize: 16 }}>{a.emoji}</span>; })()}
                       <span>{a.label}</span>
                     </label>
                   );
@@ -8231,7 +8231,10 @@ function AgentsView({agents,onCreate,onEdit}){
           {agents.map(a=>(
             <div key={a.id} onClick={()=>onEdit(a)} style={{background:"#fff",border:"1px solid #e5e7eb",borderLeft:`4px solid ${a.color}`,borderRadius:12,padding:14,cursor:"pointer",transition:"transform .12s"}} onMouseEnter={e=>e.currentTarget.style.transform="translateY(-2px)"} onMouseLeave={e=>e.currentTarget.style.transform="translateY(0)"}>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-                <div style={{width:42,height:42,borderRadius:10,background:`${a.color}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{a.emoji}</div>
+                {(() => { const k = canonicalAgentKey(a); return k
+                  ? <AgentAvatar agent={k} size={42} />
+                  : <div style={{width:42,height:42,borderRadius:10,background:`${a.color}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>{a.emoji}</div>;
+                })()}
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:14,fontWeight:700,color:a.color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</div>
                   <div style={{fontSize:11,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.role}</div>
@@ -11069,7 +11072,7 @@ ${taskLines||"(ninguna)"}`;
                                 <ActionProposal
                                   proposal={proposalParsed}
                                   agentName="Héctor"
-                                  agentEmoji="🧙"
+                                  agentKey="hector"
                                   color="#C9A84C"
                                   onConfirm={async (selected) => { await onRunAgentActions(selected); setDiscardedPropTs(prev => { const s = new Set(prev); s.add(m.timestamp); return s; }); }}
                                   onCancel={() => { setDiscardedPropTs(prev => { const s = new Set(prev); s.add(m.timestamp); return s; }); }}
@@ -13119,7 +13122,7 @@ export default function TaskFlow(){
               type: "ai",
               author: "Héctor",
               authorId: "hector",
-              authorAvatar: "🧙",
+              authorAvatar: null,
               text: meta.commandText
                 ? `Orden CEO: "${meta.commandText}" → ${JSON.stringify(partial)}`
                 : `Orden CEO aplicada: ${JSON.stringify(partial)}`,
@@ -13201,7 +13204,7 @@ export default function TaskFlow(){
       type: entry?.type==="ai" || entry?.type==="milestone" ? entry.type : "human",
       author: entry?.author || null,
       authorId: entry?.authorId ?? null,
-      authorAvatar: entry?.authorAvatar || (entry?.type==="ai" ? "🧙" : "👤"),
+      authorAvatar: entry?.authorAvatar || (entry?.type==="ai" ? null : "👤"),
       text: (entry?.text || "").trim(),
       timestamp: ts,
       isMilestone: !!entry?.isMilestone,

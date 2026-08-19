@@ -171,11 +171,11 @@ const CHAT_MAX = 50;
 // regex INVOCAR; agentName mapea al campo `name` del agente en
 // data.agents (lo que necesita callAgentSafe para localizar promptBase).
 const SPECIALIST_META = {
-  mario:   { label: "Mario Legal",         emoji: "⚖️", color: "#4E4A42", agentName: "Mario Legal" },
-  jorge:   { label: "Jorge Finanzas",      emoji: "📊", color: "#0369A1", agentName: "Jorge Finanzas" },
-  alvaro:  { label: "Álvaro Inmobiliario", emoji: "🏠", color: "#B45309", agentName: "Álvaro Inmobiliario" },
-  gonzalo: { label: "Gonzalo Gobernanza",  emoji: "🏛️", color: "#065F46", agentName: "Gonzalo Gobernanza" },
-  diego:   { label: "Diego Finanzas Op.",  emoji: "💰", color: "#B91C1C", agentName: "Diego" },
+  mario:   { label: "Mario Legal",         color: "#4E4A42", agentName: "Mario Legal" },
+  jorge:   { label: "Jorge Finanzas",      color: "#0369A1", agentName: "Jorge Finanzas" },
+  alvaro:  { label: "Álvaro Inmobiliario", color: "#B45309", agentName: "Álvaro Inmobiliario" },
+  gonzalo: { label: "Gonzalo Gobernanza",  color: "#065F46", agentName: "Gonzalo Gobernanza" },
+  diego:   { label: "Diego Finanzas Op.",  color: "#B91C1C", agentName: "Diego" },
 };
 
 // Keywords que disparan timeout extendido (90s) para Mario Legal cuando
@@ -432,7 +432,6 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
   useEffect(() => {
     if (!pendingExecBridge) return;
     const FROM_NAME = { mario: "Mario", jorge: "Jorge", alvaro: "Álvaro" }[pendingExecBridge.fromKey] || pendingExecBridge.fromKey;
-    const FROM_EMOJI = { mario: "⚖️", jorge: "📊", alvaro: "🏠" }[pendingExecBridge.fromKey] || "💼";
     // Si el especialista entregó un documento (marker [DOCUMENT]), lo
     // mandamos ÍNTEGRO a Héctor. Sin recortes: el documento es el
     // contexto principal. Si no hay documento, mantenemos el recorte
@@ -464,7 +463,6 @@ ACCIÓN: Convierte este análisis en acciones operativas. Si procede, propón ta
     setBridgeBanner({
       fromKey: pendingExecBridge.fromKey,
       fromName: FROM_NAME,
-      fromEmoji: FROM_EMOJI,
       originalQuery: pendingExecBridge.originalQuery,
       originReply: pendingExecBridge.originReply,
       originDocument: doc || null,
@@ -1779,7 +1777,7 @@ Reglas:
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <span style={{ fontSize: 14 }}>🧙</span>
             <span style={{ fontSize: 13, fontWeight: 700, color: "#8B6914" }}>
-              Contexto cargado desde El Consejo · {bridgeBanner.fromEmoji} {bridgeBanner.fromName}
+              Contexto cargado desde El Consejo · <AgentAvatar agent={bridgeBanner.fromKey} size={14} style={{display:"inline-flex",verticalAlign:"middle",marginRight:4,marginLeft:4}}/> {bridgeBanner.fromName}
             </span>
             <button
               onClick={() => { setBridgeBanner(null); setInputText(""); }}
@@ -1936,7 +1934,7 @@ Reglas:
 // HectorDirect y HectorPanel compartan exactamente el mismo render.
 
 function SpecialistBubble({ message, data, onRunAgentActions, onSaveCouncilDocument }) {
-  const meta = SPECIALIST_META[message.specialistKey] || { label: "Especialista", emoji: "🤖", color: "#6B7280" };
+  const meta = SPECIALIST_META[message.specialistKey] || { label: "Especialista", color: "#6B7280" };
   // Estado UI local de la burbuja: qué picker mostramos y qué feedback
   // inline tras una acción completada. Se desmonta con la propia burbuja
   // si el chat se limpia, así que no necesita persistencia.

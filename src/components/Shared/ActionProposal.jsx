@@ -6,16 +6,18 @@
 // Props:
 //   proposal:    { summary, actions, confirmRequired }  (de parseAgentActions)
 //   agentName:   "Gonzalo" / "Héctor" / etc — para el header del panel
-//   agentEmoji:  emoji del agente
+//   agentKey:    "hector" | "mario" | "jorge" | "alvaro" | "gonzalo" | "diego"
+//                (pasa a AgentAvatar; ver src/components/Shared/AgentAvatar.jsx)
 //   color:       color identidad del agente (border + accent)
 //   onConfirm:   (selectedActions) => void
 //   onCancel:    () => void
 import React, { useMemo, useState } from "react";
+import AgentAvatar from "./AgentAvatar.jsx";
 
 const PRIORITY_LABEL = { alta: "Alta", media: "Media", baja: "Baja" };
 const PRIORITY_COLOR = { alta: "#B91C1C", media: "#92400E", baja: "#0E7C5A" };
 
-export default function ActionProposal({ proposal, agentName = "Agente", agentEmoji = "🤖", color = "#4E4A42", onConfirm, onCancel }) {
+export default function ActionProposal({ proposal, agentName = "Agente", agentKey = "hector", color = "#4E4A42", onConfirm, onCancel }) {
   // Estado local: sets de IDs deseleccionados por acción / tarea.
   // Por defecto todo seleccionado. El CEO puede desactivar tareas
   // individuales o acciones enteras.
@@ -119,8 +121,8 @@ export default function ActionProposal({ proposal, agentName = "Agente", agentEm
 
   return (
     <div data-ap="card" style={{ marginTop: 10, background: `${color}10`, border: `2px solid ${color}`, borderRadius: 12, padding: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <span style={{ fontSize: 20 }}>{agentEmoji}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <AgentAvatar agent={agentKey} size={26} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{agentName} propone:</div>
           <div style={{ fontSize: 11.5, color: "#6B7280", marginTop: 2 }}>{proposal.summary}</div>

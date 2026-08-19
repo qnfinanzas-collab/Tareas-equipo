@@ -4,6 +4,7 @@
 // botón "Ver todas N"). El input para añadir entradas y los filtros
 // llegan en los siguientes commits.
 import React, { useState } from "react";
+import AgentAvatar from "../Shared/AgentAvatar.jsx";
 
 const TYPE_STYLE = {
   human:     { border: "#3498DB", bg: "#fff",     label: "" },
@@ -34,9 +35,23 @@ function resolveAuthorName(entry, members) {
 
 function resolveAuthorAvatar(entry) {
   if (entry.authorAvatar) return entry.authorAvatar;
-  if (entry.type === "ai") return "🧙";
   if (entry.type === "milestone") return "📍";
   return "👤";
+}
+
+// Detecta si la entry es de un agente Kluxor y devuelve su key.
+// null si es una entry humana o milestone.
+function resolveAgentKey(entry) {
+  if (entry.type !== "ai") return null;
+  const id = String(entry.authorId || "").toLowerCase();
+  if (["hector","mario","jorge","alvaro","gonzalo","diego"].includes(id)) return id;
+  // Fallbacks por avatar legacy (entries antiguas).
+  if (entry.authorAvatar === "🏛️") return "gonzalo";
+  if (entry.authorAvatar === "⚖️") return "mario";
+  if (entry.authorAvatar === "📊") return "jorge";
+  if (entry.authorAvatar === "🏠") return "alvaro";
+  if (entry.authorAvatar === "💰" || entry.authorAvatar === "💹") return "diego";
+  return "hector"; // ai por defecto = Héctor
 }
 
 export default function TaskTimeline({ task, members = [], currentMember, onAddEntry, onToggleMilestone }) {
@@ -127,6 +142,7 @@ export default function TaskTimeline({ task, members = [], currentMember, onAddE
             const style = TYPE_STYLE[styleKey];
             const authorName = resolveAuthorName(entry, members);
             const avatar = resolveAuthorAvatar(entry);
+            const agentKey = resolveAgentKey(entry);
             const time = entry.legacyTime || fmtRelative(entry.timestamp);
             return (
               <div key={entry.id} style={{
@@ -143,7 +159,13 @@ export default function TaskTimeline({ task, members = [], currentMember, onAddE
                 gap: 10,
                 alignItems: "flex-start",
               }}>
-                <div style={{ fontSize: isMilestone ? 22 : 20, flexShrink: 0, lineHeight: 1.1 }}>{isMilestone ? "📍" : avatar}</div>
+                {isMilestone ? (
+                  <div style={{ fontSize: 22, flexShrink: 0, lineHeight: 1.1 }}>📍</div>
+                ) : agentKey ? (
+                  <AgentAvatar agent={agentKey} size={26} />
+                ) : (
+                  <div style={{ fontSize: 20, flexShrink: 0, lineHeight: 1.1 }}>{avatar}</div>
+                )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 12.5, fontWeight: 700, color: "#111827" }}>{authorName}</span>
