@@ -104,6 +104,78 @@ export const PLAIN_TEXT_RULE = "FORMATO OBLIGATORIO: Responde en texto plano sin
 // NegotiationDetailView pero se extrajo aquí para que callGonzaloDirect
 // y cualquier otro consumidor de TaskFlow también pueda usarla sin
 // caer en ReferenceError por scope.
+
+// ─── D2: clasificador post-respuesta de Héctor (19/08/2026) ──────────
+// Se llama TRAS la respuesta de Héctor cuando NO emitió [INVOCAR:]. Un
+// modelo ligero (Haiku 4.5) decide si la materia requería un especialista.
+// Si lo era, el caller fuerza la invocación reemplazando la burbuja de
+// Héctor por un puente natural y añadiendo la invocación al pipeline.
+//
+// Contexto (INVOKE_v2 revertido el 19/08/2026): endurecer el prompt
+// para que Héctor delegue no funcionó — el modelo entiende la regla
+// (llegó a firmar "GONZALO TE LO DIJO CLARO:") y la ignora igual.
+// Este clasificador post-LLM es el patrón "corregir la salida, no
+// discutir con el modelo" que ha funcionado 4 veces en el proyecto.
+//
+// Coste: ~$0.00044/clasificación (Haiku 4.5 input ~500 tokens + output
+// ~5 tokens). Latencia: 300-600ms. Solo dispara cuando Héctor no invocó
+// (~30-40% de turnos), así que impacto real: ~$0.02/día por CEO activo.
+//
+// Conservador por diseño: si duda → devuelve null (Héctor responde él).
+// Prefiere falsos negativos (no invocar cuando debía) sobre falsos
+// positivos (invocar cuando no tocaba). Antonio pidió explícitamente
+// que la conversación estratégica siga siendo territorio de Héctor.
+const D2_SPECIALIST_KEYS = ["mario","jorge","gonzalo","alvaro","diego"];
+const D2_SYSTEM = [
+  "Eres un clasificador de materia. Dado (a) una consulta del CEO y",
+  "(b) una respuesta previa del asistente Héctor, decides si la materia",
+  "REQUIERE la delegación a un especialista concreto.",
+  "",
+  "Especialistas disponibles:",
+  "- mario: contratos, cláusulas, compliance, jurisprudencia, redacción legal.",
+  "- jorge: modelos financieros, ROI, waterfall, payback, TIR, VAN, sensibilidades, márgenes de equipos.",
+  "- gonzalo: estructura societaria, holdings, consolidación fiscal, fiscalidad internacional, constitución de sociedades, calendario fiscal, planificación sucesoria, reestructuraciones.",
+  "- alvaro: alquileres, contratos LAU, fiscalidad inmobiliaria, inversión inmobiliaria, alquiler turístico.",
+  "- diego: tesorería, conciliación bancaria, categorización de movimientos, IVA trimestral, contabilidad operativa.",
+  "",
+  "REGLAS DURAS:",
+  "- Responde EXACTAMENTE con UNA palabra: mario | jorge | gonzalo | alvaro | diego | ninguno",
+  "- Si la consulta es sobre negociación, estrategia, decisiones, mentalidad, liderazgo, priorización del día, coaching, autoconocimiento o cualquier tema NO técnico especializado → responde: ninguno",
+  "- Si la consulta es una petición operativa (crear tarea, mover algo, agenda) → responde: ninguno",
+  "- Si la consulta es genérica sin dominio técnico claro → responde: ninguno",
+  "- Si dudas entre una key y ninguno → responde: ninguno",
+  "- Prohibido explicar, justificar o añadir prosa. Solo la key.",
+].join("\n");
+
+export async function classifyAgentDomain({ userMessage, hectorReply } = {}) {
+  const user = String(userMessage || "").slice(0, 800);
+  const reply = String(hectorReply || "").slice(0, 500);
+  if (!user || !reply) return null;
+  const prompt = `CONSULTA DEL CEO:\n${user}\n\n---\n\nRESPUESTA PREVIA DE HÉCTOR (fragmento):\n${reply}\n\n---\n\nKey:`;
+  try {
+    const r = await fetchAgentRaw({
+      system: D2_SYSTEM,
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 15,
+      model: "claude-haiku-4-5-20251001",
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      console.warn("[D2] classifier HTTP not ok:", r.status, data?.error);
+      return null;
+    }
+    const raw = String(data?.text || "").toLowerCase().trim();
+    const match = raw.match(/\b(mario|jorge|gonzalo|alvaro|diego|ninguno)\b/);
+    if (!match) { console.warn("[D2] classifier respuesta no parseable:", raw); return null; }
+    const key = match[1];
+    if (key === "ninguno") return null;
+    return D2_SPECIALIST_KEYS.includes(key) ? key : null;
+  } catch (e) {
+    console.warn("[D2] classifier threw:", e?.message);
+    return null;
+  }
+}
+
 export async function callAgentSafe(body, opts = {}){
   // Timeout universal con AbortController interno. Cualquier caller
   // (Héctor, Mario, Jorge, Álvaro, Gonzalo, Diego) recibe el mismo
