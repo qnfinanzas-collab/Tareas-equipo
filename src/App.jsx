@@ -10663,9 +10663,13 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
             const jorge   = (agents||[]).find(a=>a.name==="Jorge Finanzas");
             const alvaro  = (agents||[]).find(a=>a.name==="Álvaro Inmobiliario");
             const gonzalo = (agents||[]).find(a=>a.name==="Gonzalo Gobernanza");
+            const diego   = (agents||[]).find(a=>a.name==="Diego" || a.name==="Diego Finanzas Op.");
             const empty = {cleanContent:String(text||""), specialists:[]};
-            if(!mario && !jorge && !alvaro && !gonzalo) return empty;
-            const re = /\[INVOCAR:(mario|jorge|alvaro|gonzalo):([^\]]+)\]/gi;
+            if(!mario && !jorge && !alvaro && !gonzalo && !diego) return empty;
+            // Bug fix (19/08/2026): diego añadido al regex — antes el chat
+            // de negociación no lo procesaba, Héctor podía invocar y no
+            // pasar nada. Paridad con INVOKE_RE de HectorDirectView.
+            const re = /\[INVOCAR:(mario|jorge|alvaro|gonzalo|diego):([^\]]+)\]/gi;
             const found = [];
             const seen = new Set();
             let m;
@@ -10686,11 +10690,23 @@ function NegotiationDetailView({negotiation,members,projects,workspaces,agents,b
                 found.push({agentId:alvaro.id, name:"Álvaro Inmobiliario", emoji:"🏠", task});
               } else if(key==="gonzalo" && gonzalo){
                 found.push({agentId:gonzalo.id, name:"Gonzalo Gobernanza", emoji:"🏛️", task});
+              } else if(key==="diego" && diego){
+                found.push({agentId:diego.id, name:diego.name, emoji:"💰", task});
               }
             }
-            // Eliminar las etiquetas del texto mostrado y colapsar saltos
-            // de línea triples que pueda dejar el strip.
-            const cleanContent = String(text||"")
+            // D1 red de seguridad (19/08/2026): truncamos al primer
+            // [INVOCAR:] en vez de solo borrar las etiquetas. Antes
+            // Héctor podía escribir análisis completo antes y después
+            // del bloque; el CEO veía la respuesta duplicada al invocarse
+            // el especialista. Ahora solo se muestra el puente breve que
+            // Héctor escribió ANTES del primer [INVOCAR:] (típico: "Se
+            // lo paso a Gonzalo"). El análisis técnico completo lo produce
+            // el especialista. Cero llm-calls extra. Paridad con
+            // stripInvokes en HectorDirectView.
+            const raw = String(text||"");
+            const firstInvoke = raw.search(/\[INVOCAR:/i);
+            const cropped = firstInvoke >= 0 ? raw.slice(0, firstInvoke) : raw;
+            const cleanContent = cropped
               .replace(re, "")
               .replace(/\n{3,}/g, "\n\n")
               .trim();

@@ -1331,10 +1331,25 @@ Reglas:
       }
       // Limpiamos [ACTIONS] (si hay proposal), [TASKS_LIST] y SIEMPRE
       // [INVOCAR:]. Las tres familias de marker se ocultan del chat.
-      const stripInvokes = (s) => String(s || "")
-        .replace(/\[INVOCAR:[^\]]+\]/gi, "")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
+      //
+      // D1 red de seguridad (19/08/2026): además de borrar la etiqueta,
+      // TRUNCAMOS la prosa a partir del primer [INVOCAR:]. Antes Héctor
+      // podía emitir [INVOCAR:gonzalo:...] y a continuación desarrollar
+      // ÉL el análisis técnico completo — el CEO veía dos versiones del
+      // mismo tema (Héctor + Gonzalo) y la voz del especialista quedaba
+      // sepultada. Ahora: la prosa antes del primer [INVOCAR:] debe ser
+      // el puente breve ("se lo paso a Gonzalo"); todo lo posterior se
+      // descarta y solo aparece la respuesta real del especialista.
+      // Post-LLM puro, cero llm-calls extra.
+      const stripInvokes = (s) => {
+        const raw = String(s || "");
+        const firstInvoke = raw.search(/\[INVOCAR:/i);
+        const cropped = firstInvoke >= 0 ? raw.slice(0, firstInvoke) : raw;
+        return cropped
+          .replace(/\[INVOCAR:[^\]]+\]/gi, "")  // defensivo — cropped ya no lleva ninguna
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+      };
       // Parser de [RUTA] — desplazamientos por carretera. Falla silencioso:
       // si malformado, devuelve null y la prosa sale como texto normal.
       const ruta = parseRuta(reply);
