@@ -11,7 +11,7 @@
 // chat scrollable (flex:1) y compositor de mensajes (input + mic + send).
 // Responsive: maxWidth 680px en desktop, 600px en tablet, 100% en móvil.
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { callAgentSafe, PLAIN_TEXT_RULE, HECTOR_SEARCH_TOOL, classifyAgentDomain } from "../lib/agent.js";
+import { callAgentSafe, PLAIN_TEXT_RULE, HECTOR_SEARCH_TOOL } from "../lib/agent.js";
 
 // Reglas de uso de web_search para Héctor. Disparadores explícitos +
 // test de decisión claro. R1 crítica: si decide buscar, hacerlo ANTES
@@ -1244,35 +1244,6 @@ Reglas:
         if (seenAg.has(key)) continue;
         seenAg.add(key);
         invocations.push({ key, task: (mInv[2] || "").trim() });
-      }
-
-      // D2 · clasificador post-respuesta (19/08/2026). Precedente: endurecer
-      // el prompt (INVOKE_v2) no funcionó — Sonnet entendía la regla y la
-      // ignoraba igual (caso "GONZALO TE LO DIJO CLARO:", commit 3e6bd85
-      // revertido). Ahora: si Héctor NO invocó y su respuesta tiene peso
-      // (>200 chars → probable análisis técnico), un clasificador Haiku 4.5
-      // decide si la materia era especializada. Si lo era, forzamos la
-      // invocación reemplazando la burbuja de Héctor por un puente natural
-      // ("Esto es materia de X. Se lo paso.") y añadiendo la invocación
-      // al pipeline como si Héctor hubiera emitido la etiqueta.
-      //
-      // Coste: ~$0.00044 por llamada. Solo dispara cuando no hubo invocación
-      // — ~30-40% de turnos. Conservador: si duda → null (deja a Héctor).
-      // Silencioso ante error: si el clasificador falla, el flujo original
-      // sigue intacto. Cero riesgo de romper la conversación estratégica.
-      if (invocations.length === 0 && String(reply || "").length > 200) {
-        try {
-          const forcedKey = await classifyAgentDomain({ userMessage: txt, hectorReply: reply });
-          if (forcedKey && SPECIALIST_META[forcedKey]) {
-            const specLabel = SPECIALIST_META[forcedKey].agentName || SPECIALIST_META[forcedKey].label;
-            console.log(`🎯 [D2] Materia '${forcedKey}' detectada — invocación forzada a ${specLabel}`);
-            reply = `Esto es materia de ${specLabel}. Se lo paso.`;
-            invocations.push({ key: forcedKey, task: txt });
-          }
-        } catch (e) {
-          console.warn("[D2] no completó:", e?.message);
-          // sin efecto en el flujo — Héctor responde tal cual
-        }
       }
       // Parser de [TASKS_LIST]…[/TASKS_LIST]: bloque estructurado para
       // consultas de tareas que ya existen. Convive con [ACTIONS] (que
