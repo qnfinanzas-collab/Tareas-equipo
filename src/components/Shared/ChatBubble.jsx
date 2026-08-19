@@ -21,6 +21,7 @@
 import React from "react";
 import ActionProposal from "./ActionProposal.jsx";
 import AgentAvatar from "./AgentAvatar.jsx";
+import { renderAgentText } from "../../lib/formatting.jsx";
 
 // Paleta operativa Kluxor — claro/legible para uso diario, oro como
 // acento de marca y acción. La paleta dark negro/oro queda solo para
@@ -295,15 +296,13 @@ export default function ChatBubble({
           wordBreak: "break-word",
           border: message.error ? "1px solid #FCA5A5" : "none",
         }}>
-          {isUser || !linkifyMap ? text : (
-            <LinkifiedText
-              text={text}
-              linkifyMap={linkifyMap}
-              onOpenTask={onOpenTask}
-              onOpenNegotiation={onOpenNegotiation}
-              onOpenProject={onOpenProject}
-            />
-          )}
+          {isUser ? text : renderAgentText(text, {
+            LinkifiedText,
+            linkifyMap,
+            onOpenTask,
+            onOpenNegotiation,
+            onOpenProject,
+          })}
         </div>
       </div>
       {showTimestamp && message.ts && (

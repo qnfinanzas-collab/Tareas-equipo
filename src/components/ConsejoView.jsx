@@ -18,6 +18,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { canUseAgent } from "../lib/auth.js";
 import DocumentViewer, { downloadAsPdf, downloadAsMd } from "./Shared/DocumentViewer.jsx";
+import { renderAgentText } from "../lib/formatting.jsx";
 
 const CHAT_MAX = 50;
 const NAME_BY_KEY = { mario: "Mario", jorge: "Jorge", alvaro: "Álvaro", gonzalo: "Gonzalo", diego: "Diego" };
@@ -654,7 +655,7 @@ Responde TÚ desde tu disciplina integrando lo que ${FROM_NAME} ya dijo. No repi
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-word",
                   }}>
-                    {m.content}
+                    {isUser ? m.content : renderAgentText(m.content)}
                   </div>
                 </div>
               )}

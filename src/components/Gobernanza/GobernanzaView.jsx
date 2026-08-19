@@ -12,6 +12,7 @@ import { generateDocumentsForCompany } from "./documentTemplates.js";
 import { parseAgentActions, cleanAgentResponse, classifyReply } from "../../lib/agentActions.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
 import { ProposalExecutedBanner } from "../Shared/ChatBubble.jsx";
+import { renderAgentText } from "../../lib/formatting.jsx";
 
 const TAB_DEFS = [
   { key: "dashboard", label: "🏛️ Dashboard" },
@@ -660,7 +661,7 @@ function GovChatTab({ currentMember, onCallAgent, onRunAgentActions }) {
                   whiteSpace: "pre-wrap",
                   wordBreak: "break-word",
                 }}>
-                  {m.content}
+                  {isUser ? m.content : renderAgentText(m.content)}
                   {reliability && reliability.label && (
                     <div
                       title={reliability.hint}

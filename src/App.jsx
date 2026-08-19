@@ -63,6 +63,7 @@ import {
 } from "lucide-react";
 import { generatePersonalDocuments } from "./components/Vault/personalTemplates.js";
 import { AGENT_ACTIONS_ADDON, suggestNegotiationEmoji, NEGOTIATION_EMOJIS, parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, correctActionsDates, stripCeoProfile, buildSpecialistContext } from "./lib/agentActions.js";
+import { renderAgentText } from "./lib/formatting.jsx";
 import ActionProposal from "./components/Shared/ActionProposal.jsx";
 import { buildFinanceSummary, renderFinanceSummaryForPrompt } from "./lib/financeSummary.js";
 import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
@@ -4334,7 +4335,7 @@ function AvatarModal({task,members,connectedAgents,ceoMemory,isOwner=false,onClo
         <div style={{flex:1,overflowY:"auto",padding:"14px 18px",display:"flex",flexDirection:"column",gap:10,minHeight:200}}>
           {messages.map((m,i)=>(
             <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
-              <div style={{maxWidth:"85%",padding:"9px 13px",borderRadius:12,background:m.role==="user"?"#F0EDE5":av.color+"12",border:`1px solid ${m.role==="user"?"#C9A84C55":av.color+"33"}`,fontSize:13,lineHeight:1.45,color:"#1f2937",whiteSpace:"pre-wrap"}}>{m.text}</div>
+              <div style={{maxWidth:"85%",padding:"9px 13px",borderRadius:12,background:m.role==="user"?"#F0EDE5":av.color+"12",border:`1px solid ${m.role==="user"?"#C9A84C55":av.color+"33"}`,fontSize:13,lineHeight:1.45,color:"#1f2937",whiteSpace:"pre-wrap"}}>{m.role==="user"?m.text:renderAgentText(m.text)}</div>
             </div>
           ))}
           {interim&&(
@@ -4454,7 +4455,7 @@ function ScopeAvatarModal({scope,data,activeProjectId,activeMemberId,onClose,onM
         <div style={{flex:1,overflowY:"auto",padding:"14px 18px",display:"flex",flexDirection:"column",gap:10,minHeight:220}}>
           {messages.map((m,i)=>(
             <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
-              <div style={{maxWidth:"85%",padding:"9px 13px",borderRadius:12,background:m.role==="user"?"#F0EDE5":av.color+"12",border:`1px solid ${m.role==="user"?"#C9A84C55":av.color+"33"}`,fontSize:13,lineHeight:1.45,color:"#1f2937",whiteSpace:"pre-wrap"}}>{m.text}</div>
+              <div style={{maxWidth:"85%",padding:"9px 13px",borderRadius:12,background:m.role==="user"?"#F0EDE5":av.color+"12",border:`1px solid ${m.role==="user"?"#C9A84C55":av.color+"33"}`,fontSize:13,lineHeight:1.45,color:"#1f2937",whiteSpace:"pre-wrap"}}>{m.role==="user"?m.text:renderAgentText(m.text)}</div>
             </div>
           ))}
           {interim&&(
@@ -11016,7 +11017,7 @@ ${taskLines||"(ninguna)"}`;
                                 <span style={{fontWeight:500,color:"#6B7280"}}>— invocado por {m.invokedBy==="user"?"ti":"Héctor"}</span>
                               </div>
                               {m.task&&<div style={{fontSize:10.5,color:"#6B7280",fontStyle:"italic",marginBottom:6}}>Tarea: {m.task}</div>}
-                              <div>{m.content}</div>
+                              <div>{renderAgentText(m.content)}</div>
                               <div style={{fontSize:10,color:"#9CA3AF",marginTop:6,opacity:0.85,display:"flex",alignItems:"center",gap:8}}>
                                 <span style={{flex:1}}>{m.timestamp?new Date(m.timestamp).toLocaleString("es-ES",{hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"}):""}</span>
                                 {!m.error && (
@@ -11066,7 +11067,7 @@ ${taskLines||"(ninguna)"}`;
                             )}
                             {m.kind==="briefing"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#A07830",textTransform:"uppercase",letterSpacing:"0.08em"}}>🎯 Briefing</div><ExportPDFButton title={`Briefing — ${negotiation.title}`} filename={`briefing-${negotiation.title.slice(0,40)}`} render={(doc,y)=>renderSection(doc,y,"Briefing estratégico",m.content,[14,124,90])}/></div>}
                             {m.kind==="analysis"&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}><div style={{fontSize:10,fontWeight:700,color:"#6B6B6B",textTransform:"uppercase",letterSpacing:"0.08em"}}>🔍 Análisis batch</div><ExportPDFButton title={`Análisis batch — ${negotiation.title}`} filename={`analisis-${negotiation.title.slice(0,40)}`} render={(doc,y)=>renderAnalysis(doc,y,negotiation.hectorAnalysis,criticalTasks,relProjs)}/></div>}
-                            {cleanText}
+                            {isUser ? cleanText : renderAgentText(cleanText)}
                             {showProposal && onRunAgentActions && (
                               <div style={{marginTop:8}}>
                                 <ActionProposal

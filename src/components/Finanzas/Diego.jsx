@@ -18,6 +18,7 @@ import AsientoCard from "../Shared/AsientoCard.jsx";
 import { blobToBase64, MAX_ANALYZE_MB } from "../../lib/storage.js";
 import ActionProposal from "../Shared/ActionProposal.jsx";
 import { ProposalExecutedBanner } from "../Shared/ChatBubble.jsx";
+import { renderAgentText } from "../../lib/formatting.jsx";
 
 const DIEGO_VOICE = { gender: "male", rate: 1.05, pitch: 0.95 };
 const CHAT_MAX = 50;
@@ -409,7 +410,7 @@ export default function Diego({ data, currentMember, canEdit, selectedCompanyId,
                   whiteSpace: "pre-wrap",
                   wordBreak: "break-word",
                 }}>
-                  {visible}
+                  {isUser ? visible : renderAgentText(visible)}
                   {isUser && m.attachmentMeta && (
                     <div style={{ marginTop: 6, padding: "4px 8px", background: "rgba(255,255,255,0.2)", borderRadius: 6, fontSize: 11, fontWeight: 600 }}>
                       📎 {m.attachmentMeta.name}
