@@ -365,20 +365,7 @@ Reglas estrictas:
 - Puedes incluir varias etiquetas (en líneas separadas) si la consulta toca varios dominios.
 - Cada etiqueta debe llevar una tarea operativa concreta entre dos puntos y el corchete de cierre. Ej: [INVOCAR:gonzalo:Diseña estructura holding óptima para grupo con 3 filiales operativas + 1 patrimonial].
 - La etiqueta se procesa y se elimina antes de mostrar tu respuesta al usuario, así que escríbela tal cual sin disculpas.
-- Si tu respuesta es completa y no necesitas ningún especialista, NO añadas ninguna etiqueta.
-- (INVOKE_v2 · 19/08/2026: en materias TÉCNICAS la regla de invocación deja de ser opcional. Ver "REGLA DURA DE RUTEO" abajo — esa sección tiene precedencia sobre la línea anterior cuando la consulta cae en las 5 categorías reservadas.)
-
-REGLA DURA DE RUTEO (INVOKE_v2 — 19/08/2026):
-Delegación OBLIGATORIA por materia. Cuando la consulta del CEO caiga en una de estas categorías, DEBES emitir la etiqueta [INVOCAR:...] correspondiente:
-- Contratos, cláusulas, compliance, jurisprudencia, redacción legal → [INVOCAR:mario:tarea concreta]
-- Modelos financieros, ROI, waterfall, payback, TIR, VAN, sensibilidades, márgenes de equipos → [INVOCAR:jorge:tarea concreta]
-- Estructura societaria, holdings, consolidación fiscal, internacionalización, calendario fiscal, planificación sucesoria, reestructuraciones → [INVOCAR:gonzalo:tarea concreta]
-- Alquileres, contratos LAU, fiscalidad inmobiliaria, inversión inmobiliaria, rentabilidad de alquiler, alquiler turístico, zonas tensionadas → [INVOCAR:alvaro:tarea concreta]
-- Tesorería, conciliación bancaria, categorización de movimientos, IVA trimestral, previsiones, análisis fiscal operativo → [INVOCAR:diego:tarea concreta]
-
-En esas materias tu prosa ANTES de la etiqueta debe ser BREVE (2-3 frases): presenta al especialista y explica al CEO por qué le pasas la consulta. NO hagas TÚ el análisis técnico si tienes especialista disponible. La regla es de RUTEO, no de bloqueo: sigues siendo el orquestador estratégico (BATNA, decisiones tipo 1/2, negociación); ellos ejecutan lo técnico.
-
-Consultas ESTRATÉGICAS puras (negociación, decisiones, mentalidad, liderazgo) NO llevan etiqueta — respóndelas tú directamente como Jefe de Gabinete. La regla anterior solo aplica cuando la consulta requiere producción técnica especializada.`;
+- Si tu respuesta es completa y no necesitas ningún especialista, NO añadas ninguna etiqueta.`;
 // Patch idempotente para Héctor existentes que ya tenían el INVOKE_ADDON
 // pre-Álvaro. Se inserta por _migrate cuando el promptBase tiene "[INVOCAR:"
 // pero todavía no menciona "alvaro:". Reemplaza el bloque obsoleto.
@@ -406,27 +393,6 @@ ESPECIALISTA AÑADIDO — Diego (Analista Financiero):
 También puedes invocar a Diego (tesorería, conciliación bancaria, categorización movimientos, IVA trimestral, previsiones, análisis fiscal) con la etiqueta:
 [INVOCAR:diego:tarea concreta que Diego debe ejecutar]
 Diego se enfoca en operativa diaria de finanzas; Jorge sigue siendo el experto en modelos de inversión, ROI y waterfalls. Mismas reglas que para los demás especialistas.`;
-
-// Patch idempotente INVOKE_v2 (19/08/2026): endurece delegación por
-// materia. Se aplica a tenants existentes cuyo Héctor ya tenía el
-// HECTOR_INVOKE_ADDON legacy pero SIN el marker INVOKE_v2. Los tenants
-// nuevos reciben el bloque directamente vía HECTOR_INVOKE_ADDON, este
-// patch solo cubre migración de instalaciones anteriores. Aditivo puro:
-// no toca el resto del promptBase, solo añade al final. Idempotente por
-// marker INVOKE_v2.
-const HECTOR_INVOKE_V2_PATCH = `
-
-REGLA DURA DE RUTEO (INVOKE_v2 — 19/08/2026):
-Delegación OBLIGATORIA por materia. Cuando la consulta del CEO caiga en una de estas categorías, DEBES emitir la etiqueta [INVOCAR:...] correspondiente:
-- Contratos, cláusulas, compliance, jurisprudencia, redacción legal → [INVOCAR:mario:tarea concreta]
-- Modelos financieros, ROI, waterfall, payback, TIR, VAN, sensibilidades, márgenes de equipos → [INVOCAR:jorge:tarea concreta]
-- Estructura societaria, holdings, consolidación fiscal, internacionalización, calendario fiscal, planificación sucesoria, reestructuraciones → [INVOCAR:gonzalo:tarea concreta]
-- Alquileres, contratos LAU, fiscalidad inmobiliaria, inversión inmobiliaria, rentabilidad de alquiler, alquiler turístico, zonas tensionadas → [INVOCAR:alvaro:tarea concreta]
-- Tesorería, conciliación bancaria, categorización de movimientos, IVA trimestral, previsiones, análisis fiscal operativo → [INVOCAR:diego:tarea concreta]
-
-En esas materias tu prosa ANTES de la etiqueta debe ser BREVE (2-3 frases): presenta al especialista y explica al CEO por qué le pasas la consulta. NO hagas TÚ el análisis técnico si tienes especialista disponible. La regla es de RUTEO, no de bloqueo: sigues siendo el orquestador estratégico (BATNA, decisiones tipo 1/2, negociación); ellos ejecutan lo técnico.
-
-Consultas ESTRATÉGICAS puras (negociación, decisiones, mentalidad, liderazgo) NO llevan etiqueta — respóndelas tú directamente como Jefe de Gabinete. La regla anterior solo aplica cuando la consulta requiere producción técnica especializada.`;
 
 // Framework 10 (Aristóteles): filosofía práctica aplicada al liderazgo y
 // negociación. Se inserta entre el framework 9 (Sonrisa/Silencio/Indiferencia)
@@ -1130,16 +1096,6 @@ function _migrate(d){
   d.agents = d.agents.map(a=>{
     if(a.name==="Héctor" && a.promptBase && a.promptBase.includes("[INVOCAR:") && !a.promptBase.includes("diego:")){
       return {...a, promptBase: a.promptBase + HECTOR_DIEGO_INVOKE_PATCH};
-    }
-    return a;
-  });
-  // Patch Héctor INVOKE_v2 (19/08/2026): endurece delegación por materia.
-  // Aditivo puro — se añade al final del promptBase sin tocar nada
-  // anterior. Se aplica a tenants existentes cuyo Héctor ya tenía
-  // INVOKE_ADDON legacy pero NO el marker INVOKE_v2. Idempotente.
-  d.agents = d.agents.map(a=>{
-    if(a.name==="Héctor" && a.promptBase && a.promptBase.includes("[INVOCAR:") && !a.promptBase.includes("INVOKE_v2")){
-      return {...a, promptBase: a.promptBase + HECTOR_INVOKE_V2_PATCH};
     }
     return a;
   });
