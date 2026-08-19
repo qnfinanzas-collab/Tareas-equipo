@@ -5,7 +5,7 @@
 // al cerrarse para no repetirse durante la jornada.
 import React, { useEffect, useMemo, useState } from "react";
 import { fmt, daysUntil } from "../lib/date.js";
-import { PLAIN_TEXT_RULE } from "../lib/agent.js";
+import { PLAIN_TEXT_RULE, fetchAgentRaw } from "../lib/agent.js";
 
 export default function CierreDia({ user, data, onClose }) {
   const today = fmt(new Date());
@@ -41,11 +41,7 @@ export default function CierreDia({ user, data, onClose }) {
         const doneList = summary.doneToday.slice(0, 8).map(t => `- ${t.ref || ""} ${t.title} (${t.projName})`).join("\n") || "(ninguna)";
         const carryList = [...summary.overdueOpen, ...summary.dueTodayOpen].slice(0, 8).map(t => `- ${t.ref || ""} ${t.title} (vence ${t.dueDate})`).join("\n") || "(ninguna)";
         const prompt = `Cierre del día de ${user.name || "el CEO"} (${today}).\n\nCOMPLETADAS HOY (${summary.doneToday.length}):\n${doneList}\n\nQUEDAN ABIERTAS PARA MAÑANA (${summary.overdueOpen.length + summary.dueTodayOpen.length}):\n${carryList}\n\nDame 2-3 frases en castellano:\n1. Una observación sobre el patrón del día (qué tipo de trabajo dominó, dónde hubo bloqueo).\n2. Una sugerencia concreta para mañana.\n\nSin listas, sin markdown. Frases enteras.`;
-        const r = await fetch("/api/agent", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ system, messages: [{ role: "user", content: prompt }], max_tokens: 250 }),
-        });
+        const r = await fetchAgentRaw({ system, messages: [{ role: "user", content: prompt }], max_tokens: 250 });
         if (cancelled) return;
         const raw = await r.text();
         let parsed = null; try { parsed = JSON.parse(raw); } catch {}

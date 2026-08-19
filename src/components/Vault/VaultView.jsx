@@ -9,6 +9,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PERSONAL_CATEGORY_LABELS, PERSONAL_CATEGORY_ORDER, computePersonalStats, generatePersonalDocuments, checkVaultAlerts } from "./personalTemplates.js";
 import { uploadDocument as uploadToBucket, getSignedUrlCached, storageEnabled, MAX_FILE_MB, MAX_ANALYZE_MB, isAnalyzable } from "../../lib/storage.js";
+import { fetchAgentRaw } from "../../lib/agent.js";
 import RichText from "../Shared/RichText.jsx";
 
 const RELATIONSHIPS = [
@@ -140,13 +141,10 @@ Reglas:
   } else {
     return { match: null, category: "otros", newDocName: file.name.replace(/\.[^.]+$/, ""), summary: "Tipo no soportado para análisis", confidence: 0.3, detectedExpiry: null };
   }
-  const res = await fetch("/api/agent", {
-    method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      system: "Clasificador documental personal experto. Responde SOLO con JSON válido.",
-      messages: [{ role: "user", content: promptText }],
-      attachments, max_tokens: 600,
-    }),
+  const res = await fetchAgentRaw({
+    system: "Clasificador documental personal experto. Responde SOLO con JSON válido.",
+    messages: [{ role: "user", content: promptText }],
+    attachments, max_tokens: 600,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);

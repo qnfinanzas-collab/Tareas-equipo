@@ -19,7 +19,7 @@ import { authEnabled, signIn, signUp, signOut, getSession, onAuthStateChange, re
 import { storageEnabled, uploadDocument, getSignedUrl, downloadDocumentBlob, deleteDocument as storageDeleteDocument, blobToBase64, fmtFileSize, validateFile, MAX_FILE_MB, MAX_ANALYZE_MB, isAnalyzable, ANALYZE_TOO_LARGE_MSG, ALLOWED_MIME, ALLOWED_EXTENSIONS, migrateBase64DocsInData } from "./lib/storage.js";
 import { extractToText } from "./lib/extract.js";
 import jsPDF from "jspdf";
-import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel, callAgentSafe, WEB_SEARCH_TOOL } from "./lib/agent.js";
+import { AVATARS, AVATAR_KEYS, buildBriefing, respondToQuery, parseCommand, executeCommand, buildDailyBriefing, buildBoardBriefing, buildContextBriefing, parseScopedCommand, respondScopedQuery, executeScopedCommand, agentToAvatar, buildAgentBriefing, respondAgentQuery, llmAgentReply, analyzeDocument, extractMemoryFromChat, summarizeChat, extractLessonsFromNegotiation, PLAIN_TEXT_RULE, getEnergyLevel, callAgentSafe, fetchAgentRaw, WEB_SEARCH_TOOL } from "./lib/agent.js";
 import { PresenceProvider, usePresence } from "./lib/presence.jsx";
 import PulsoDinamico from "./components/PulsoDinamico.jsx";
 import TaskKanban from "./components/TaskKanban.jsx";
@@ -6690,11 +6690,7 @@ function CommandRoomView({data,activeMember,authSession,onNavigate,onOpenTask,on
           : "Eres Héctor, Jefe de Gabinete estratégico. Decides qué tarea debe ejecutar el CEO ahora mismo. " + PLAIN_TEXT_RULE;
         const system = baseSystem + "\n\nIMPORTANTE: responde ÚNICAMENTE con JSON válido, sin markdown ni prosa.";
         const prompt = `El CEO te pide que decidas QUÉ TAREA debe hacer AHORA MISMO.\n\nCONTEXTO:\n- Hora actual: ${new Date().toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"})}\n- Día: ${new Date().toLocaleDateString("es-ES",{weekday:"long"})}\n- Tareas completadas hoy: ${completedToday}\n- Energía esperada a esta hora: ${energyLevel}\n${ceoFacts?`- Memoria del CEO: ${ceoFacts}\n`:""}\nTAREAS DISPONIBLES (${active.length} total, mostradas hasta 30):\n${tasksJSON}\n\nCRITERIOS (en este orden):\n1. Deadline: vencidas > vencen hoy > resto.\n2. Prioridad: alta > media > baja.\n3. Impacto: si hay contraparte esperando respuesta, prioriza.\n4. Energía: antes de las 12, tareas difíciles; después de las 15, tareas simples.\n5. Secuencia: evita cambiar entre proyectos cada 30 min.\n\nDevuelve JSON con esta forma exacta:\n{"taskId":"id de la tarea elegida","reason":"frase imperativa de 1 línea","timeBlocks":2,"energyRequired":"alta|media|baja"}`;
-        const r = await fetch("/api/agent",{
-          method:"POST",
-          headers:{"content-type":"application/json"},
-          body:JSON.stringify({system, messages:[{role:"user", content:prompt}], max_tokens:200}),
-        });
+        const r = await fetchAgentRaw({system, messages:[{role:"user", content:prompt}], max_tokens:200});
         const raw = await r.text();
         if(cancelled) return;
         if(!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -11445,11 +11441,7 @@ function AgentBriefingModal({agent,negotiation,session,kind,prompt,initialRespon
       // Override identidad CEO para tenants nuevos (defensivo: vacío para Antonio).
       const specCtx = buildSpecialistContext(ceoProfile);
       const systemPrompt = (specCtx ? `${specCtx}\n\n` : "") + baseSystem + "\n\n" + PLAIN_TEXT_RULE;
-      const r = await fetch("/api/agent",{
-        method:"POST",
-        headers:{"content-type":"application/json"},
-        body:JSON.stringify({system:systemPrompt,messages:[{role:"user",content:editedPrompt}],max_tokens:900}),
-      });
+      const r = await fetchAgentRaw({system:systemPrompt,messages:[{role:"user",content:editedPrompt}],max_tokens:900});
       const data = await r.json();
       if(signalRef.cancelled) return;
       if(!r.ok) throw new Error(data.error||"Error en el agente");

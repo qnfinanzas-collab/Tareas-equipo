@@ -1,5 +1,24 @@
 // Vercel serverless function: proxy a Anthropic con la API key en env var.
-// POST /api/agent  { system, messages, max_tokens?, attachments? }
+// POST /api/agent  { system, messages, max_tokens?, attachments?, vault_token?, vault_pin? }
+//
+// AUTENTICACIÓN (obligatoria — cierre B1, 19/08/2026):
+// Dos vías aceptadas para identificar al caller:
+//   (a) Header `Authorization: Bearer <supabase_jwt>` — usuarios logueados
+//       de Kluxor. Se valida contra Supabase auth.
+//   (b) Body `{ vault_token, vault_pin }` — invitados que acceden a un
+//       vault personal vía /vault/:token (VaultGuestView). Se valida
+//       contra el JSONB de taskflow_state.data.vault.spaces[] server-side.
+//       El cliente NUNCA es fuente de verdad: la BD confirma que el
+//       (token, PIN) corresponde a un space real.
+// Sin ninguna de las dos → 401. Cierra el vector que agotó el saldo
+// Anthropic 3 veces este mes.
+//
+// RATE LIMIT (in-memory, sliding window de 60s):
+//   Usuario autenticado: 60 req/min (holgado para uso normal, corta abuso).
+//   Vault guest:          20 req/min (subida esporádica de documentos).
+// El límite es por-instancia de la función (Vercel Fluid Compute reusa
+// instancias — un atacante warm ve el mismo contador). Para límite
+// distribuido real: Redis. Aceptable para escala actual.
 //
 // attachments: adjuntos que se inyectan como bloques de contenido en el ÚLTIMO
 // mensaje user (típicamente el prompt de análisis). Formatos:
@@ -21,6 +40,57 @@ export const config = {
   maxDuration: 180,
   api: { bodyParser: { sizeLimit: "20mb" } },
 };
+
+import { supaAdmin, verifyBearer } from "./_lib/supa.js";
+
+const RATE_LIMIT_USER  = 60;  // req/min por usuario autenticado
+const RATE_LIMIT_VAULT = 20;  // req/min por vault_token (guest)
+const RATE_WINDOW_MS   = 60_000;
+
+// Sliding window in-memory. identifier → array de timestamps.
+// Se limpia perezosamente al insertar (filtra timestamps > windowStart).
+const rateWindows = new Map();
+
+function checkRateLimit(identifier, maxPerMin) {
+  const now = Date.now();
+  const windowStart = now - RATE_WINDOW_MS;
+  let stamps = rateWindows.get(identifier) || [];
+  stamps = stamps.filter(t => t > windowStart);
+  if (stamps.length >= maxPerMin) {
+    const retryAfter = Math.max(1, Math.ceil((stamps[0] + RATE_WINDOW_MS - now) / 1000));
+    return { ok: false, retryAfter };
+  }
+  stamps.push(now);
+  rateWindows.set(identifier, stamps);
+  // Cleanup ocasional para que el Map no crezca indefinidamente.
+  // Evict entradas cuyo timestamp más reciente ya expiró.
+  if (rateWindows.size > 5000) {
+    for (const [k, v] of rateWindows) {
+      if (!v.length || v[v.length - 1] < windowStart) rateWindows.delete(k);
+    }
+  }
+  return { ok: true };
+}
+
+// Localiza un vault space por accessToken buscando en taskflow_state.data.
+// Retorna el objeto space {accessToken, pin, name, ...} o null.
+// Usa jsonb @> (contains) para filtrar antes de traer la fila entera —
+// eficiente incluso cuando el JSONB del tenant es grande.
+async function findVaultSpaceByToken(token) {
+  if (!token || typeof token !== "string" || token.length < 8) return null;
+  try {
+    const { data: rows, error } = await supaAdmin
+      .from("taskflow_state")
+      .select("data")
+      .contains("data", { vault: { spaces: [{ accessToken: token }] } })
+      .limit(1);
+    if (error || !rows || rows.length === 0) return null;
+    const spaces = rows[0]?.data?.vault?.spaces || [];
+    return spaces.find(s => s && s.accessToken === token) || null;
+  } catch {
+    return null;
+  }
+}
 
 function injectAttachments(messages, attachments){
   if(!Array.isArray(attachments) || attachments.length===0) return messages;
@@ -60,7 +130,58 @@ export default async function handler(req, res){
     res.status(500).json({ error: "ANTHROPIC_API_KEY no configurada en el servidor" });
     return;
   }
-  const { system, messages, attachments, max_tokens: reqMaxTokens, model = "claude-sonnet-4-5-20250929", tools, tool_choice } = req.body || {};
+
+  // ── AUTH ──────────────────────────────────────────────────────────
+  // Doble vía: Bearer JWT (usuarios logueados) o vault_token+PIN (guest).
+  // Mensajes de error genéricos (no revelan si el token existe o no)
+  // para no filtrar información a un atacante que sondee.
+  const authHeader = req.headers?.authorization || req.headers?.Authorization || "";
+  const hasBearer = /^Bearer\s+/i.test(authHeader);
+  const { vault_token, vault_pin, ...restBody } = req.body || {};
+
+  let identifier = null;
+  let rateLimit = RATE_LIMIT_USER;
+
+  if (hasBearer) {
+    const { user, error: authErr } = await verifyBearer(req);
+    if (!user) {
+      res.status(401).json({ error: "No autorizado. Vuelve a iniciar sesión." });
+      return;
+    }
+    identifier = `user:${user.id}`;
+    rateLimit = RATE_LIMIT_USER;
+  } else if (vault_token && vault_pin) {
+    const space = await findVaultSpaceByToken(String(vault_token));
+    if (!space) {
+      // Nota: no distinguimos "no existe" de "existe pero PIN mal" para
+      // no filtrar información sobre tokens válidos.
+      res.status(401).json({ error: "No autorizado." });
+      return;
+    }
+    if (String(space.pin || "") !== String(vault_pin)) {
+      res.status(401).json({ error: "No autorizado." });
+      return;
+    }
+    identifier = `vault:${String(vault_token).slice(0, 32)}`;
+    rateLimit = RATE_LIMIT_VAULT;
+  } else {
+    res.status(401).json({ error: "No autorizado. Vuelve a iniciar sesión." });
+    return;
+  }
+
+  // ── RATE LIMIT ────────────────────────────────────────────────────
+  const rl = checkRateLimit(identifier, rateLimit);
+  if (!rl.ok) {
+    res.setHeader("Retry-After", String(rl.retryAfter));
+    res.status(429).json({
+      error: `Estás enviando peticiones muy rápido. Espera ${rl.retryAfter}s e inténtalo de nuevo.`,
+      retryAfter: rl.retryAfter,
+    });
+    return;
+  }
+
+  // ── BODY / VALIDACIÓN ────────────────────────────────────────────
+  const { system, messages, attachments, max_tokens: reqMaxTokens, model = "claude-sonnet-4-5-20250929", tools, tool_choice } = restBody;
   const max_tokens = reqMaxTokens ?? (Array.isArray(attachments) && attachments.length>0 ? 4000 : 600);
   if(!Array.isArray(messages) || messages.length === 0){
     res.status(400).json({ error: "messages requerido" });
@@ -84,7 +205,14 @@ export default async function handler(req, res){
     });
     const data = await r.json();
     if(!r.ok){
-      res.status(r.status).json({ error: data.error?.message || "Error en Anthropic", details: data });
+      // Humanización de errores comunes de Anthropic:
+      //   429 → saldo agotado o rate limit del proveedor.
+      //   402 → payment failed (billing).
+      // El cliente los mostrará al usuario tal cual llegue en `error`.
+      let humanMsg = data.error?.message || "Error en Anthropic";
+      if (r.status === 429) humanMsg = "El servicio de IA está saturado o ha alcanzado el límite de uso. Reintenta en unos minutos o contacta con soporte.";
+      else if (r.status === 402) humanMsg = "El servicio de IA no está disponible por un problema de facturación. Contacta con soporte.";
+      res.status(r.status).json({ error: humanMsg, details: data });
       return;
     }
     // Ensamblado de respuesta preservando ORDEN de los bloques (riesgo 7

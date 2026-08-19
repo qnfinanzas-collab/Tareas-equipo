@@ -5,7 +5,7 @@
 // api.anthropic.com directas (la API key vive server-side).
 import React, { useEffect, useState } from "react";
 import { fmt, daysUntil } from "../lib/date.js";
-import { PLAIN_TEXT_RULE } from "../lib/agent.js";
+import { PLAIN_TEXT_RULE, fetchAgentRaw } from "../lib/agent.js";
 
 export default function BriefingMatinal({ user, data, onClose }) {
   const [text, setText] = useState("");
@@ -35,11 +35,7 @@ export default function BriefingMatinal({ user, data, onClose }) {
           : "Eres Héctor, Jefe de Gabinete estratégico. Briefing matinal corto, directo, accionable. " + PLAIN_TEXT_RULE;
         const system = baseSystem + "\n\nIMPORTANTE: responde texto plano sin markdown, máximo 5 frases, en castellano.";
         const prompt = `Genera un briefing matinal para ${user.name || "el CEO"} (${today}).\n\nTareas pendientes top (orden por urgencia):\n${top.map(t => `- ${t.ref || ""} ${t.title} · ${t.project} · ${t.dueDate ? `vence ${t.dueDate}${t.days < 0 ? ` (vencida ${-t.days}d)` : t.days === 0 ? " (hoy)" : ` (en ${t.days}d)`}` : "sin fecha"} · prio ${t.priority || "media"}`).join("\n") || "(sin tareas pendientes)"}\n\nFormato exacto:\n1. Una frase de saludo breve (sin "Buenos días" genérico — algo concreto del día).\n2. Las 3 tareas más críticas resumidas en 1 frase cada una.\n3. Una pregunta de coaching abierta para activar el día (ej: "¿Qué impacto buscas hoy?").\n\nSin listas con guiones ni markdown. Frases separadas por saltos de línea simples.`;
-        const r = await fetch("/api/agent", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ system, messages: [{ role: "user", content: prompt }], max_tokens: 400 }),
-        });
+        const r = await fetchAgentRaw({ system, messages: [{ role: "user", content: prompt }], max_tokens: 400 });
         if (cancelled) return;
         const raw = await r.text();
         let parsed = null; try { parsed = JSON.parse(raw); } catch {}

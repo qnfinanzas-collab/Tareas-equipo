@@ -11,6 +11,7 @@
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { CATEGORY_LABELS, CATEGORY_ORDER, computeDocStats } from "./documentTemplates.js";
 import { uploadDocument as uploadToBucket, getSignedUrlCached, deleteDocument as deleteFromBucket, storageEnabled, MAX_ANALYZE_MB, isAnalyzable, MAX_FILE_MB } from "../../lib/storage.js";
+import { fetchAgentRaw } from "../../lib/agent.js";
 
 // Sincroniza alertas de gobernanza con el estado de documentación. Por
 // cada documento required pendiente o vencido genera una entrada en
@@ -514,15 +515,11 @@ Reglas:
     // DOCX y otros: no soportados directamente por Claude. Intentamos como texto extraído del nombre + tipo.
     return { match: null, category: "otros", subcategory: null, newDocName: file.name.replace(/\.[^.]+$/, ""), summary: `Archivo ${file.type || "desconocido"} sin parser disponible — clasificado en Otros`, confidence: 0.3 };
   }
-  const res = await fetch("/api/agent", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      system: "Eres un clasificador documental experto. Responde SOLO con JSON válido sin markdown ni prosa.",
-      messages: [{ role: "user", content: promptText }],
-      attachments,
-      max_tokens: 600,
-    }),
+  const res = await fetchAgentRaw({
+    system: "Eres un clasificador documental experto. Responde SOLO con JSON válido sin markdown ni prosa.",
+    messages: [{ role: "user", content: promptText }],
+    attachments,
+    max_tokens: 600,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);

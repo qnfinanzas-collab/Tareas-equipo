@@ -19,7 +19,7 @@
 //     Héctor para que verbalice la confirmación y ejecute la acción.
 import React, { useEffect, useState, useRef } from "react";
 import { speak, stopSpeaking, listen } from "../../lib/voice.js";
-import { PLAIN_TEXT_RULE, getEnergyLevel, buildSkillsBlock, detectSkills } from "../../lib/agent.js";
+import { PLAIN_TEXT_RULE, getEnergyLevel, buildSkillsBlock, detectSkills, fetchAgentRaw } from "../../lib/agent.js";
 import { parseAgentActions, cleanAgentResponse, detectFalseSuccessClaim, rewriteToPropositive, validateTasksAgainstDatabase, validateAndCorrectDueDate, buildOrderInterpreterSystemPrompt, parseOrderInterpreterJson, stripCeoProfile } from "../../lib/agentActions.js";
 import { callAgentSafe as callAgentSafeShared } from "../../lib/agent.js";
 import { supa } from "../../lib/sync.js";
@@ -983,15 +983,13 @@ Reglas:
       const timeoutId = setTimeout(() => ac.abort(), 30000);
       let r;
       try {
-        r = await fetch("/api/agent", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
+        r = await fetchAgentRaw(
           // max_tokens 4096: el JSON de análisis con 6 tareas + thought +
           // summary puede pasar de 2000 caracteres. Con 800 se truncaba a
           // mitad de array y el parser fallaba en posición ~1996.
-          body: JSON.stringify({ system, messages: [{ role: "user", content: userPrompt }], max_tokens: 4096 }),
-          signal: ac.signal,
-        });
+          { system, messages: [{ role: "user", content: userPrompt }], max_tokens: 4096 },
+          { signal: ac.signal },
+        );
       } catch (e) {
         clearTimeout(timeoutId);
         if (e.name === "AbortError") throw new Error("Tiempo agotado tras 30s — el LLM tardó demasiado en responder");
@@ -1350,15 +1348,13 @@ Reglas para block_task:
       const timeoutId = setTimeout(() => ac.abort(), 90000);
       let r;
       try {
-        r = await fetch("/api/agent", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
+        r = await fetchAgentRaw(
           // max_tokens 2048: el JSON de orden + bloque [ACTIONS] con
           // propuestas de plan puede pasar de 400 chars con facilidad.
           // Antes se truncaba en respuestas con plan accionable.
-          body: JSON.stringify({ system, messages: [{ role: "user", content: userPrompt }], max_tokens: 2048 }),
-          signal: ac.signal,
-        });
+          { system, messages: [{ role: "user", content: userPrompt }], max_tokens: 2048 },
+          { signal: ac.signal },
+        );
       } catch (e) {
         clearTimeout(timeoutId);
         if (e.name === "AbortError") throw new Error("Héctor tardó más de 90s (límite 90s). Si la conversación es muy larga, abre un chat nuevo para resetear el contexto. Si la orden es muy compleja, divídela: primero pídele crear el proyecto, luego las tareas, luego la negociación.");

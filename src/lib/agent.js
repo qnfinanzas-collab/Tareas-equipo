@@ -2,6 +2,91 @@
 import { getQ } from "./eisenhower.js";
 import { daysUntil, fmt } from "./date.js";
 import { stripMarkdown } from "./voice.js";
+import { supa } from "./sync.js";
+
+// ─── AUTH PARA /api/agent ────────────────────────────────────────────
+// El endpoint acepta dos vías (B1, 19/08/2026): Bearer JWT de Supabase o
+// vault_token+vault_pin (guest). Todo el tráfico a /api/agent pasa por
+// _fetchAgent para tener UN SOLO punto de inyección de credenciales.
+//
+// Sesión expirada: intentamos refresh una vez. Si falla, error humanizado
+// que el caller propaga a la UI ("Vuelve a iniciar sesión") en vez de un
+// "HTTP 401" crudo.
+
+// Devuelve el access_token vigente, refrescando si expira en <60s.
+// null si no hay sesión (caso pre-login, tests, o falta de Supabase).
+async function _getAccessToken() {
+  if (!supa) return null;
+  try {
+    const { data } = await supa.auth.getSession();
+    let session = data?.session;
+    if (!session) return null;
+    const expiresAtMs = session.expires_at ? session.expires_at * 1000 : 0;
+    if (expiresAtMs && expiresAtMs - Date.now() < 60_000) {
+      try {
+        const { data: refreshed } = await supa.auth.refreshSession();
+        if (refreshed?.session?.access_token) session = refreshed.session;
+      } catch { /* mantenemos el token viejo — puede seguir siendo válido */ }
+    }
+    return session.access_token || null;
+  } catch { return null; }
+}
+
+// Fetch base a /api/agent. Inyecta Authorization o vault_token+pin.
+// - opts.guestAuth = {token, pin} → modo guest (VaultGuestView).
+// - En modo user: si no hay sesión, throw humanizado antes de la petición.
+// - 401 tras la petición → intento 1 refresh + retry; si vuelve 401, throw
+//   humanizado ("Tu sesión ha expirado…").
+// - 429 → throw humanizado con retryAfter.
+// Devuelve el objeto Response para que el caller lea .text()/.json() como necesite.
+export async function fetchAgentRaw(bodyJson, opts = {}) {
+  const guestAuth = opts.guestAuth || null;
+  const signal = opts.signal || undefined;
+
+  async function doFetch(withRefresh) {
+    const headers = { "content-type": "application/json" };
+    let body = bodyJson;
+    if (guestAuth) {
+      // Modo invitado: token+pin en body. NO Authorization header.
+      // Rehidratamos el body para no mutar el original.
+      const parsed = typeof bodyJson === "string" ? JSON.parse(bodyJson) : bodyJson;
+      body = JSON.stringify({ ...parsed, vault_token: guestAuth.token, vault_pin: guestAuth.pin });
+    } else {
+      const token = await _getAccessToken();
+      if (!token) {
+        throw new Error("Sesión no disponible. Vuelve a iniciar sesión para hablar con los agentes.");
+      }
+      headers.Authorization = `Bearer ${token}`;
+      if (typeof body !== "string") body = JSON.stringify(body);
+    }
+    const r = await fetch("/api/agent", { method: "POST", headers, body, signal });
+    if (r.status === 401 && !guestAuth && withRefresh) {
+      // Sesión probablemente expirada entre el getSession() y el fetch.
+      // Forzamos refresh y reintentamos UNA vez.
+      try { await supa?.auth?.refreshSession(); } catch {}
+      return doFetch(false);
+    }
+    return r;
+  }
+
+  const r = await doFetch(true);
+  if (r.status === 401) {
+    throw new Error(guestAuth
+      ? "Acceso al vault no válido. Cierra sesión y vuelve a introducir el PIN."
+      : "Tu sesión ha caducado. Cierra sesión y vuelve a entrar."
+    );
+  }
+  if (r.status === 429) {
+    let retryAfter = r.headers.get("retry-after");
+    let msg = `Estás enviando peticiones muy rápido. Espera ${retryAfter || "unos segundos"} e inténtalo de nuevo.`;
+    try {
+      const data = await r.clone().json();
+      if (data?.error) msg = data.error;
+    } catch {}
+    throw new Error(msg);
+  }
+  return r;
+}
 
 // Regla de estilo que se inyecta en el system prompt de CUALQUIER llamada
 // al LLM de agentes. Fuerza texto plano sin markdown para que las respuestas
@@ -43,17 +128,21 @@ export async function callAgentSafe(body, opts = {}){
   let r, raw, data = null;
   try {
     try {
-      r = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(fetchBody),
-        signal: ctrl.signal,
-      });
+      r = await fetchAgentRaw(fetchBody, { signal: ctrl.signal, guestAuth: opts.guestAuth || null });
     } catch (e) {
       if (e?.name === "AbortError") {
         const secs = Math.round(timeoutMs/1000);
         throw new Error(`⏱️ El agente tardó más de ${secs}s y se canceló (límite ${secs}s). Sugerencia: trocea la consulta en preguntas más concretas, o reintenta en un minuto si crees que fue un pico de latencia.`);
       }
+      // _fetchAgent lanza errores ya humanizados (sesión expirada, 401/429).
+      // Los propagamos tal cual. Para el resto (red caída), preservamos el
+      // mensaje anterior con el detalle técnico.
+      if (e?.message && (
+        e.message.includes("Sesión no disponible") ||
+        e.message.includes("Tu sesión ha caducado") ||
+        e.message.includes("Acceso al vault") ||
+        e.message.includes("peticiones muy rápido")
+      )) throw e;
       throw new Error(`Red caída o /api/agent inalcanzable: ${e?.message || e}`);
     }
     raw = await r.text();
@@ -1340,11 +1429,7 @@ export async function llmAgentReply(userText, task, agent, members, history, ceo
   });
   messages.push({ role:"user", content: userText });
 
-  const res = await fetch("/api/agent", {
-    method:"POST",
-    headers:{ "content-type":"application/json" },
-    body: JSON.stringify({ system: systemPrompt, messages, max_tokens: 600 }),
-  });
+  const res = await fetchAgentRaw({ system: systemPrompt, messages, max_tokens: 600 });
   const data = await res.json().catch(()=>({}));
   if(!res.ok){
     throw new Error(data.error || `HTTP ${res.status}`);
@@ -1383,11 +1468,7 @@ export async function analyzeDocument(attachment, agent, contextLabel, ceoMemory
     attachments: [attachment],
     max_tokens: 4000,
   };
-  const res = await fetch("/api/agent", {
-    method:"POST",
-    headers:{ "content-type":"application/json" },
-    body: JSON.stringify(body),
-  });
+  const res = await fetchAgentRaw(body);
   const data = await res.json().catch(()=>({}));
   if(!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   const text = stripMarkdown(data.text || "") || "(sin respuesta)";
@@ -1442,11 +1523,7 @@ export async function extractMemoryFromChat(recentMessages, negTitle){
     + "\n\nDevuelve el JSON ahora.";
   const empty = { items: [] };
   try {
-    const res = await fetch("/api/agent", {
-      method:"POST",
-      headers:{ "content-type":"application/json" },
-      body: JSON.stringify({ system, messages:[{role:"user",content:userPrompt}], max_tokens:500 }),
-    });
+    const res = await fetchAgentRaw({ system, messages:[{role:"user",content:userPrompt}], max_tokens:500 });
     const data = await res.json().catch(e=>{ console.warn("[memory] res.json() failed:", e); return {}; });
     if(!res.ok){
       console.warn("[memory] /api/agent not ok · status:", res.status, "· error:", data.error);
@@ -1503,11 +1580,7 @@ export async function summarizeChat(messages, negTitle){
   const prompt = (negTitle?`Negociación: ${negTitle}\n\n`:"") + "Conversación completa:\n\n" + transcript + "\n\nResume ahora.";
   const fallback = { summary: `Conversación archivada (${(messages||[]).length} mensajes)`, keyPoints: [] };
   try {
-    const res = await fetch("/api/agent", {
-      method:"POST",
-      headers:{ "content-type":"application/json" },
-      body: JSON.stringify({ system, messages:[{role:"user",content:prompt}], max_tokens:1200 }),
-    });
+    const res = await fetchAgentRaw({ system, messages:[{role:"user",content:prompt}], max_tokens:1200 });
     const data = await res.json().catch(e=>{ console.warn("[memory] summarize res.json() failed:", e); return {}; });
     if(!res.ok){ console.warn("[memory] summarize status", res.status, data.error); return fallback; }
     const text = data.text || "";
@@ -1570,11 +1643,7 @@ export async function extractLessonsFromNegotiation(neg){
   ].filter(Boolean).join("\n");
   const empty = { lessons: [] };
   try {
-    const res = await fetch("/api/agent", {
-      method:"POST",
-      headers:{ "content-type":"application/json" },
-      body: JSON.stringify({ system, messages:[{role:"user",content:prompt}], max_tokens:600 }),
-    });
+    const res = await fetchAgentRaw({ system, messages:[{role:"user",content:prompt}], max_tokens:600 });
     const data = await res.json().catch(e=>{ console.warn("[memory] lessons res.json failed:", e); return {}; });
     if(!res.ok){ console.warn("[memory] lessons /api/agent not ok · status:", res.status, "· error:", data.error); return empty; }
     const text = data.text || "";
