@@ -15817,7 +15817,14 @@ Estructura recomendada de una respuesta con documento:
           return true;
         });
         return(
-        <div className={`tf-sidebar${sidebarOpen?" open":""}`} data-sb-no-close style={{width:sidebarCollapsed?60:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column",transition:"width .18s ease"}}>
+        <div className={`tf-sidebar${sidebarOpen?" open":""}`} data-sb-no-close style={{width:sidebarCollapsed?60:224,flexShrink:0,background:"#fff",borderRight:"0.5px solid #e5e7eb",display:"flex",flexDirection:"column",transition:"width .18s ease",height:"100%",overflow:"hidden",minHeight:0}}>
+          {/* ZONA STICKY SUPERIOR (19/08/2026): header + USUARIO ACTIVO
+              quedan fijos arriba. La lista de navegación (PRINCIPALES +
+              RECIENTES) que va debajo scrollea sola. Sin este split, el
+              contenido del sidebar (~960px en iPhone) excedía el viewport
+              (~852px) y "Vault Personal" quedaba cortado, y "Usuarios",
+              "Mantenimiento" y "El Umbral" inaccesibles en móvil. */}
+          <div style={{flexShrink:0}}>
           {/* Header: logo + brand + toggle siempre visible (☰/✕).
               Cuando colapsado el header pasa a column: logo arriba, botón abajo.
               Cuando expandido layout en row con botón pegado a la derecha. */}
@@ -15873,6 +15880,14 @@ Estructura recomendada de una respuesta con documento:
               </>
             )}
           </div>
+          </div>{/* fin ZONA STICKY SUPERIOR */}
+
+          {/* ZONA SCROLLABLE (19/08/2026): la lista de PRINCIPALES +
+              RECIENTES scrollea aquí. minHeight:0 crítico para que el
+              hijo flex encoja bajo su intrinsic size. paddingBottom con
+              safe-area para que el último item respire encima del notch
+              inferior del iPhone. */}
+          <div style={{flex:1,minHeight:0,overflowY:"auto",WebkitOverflowScrolling:"touch",paddingBottom:"env(safe-area-inset-bottom)"}}>
 
           {/* Principales — agrupadas por bloque con títulos oro. Si un
               bloque queda vacío tras el filtro de permisos, su título se
@@ -15904,9 +15919,11 @@ Estructura recomendada de una respuesta con documento:
             })}
           </div>
 
-          {/* Recientes */}
+          {/* Recientes — 19/08/2026: retirado el flex:1+overflowY propios.
+              Ahora el scroll está en el wrapper padre (ZONA SCROLLABLE).
+              Recientes fluye normal como una sección más de la lista. */}
           {!sidebarCollapsed&&(
-            <div style={{padding:"8px 8px",flex:1,overflowY:"auto"}}>
+            <div style={{padding:"8px 8px",flexShrink:0}}>
               <div style={{fontSize:10,fontWeight:600,color:"#9ca3af",letterSpacing:"0.07em",textTransform:"uppercase",padding:"4px 8px 6px"}}>Recientes</div>
               {recentItems.length===0
                 ? <div style={{fontSize:11,color:"#9CA3AF",padding:"6px 10px",fontStyle:"italic"}}>Sin actividad reciente</div>
@@ -15926,8 +15943,13 @@ Estructura recomendada de una respuesta con documento:
                   })}
             </div>
           )}
-          {sidebarCollapsed&&<div style={{flex:1}}/>}
+          </div>{/* fin ZONA SCROLLABLE */}
 
+          {/* ZONA STICKY INFERIOR (19/08/2026): footer con botón de
+              atajos + toggle colapsar/expandir. Queda fijo abajo del
+              sidebar. flexShrink:0 impide que se aplasten cuando el
+              contenido scrollea encima. */}
+          <div style={{flexShrink:0}}>
           {/* Footer: Atajos */}
           <div style={{padding:sidebarCollapsed?"8px":"8px 12px",borderTop:"0.5px solid #e5e7eb"}}>
             <button onClick={()=>setShowShortcuts(true)} title="Ver atajos de teclado (?)" style={{width:"100%",padding:sidebarCollapsed?"8px 0":"7px 10px",borderRadius:7,border:"0.5px solid #e5e7eb",background:"transparent",fontSize:11,color:"#6b7280",cursor:"pointer",display:"flex",alignItems:"center",gap:8,justifyContent:sidebarCollapsed?"center":"flex-start",fontFamily:"inherit"}} onMouseEnter={e=>{e.currentTarget.style.background="#F9FAFB";e.currentTarget.style.borderColor="#D1D5DB";}} onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor="#e5e7eb";}}>
@@ -15941,6 +15963,7 @@ Estructura recomendada de una respuesta con documento:
               <button onClick={toggleSidebarCollapsed} title="Expandir sidebar (⌘\\)" style={{width:"100%",padding:"6px 0",borderRadius:6,border:"none",background:"transparent",fontSize:14,color:"#9ca3af",cursor:"pointer",marginTop:4,fontFamily:"inherit"}}>›</button>
             )}
           </div>
+          </div>{/* fin ZONA STICKY INFERIOR */}
         </div>
         );
       })()}
