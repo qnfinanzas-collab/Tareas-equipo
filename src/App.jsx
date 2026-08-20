@@ -69,6 +69,7 @@ import { buildFinanceSummary, renderFinanceSummaryForPrompt } from "./lib/financ
 import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
+import { PROJECT_CODE_RE, isValidProjectCode, autoProjectCode } from "./lib/projectCode.js";
 
 // ── Migración localStorage Kluxor → Kluxor (commit 8 — branding) ──────────
 // IIFE síncrona en import time, antes de cualquier render. Copia las
@@ -229,27 +230,10 @@ const BASE_AVAIL = {
 // cada tarea recibe un ref autogenerado código+"-"+secuencial (SHM-001).
 // El ref es permanente: aunque la tarea se mueva de columna, el ref no
 // cambia. Si se mueve de proyecto, el ref original también se conserva.
-const PROJECT_CODE_RE = /^[A-Z]{3}$/;
-function isValidProjectCode(code){ return typeof code==="string" && PROJECT_CODE_RE.test(code); }
-// Genera código de 3 letras a partir del nombre, evitando colisiones con
-// los códigos ya usados. Si las primeras 3 letras colisionan, intenta
-// "<2 primeras letras><dígito>" (SH2, SH3…). Última opción: P00..P99.
-function autoProjectCode(name, existingCodes){
-  const used = new Set((existingCodes||[]).filter(Boolean));
-  const clean = (name||"").toUpperCase().replace(/[^A-ZÑ]/g,"").replace(/Ñ/g,"N");
-  const base = clean.length>=3 ? clean.slice(0,3) : (clean+"XXX").slice(0,3);
-  if(!used.has(base)) return base;
-  const stem = (clean.length>=2 ? clean.slice(0,2) : (clean+"X").slice(0,2));
-  for(let n=2; n<=9; n++){
-    const cand = (stem + String(n)).slice(0,3);
-    if(!used.has(cand)) return cand;
-  }
-  for(let n=0; n<100; n++){
-    const cand = "P" + String(n).padStart(2,"0");
-    if(!used.has(cand)) return cand;
-  }
-  return "XXX";
-}
+//
+// PROJECT_CODE_RE / isValidProjectCode / autoProjectCode se importan
+// al top desde ./lib/projectCode.js — módulo puro reusable desde Node
+// (smokes) y desde el ejecutor de la Antesala que crea los 3 frentes.
 // Calcula el siguiente ref disponible para un proyecto dado su código y el
 // estado actual de columnas. Recorre todas las tareas existentes del
 // proyecto, encuentra el mayor secuencial usado y devuelve el siguiente
