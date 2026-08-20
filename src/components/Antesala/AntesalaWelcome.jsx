@@ -211,11 +211,18 @@ export default function AntesalaWelcome({ onStart }) {
         }}>{line5}</div>
 
         {/* Bloques 4-9: solo cuando isDone. Aparecen ya montados con
-            fade suave, sin typewriter. */}
+            fade suave, sin typewriter. Flex column + align-items:center
+            replica el layout del padre para que los hijos con max-width
+            (encuadre) se centren igual que los bloques 2-5 anteriores.
+            Sin esto los bloques de encuadre quedaban visualmente a la
+            izquierda a pesar del text-align:center (Antonio 20/08). */}
         {isDone ? (
           <>
             <div style={{
               width: "100%",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
               opacity: 0,
               animation: "kluxorFadeIn 320ms ease-out forwards",
             }}>
@@ -267,7 +274,13 @@ export default function AntesalaWelcome({ onStart }) {
               {/* 6. Filete oro. */}
               <GoldRule />
 
-              {/* 7. Encuadre de diagnóstico — dos frases separadas. */}
+              {/* 7. Encuadre de diagnóstico — dos frases separadas.
+                  Paridad con bloques 2-5: max-width + margin auto +
+                  text-align:center. Antonio 20/08 reportó que se veía a
+                  la izquierda; el fix real era la falta de textAlign en
+                  el estilo inline (ver antes se heredaba, pero al meter
+                  el bloque dentro de un contenedor con width:100% el
+                  cascade no lo aplicaba). Explícito y consistente. */}
               <div style={{
                 fontFamily: SERIF,
                 fontSize: "clamp(19px, 3vw, 22px)",
@@ -275,8 +288,10 @@ export default function AntesalaWelcome({ onStart }) {
                 lineHeight: 1.35,
                 color: INK,
                 maxWidth: 440,
-                margin: "0 auto",
+                marginLeft: "auto",
+                marginRight: "auto",
                 letterSpacing: "-0.005em",
+                textAlign: "center",
               }}>{TXT_ASK_A}</div>
               <div style={{
                 marginTop: 14,
@@ -286,8 +301,10 @@ export default function AntesalaWelcome({ onStart }) {
                 lineHeight: 1.4,
                 color: INK,
                 maxWidth: 440,
-                margin: "14px auto 0",
+                marginLeft: "auto",
+                marginRight: "auto",
                 letterSpacing: "-0.005em",
+                textAlign: "center",
               }}>{TXT_ASK_B}</div>
 
               {/* 8. Botón único. */}

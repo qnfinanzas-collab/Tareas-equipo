@@ -29,8 +29,9 @@ const SERIF   = '"Cormorant Garamond","Instrument Serif",Georgia,serif';
 const SANS    = '"Inter",system-ui,-apple-system,sans-serif';
 
 // Monograma inline replicando src/components/Shared/AgentAvatar.jsx.
+const MONO_INK = "#E5C46B"; // oro más luminoso para la inicial (contraste)
 const mono = (letter, size = 44) => `
-<div style="width:${size}px;height:${size}px;background:${BLACK};border:1px solid ${GOLD};display:flex;align-items:center;justify-content:center;font-family:${SERIF};font-weight:500;font-size:${Math.max(10, Math.round(size*0.55))}px;line-height:1;color:${GOLD};letter-spacing:0.01em;padding-top:1px;flex-shrink:0">${letter}</div>`;
+<div style="width:${size}px;height:${size}px;background:${BLACK};border:1px solid ${GOLD};display:flex;align-items:center;justify-content:center;font-family:${SERIF};font-weight:600;font-size:${Math.max(10, Math.round(size*0.55))}px;line-height:1;color:${MONO_INK};letter-spacing:0.01em;padding-top:1px;flex-shrink:0">${letter}</div>`;
 
 const inputStyle = `width:100%;height:56px;padding:0 16px;font-family:${SANS};font-size:16px;line-height:1.3;color:${INK};background:${CARD};border:1px solid ${HAIR};outline:none;box-sizing:border-box;border-radius:0;-webkit-appearance:none`;
 const textareaStyle = `width:100%;min-height:120px;padding:14px 16px;font-family:${SANS};font-size:16px;line-height:1.5;color:${INK};background:${CARD};border:1px solid ${HAIR};outline:none;box-sizing:border-box;border-radius:0;resize:vertical`;
@@ -123,7 +124,7 @@ const p0c = welcomeShell({
     <div style="margin-top:20px;font-size:17px;line-height:1.55;color:${INK};max-width:420px;text-align:center">${TXT_LINE_B}</div>
     <div style="margin-top:28px;font-size:17px;line-height:1.55;color:${INK};max-width:460px;text-align:center">${TXT_LINE_C}</div>
     <div style="margin-top:12px;font-size:17px;line-height:1.55;color:${INK};max-width:460px;text-align:center">${TXT_LINE_D}</div>
-    <div style="width:100%">
+    <div style="width:100%;display:flex;flex-direction:column;align-items:center">
       ${goldRule}
       <div style="font-size:11px;color:${GOLD};letter-spacing:0.24em;font-weight:500;margin-bottom:28px;text-align:center">EL CONSEJO</div>
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:20px;max-width:480px;margin:0 auto">
@@ -134,8 +135,8 @@ const p0c = welcomeShell({
         ${councilMono("diego",   "D", "Diego",   "Contabilidad")}
       </div>
       ${goldRule}
-      <div style="font-family:${SERIF};font-size:22px;font-weight:500;line-height:1.35;color:${INK};max-width:440px;margin:0 auto;letter-spacing:-0.005em;text-align:center">${TXT_ASK_A}</div>
-      <div style="font-family:${SERIF};font-size:19px;font-weight:500;line-height:1.4;color:${INK};max-width:440px;margin:14px auto 0;letter-spacing:-0.005em;text-align:center">${TXT_ASK_B}</div>
+      <div style="font-family:${SERIF};font-size:22px;font-weight:500;line-height:1.35;color:${INK};max-width:440px;margin-left:auto;margin-right:auto;letter-spacing:-0.005em;text-align:center">${TXT_ASK_A}</div>
+      <div style="margin-top:14px;font-family:${SERIF};font-size:19px;font-weight:500;line-height:1.4;color:${INK};max-width:440px;margin-left:auto;margin-right:auto;letter-spacing:-0.005em;text-align:center">${TXT_ASK_B}</div>
       <div style="margin-top:40px;display:flex;justify-content:center">
         <button style="min-width:200px;height:48px;padding:0 32px;background:${BLACK};color:${PEARL};border:none;font-family:inherit;font-size:14px;font-weight:600;letter-spacing:0.04em;cursor:pointer">Empezar</button>
       </div>
@@ -177,7 +178,7 @@ const summary = summaryShell({
         "Levantar la ronda seed de la vertical de crioterapia",
       ])}${aside("Los he convertido en proyectos.")}`)}
       ${summaryBlock("Lo que le roba tiempo", `${bodyLine("El foro semanal del equipo comercial que se convierte en tres horas de opiniones sin decisión.")}${aside("Lo tendré presente.")}`)}
-      ${summaryBlock("Su día", bodyLine("Partido · 09:00 · 14:00 y 16:00 · 19:00 · Marbella"))}
+      ${summaryBlock("Su día", bodyLine("09:00–14:00 y 16:00–19:00 · Marbella"))}
       ${summaryBlock("Quién le asesora hoy", bodyLine("Tengo abogado · Tengo asesor fiscal"))}
     </div>
     ${goldRuleTight}
@@ -224,7 +225,7 @@ const p5 = stepShell({
 
 const p6 = stepShell({
   n: 6,
-  inner: `${question("¿Cuál es su horario habitual y su ciudad?")}${help("Su horario ancla la planificación diaria. Su ciudad, las rutas y desplazamientos.")}<div style="margin-top:28px"><div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">${chip("Mañana", "09:00 · 14:00")}${chip("Partido", "09:00 · 14:00 y 16:00 · 19:00", true)}${chip("Continuo", "09:00 · 17:00")}</div>${inputText("Su ciudad", "Marbella")}</div>${cta()}`
+  inner: `${question("¿Cuál es su horario habitual y su ciudad?")}${help("Su horario ancla la planificación diaria. Su ciudad, las rutas y desplazamientos.")}<div style="margin-top:28px"><div style="display:flex;flex-direction:column;gap:8px;margin-bottom:20px">${chip("Mañana", "09:00–14:00")}${chip("Partido", "09:00–14:00 y 16:00–19:00", true)}${chip("Continuo", "09:00–17:00")}</div>${inputText("Su ciudad", "Marbella")}</div>${cta()}`
 }) + skip();
 
 // Chip con marca de checkbox interna, para el multi-select del Paso 7.

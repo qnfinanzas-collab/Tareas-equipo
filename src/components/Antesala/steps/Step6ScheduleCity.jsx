@@ -11,10 +11,14 @@
 import React, { useEffect, useRef } from "react";
 import AntesalaStep, { INPUT_STYLE, COLORS } from "../AntesalaStep.jsx";
 
+// help: cadena legible del horario. Se usa como chip.help en el paso 6
+// y como base del resumen en AntesalaSummary. Guión largo (–) en vez
+// de punto medio (·) para no confundir con el separador del propio
+// summary (que sí usa "·" entre horario y ciudad).
 const SCHEDULES = [
-  { key: "morning",  label: "Mañana",   help: "09:00 · 14:00",              morningStart:"09:00", morningEnd:"14:00", afternoonStart:"",      afternoonEnd:"",      hoursPerDay: 5 },
-  { key: "split",    label: "Partido",  help: "09:00 · 14:00 y 16:00 · 19:00", morningStart:"09:00", morningEnd:"14:00", afternoonStart:"16:00", afternoonEnd:"19:00", hoursPerDay: 8 },
-  { key: "straight", label: "Continuo", help: "09:00 · 17:00",              morningStart:"09:00", morningEnd:"17:00", afternoonStart:"",      afternoonEnd:"",      hoursPerDay: 8 },
+  { key: "morning",  label: "Mañana",   help: "09:00–14:00",                 morningStart:"09:00", morningEnd:"14:00", afternoonStart:"",      afternoonEnd:"",      hoursPerDay: 5 },
+  { key: "split",    label: "Partido",  help: "09:00–14:00 y 16:00–19:00",   morningStart:"09:00", morningEnd:"14:00", afternoonStart:"16:00", afternoonEnd:"19:00", hoursPerDay: 8 },
+  { key: "straight", label: "Continuo", help: "09:00–17:00",                 morningStart:"09:00", morningEnd:"17:00", afternoonStart:"",      afternoonEnd:"",      hoursPerDay: 8 },
 ];
 
 export default function Step6ScheduleCity({ step, total, answers, setAnswer, onNext, onSkip }) {

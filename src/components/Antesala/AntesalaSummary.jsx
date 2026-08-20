@@ -87,11 +87,15 @@ function Aside({ children }) {
   );
 }
 
-// Devuelve el label legible del schedule elegido, o cadena vacía.
+// Devuelve el horario legible del schedule elegido, o cadena vacía.
+// SIN el label ("Mañana"/"Partido"/"Continuo") para no acumular puntos
+// medios en el summary — el chip del paso 6 ya educó al CEO sobre la
+// etiqueta. Aquí solo los horarios reales. Ejemplo:
+//   "09:00–14:00 y 16:00–19:00 · Marbella"
 function scheduleLabel(key) {
   const found = (SCHEDULES || []).find(s => s.key === key);
   if (!found) return "";
-  return `${found.label} · ${found.help}`;
+  return found.help || "";
 }
 
 // Devuelve el listado humano de asesores marcados en el Paso 7. Si el
