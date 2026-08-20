@@ -324,6 +324,34 @@ Jurisdicción: Juzgados de Marbella.
 `;
 }
 
+// Redacta el bloque "QUIÉN LE ASESORA HOY" que Héctor y el resto del
+// Consejo leen en su system prompt. Determina cómo actuar el Consejo:
+// preparar y remitir (si el CEO tiene profesional) o cobertura única
+// (si nadie). Añadido en la Antesala (Paso 7, 20/08/2026).
+//
+// Redacción aprobada por Antonio con matiz: "el Consejo TRABAJA A
+// FONDO y AL FINAL indica que la validación formal la haga el
+// profesional. El valor está en llegar al abogado con el trabajo
+// hecho, no en mandarle al abogado sin analizar."
+function buildAdvisorsBlock(advisors) {
+  if (!Array.isArray(advisors) || advisors.length === 0) return "";
+  const NAMES = {
+    legal:    "abogado",
+    fiscal:   "asesor fiscal",
+    gestoria: "gestoría",
+    internal: "equipo interno",
+  };
+  const isNone = advisors.length === 1 && advisors[0] === "none";
+  if (isNone) {
+    return `QUIÉN LE ASESORA HOY: nadie.
+El Consejo es su única cobertura técnica. Actúa con especial diligencia. Cuando una decisión requiera firma profesional (escritura pública, presentación fiscal, litigio, contrato de alto valor), avísale explícitamente y sugiere consultar a un profesional colegiado antes de ejecutar.`;
+  }
+  const list = advisors.filter(k => k !== "none").map(k => NAMES[k] || k).join(", ");
+  if (!list) return "";
+  return `QUIÉN LE ASESORA HOY: ${list}.
+En las materias que ya cubre un profesional del CEO, analiza a fondo y entrega criterio completo. Al cierre, indica que la validación formal corresponde a su profesional. El valor está en llegar a él con el trabajo hecho, no en enviarle al CEO sin análisis previo.`;
+}
+
 export function buildCeoBlock(profile, usuarioActivo) {
   const email = usuarioActivo?.email || "qn.finanzas@gmail.com";
   const hasAny = profile && (profile.name || profile.company || profile.sector || profile.description);
@@ -338,9 +366,11 @@ export function buildCeoBlock(profile, usuarioActivo) {
   const teamSize    = (typeof profile.teamSize === "number" && profile.teamSize > 0) ? `\nEquipo: ${profile.teamSize} persona${profile.teamSize === 1 ? "" : "s"}` : "";
   const city        = (typeof profile.city === "string" && profile.city.trim()) ? `\nCiudad: ${profile.city.trim()}` : "";
   const description = profile.description ? `\n\nLO QUE LE OCUPA:\n${profile.description}` : "";
+  const advisorsBlock = buildAdvisorsBlock(profile.advisors);
+  const advisorsPart  = advisorsBlock ? `\n\n${advisorsBlock}` : "";
   return `USUARIO ACTIVO — CEO Y PROPIETARIO:
 Nombre: ${name}${company}
-Email: ${email}${sector}${teamSize}${city}${description}
+Email: ${email}${sector}${teamSize}${city}${description}${advisorsPart}
 
 CÓMO COMUNICARTE:
 - Háblale por su nombre (${name}).

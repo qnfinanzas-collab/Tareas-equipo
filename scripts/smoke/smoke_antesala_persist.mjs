@@ -1,0 +1,166 @@
+// smoke_antesala_persist — verifica el helper applyAntesalaAnswers.
+//
+// Función pura sin React. Casos cubiertos:
+//   Caso 1: skip parcial (progress 2, status "progress") — persiste
+//           lo respondido + antesalaSkippedAt, no toca completedAt.
+//   Caso 2: respuesta completa sin pulsar Entrar (progress 7,
+//           "full-answered") — persiste TODO + antesalaProgress=7,
+//           sin marcar completedAt (Summary sigue reabrible).
+//   Caso 3: completed (progress 7, "completed") — marca completedAt,
+//           limpia skippedAt y antesalaPendingFronts.
+//   Caso 4: idempotencia — aplicar dos veces con las mismas
+//           respuestas no duplica keyFacts ni places[home].
+//   Caso 5: helper degrada si falta ownerMemberId — no toca
+//           members[i].avail ni places[home].
+//   Caso 6: filtrado de advisors — keys inválidas se descartan.
+
+import { applyAntesalaAnswers } from "../../src/components/Antesala/applyAntesalaAnswers.js";
+
+function assert(cond, label) {
+  if (!cond) { console.error(`✗ ${label}`); process.exitCode = 1; return false; }
+  console.log(`  ✓ ${label}`);
+  return true;
+}
+
+const BASE_DATA = () => ({
+  ceoProfile: { name: "", company: "", role: "", sector: "", description: "", teamSize: 0, city: "", antesalaProgress: 0, antesalaCompletedAt: null, antesalaSkippedAt: null },
+  ceoMemory:  { preferences: [], keyFacts: [], decisions: [], lessons: [], updatedAt: null },
+  members:    [{ id: 6, name: "Antonio Díaz", avail: { workDays:[1,2,3,4,5], morningStart:"09:00", morningEnd:"14:00", afternoonStart:"16:00", afternoonEnd:"19:00", hoursPerDay:8 } }],
+  places:     [],
+});
+
+// ─── Caso 1: skip parcial ──────────────────────────────────────────
+{
+  const prev = BASE_DATA();
+  const now = new Date("2026-08-20T10:00:00Z");
+  const next = applyAntesalaAnswers(prev, {
+    name: "Antonio",
+    company: "ALMA DIMO INVESTMENTS S.L.",
+  }, { progress: 2, status: "progress", ownerMemberId: 6, now });
+
+  console.log("Caso 1: skip parcial (progress 2)");
+  assert(next.ceoProfile.name === "Antonio", "name persiste");
+  assert(next.ceoProfile.company === "ALMA DIMO INVESTMENTS S.L.", "company persiste");
+  assert(next.ceoProfile.antesalaProgress === 2, "progress = 2");
+  assert(next.ceoProfile.antesalaSkippedAt === "2026-08-20T10:00:00.000Z", "skippedAt marcado");
+  assert(next.ceoProfile.antesalaCompletedAt === null, "completedAt sigue null");
+  assert(prev.ceoProfile.name === "", "prev no mutado");
+}
+
+// ─── Caso 2: full-answered (7/7 sin pulsar Entrar) ────────────────
+{
+  const prev = BASE_DATA();
+  const now = new Date("2026-08-20T10:05:00Z");
+  const answers = {
+    name: "Antonio",
+    company: "ALMA DIMO",
+    description: "Holding de inversiones",
+    teamSize: 10,
+    fronts: ["Frente A", "Frente B", "Frente C"],
+    timeSink: "Foro semanal comercial que se alarga",
+    scheduleKey: "split",
+    city: "Marbella",
+    advisors: ["legal", "fiscal"],
+  };
+  const next = applyAntesalaAnswers(prev, answers, { progress: 7, status: "full-answered", ownerMemberId: 6, now });
+
+  console.log("Caso 2: full-answered (7/7, aún en Summary)");
+  assert(next.ceoProfile.antesalaProgress === 7, "progress = 7");
+  assert(next.ceoProfile.antesalaCompletedAt === null, "completedAt sigue null (aún en Summary)");
+  assert(next.ceoProfile.antesalaSkippedAt === null, "skippedAt limpio (ya no está en skip)");
+  assert(Array.isArray(next.ceoProfile.antesalaPendingFronts) && next.ceoProfile.antesalaPendingFronts.length === 3, "3 frentes en buffer temporal");
+  assert(next.ceoProfile.teamSize === 10, "teamSize");
+  assert(next.ceoProfile.city === "Marbella", "city");
+  assert(Array.isArray(next.ceoProfile.advisors) && next.ceoProfile.advisors.length === 2, "advisors 2 keys");
+  assert(next.ceoMemory.keyFacts.length === 1 && next.ceoMemory.keyFacts[0].content.startsWith("Le roba tiempo:"), "keyFact timeSink añadido");
+  assert(next.members[0].avail.morningStart === "09:00" && next.members[0].avail.afternoonStart === "16:00" && next.members[0].avail.hoursPerDay === 8, "avail actualizado del schedule 'split'");
+  assert(next.places.length === 1 && next.places[0].placeType === "home" && next.places[0].name === "Marbella" && String(next.places[0].memberId) === "6", "place[home] añadido con la ciudad");
+}
+
+// ─── Caso 3: completed (pulsó Entrar en Kluxor) ───────────────────
+{
+  const prev = BASE_DATA();
+  prev.ceoProfile.antesalaPendingFronts = ["A", "B", "C"];
+  prev.ceoProfile.antesalaSkippedAt = "2026-08-19T20:00:00.000Z";
+  const now = new Date("2026-08-20T10:10:00Z");
+  const next = applyAntesalaAnswers(prev, {}, { progress: 7, status: "completed", ownerMemberId: 6, now });
+
+  console.log("Caso 3: completed (pulsó Entrar en Kluxor)");
+  assert(next.ceoProfile.antesalaCompletedAt === "2026-08-20T10:10:00.000Z", "completedAt marcado");
+  assert(next.ceoProfile.antesalaSkippedAt === null, "skippedAt limpio");
+  assert(next.ceoProfile.antesalaPendingFronts === null, "pendingFronts limpio (proyectos ya creados)");
+}
+
+// ─── Caso 4: idempotencia — sin duplicar keyFacts ni places ────────
+{
+  let d = BASE_DATA();
+  const now1 = new Date("2026-08-20T10:00:00Z");
+  const now2 = new Date("2026-08-20T10:15:00Z");
+  const answers = {
+    timeSink: "Reuniones sin decisión",
+    city: "Marbella",
+  };
+  d = applyAntesalaAnswers(d, answers, { progress: 5, status: "progress", ownerMemberId: 6, now: now1 });
+  d = applyAntesalaAnswers(d, answers, { progress: 6, status: "progress", ownerMemberId: 6, now: now2 });
+
+  console.log("Caso 4: idempotencia");
+  assert(d.ceoMemory.keyFacts.length === 1, "keyFacts NO duplicado tras aplicar dos veces");
+  assert(d.ceoMemory.keyFacts[0].updatedAt === "2026-08-20T10:15:00.000Z", "updatedAt refresca");
+  assert(d.ceoMemory.keyFacts[0].createdAt === "2026-08-20T10:00:00.000Z", "createdAt se preserva del primer insert");
+  assert(d.places.length === 1 && d.places[0].placeType === "home", "place[home] NO duplicado");
+  assert(d.places[0].createdAt === "2026-08-20T10:00:00.000Z", "createdAt del place se preserva");
+}
+
+// ─── Caso 5: sin ownerMemberId — degrada silencioso ────────────────
+{
+  const prev = BASE_DATA();
+  const originalAvail = { ...prev.members[0].avail };
+  const now = new Date("2026-08-20T10:00:00Z");
+  const next = applyAntesalaAnswers(prev, {
+    scheduleKey: "morning",
+    city: "Sevilla",
+  }, { progress: 6, status: "progress", now /* sin ownerMemberId */ });
+
+  console.log("Caso 5: sin ownerMemberId");
+  assert(next.ceoProfile.city === "Sevilla", "ceoProfile.city sí se actualiza (no depende de member)");
+  assert(next.members[0].avail.morningStart === originalAvail.morningStart, "avail NO tocado sin ownerMemberId");
+  assert(!Array.isArray(next.places) || next.places.length === 0, "places NO tocado sin ownerMemberId");
+}
+
+// ─── Caso 6: advisors — solo keys válidas ──────────────────────────
+{
+  const prev = BASE_DATA();
+  const next = applyAntesalaAnswers(prev, {
+    advisors: ["legal", "totallyInvented", "fiscal", ""],
+  }, { progress: 7, status: "full-answered", now: new Date() });
+
+  console.log("Caso 6: advisors filtrados");
+  assert(Array.isArray(next.ceoProfile.advisors), "advisors es array");
+  assert(next.ceoProfile.advisors.length === 2, "solo 2 keys válidas (legal, fiscal)");
+  assert(next.ceoProfile.advisors.includes("legal") && next.ceoProfile.advisors.includes("fiscal"), "las 2 correctas se preservan");
+  assert(!next.ceoProfile.advisors.includes("totallyInvented"), "clave inventada descartada");
+}
+
+// ─── Caso 7: 'none' exclusivo se preserva ───────────────────────────
+{
+  const prev = BASE_DATA();
+  const next = applyAntesalaAnswers(prev, {
+    advisors: ["none"],
+  }, { progress: 7, status: "full-answered", now: new Date() });
+
+  console.log("Caso 7: advisors ['none']");
+  assert(next.ceoProfile.advisors.length === 1 && next.ceoProfile.advisors[0] === "none", "'none' se preserva como key válida");
+}
+
+if (process.exitCode === 1) {
+  console.log("\n=== ANTESALA PERSIST FAIL ===");
+  process.exit(1);
+}
+console.log("\n=== ANTESALA PERSIST OK ===");
+console.log("Caso 1: skip parcial persiste + marca skippedAt ✓");
+console.log("Caso 2: full-answered persiste todo + pendingFronts ✓");
+console.log("Caso 3: completed marca completedAt + limpia buffers ✓");
+console.log("Caso 4: idempotencia — keyFacts y places sin duplicar ✓");
+console.log("Caso 5: sin ownerMemberId degrada silencioso ✓");
+console.log("Caso 6: advisors — solo keys válidas ✓");
+console.log("Caso 7: 'none' exclusivo se preserva ✓");
