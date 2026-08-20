@@ -25,9 +25,21 @@
 // Estado de la Antesala en ceoProfile:
 //   antesalaProgress:    número 0..7 (pasos respondidos).
 //   antesalaSkippedAt:   ISO si el CEO pulsó "Prefiero hacerlo después"
-//                        con progress < 7. Se limpia al completar.
+//                        con progress < 7. Se limpia al completar o al
+//                        retomar (status "progressing" / "full-answered").
 //   antesalaCompletedAt: ISO cuando pulsa "Entrar en Kluxor" en el
 //                        Summary. A partir de aquí no vuelve a aparecer.
+//
+// Cuatro status posibles:
+//   "progressing"    → avance normal entre pasos (persistir sin marcar
+//                      skipped ni completed). Cada onNext lo dispara.
+//   "skipped"        → CEO pulsó "Prefiero hacerlo después" con
+//                      progress < 7. Marca skippedAt. La Antesala se
+//                      oculta hasta que el CEO pulse el chip retomar.
+//   "full-answered"  → 7/7 respondidas pero aún en Summary sin pulsar
+//                      "Entrar en Kluxor". Limpia skippedAt.
+//   "completed"      → pulsó "Entrar en Kluxor". Marca completedAt,
+//                      limpia skippedAt y pendingFronts.
 //
 // Idempotente ante re-ejecución: si el CEO corrige una respuesta y
 // vuelve al Summary, aplicar de nuevo sobre el mismo prev es seguro
@@ -41,10 +53,10 @@ import { SCHEDULES } from "./schedules.js";
  * @param {object} answers    - respuestas parciales/completas del CEO.
  * @param {object} opts
  * @param {number} opts.progress          - pasos respondidos (0..7).
- * @param {"progress"|"full-answered"|"completed"} opts.status
- *   "progress"      → skip parcial (marca antesalaSkippedAt).
- *   "full-answered" → 7/7 respondidas pero aún no pulsó "Entrar en
- *                     Kluxor" (Summary visible, retomable ahí).
+ * @param {"progressing"|"skipped"|"full-answered"|"completed"} opts.status
+ *   "progressing"   → avance normal entre pasos (limpia skippedAt).
+ *   "skipped"       → CEO pulsó "Prefiero hacerlo después" (marca skippedAt).
+ *   "full-answered" → 7/7 respondidas, en Summary sin pulsar (limpia skipped).
  *   "completed"     → pulsó "Entrar en Kluxor" (marca completedAt,
  *                     limpia skipped + antesalaPendingFronts).
  * @param {number|string} [opts.ownerMemberId] - id del member del CEO
@@ -82,21 +94,23 @@ export function applyAntesalaAnswers(prev, answers, opts = {}) {
   }
 
   cp.antesalaProgress = progress;
-  if (status === "progress") {
+  if (status === "progressing") {
+    // Avance normal entre pasos. Persistimos progreso; si venía de un
+    // skip previo (retomada), limpiamos skippedAt para que showAntesala
+    // vuelva a considerarla activa.
+    cp.antesalaSkippedAt = null;
+  } else if (status === "skipped") {
     cp.antesalaSkippedAt = nowIso;
-    // No tocamos completedAt (será null si nunca lo puso; si el CEO
-    // completó y luego "corrige" un paso, status pasa por Summary
-    // como "full-answered" o "completed", nunca "progress").
+    // No tocamos completedAt.
   } else if (status === "full-answered") {
     // Respondió 7/7, aún en Summary sin pulsar. Persistimos progreso
     // para poder retomar directo en Summary si cierra el navegador.
-    // Limpia skippedAt (ya no está en modo skip).
     cp.antesalaSkippedAt = null;
   } else if (status === "completed") {
     cp.antesalaCompletedAt = nowIso;
     cp.antesalaSkippedAt = null;
     // Los frentes ya materializados como proyectos (lo hace el
-    // ejecutor en commit 4/5). Limpiamos el buffer temporal.
+    // ejecutor materializeAntesalaFronts). Limpiamos el buffer temporal.
     cp.antesalaPendingFronts = null;
   }
 
@@ -177,4 +191,58 @@ export function applyAntesalaAnswers(prev, answers, opts = {}) {
   }
 
   return next;
+}
+
+// extractAntesalaAnswers — operación INVERSA. Reconstruye el objeto
+// answers desde el data persistido para poder RETOMAR la Antesala
+// tras un skip o refresh. Al reabrir AntesalaFlow con estos answers,
+// cada Step muestra el valor previo restaurado.
+//
+// Puro. No muta data. Si un campo no está persistido, se omite del
+// answers (el Step verá su default vacío).
+export function extractAntesalaAnswers(data, ownerMemberId) {
+  const cp = (data && data.ceoProfile) || {};
+  const mem = (data && data.ceoMemory) || {};
+  const answers = {};
+
+  if (typeof cp.name === "string" && cp.name.trim()) answers.name = cp.name;
+  if (typeof cp.company === "string" && cp.company.trim()) answers.company = cp.company;
+  if (typeof cp.description === "string" && cp.description.trim()) answers.description = cp.description;
+  if (typeof cp.teamSize === "number" && cp.teamSize > 0) answers.teamSize = cp.teamSize;
+  if (Array.isArray(cp.antesalaPendingFronts) && cp.antesalaPendingFronts.length === 3) {
+    answers.fronts = cp.antesalaPendingFronts.slice();
+  }
+
+  // timeSink vive en ceoMemory.keyFacts con source:"antesala"+field:"timeSink".
+  // El content lleva prefijo "Le roba tiempo: " — lo strippeamos para
+  // que el textarea muestre solo la respuesta original.
+  const ts = (Array.isArray(mem.keyFacts) ? mem.keyFacts : []).find(k =>
+    k && k.source === "antesala" && k.field === "timeSink"
+  );
+  if (ts && typeof ts.content === "string") {
+    const m = /^Le roba tiempo:\s*(.*)$/.exec(ts.content);
+    answers.timeSink = m ? m[1] : ts.content;
+  }
+
+  // scheduleKey: reconstruir desde member.avail comparando contra SCHEDULES.
+  if (ownerMemberId != null) {
+    const owner = (Array.isArray(data && data.members) ? data.members : []).find(m =>
+      m && String(m.id) === String(ownerMemberId)
+    );
+    if (owner && owner.avail) {
+      const av = owner.avail;
+      const sched = (SCHEDULES || []).find(s =>
+        (s.morningStart   || "") === (av.morningStart   || "") &&
+        (s.morningEnd     || "") === (av.morningEnd     || "") &&
+        (s.afternoonStart || "") === (av.afternoonStart || "") &&
+        (s.afternoonEnd   || "") === (av.afternoonEnd   || "")
+      );
+      if (sched) answers.scheduleKey = sched.key;
+    }
+  }
+
+  if (typeof cp.city === "string" && cp.city.trim()) answers.city = cp.city;
+  if (Array.isArray(cp.advisors)) answers.advisors = cp.advisors.slice();
+
+  return answers;
 }

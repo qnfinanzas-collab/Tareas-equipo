@@ -70,6 +70,9 @@ import TaskTimeline from "./components/Tasks/TaskTimeline.jsx";
 import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripMarkdown, isIOS } from "./lib/voice.js";
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 import { PROJECT_CODE_RE, isValidProjectCode, autoProjectCode } from "./lib/projectCode.js";
+import AntesalaFlow from "./components/Antesala/AntesalaFlow.jsx";
+import { applyAntesalaAnswers, extractAntesalaAnswers } from "./components/Antesala/applyAntesalaAnswers.js";
+import { materializeAntesalaFronts } from "./components/Antesala/materializeAntesalaFronts.js";
 
 // ── Migración localStorage Kluxor → Kluxor (commit 8 — branding) ──────────
 // IIFE síncrona en import time, antes de cualquier render. Copia las
@@ -12549,6 +12552,11 @@ export default function TaskFlow(){
   const [scopeAvatar,setScopeAvatar] = useState(null); // null | "global" | "board"
   const [pendingOpenTaskId,setPendingOpenTaskId] = useState(null);
   const [sidebarOpen,setSidebarOpen] = useState(false);
+  // Reabrir la Antesala manualmente desde el chip del sidebar tras
+  // haber aplazado (Antonio 20/08 · commit 5/5). Cuando el CEO pulsa
+  // "Prefiero hacerlo después", la Antesala se oculta hasta que este
+  // flag se ponga a true; se resetea al skipear o completar.
+  const [antesalaReopen, setAntesalaReopen] = useState(false);
 
   // Persistencia automática en cada cambio de datos (local + remoto).
   // pushState va gateado por syncReady, que solo es true tras la primera
@@ -15719,6 +15727,88 @@ Estructura recomendada de una respuesta con documento:
     }
   }
   const me = (data.members||[]).find(m=>m.id===activeMember);
+
+  // ─── Antesala (flujo Héctor↔CEO tras signup, 20/08/2026) ────────
+  // Se muestra pantalla completa (short-circuit del shell) cuando el
+  // owner de un tenant NUEVO aún no ha completado el diagnóstico
+  // exprés Y no lo ha aplazado. Al aplazar (skippedAt), la Antesala
+  // se oculta hasta que el CEO pulse el chip "Completar Antesala".
+  //
+  // Guardia "tenant nuevo": data.projects.length === 0. Sin esta
+  // condición, tenants pre-existentes al deploy (Antonio, etc.)
+  // aterrizarían en la Antesala cada vez que carga la app porque
+  // nunca tuvieron antesalaCompletedAt seteado. La Antesala es solo
+  // para el primer contacto del CEO — quien ya tiene proyectos, ya
+  // trabajó con la app y no necesita el diagnóstico introductorio.
+  const _antesalaIsOwner = isAccountOwner(me, { legacyMode });
+  const _cp = data?.ceoProfile || {};
+  const _antesalaCompleted = !!_cp.antesalaCompletedAt;
+  const _antesalaSkipped   = !!_cp.antesalaSkippedAt;
+  const _tenantIsFresh     = (data?.projects || []).length === 0;
+  const _antesalaShouldShow = syncReady && _antesalaIsOwner && _tenantIsFresh && !_antesalaCompleted && !_antesalaSkipped;
+  const antesalaVisible = _antesalaShouldShow || antesalaReopen;
+
+  if (antesalaVisible) {
+    const initialStep = Math.min(7, Math.max(1, (_cp.antesalaProgress || 0) + 1));
+    const initialAnswers = extractAntesalaAnswers(data, activeMember);
+    return (
+      <AntesalaFlow
+        initialStep={initialStep}
+        initialAnswers={initialAnswers}
+        onProgress={(answers, completedStep) => {
+          setData(prev => applyAntesalaAnswers(prev, answers, {
+            progress: completedStep,
+            status: completedStep >= 7 ? "full-answered" : "progressing",
+            ownerMemberId: activeMember,
+          }));
+        }}
+        onSkip={(answers, step) => {
+          setData(prev => applyAntesalaAnswers(prev, answers, {
+            progress: Math.max(0, step - 1),
+            status: "skipped",
+            ownerMemberId: activeMember,
+          }));
+          setAntesalaReopen(false);
+        }}
+        onComplete={(answers) => {
+          const fronts = (answers.fronts || _cp.antesalaPendingFronts || []).map(f => String(f || "").trim()).filter(Boolean);
+          let createdProjects = [];
+          setData(prev => {
+            // 1. Materializar los 3 frentes como proyectos reales.
+            const { nextData: withProjects, created } = materializeAntesalaFronts(prev, {
+              fronts, ownerMemberId: activeMember,
+            });
+            createdProjects = created;
+            // 2. Aplicar respuestas con status="completed" (marca
+            //    completedAt + limpia pendingFronts + limpia skippedAt).
+            return applyAntesalaAnswers(withProjects, answers, {
+              progress: 7, status: "completed", ownerMemberId: activeMember,
+            });
+          });
+          if (createdProjects.length > 0) {
+            console.log(`✨ [Antesala] completada · proyectos creados:`, createdProjects.map(c => `${c.code}:${c.name}`));
+          }
+          // Sembrar un opener de Héctor que demuestre que ha escuchado —
+          // menciona los 3 frentes convertidos en proyectos. Se inyecta
+          // en el localStorage del chat antes de redirigir; HectorDirectView
+          // lo hidrata al montar.
+          try {
+            const chatKey = `kluxor.hector.chat.${activeMember != null ? activeMember : "anon"}`;
+            const nombre = String(answers.name || "").trim();
+            const saludo = nombre ? `Bienvenido a Kluxor, ${nombre}.` : "Bienvenido a Kluxor.";
+            const openerText = fronts.length === 3
+              ? `${saludo} Sus tres frentes ya están como proyectos. ¿Con cuál empieza hoy — «${fronts[0]}», «${fronts[1]}» o «${fronts[2]}»?`
+              : `${saludo} Su Kluxor está listo. ¿Por dónde quiere que empecemos?`;
+            const opener = { role: "assistant", text: openerText, ts: Date.now() };
+            localStorage.setItem(chatKey, JSON.stringify([opener]));
+          } catch (e) { /* localStorage bloqueado — no bloquea el flujo */ }
+          setAntesalaReopen(false);
+          setActiveTab("hector-direct");
+        }}
+      />
+    );
+  }
+
   return(
     <PresenceProvider currentUser={me}>
     <div className="tf-app-root" style={{display:"flex",fontFamily:"'Segoe UI',system-ui,sans-serif",background:"#f9fafb",color:"#111827"}}>
@@ -15881,6 +15971,40 @@ Estructura recomendada de una respuesta con documento:
                 <span style={{fontSize:10,color:"#9ca3af",flexShrink:0}}>{userMenuOpen?"▴":"▾"}</span>
               </>}
             </button>
+            {/* Chip retomar Antesala (Antonio 20/08 · commit 5/5).
+                Discreto, gris pequeño, sin caja. Aparece SOLO si el
+                owner respondió algo (progress > 0), aún no completó
+                y estamos en modo owner con sidebar expandido. Al
+                pulsar reabre la Antesala en el paso donde iba. */}
+            {!sidebarCollapsed
+             && _antesalaIsOwner
+             && (_cp.antesalaProgress || 0) > 0
+             && !_cp.antesalaCompletedAt
+             && (
+              <div style={{marginTop:8}}>
+                <button
+                  type="button"
+                  onClick={()=>setAntesalaReopen(true)}
+                  title="Retomar la Antesala donde la dejó"
+                  style={{
+                    background:"transparent",
+                    border:"none",
+                    padding:"4px 2px",
+                    fontFamily:"inherit",
+                    fontSize:11,
+                    color:"#6B7280",
+                    cursor:"pointer",
+                    letterSpacing:"0.01em",
+                    display:"inline-flex",
+                    alignItems:"center",
+                    gap:6,
+                  }}
+                >
+                  <span style={{width:6,height:6,background:"#C9A84C",display:"inline-block"}}/>
+                  Completar Antesala · {_cp.antesalaProgress}/7
+                </button>
+              </div>
+            )}
             {userMenuOpen&&(
               <>
                 <div onClick={()=>setUserMenuOpen(false)} style={{position:"fixed",inset:0,zIndex:1600}}/>

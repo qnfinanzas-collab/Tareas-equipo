@@ -14,7 +14,7 @@
 //           members[i].avail ni places[home].
 //   Caso 6: filtrado de advisors — keys inválidas se descartan.
 
-import { applyAntesalaAnswers } from "../../src/components/Antesala/applyAntesalaAnswers.js";
+import { applyAntesalaAnswers, extractAntesalaAnswers } from "../../src/components/Antesala/applyAntesalaAnswers.js";
 
 function assert(cond, label) {
   if (!cond) { console.error(`✗ ${label}`); process.exitCode = 1; return false; }
@@ -36,15 +36,31 @@ const BASE_DATA = () => ({
   const next = applyAntesalaAnswers(prev, {
     name: "Antonio",
     company: "ALMA DIMO INVESTMENTS S.L.",
-  }, { progress: 2, status: "progress", ownerMemberId: 6, now });
+  }, { progress: 2, status: "skipped", ownerMemberId: 6, now });
 
-  console.log("Caso 1: skip parcial (progress 2)");
+  console.log("Caso 1: skip parcial (status='skipped', progress 2)");
   assert(next.ceoProfile.name === "Antonio", "name persiste");
   assert(next.ceoProfile.company === "ALMA DIMO INVESTMENTS S.L.", "company persiste");
   assert(next.ceoProfile.antesalaProgress === 2, "progress = 2");
   assert(next.ceoProfile.antesalaSkippedAt === "2026-08-20T10:00:00.000Z", "skippedAt marcado");
   assert(next.ceoProfile.antesalaCompletedAt === null, "completedAt sigue null");
   assert(prev.ceoProfile.name === "", "prev no mutado");
+}
+
+// ─── Caso 1b: avance normal (progressing) ─────────────────────────
+{
+  const prev = BASE_DATA();
+  prev.ceoProfile.antesalaSkippedAt = "2026-08-19T20:00:00.000Z"; // había skipeado antes
+  const now = new Date("2026-08-20T10:02:00Z");
+  const next = applyAntesalaAnswers(prev, {
+    name: "Antonio",
+    company: "ALMA DIMO",
+  }, { progress: 2, status: "progressing", ownerMemberId: 6, now });
+
+  console.log("Caso 1b: avance normal (status='progressing')");
+  assert(next.ceoProfile.antesalaProgress === 2, "progress = 2");
+  assert(next.ceoProfile.antesalaSkippedAt === null, "skippedAt LIMPIO (retomó desde skip previo)");
+  assert(next.ceoProfile.antesalaCompletedAt === null, "completedAt sigue null");
 }
 
 // ─── Caso 2: full-answered (7/7 sin pulsar Entrar) ────────────────
@@ -100,8 +116,8 @@ const BASE_DATA = () => ({
     timeSink: "Reuniones sin decisión",
     city: "Marbella",
   };
-  d = applyAntesalaAnswers(d, answers, { progress: 5, status: "progress", ownerMemberId: 6, now: now1 });
-  d = applyAntesalaAnswers(d, answers, { progress: 6, status: "progress", ownerMemberId: 6, now: now2 });
+  d = applyAntesalaAnswers(d, answers, { progress: 5, status: "skipped", ownerMemberId: 6, now: now1 });
+  d = applyAntesalaAnswers(d, answers, { progress: 6, status: "skipped", ownerMemberId: 6, now: now2 });
 
   console.log("Caso 4: idempotencia");
   assert(d.ceoMemory.keyFacts.length === 1, "keyFacts NO duplicado tras aplicar dos veces");
@@ -119,7 +135,7 @@ const BASE_DATA = () => ({
   const next = applyAntesalaAnswers(prev, {
     scheduleKey: "morning",
     city: "Sevilla",
-  }, { progress: 6, status: "progress", now /* sin ownerMemberId */ });
+  }, { progress: 6, status: "skipped", now /* sin ownerMemberId */ });
 
   console.log("Caso 5: sin ownerMemberId");
   assert(next.ceoProfile.city === "Sevilla", "ceoProfile.city sí se actualiza (no depende de member)");
@@ -152,15 +168,47 @@ const BASE_DATA = () => ({
   assert(next.ceoProfile.advisors.length === 1 && next.ceoProfile.advisors[0] === "none", "'none' se preserva como key válida");
 }
 
+// ─── Caso 8: extractAntesalaAnswers — round-trip ──────────────────
+{
+  let d = BASE_DATA();
+  const now = new Date("2026-08-20T10:00:00Z");
+  const answers = {
+    name: "Antonio",
+    company: "ALMA DIMO",
+    description: "Holding",
+    teamSize: 10,
+    fronts: ["A", "B", "C"],
+    timeSink: "Reuniones sin decisión",
+    scheduleKey: "split",
+    city: "Marbella",
+    advisors: ["legal", "fiscal"],
+  };
+  d = applyAntesalaAnswers(d, answers, { progress: 7, status: "full-answered", ownerMemberId: 6, now });
+  const restored = extractAntesalaAnswers(d, 6);
+
+  console.log("Caso 8: extractAntesalaAnswers — round-trip");
+  assert(restored.name === "Antonio", "name restored");
+  assert(restored.company === "ALMA DIMO", "company restored");
+  assert(restored.description === "Holding", "description restored");
+  assert(restored.teamSize === 10, "teamSize restored");
+  assert(Array.isArray(restored.fronts) && restored.fronts.length === 3 && restored.fronts[0] === "A", "fronts restored");
+  assert(restored.timeSink === "Reuniones sin decisión", "timeSink extraído del keyFact (sin prefijo)");
+  assert(restored.scheduleKey === "split", "scheduleKey reconstruido desde member.avail");
+  assert(restored.city === "Marbella", "city restored");
+  assert(Array.isArray(restored.advisors) && restored.advisors.length === 2, "advisors restored");
+}
+
 if (process.exitCode === 1) {
   console.log("\n=== ANTESALA PERSIST FAIL ===");
   process.exit(1);
 }
 console.log("\n=== ANTESALA PERSIST OK ===");
-console.log("Caso 1: skip parcial persiste + marca skippedAt ✓");
-console.log("Caso 2: full-answered persiste todo + pendingFronts ✓");
-console.log("Caso 3: completed marca completedAt + limpia buffers ✓");
-console.log("Caso 4: idempotencia — keyFacts y places sin duplicar ✓");
-console.log("Caso 5: sin ownerMemberId degrada silencioso ✓");
-console.log("Caso 6: advisors — solo keys válidas ✓");
-console.log("Caso 7: 'none' exclusivo se preserva ✓");
+console.log("Caso 1:  skipped persiste + marca skippedAt ✓");
+console.log("Caso 1b: progressing limpia skippedAt previo ✓");
+console.log("Caso 2:  full-answered persiste todo + pendingFronts ✓");
+console.log("Caso 3:  completed marca completedAt + limpia buffers ✓");
+console.log("Caso 4:  idempotencia — keyFacts y places sin duplicar ✓");
+console.log("Caso 5:  sin ownerMemberId degrada silencioso ✓");
+console.log("Caso 6:  advisors — solo keys válidas ✓");
+console.log("Caso 7:  'none' exclusivo se preserva ✓");
+console.log("Caso 8:  extractAntesalaAnswers round-trip ✓");

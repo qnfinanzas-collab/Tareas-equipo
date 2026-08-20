@@ -34,6 +34,8 @@ export default function AntesalaFlow({
   initialAnswers = {},
   onSkip,
   onComplete,
+  onProgress, // opcional: dispara al avanzar cada paso, permite persistir
+              // progreso incremental para retomar tras cierre inesperado.
 }) {
   // Clamp del initialStep al rango válido — defensivo para retomas con
   // progress corrupto o fuera de rango.
@@ -58,16 +60,25 @@ export default function AntesalaFlow({
   };
 
   const goNext = () => {
+    // Persistir progreso incremental (status="progressing"):
+    //   - Si returningToSummary → completedStep = step (el que se
+    //     acaba de corregir).
+    //   - Si step ≥ TOTAL → completedStep = TOTAL (se entra en Summary
+    //     con las 7 respondidas).
+    //   - Caso normal → completedStep = step (el que se acaba de responder).
+    const completedStep = step;
+    onProgress?.(answers, completedStep);
+
     if (returningToSummary) {
       setReturningToSummary(false);
       setPhase("summary");
       return;
     }
     if (step >= TOTAL) {
-      // Tras el paso 6, en vez de disparar onComplete pasamos a la
-      // pantalla de devolución. onComplete solo se dispara cuando el
-      // CEO pulsa "Entrar en Kluxor" en el Summary — ahí es donde se
-      // materializan los proyectos y se marca antesalaCompletedAt.
+      // Tras el último paso, en vez de disparar onComplete pasamos a
+      // la pantalla de devolución. onComplete solo se dispara cuando
+      // el CEO pulsa "Entrar en Kluxor" en el Summary — ahí es donde
+      // se materializan los proyectos y se marca antesalaCompletedAt.
       setPhase("summary");
     } else {
       setStep(step + 1);
