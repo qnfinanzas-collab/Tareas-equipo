@@ -1482,6 +1482,36 @@ function _migrate(d){
     lessons:     Array.isArray(d.ceoMemory.lessons)     ? d.ceoMemory.lessons     : [],
     updatedAt:   d.ceoMemory.updatedAt || null,
   } : emptyCeoMemory();
+  // Ficha del CEO (nivel app) — lo que Héctor y los especialistas leen
+  // para saber a quién asesoran. Extendido en 20/08/2026 con los campos
+  // que va a rellenar la Antesala (flujo Héctor↔CEO tras el signup):
+  //   - antesalaProgress:    número 0..6 de pasos respondidos.
+  //   - antesalaCompletedAt: ISO string cuando el CEO termina las 6
+  //     preguntas (o pulsa "hacer después" en el paso 6).
+  //   - antesalaSkippedAt:   ISO string si aplaza con progress < 6.
+  //   - teamSize:            número de personas en el equipo del CEO.
+  //   - city:                ciudad principal del CEO (además de un
+  //     places[home] duplicado para el planificador de rutas).
+  // Idempotente: si data.ceoProfile ya existe, se preservan los campos
+  // presentes y solo se rellenan los que falten. Si no existe, se crea
+  // vacío — Héctor cae al legacy hardcoded de Antonio en buildCeoBlock
+  // hasta que la Antesala rellene name/company/etc. (comportamiento
+  // idéntico al actual para tenants sin ceoProfile). Cero side-effect
+  // sobre tenants existentes; solo aparecen las nuevas claves a null/0.
+  if (!d.ceoProfile || typeof d.ceoProfile !== "object") d.ceoProfile = {};
+  const cp = d.ceoProfile;
+  if (typeof cp.name        !== "string") cp.name        = "";
+  if (typeof cp.company     !== "string") cp.company     = "";
+  if (typeof cp.role        !== "string") cp.role        = "";
+  if (typeof cp.sector      !== "string") cp.sector      = "";
+  if (typeof cp.description !== "string") cp.description = "";
+  if (typeof cp.teamSize    !== "number") cp.teamSize    = 0;
+  if (typeof cp.city        !== "string") cp.city        = "";
+  if (typeof cp.antesalaProgress    !== "number") cp.antesalaProgress    = 0;
+  if (cp.antesalaCompletedAt !== undefined && cp.antesalaCompletedAt !== null && typeof cp.antesalaCompletedAt !== "string") cp.antesalaCompletedAt = null;
+  if (cp.antesalaCompletedAt === undefined) cp.antesalaCompletedAt = null;
+  if (cp.antesalaSkippedAt   !== undefined && cp.antesalaSkippedAt   !== null && typeof cp.antesalaSkippedAt   !== "string") cp.antesalaSkippedAt   = null;
+  if (cp.antesalaSkippedAt   === undefined) cp.antesalaSkippedAt   = null;
   // Permisos granulares por feature: {[memberId]: {[feature]: {view, edit, admin}}}.
   // El admin global (accountRole==="admin") tiene acceso total automáticamente
   // y no necesita entradas aquí. Idempotente: si existe se respeta.

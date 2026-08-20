@@ -331,10 +331,16 @@ export function buildCeoBlock(profile, usuarioActivo) {
   const name        = profile.name || "el CEO";
   const company     = profile.company ? `\nEmpresa: ${profile.company}` : "";
   const sector      = profile.sector ? `\nSector: ${profile.sector}` : "";
+  // teamSize y city — rellenados por la Antesala (Héctor↔CEO, 20/08/2026).
+  // Se emiten solo si tienen valor: cero ruido para tenants aún sin
+  // Antesala completada (fallback al buildCeoBlockLegacyAntonio o al
+  // bloque parcial sin estas líneas).
+  const teamSize    = (typeof profile.teamSize === "number" && profile.teamSize > 0) ? `\nEquipo: ${profile.teamSize} persona${profile.teamSize === 1 ? "" : "s"}` : "";
+  const city        = (typeof profile.city === "string" && profile.city.trim()) ? `\nCiudad: ${profile.city.trim()}` : "";
   const description = profile.description ? `\n\nLO QUE LE OCUPA:\n${profile.description}` : "";
   return `USUARIO ACTIVO — CEO Y PROPIETARIO:
 Nombre: ${name}${company}
-Email: ${email}${sector}${description}
+Email: ${email}${sector}${teamSize}${city}${description}
 
 CÓMO COMUNICARTE:
 - Háblale por su nombre (${name}).
