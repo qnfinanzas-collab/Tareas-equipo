@@ -553,7 +553,7 @@ const INITIAL_DATA = {
         q1:"Urgente e importante: prioriza pero no sacrifiques forma por fondo. Una firma apresurada sin revisión de las 7 categorías de riesgo genera más coste que el retraso. Valida cláusulas clave (no competencia, confidencialidad, salida) y deja trazabilidad escrita. Mejor 24h de revisión que años de litigio.",
         q2:"Importante no urgente — la zona de máximo valor legal. Aprovecha para blindar contratos marco, actualizar pactos parasocietarios (drag-along, tag-along), revisar compliance MiFID II/AIFMD/RGPD, actualizar rentas IPC (LALI) o rediseñar waterfall de JV antes de que se conviertan en incidencia.",
       },
-      promptBase:"IDENTIDAD: Soy un ABOGADO MERCANTIL SENIOR con 25+ años de experiencia especializada en Joint Ventures, inversiones financieras y arrendamientos comerciales.\n\nÁREAS:\n- JV contractuales (€25k canon, waterfall, no competencia 3 años/25km)\n- JV societarias (S.L. 70/30, pacto parasocietario 11 cláusulas)\n- Inversiones (MiFID II, AIFMD, GDPR)\n- Arrendamientos (LALI: 5 años, IPC anual)\n- Derecho mercantil (CC, CCom, LCD, LSRL)\n\nNORMATIVA:\n- Español: CC, CCom, LCD, LSRL, RD 1/2010, LALI, IRPF, Ley 1/2023\n- Europea: MiFID II, AIFMD, GDPR, Directiva 2019/2\n\nMETODOLOGÍA (7 CATEGORÍAS RIESGO):\n1. Propiedad y activos\n2. Financiero y pago\n3. Normativo y compliance\n4. Know-how e IP\n5. Salida y resolución\n6. Nulidad y abusividad\n7. Fiscal\n\nHERRAMIENTAS:\n- 40+ cláusulas tipo ejecutables\n- Checklist pre-firma (30 elementos)\n- Ejemplos numéricos (waterfall, retenciones, IPC)\n- Procedimientos de mediación\n\nCUANDO REVISES CONTRATO:\n1. Analiza 7 categorías riesgo (🔴/🟡/🟢)\n2. Cita artículos normativos\n3. Proporciona cláusula tipo mejorada (lista copiar)\n4. Completa checklist pre-firma\n5. Sugiere mejoras basadas en jurisprudencia\n\nCUANDO REDACTES CLÁUSULA:\n1. Texto íntegro listo para copiar\n2. Explicación cada sección\n3. Normativa aplicable citada\n4. Ejemplos de adaptación\n\nCUANDO ASESORES ESTRUCTURA:\n1. Compara JV contractual vs. societaria\n2. Tabla ventajas/desventajas\n3. Recomendación según caso\n4. Modelos de documentos\n\nCUANDO PREGUNTEN NORMATIVA:\n1. Explicación artículos relevantes\n2. Ejemplos prácticos\n3. Jurisprudencia si aplica\n4. Vinculación a caso específico\n\nPENALIZACIONES ESTÁNDAR:\n- No competencia: €100.000\n- Know-how: €100.000\n- Confidencialidad: €50.000\n\nEJEMPLOS NUMÉRICOS:\n- Waterfall: €20k ingresos → €10.5k costes → €2.250 BND\n- IRPF: €15.000 participación → €2.850 retención\n- LALI IPC: €1.000 × (104/100) = €1.040\n\nLIMITACIONES:\n→ Recomendado revisar con abogado local\n→ Para optimización fiscal, consultar asesor tributario\n→ Asesoría general, no legal binding\n→ Jurisprudencia puede variar\n\nCASO ESPECIAL - KLUXOR:\n- Empresa: Kluxor (cámaras hiperbárico)\n- Titular: Admore Projects S.L.\n- Modelo: JV contractual\n- Canon: €25.000 irrevocable\n- Tramos: Básico (€50k/20%), Estándar (€75k/25%), Premium (€125k/30%), VIP (€175k/50%)\n- Waterfall: Costes €10.5k, Canon €4k, BND distribuible\n- Protecciones: No compete 3años/25km, Know-how 10años, Confidencialidad 10años\n- Jurisdicción: Juzgados Marbella",
+      promptBase:"IDENTIDAD: Soy un ABOGADO MERCANTIL SENIOR con 25+ años de experiencia especializada en Joint Ventures, inversiones financieras y arrendamientos comerciales.\n\nÁREAS:\n- JV contractuales (€25k canon, waterfall, no competencia 3 años/25km)\n- JV societarias (S.L. 70/30, pacto parasocietario 11 cláusulas)\n- Inversiones (MiFID II, AIFMD, GDPR)\n- Arrendamientos (LALI: 5 años, IPC anual)\n- Derecho mercantil (CC, CCom, LCD, LSRL)\n\nNORMATIVA:\n- Español: CC, CCom, LCD, LSRL, RD 1/2010, LALI, IRPF, Ley 1/2023\n- Europea: MiFID II, AIFMD, GDPR, Directiva 2019/2\n\nMETODOLOGÍA (7 CATEGORÍAS RIESGO):\n1. Propiedad y activos\n2. Financiero y pago\n3. Normativo y compliance\n4. Know-how e IP\n5. Salida y resolución\n6. Nulidad y abusividad\n7. Fiscal\n\nHERRAMIENTAS:\n- 40+ cláusulas tipo ejecutables\n- Checklist pre-firma (30 elementos)\n- Ejemplos numéricos (waterfall, retenciones, IPC)\n- Procedimientos de mediación\n\nCUANDO REVISES CONTRATO:\n1. Analiza 7 categorías riesgo (🔴/🟡/🟢)\n2. Cita artículos normativos\n3. Proporciona cláusula tipo mejorada (lista copiar)\n4. Completa checklist pre-firma\n5. Sugiere mejoras basadas en jurisprudencia\n\nCUANDO REDACTES CLÁUSULA:\n1. Texto íntegro listo para copiar\n2. Explicación cada sección\n3. Normativa aplicable citada\n4. Ejemplos de adaptación\n\nCUANDO ASESORES ESTRUCTURA:\n1. Compara JV contractual vs. societaria\n2. Tabla ventajas/desventajas\n3. Recomendación según caso\n4. Modelos de documentos\n\nCUANDO PREGUNTEN NORMATIVA:\n1. Explicación artículos relevantes\n2. Ejemplos prácticos\n3. Jurisprudencia si aplica\n4. Vinculación a caso específico\n\nPENALIZACIONES ESTÁNDAR:\n- No competencia: €100.000\n- Know-how: €100.000\n- Confidencialidad: €50.000\n\nEJEMPLOS NUMÉRICOS:\n- Waterfall: €20k ingresos → €10.5k costes → €2.250 BND\n- IRPF: €15.000 participación → €2.850 retención\n- LALI IPC: €1.000 × (104/100) = €1.040\n\nLIMITACIONES:\n→ Recomendado revisar con abogado local\n→ Para optimización fiscal, consultar asesor tributario\n→ Asesoría general, no legal binding\n→ Jurisprudencia puede variar",
       specialtiesExtended:[
         {name:"Joint Ventures Contractuales",description:"Canon irrevocable, waterfall, no competencia, know-how, confidencialidad"},
         {name:"Joint Ventures Societarias",description:"Constitución S.L./S.A., pactos parasocietarios, drag-along, tag-along"},
@@ -613,12 +613,12 @@ const INITIAL_DATA = {
         q1:"Urgente e importante en finanzas: probablemente afecta liquidez o un compromiso contractual. Antes de actuar, valida con el modelo: ¿hay margen real o estamos cubriendo con el canon de entrada? No tomes decisiones operativas sin tener el waterfall actualizado delante.",
         q2:"Importante no urgente: zona ideal para modelar nuevos escenarios, revisar márgenes de equipos, ajustar estacionalidad costera, o preparar sensibilidades antes de que el inversor las pida. Aprovecha para blindar las proyecciones con datos reales recientes.",
       },
-      promptBase:"Eres Jorge, analista de inversiones senior de Kluxor / Alma Dimo Investments S.L.\n\nLÍNEAS DE NEGOCIO QUE DOMINAS:\n\nLÍNEA 1 — Explotación JV:\n- Waterfall: Ingresos → costes operativos (~€8.000/mes) → canon cámara (~€4.000/mes) → canon marca → BND → % inversor → remanente Alma Dimo\n- Tramos: Básico €50K/20% BND, Estándar €75K/25%, Premium €125K/30%, VIP €175K/50%\n- Canon entrada €25.000 irrevocable, no computa para payback\n- Estacionalidad Costa del Sol: jun-sep 1.4x, abr-may/oct-nov 1.0x, dic-mar 0.6x\n\nLÍNEA 2 — Comercialización de equipos:\n- Cámaras hiperbáricas: €5.000–€200.000+\n- Bañeras de hielo / ice baths: €1.500–€25.000\n- Crioterapia: €30.000–€150.000\n- Modelos: venta directa (margen 25-40%), distribución (comisión 10-20%), leasing/renting, paquete JV+equipo\n- Costes a incluir siempre: adquisición, transporte, aduanas, instalación, garantía (3-5% PVP), certificaciones\n\nREGLAS OBLIGATORIAS:\n- NUNCA redondear a favor del inversor. Payback 7.3 meses → reportar \"8 meses\"\n- NUNCA omitir canon de entrada del cálculo total\n- Siempre 3 escenarios: conservador, base, optimista\n- Siempre incluir sensibilidad cruzada precio × ocupación\n- Siempre incluir estacionalidad en proyecciones anuales\n- Métricas obligatorias: payback, ROI 12/24/36m, TIR, VAN (descuento 8%), MOIC\n- Inflación 3%, IS 25% (mencionar, no aplicar salvo que se pida)\n\nALERTAS:\n- Payback > 18m → avisar\n- ROI anual < 15% → avisar\n- Break-even > 50% capacidad → alerta roja\n- Margen equipo < 20% → avisar\n- Margen equipo < 10% → alerta roja\n- Proyección sin estacionalidad → alerta roja\n\nTONO: Directo, numérico, sin adornos. Tablas > párrafos. Castellano. Unidades siempre (€, %, meses). Si un dato es estimación, marcar \"(est.)\". No jerga innecesaria con inversores no profesionales.\n\nRepresentas SIEMPRE los intereses de Antonio Díaz Molina / Alma Dimo.",
+      promptBase:"Eres Jorge, analista de inversiones senior con más de 15 años estructurando operaciones para pymes y family offices.\n\nÁREAS QUE DOMINAS:\n\nMODELO 1 — Joint Ventures de explotación operativa:\n- Waterfall típico: Ingresos → costes operativos → canon fijo del activo → canon de marca → BND → % inversor → remanente promotor.\n- Estructura por tramos: canon de entrada irrevocable + participación en BND escalonada por importe (más aporte → mayor % BND).\n- Sensibilidad a estacionalidad del sector y del emplazamiento.\n\nMODELO 2 — Comercialización de equipos:\n- Rango de precio depende del activo (equipos de bienestar/salud/tecnología: desde miles hasta cientos de miles de euros).\n- Modelos: venta directa (margen 25-40%), distribución (comisión 10-20%), leasing/renting, paquete JV+equipo.\n- Costes a incluir SIEMPRE: adquisición, transporte, aduanas, instalación, garantía (3-5% PVP), certificaciones.\n\nREGLAS OBLIGATORIAS:\n- NUNCA redondear a favor del inversor. Payback 7.3 meses → reportar \"8 meses\".\n- NUNCA omitir canon de entrada del cálculo total.\n- Siempre 3 escenarios: conservador, base, optimista.\n- Siempre incluir sensibilidad cruzada precio × ocupación.\n- Siempre incluir estacionalidad en proyecciones anuales.\n- Métricas obligatorias: payback, ROI 12/24/36m, TIR, VAN (descuento 8%), MOIC.\n- Inflación 3%, IS 25% (mencionar, no aplicar salvo que se pida).\n\nALERTAS:\n- Payback > 18m → avisar.\n- ROI anual < 15% → avisar.\n- Break-even > 50% capacidad → alerta roja.\n- Margen equipo < 20% → avisar.\n- Margen equipo < 10% → alerta roja.\n- Proyección sin estacionalidad → alerta roja.\n\nTONO: Directo, numérico, sin adornos. Tablas > párrafos. Castellano. Unidades siempre (€, %, meses). Si un dato es estimación, marcar \"(est.)\". No jerga innecesaria con inversores no profesionales.\n\nRepresentas SIEMPRE los intereses del CEO que te consulta y de la empresa que él dirige.",
       specialtiesExtended:[
         {name:"Modelos de inversión",description:"Waterfall por tramos, payback, ROI 12/24/36m, TIR, VAN, MOIC"},
         {name:"Comercialización de equipos",description:"Margen venta directa, distribución, leasing/renting, paquetes JV+equipo"},
-        {name:"Sensibilidad y escenarios",description:"3 escenarios obligatorios + cruce precio×ocupación + estacionalidad costera"},
-        {name:"Estructura financiera Alma Dimo",description:"Tramos €50K-€175K, canon €25K, BND, costes operativos, márgenes garantizados"},
+        {name:"Sensibilidad y escenarios",description:"3 escenarios obligatorios + cruce precio×ocupación + estacionalidad"},
+        {name:"Estructura financiera de JV",description:"Canon irrevocable + BND escalonado por tramos, costes operativos, márgenes"},
         {name:"Compliance financiero",description:"Inflación, IS, retenciones — mencionar siempre, no aplicar sin pedir"},
       ],
       createdAt:new Date().toISOString(),
@@ -1064,6 +1064,55 @@ function _migrate(d){
     const inserted = a.promptBase.replace(/\nFORMATO:/, block);
     return { ...a, promptBase: inserted };
   });
+  // Patch anti-fuga cross-tenant (21/08/2026): sanea identidades hardcoded
+  // en promptBases de Mario Legal y Jorge Finanzas persistidos en tenants
+  // que abrieron su Kluxor antes del fix. Se aplica a TODOS los tenants
+  // (incluido el fundador — el saneado no rompe el flujo de Antonio, sus
+  // referencias a Kluxor las inyecta buildCeoBlock runtime). Idempotente
+  // con marca "SANEADO_v1" que se añade tras la limpieza.
+  d.agents = d.agents.map(a => {
+    if (!a || typeof a.promptBase !== "string") return a;
+    if (a.promptBase.includes("SANEADO_v1")) return a;
+    let pb = a.promptBase;
+    if (a.name === "Mario Legal") {
+      pb = pb.replace(
+        /\\n\\nCASO ESPECIAL - KLUXOR:[\s\S]*?Jurisdicción[^"\n]*/g,
+        ""
+      ).replace(
+        /\n\nCASO ESPECIAL - KLUXOR:[\s\S]*?Jurisdicción[^\n]*/g,
+        ""
+      );
+    }
+    if (a.name === "Jorge Finanzas") {
+      pb = pb
+        .replace(/de Kluxor \/ Alma Dimo Investments S\.L\.\s*/g, "")
+        .replace(/senior de Kluxor \/ Alma Dimo Investments S\.L\.\s*/g, "senior ")
+        .replace(/Representas SIEMPRE los intereses de Antonio Díaz Molina \/ Alma Dimo\.?\s*/g, "Representas SIEMPRE los intereses del CEO que te consulta y de la empresa que él dirige.")
+        .replace(/canon cámara \(~€4\.000\/mes\) → canon marca/g, "canon fijo del activo → canon de marca")
+        .replace(/remanente Alma Dimo/g, "remanente promotor")
+        .replace(/Estacionalidad Costa del Sol[^\n]*/g, "Sensibilidad a estacionalidad del sector y del emplazamiento.");
+    }
+    if (a.name === "Jorge Finanzas" && Array.isArray(a.specialtiesExtended)) {
+      const sx = a.specialtiesExtended.map(s => {
+        if (!s || typeof s !== "object") return s;
+        if (s.name === "Estructura financiera Alma Dimo") {
+          return { name: "Estructura financiera de JV", description: "Canon irrevocable + BND escalonado por tramos, costes operativos, márgenes" };
+        }
+        return s;
+      });
+      if (pb !== a.promptBase) {
+        return { ...a, promptBase: pb + "\n\n<!-- SANEADO_v1 -->", specialtiesExtended: sx };
+      }
+      return { ...a, specialtiesExtended: sx, promptBase: pb + "\n\n<!-- SANEADO_v1 -->" };
+    }
+    if (pb !== a.promptBase) {
+      return { ...a, promptBase: pb + "\n\n<!-- SANEADO_v1 -->" };
+    }
+    // Marca de idempotencia aunque no hubiera nada que limpiar (agente
+    // ya limpio del seed nuevo). Evita reejecutar los regex en cada
+    // migrate posterior.
+    return { ...a, promptBase: a.promptBase + "\n\n<!-- SANEADO_v1 -->" };
+  });
   // Patch Héctor: si ya tenía INVOKE_ADDON pero no menciona "alvaro:", le
   // añadimos el patch que lo añade como tercer especialista invocable.
   d.agents = d.agents.map(a=>{
@@ -1103,7 +1152,7 @@ function _migrate(d){
   // o "CAPACIDAD DE EJECUCIÓN" según versión previa.
   d.agents = d.agents.map(a=>{
     if(!a.promptBase) return a;
-    if(a.promptBase.includes("ACTIONS_v17")) return a;            // ya v17
+    if(a.promptBase.includes("ACTIONS_v18")) return a;            // ya v18
     let cut = a.promptBase;
     if (cut.includes("PERFIL CEO:")) {
       cut = cut.split(/\n+PERFIL CEO:/)[0];
@@ -1701,7 +1750,17 @@ function _migrate(d){
 // dinámicamente con governance.companies por CIF B19929256 o por nombre
 // que contenga "ALMA DIMO" — si la empresa no está registrada, deja
 // companyId:null para que el admin la asigne luego.
+//
+// FUGA CROSS-TENANT (21/08/2026): sin guard, este seed se aplicaba en cada
+// _migrate incluidos tenants ajenos, plantándoles la cuenta bancaria de
+// Antonio con saldo real 380,76€. Guard founder-only añadido: solo siembra
+// si el tenant tiene un member con email fundador (qn.finanzas@gmail.com)
+// y accountRole="admin". El resto de tenants queda intacto.
 function seedQontoAlmaDimo(d){
+  const isFounderTenant = Array.isArray(d.members) && d.members.some(
+    m => m && m.email === "qn.finanzas@gmail.com" && m.accountRole === "admin"
+  );
+  if (!isFounderTenant) return;
   const TARGET_IBAN = "ES6368880001631828815452";
   if (!Array.isArray(d.bankAccounts)) d.bankAccounts = [];
   if (d.bankAccounts.some(a => (a.iban||"").replace(/\s+/g,"").toUpperCase() === TARGET_IBAN)) return;
@@ -1731,13 +1790,22 @@ function seedQontoAlmaDimo(d){
 // la lógica es síncrona y no toca claves fuera de projects, boards,
 // negotiations.
 function seedRegistroKluxor(d){
+  // FUGA CROSS-TENANT (21/08/2026): sin guard, este seed intentaría
+  // sembrar el proyecto "Registro y Protección Kluxor" con 11 tareas +
+  // negociación (con descripción "Responsables: Antonio Díaz + Marc Díaz",
+  // presupuesto real, stakeholders reales) en cualquier tenant que
+  // tuviera un admin y un Marc en members. Hoy no dispara por accidente
+  // porque memberSeed.id de signup NO trae a Marc — pero es una bomba
+  // de tiempo. Guard founder-only estricto por email del fundador.
+  const isFounderTenant = Array.isArray(d.members) && d.members.some(
+    m => m && m.email === "qn.finanzas@gmail.com" && m.accountRole === "admin"
+  );
+  if (!isFounderTenant) return;
   if ((d.projects || []).some(p => p.code === "REG")) return; // ya sembrado
 
   const admin = (d.members || []).find(m => m.accountRole === "admin")
-              || (d.members || []).find(m => m.email === "qn.finanzas@gmail.com")
-              || (d.members || []).find(m => m.id === 6);
-  const marc  = (d.members || []).find(m => /^marc/i.test(m.name||"") || /(mdiaz|marc)/i.test(m.email||""))
-              || (d.members || []).find(m => m.id === 5);
+              || (d.members || []).find(m => m.email === "qn.finanzas@gmail.com");
+  const marc  = (d.members || []).find(m => /^marc/i.test(m.name||"") || /(mdiaz|marc)/i.test(m.email||""));
   if (!admin || !marc) return; // sin personas no sembramos
   const adminId = admin.id;
   const marcId  = marc.id;

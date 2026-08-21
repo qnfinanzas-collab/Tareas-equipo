@@ -1323,13 +1323,16 @@ function makeAgentTimelineEntry(agentName) {
 //
 // Marca de versión "ACTIONS_v2" para que la migración pueda reemplazar
 // la versión larga por esta corta sin duplicar.
+//
+// v18 (21/08/2026): eliminado el bloque estático PERFIL CEO con la
+// identidad de Antonio Díaz hardcodeada. Se filtraba a todos los tenants
+// nuevos vía _migrate. La identidad del CEO ahora se inyecta runtime por
+// buildCeoBlock (per-tenant desde data.ceoProfile). El _migrate detecta
+// ACTIONS_v17 y anteriores y reemplaza por v18 (corte por marker
+// "PERFIL CEO:" o "CAPACIDAD DE EJECUCIÓN"), sin PERFIL CEO estático.
 export const AGENT_ACTIONS_ADDON = `
 
-PERFIL CEO:
-Antonio Díaz · CEO ALMA DIMO INVESTMENTS S.L.
-Visionario digital desde 1998. Ha liderado equipos de diseño, marketing, programación, finanzas y ventas. Comunicación directa · opciones concretas · impacto de negocio · móvil primero · tiempo es el activo real. En documentos legales es SIEMPRE la parte principal.
-
-CAPACIDAD DE EJECUCIÓN (ACTIONS_v17):
+CAPACIDAD DE EJECUCIÓN (ACTIONS_v18):
 Si el CEO te pide explícitamente crear proyectos, tareas, negociaciones o movimientos, añade AL FINAL de tu respuesta un bloque:
 [ACTIONS]{"summary":"breve","confirmRequired":true,"actions":[...]}[/ACTIONS]
 

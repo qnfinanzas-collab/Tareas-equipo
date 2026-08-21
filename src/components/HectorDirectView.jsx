@@ -287,6 +287,24 @@ async function flushChatToSupabase(authUid, messages) {
 // caminos: marker estable que reconocen los smokes C1 como "este prompt
 // tiene contexto owner".
 
+// Bloque neutro que se emite a CEOs nuevos sin ceoProfile relleno
+// (pre-Antesala). Cero mención a identidades hardcoded — deja que el
+// LLM pregunte lo básico o trabaje sobre lo que el CEO le vaya diciendo.
+function buildCeoBlockNeutro(email) {
+  return `USUARIO ACTIVO — CEO Y PROPIETARIO:
+Email: ${email}
+
+Aún no dispones del perfil detallado de este CEO. No inventes su nombre, empresa, sector, ciudad ni proyectos. Si necesitas contexto para dar criterio, pregúntaselo directamente y ofrécele completar la Antesala para que el resto del Consejo lo tenga.
+
+CÓMO COMUNICARTE:
+- Directo al punto. Sin tecnicismos innecesarios.
+- Da opciones concretas (A o B), no listas de 10.
+- No asumas sector, ubicación ni tipo de negocio.
+
+---
+`;
+}
+
 function buildCeoBlockLegacyAntonio(email) {
   return `USUARIO ACTIVO — CEO Y PROPIETARIO:
 Nombre: Antonio Díaz
@@ -355,7 +373,20 @@ En las materias que ya cubre un profesional del CEO, analiza a fondo y entrega c
 export function buildCeoBlock(profile, usuarioActivo) {
   const email = usuarioActivo?.email || "qn.finanzas@gmail.com";
   const hasAny = profile && (profile.name || profile.company || profile.sector || profile.description);
-  if (!hasAny) return buildCeoBlockLegacyAntonio(email);
+  if (!hasAny) {
+    // FUGA CROSS-TENANT (21/08/2026): sin este guard, buildCeoBlockLegacyAntonio
+    // inyectaba la identidad completa de Antonio (ALMA DIMO/Marbella/Kluxor/HD5000)
+    // en el system prompt de Héctor de CUALQUIER CEO nuevo cuyo ceoProfile
+    // estaba vacío (caso BLANK_STATE de signup pre-Antesala). Las respuestas
+    // del LLM se persistían en hector_chat/localStorage del CEO, contaminando
+    // su historial con datos de Antonio.
+    //
+    // Guard founder-only estricto: el fallback legacy solo se aplica al
+    // fundador. Para cualquier otro tenant sin ceoProfile relleno →
+    // bloque neutro genérico que no menciona identidad hardcoded.
+    if (email === "qn.finanzas@gmail.com") return buildCeoBlockLegacyAntonio(email);
+    return buildCeoBlockNeutro(email);
+  }
   const name        = profile.name || "el CEO";
   const company     = profile.company ? `\nEmpresa: ${profile.company}` : "";
   const sector      = profile.sector ? `\nSector: ${profile.sector}` : "";
