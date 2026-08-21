@@ -441,7 +441,12 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
   }, [data?.boards, data?.projects, onOpenTask, onNavigate]);
 
   const [chatHistory, setChatHistory] = useState(() => {
-    if (!userId) return [];
+    // Fix (21/08/2026): userId puede ser 0 en tenants creados vía
+    // /api/signup — memberSeed.id === 0 (BLANK_STATE). El check
+    // `if (!userId)` trataba 0 como falsy y devolvía [], ignorando
+    // el opener sintético inyectado por App.jsx al completar la
+    // Antesala. Cambiado a comparación estricta contra null/undefined.
+    if (userId == null) return [];
     try {
       const raw = localStorage.getItem(CHAT_KEY);
       if (!raw) return [];
@@ -683,7 +688,10 @@ ACCIÓN: Convierte este análisis en acciones operativas. Si procede, propón ta
   // un único flush). El check de length evita flushes inútiles en
   // updates in-place que no cambian la longitud.
   useEffect(() => {
-    if (!userId) return;
+    // Fix (21/08/2026): userId puede ser 0 (tenants creados por signup).
+    // `!userId` lo trataba como falsy y saltaba el flush — el chat del
+    // CEO nuevo no se persistía en localStorage. Ver useState init arriba.
+    if (userId == null) return;
     try { localStorage.setItem(CHAT_KEY, JSON.stringify(chatHistory.slice(-CHAT_MAX))); } catch {}
     if (!authUid) return;
     flushDebounceRef.current = setTimeout(() => {
