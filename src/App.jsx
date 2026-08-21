@@ -15773,23 +15773,19 @@ Estructura recomendada de una respuesta con documento:
         initialStep={initialStep}
         initialAnswers={initialAnswers}
         onProgress={(answers, completedStep) => {
-          setData(prev => {
-            let next = applyAntesalaAnswers(prev, answers, {
-              progress: completedStep,
-              status: completedStep >= 7 ? "full-answered" : "progressing",
-              ownerMemberId: activeMember,
-            });
-            // Fix guardia (21/08/2026): marcar seenAt en el primer
-            // onProgress. El CEO respondió al menos el paso 1 → cuenta
-            // como "reconocido". Sin esto, si cerraba tras welcome sin
-            // responder, la guardia (con !seenAt añadido) le seguiría
-            // mostrando la Antesala — correcto. Pero al primer avance
-            // debe cerrarse el ciclo automático. Idempotente.
-            if (!next.ceoProfile?.antesalaSeenAt) {
-              next = { ...next, ceoProfile: { ...next.ceoProfile, antesalaSeenAt: new Date().toISOString() } };
-            }
-            return next;
-          });
+          setData(prev => applyAntesalaAnswers(prev, answers, {
+            progress: completedStep,
+            status: completedStep >= 7 ? "full-answered" : "progressing",
+            ownerMemberId: activeMember,
+          }));
+          // NOTA (21/08/2026): NO marcar antesalaSeenAt aquí. Marcarlo
+          // en el mismo tick que la guardia se reevalúa cerraba la
+          // Antesala tras el paso 1 (regresión reportada por Antonio).
+          // El backfill en _migrate cubre a los tenants pre-deploy;
+          // los tenants nuevos quedan cubiertos por completedAt (al
+          // llegar al Summary) y skippedAt (al aplazar). Si el CEO
+          // se queda a mitad, isResuming en AntesalaFlow salta al
+          // paso siguiente sin re-mostrar welcome. Sin regresión.
         }}
         onSkip={(answers, step) => {
           setData(prev => applyAntesalaAnswers(prev, answers, {

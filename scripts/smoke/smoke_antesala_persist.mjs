@@ -299,6 +299,26 @@ const BASE_DATA = () => ({
   assert(guardShown === false, "guardia evalúa false → Antesala NO se muestra (fix del bug)");
 }
 
+// ─── Caso 15: applyAntesalaAnswers NO marca seenAt (invariante) ──
+{
+  // Regresión del 21/08/2026: marcar antesalaSeenAt en el onProgress
+  // (a la vez que la guardia se reevalúa con !seenAt) cerraba la
+  // Antesala tras el paso 1. Este caso verifica que applyAntesalaAnswers
+  // NUNCA marca seenAt en ninguno de sus 4 status — es responsabilidad
+  // del backfill (en tenants pre-deploy con projects) o de los estados
+  // terminales (completedAt/skippedAt). Los CEOs nuevos mid-flow
+  // dependen de isResuming en AntesalaFlow para retomar, sin seenAt.
+  const prev = BASE_DATA();
+  const now = new Date("2026-08-21T12:00:00Z");
+  for (const status of ["progressing", "skipped", "full-answered", "completed"]) {
+    const next = applyAntesalaAnswers(prev, { name: "María" }, {
+      progress: 1, status, ownerMemberId: 6, now,
+    });
+    assert(!next.ceoProfile.antesalaSeenAt, `status="${status}" NO marca seenAt`);
+  }
+  console.log("Caso 15: applyAntesalaAnswers NO marca seenAt en ningún status ✓");
+}
+
 if (process.exitCode === 1) {
   console.log("\n=== ANTESALA PERSIST FAIL ===");
   process.exit(1);
@@ -319,3 +339,4 @@ console.log("Caso 11: backfill no marca si projects=0 (tenant nuevo) ✓");
 console.log("Caso 12: backfill no marca si completedAt ya está ✓");
 console.log("Caso 13: welcome+cierra sin responder → Antesala vuelve al reload ✓");
 console.log("Caso 14: Antonio borra proyectos post-backfill → guardia bloquea ✓");
+console.log("Caso 15: applyAntesalaAnswers NO marca seenAt en ningún status ✓");
