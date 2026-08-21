@@ -68,14 +68,17 @@ export default async function handler(req, res) {
     return json(res, 500, { error: `insert: ${insErr.message}` });
   }
 
-  // 5) URL de invitación. Canonicalizamos a kluxor.com salvo que la
-  //    request venga de una preview de Vercel (dominios con "-git-" o
-  //    "-<sha>-"). Fix (21/08/2026): antes usábamos req.headers.host
-  //    directo, lo que emitía URLs "tareas-equipo.vercel.app" cuando el
-  //    CEO invitador entraba por el dominio Vercel por defecto.
-  const rawHost = req.headers?.host || "";
-  const isPreview = /-git-|-[a-f0-9]{9}-/i.test(rawHost);
-  const host = isPreview ? rawHost : "kluxor.com";
+  // 5) URL de invitación. Canonicalizamos SOLO el dominio Vercel por
+  //    defecto ("tareas-equipo.vercel.app") a "kluxor.com". Kluxor.com y
+  //    cualquier preview de Vercel (dominios con -git-<branch>- o
+  //    -<hash>-<team>.vercel.app, longitud variable) pasan raw.
+  //    Fix (21/08/2026): antes usábamos req.headers.host directo, lo que
+  //    emitía URLs "tareas-equipo.vercel.app" cuando el CEO invitador
+  //    entraba por el dominio Vercel por defecto.
+  const rawHost = (req.headers?.host || "").toLowerCase();
+  const host = rawHost === "tareas-equipo.vercel.app" || !rawHost
+    ? "kluxor.com"
+    : rawHost;
   const proto = req.headers?.["x-forwarded-proto"] || "https";
   const url = `${proto}://${host}/signup?token=${encodeURIComponent(token)}`;
 
