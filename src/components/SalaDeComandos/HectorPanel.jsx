@@ -377,7 +377,11 @@ export default function HectorPanel({
     // quedaríamos pegados a esa clave aunque userId se defina después.
     // El useEffect [userId] de abajo se encarga de re-hidratar cuando ya
     // tenemos un userId real.
-    if (!userId) return [];
+    // Fix (21/08/2026): userId puede ser 0 en tenants creados vía
+    // /api/signup (memberSeed.id === 0). El check !userId lo trataba
+    // como falsy y dejaba el chat vacío. Comparación estricta contra
+    // null/undefined. Mismo bug ya fijado en HectorDirectView.
+    if (userId == null) return [];
     try {
       const raw = localStorage.getItem(CHAT_KEY);
       if (!raw) return [];
@@ -508,7 +512,8 @@ export default function HectorPanel({
   // — sin él la clave colapsa a "kluxor.hector.chat.anon" y pisaríamos
   // chats de sesiones futuras o perderíamos el state real al recargar.
   useEffect(() => {
-    if (!userId) return;
+    // Fix (21/08/2026): userId=0 no era falsy — igual que arriba.
+    if (userId == null) return;
     try {
       localStorage.setItem(CHAT_KEY, JSON.stringify(chatHistory.slice(-CHAT_MAX)));
     } catch {}
@@ -520,7 +525,8 @@ export default function HectorPanel({
   // real, leemos la clave correcta y restauramos la conversación. El
   // efecto solo dispara cuando userId cambia (no en cada render).
   useEffect(() => {
-    if (!userId) return;
+    // Fix (21/08/2026): userId=0 no era falsy — igual que arriba.
+    if (userId == null) return;
     try {
       const raw = localStorage.getItem(CHAT_KEY);
       if (!raw) return;
