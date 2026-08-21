@@ -415,9 +415,17 @@ CÓMO COMUNICARTE:
 }
 
 export default function HectorDirectView({ data, userId, authUid, onRunAgentActions, onNavigate, onOpenTask, onOpenNegotiation, onOpenProject, financeContext, pendingExecBridge, onConsumePendingExecBridge, onSaveCouncilDocument, onRequestSavePlace, onPersistRuta }) {
+  // Chat key scoped por authUid (UUID único por auth user) en lugar de userId
+  // (member.id numérico local que puede colisionar entre tenants creados vía
+  // /api/signup — todos tienen memberSeed.id === 0). Antonio y demás tenants
+  // pre-authUid mantienen su clave legacy vía migrateHectorChatKey (ver más
+  // abajo) — mueve `kluxor.hector.chat.<userId>` a `kluxor.hector.chat.uid.<authUid>`
+  // SOLO cuando userId != 0 (userId=0 es la clave colisión potencial de signups).
   const userKey = userId != null ? userId : "anon";
-  // Misma clave que usa HectorPanel.jsx → conversación compartida.
-  const CHAT_KEY = `kluxor.hector.chat.${userKey}`;
+  const CHAT_KEY = authUid
+    ? `kluxor.hector.chat.uid.${authUid}`
+    : `kluxor.hector.chat.${userKey}`;
+  const LEGACY_CHAT_KEY = `kluxor.hector.chat.${userKey}`;
   const userName = (data?.members || []).find(m => m.id === userId)?.name || "CEO";
   const userInitials = userName.split(" ").map(w => (w[0]||"").toUpperCase()).slice(0, 2).join("") || "CE";
   const memberForCtx = (data?.members || []).find(m => m && m.id === userId) || null;
@@ -479,6 +487,37 @@ export default function HectorDirectView({ data, userId, authUid, onRunAgentActi
     // Antesala. Cambiado a comparación estricta contra null/undefined.
     if (userId == null) return [];
     try {
+      // Migración one-time (21/08/2026): chatKey scoped por authUid
+      // para evitar colisiones entre tenants nuevos que comparten
+      // memberSeed.id === 0. Si la clave nueva no existe pero la
+      // legacy sí Y userId > 0 (o sea NO es la clave colisión de
+      // signups) → migramos. userId === 0 se descarta como potencial
+      // contaminación de sesiones previas en el mismo navegador.
+      if (authUid && CHAT_KEY !== LEGACY_CHAT_KEY) {
+        const newRaw = localStorage.getItem(CHAT_KEY);
+        if (!newRaw) {
+          const legacyRaw = localStorage.getItem(LEGACY_CHAT_KEY);
+          if (legacyRaw && userId > 0) {
+            localStorage.setItem(CHAT_KEY, legacyRaw);
+            localStorage.removeItem(LEGACY_CHAT_KEY);
+            console.log(`[Kluxor] chatKey migrado ${LEGACY_CHAT_KEY} → ${CHAT_KEY}`);
+          } else if (legacyRaw && userId === 0) {
+            // Clave colisión potencial: la borramos sin migrar. El CEO
+            // nuevo arranca con chat limpio. La opener sintética de
+            // Antesala (si aún no montó Héctor) se ha inyectado antes
+            // en la clave legacy — copiémosla defensivamente si es un
+            // único mensaje con role="assistant".
+            try {
+              const parsedLegacy = JSON.parse(legacyRaw);
+              if (Array.isArray(parsedLegacy) && parsedLegacy.length === 1 && parsedLegacy[0]?.role === "assistant") {
+                localStorage.setItem(CHAT_KEY, legacyRaw);
+                console.log(`[Kluxor] opener Antesala rescatado de ${LEGACY_CHAT_KEY} → ${CHAT_KEY}`);
+              }
+            } catch { /* legacy malformado, ignorar */ }
+            localStorage.removeItem(LEGACY_CHAT_KEY);
+          }
+        }
+      }
       const raw = localStorage.getItem(CHAT_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);

@@ -15886,7 +15886,14 @@ Estructura recomendada de una respuesta con documento:
           // en el localStorage del chat antes de redirigir; HectorDirectView
           // lo hidrata al montar.
           try {
-            const chatKey = `kluxor.hector.chat.${activeMember != null ? activeMember : "anon"}`;
+            // Chat key scoped por authUid (UUID único). Fallback a
+            // activeMember solo si no hay authSession (caso legacy).
+            // Fix 21/08/2026 · fuga cross-tenant: activeMember colisionaba
+            // en id=0 para todos los tenants creados vía /api/signup.
+            const authUidForKey = authSession?.user?.id || null;
+            const chatKey = authUidForKey
+              ? `kluxor.hector.chat.uid.${authUidForKey}`
+              : `kluxor.hector.chat.${activeMember != null ? activeMember : "anon"}`;
             const nombre = String(answers.name || "").trim();
             const saludo = nombre ? `Bienvenido a Kluxor, ${nombre}.` : "Bienvenido a Kluxor.";
             const openerText = fronts.length === 3

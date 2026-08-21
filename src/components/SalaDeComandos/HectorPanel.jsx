@@ -300,7 +300,15 @@ export default function HectorPanel({
   onAddTimelineEntry,
 }) {
   const STORAGE_KEY = `kluxor.hector.recs.${userId ?? "anon"}`;
-  const CHAT_KEY = `kluxor.hector.chat.${userId ?? "anon"}`;
+  // Chat key scoped por authUid (UUID único por auth user) en lugar de userId
+  // (member.id numérico local que puede colisionar entre tenants creados vía
+  // /api/signup — todos tienen memberSeed.id === 0). Fix 21/08/2026: fuga
+  // cross-tenant en Sala de Mando por colisión id=0. Migración one-time más
+  // abajo. Antonio y demás tenants pre-authUid mantienen su clave legacy.
+  const CHAT_KEY = authUid
+    ? `kluxor.hector.chat.uid.${authUid}`
+    : `kluxor.hector.chat.${userId ?? "anon"}`;
+  const LEGACY_CHAT_KEY = `kluxor.hector.chat.${userId ?? "anon"}`;
   const SESSION_KEY = `kluxor.hector.session.${userId ?? "anon"}`;
 
   const [hectorState, setHectorState] = useState("listening");
@@ -383,6 +391,29 @@ export default function HectorPanel({
     // null/undefined. Mismo bug ya fijado en HectorDirectView.
     if (userId == null) return [];
     try {
+      // Migración one-time (21/08/2026): chatKey scoped por authUid.
+      // Antonio y otros pre-authUid con userId>0 migran; tenants signup
+      // con userId===0 arrancan limpios (evita fuga de sesión previa
+      // en el mismo navegador). Ver HectorDirectView para detalles.
+      if (authUid && CHAT_KEY !== LEGACY_CHAT_KEY) {
+        const newRaw = localStorage.getItem(CHAT_KEY);
+        if (!newRaw) {
+          const legacyRaw = localStorage.getItem(LEGACY_CHAT_KEY);
+          if (legacyRaw && userId > 0) {
+            localStorage.setItem(CHAT_KEY, legacyRaw);
+            localStorage.removeItem(LEGACY_CHAT_KEY);
+            console.log(`[Kluxor · Sala] chatKey migrado ${LEGACY_CHAT_KEY} → ${CHAT_KEY}`);
+          } else if (legacyRaw && userId === 0) {
+            try {
+              const parsedLegacy = JSON.parse(legacyRaw);
+              if (Array.isArray(parsedLegacy) && parsedLegacy.length === 1 && parsedLegacy[0]?.role === "assistant") {
+                localStorage.setItem(CHAT_KEY, legacyRaw);
+              }
+            } catch {}
+            localStorage.removeItem(LEGACY_CHAT_KEY);
+          }
+        }
+      }
       const raw = localStorage.getItem(CHAT_KEY);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
