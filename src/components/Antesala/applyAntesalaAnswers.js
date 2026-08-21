@@ -246,3 +246,37 @@ export function extractAntesalaAnswers(data, ownerMemberId) {
 
   return answers;
 }
+
+// backfillAntesalaSeenAt — cubre el bug de la guardia (21/08/2026):
+// tenants pre-deploy (Antonio y cualquier tenant operativo con
+// proyectos existentes) tienen antesalaCompletedAt=null y
+// antesalaSeenAt=null porque nunca vieron la Antesala. Sin este
+// backfill, si borraran todos sus proyectos la guardia
+// projects.length===0 les dispararía la Antesala inesperadamente.
+//
+// Regla del backfill: al cargar data, si el tenant YA tiene proyectos
+// Y no había marcado seenAt, se le sella como "ya reconocido" con la
+// fecha actual. A partir de ahí NUNCA verá la Antesala automáticamente
+// (ni aunque borre todo). Solo aparecería si él mismo pulsa el chip
+// "Completar Antesala" del sidebar (que aún requiere progress > 0).
+//
+// Idempotente: si seenAt ya está seteado, no toca. Si projects=0 (tenant
+// realmente nuevo), no toca — deja que la Antesala se dispare al primer
+// login. Si completedAt ya está seteado, no hace falta el backfill
+// (la guardia ya bloquea por completedAt).
+//
+// Se llama desde _migrate en App.jsx en cada carga de data (localStorage,
+// primera carga Supabase y suscripciones realtime).
+export function backfillAntesalaSeenAt(prev, opts = {}) {
+  const now = opts.now instanceof Date ? opts.now : new Date();
+  const nowIso = now.toISOString();
+  const cp = (prev && prev.ceoProfile) || {};
+  const hasProjects = Array.isArray(prev && prev.projects) && prev.projects.length > 0;
+  const alreadySeen = !!cp.antesalaSeenAt;
+  const alreadyCompleted = !!cp.antesalaCompletedAt;
+  if (!hasProjects || alreadySeen || alreadyCompleted) return prev;
+  return {
+    ...prev,
+    ceoProfile: { ...cp, antesalaSeenAt: nowIso },
+  };
+}

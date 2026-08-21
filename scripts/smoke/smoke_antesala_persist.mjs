@@ -14,7 +14,7 @@
 //           members[i].avail ni places[home].
 //   Caso 6: filtrado de advisors — keys inválidas se descartan.
 
-import { applyAntesalaAnswers, extractAntesalaAnswers } from "../../src/components/Antesala/applyAntesalaAnswers.js";
+import { applyAntesalaAnswers, extractAntesalaAnswers, backfillAntesalaSeenAt } from "../../src/components/Antesala/applyAntesalaAnswers.js";
 
 function assert(cond, label) {
   if (!cond) { console.error(`✗ ${label}`); process.exitCode = 1; return false; }
@@ -198,6 +198,107 @@ const BASE_DATA = () => ({
   assert(Array.isArray(restored.advisors) && restored.advisors.length === 2, "advisors restored");
 }
 
+// ─── Caso 9: backfill — tenant pre-deploy con proyectos ───────────
+{
+  const prev = {
+    ceoProfile: { name: "", antesalaCompletedAt: null, antesalaSkippedAt: null, antesalaSeenAt: null },
+    projects: [{ id: 1, name: "Proyecto existente" }, { id: 2, name: "Otro" }],
+    boards: {},
+  };
+  const now = new Date("2026-08-21T09:00:00Z");
+  const next = backfillAntesalaSeenAt(prev, { now });
+
+  console.log("Caso 9: backfill tenant pre-deploy con proyectos");
+  assert(next.ceoProfile.antesalaSeenAt === "2026-08-21T09:00:00.000Z", "seenAt marcado con timestamp");
+  assert(prev.ceoProfile.antesalaSeenAt === null, "prev NO mutado");
+  assert(next.projects === prev.projects, "projects referencia intacta (solo mutamos ceoProfile)");
+}
+
+// ─── Caso 10: backfill idempotente si seenAt ya está ──────────────
+{
+  const prev = {
+    ceoProfile: { antesalaSeenAt: "2020-01-01T00:00:00.000Z", antesalaCompletedAt: null },
+    projects: [{ id: 1 }],
+  };
+  const next = backfillAntesalaSeenAt(prev, { now: new Date("2026-08-21T09:00:00Z") });
+
+  console.log("Caso 10: backfill idempotente si seenAt ya está");
+  assert(next === prev, "devuelve el mismo prev sin tocar");
+  assert(next.ceoProfile.antesalaSeenAt === "2020-01-01T00:00:00.000Z", "seenAt previo preservado");
+}
+
+// ─── Caso 11: backfill no marca si projects=0 (tenant nuevo) ──────
+{
+  const prev = {
+    ceoProfile: { antesalaSeenAt: null, antesalaCompletedAt: null },
+    projects: [],
+  };
+  const next = backfillAntesalaSeenAt(prev, { now: new Date("2026-08-21T09:00:00Z") });
+
+  console.log("Caso 11: tenant nuevo (projects=0) — no backfill");
+  assert(next === prev, "devuelve el mismo prev");
+  assert(next.ceoProfile.antesalaSeenAt === null, "seenAt sigue null (deja que la Antesala se dispare)");
+}
+
+// ─── Caso 12: backfill no marca si completedAt ya está ────────────
+{
+  const prev = {
+    ceoProfile: { antesalaSeenAt: null, antesalaCompletedAt: "2025-12-01T00:00:00.000Z" },
+    projects: [{ id: 1 }],
+  };
+  const next = backfillAntesalaSeenAt(prev, { now: new Date("2026-08-21T09:00:00Z") });
+
+  console.log("Caso 12: completedAt ya seteado — no backfill (guardia ya bloquea)");
+  assert(next === prev, "devuelve el mismo prev");
+  assert(next.ceoProfile.antesalaSeenAt === null, "seenAt sigue null (completedAt ya bloquea)");
+}
+
+// ─── Caso 13: escenario welcome+cierra sin responder ──────────────
+{
+  // Simula: CEO nuevo abre la app, ve welcome, cierra sin responder.
+  // NUNCA se llama a applyAntesalaAnswers (no hubo onProgress).
+  // El backfill tampoco toca (projects=0).
+  // El seenAt sigue null → la guardia mostrará la Antesala al reload.
+  const prev = {
+    ceoProfile: { antesalaSeenAt: null, antesalaCompletedAt: null, antesalaSkippedAt: null, antesalaProgress: 0 },
+    projects: [],
+    members: [{ id: 0, name: "CEO", accountRole: "admin" }],
+  };
+  const next = backfillAntesalaSeenAt(prev, { now: new Date("2026-08-21T09:00:00Z") });
+
+  console.log("Caso 13: welcome + cierra sin responder → sigue viendo Antesala al reload");
+  assert(next.ceoProfile.antesalaSeenAt === null, "seenAt sigue null (no hay projects)");
+  assert(next.ceoProfile.antesalaProgress === 0, "progress sigue 0");
+  // La guardia (fuera de este helper) evaluaría:
+  // syncReady && isOwner && projects.length===0 && !completedAt && !skippedAt && !seenAt
+  // → TRUE (todos los negados son true, todos los positivos también).
+  // Reproducimos:
+  const guardShown = true && true && (next.projects.length === 0) && !next.ceoProfile.antesalaCompletedAt && !next.ceoProfile.antesalaSkippedAt && !next.ceoProfile.antesalaSeenAt;
+  assert(guardShown === true, "guardia evalúa true → Antesala se mostraría al reload");
+}
+
+// ─── Caso 14: escenario Antonio borra sus proyectos ───────────────
+{
+  // Antonio tras backfill: seenAt marcado. Guardia con !seenAt bloquea
+  // aunque borre todos los proyectos. Este es el bug de la guardia
+  // que Antonio detectó en la verificación previa al push (21/08).
+  const prev = {
+    ceoProfile: { antesalaSeenAt: null, antesalaCompletedAt: null, antesalaSkippedAt: null, antesalaProgress: 0 },
+    projects: [{ id: 1, name: "P1" }, { id: 2, name: "P2" }],
+  };
+  // Backfill al primer load post-deploy.
+  let d = backfillAntesalaSeenAt(prev, { now: new Date("2026-08-21T09:00:00Z") });
+  // Antonio borra todos sus proyectos.
+  d = { ...d, projects: [] };
+  // Reload → backfill vuelve a correr, pero ahora seenAt ya está.
+  d = backfillAntesalaSeenAt(d, { now: new Date("2026-08-22T10:00:00Z") });
+
+  console.log("Caso 14: Antonio borra proyectos tras backfill → NO ve Antesala");
+  assert(d.ceoProfile.antesalaSeenAt === "2026-08-21T09:00:00.000Z", "seenAt preservado (idempotente)");
+  const guardShown = true && true && (d.projects.length === 0) && !d.ceoProfile.antesalaCompletedAt && !d.ceoProfile.antesalaSkippedAt && !d.ceoProfile.antesalaSeenAt;
+  assert(guardShown === false, "guardia evalúa false → Antesala NO se muestra (fix del bug)");
+}
+
 if (process.exitCode === 1) {
   console.log("\n=== ANTESALA PERSIST FAIL ===");
   process.exit(1);
@@ -212,3 +313,9 @@ console.log("Caso 5:  sin ownerMemberId degrada silencioso ✓");
 console.log("Caso 6:  advisors — solo keys válidas ✓");
 console.log("Caso 7:  'none' exclusivo se preserva ✓");
 console.log("Caso 8:  extractAntesalaAnswers round-trip ✓");
+console.log("Caso 9:  backfill marca seenAt en tenant pre-deploy con proyectos ✓");
+console.log("Caso 10: backfill idempotente si seenAt ya está ✓");
+console.log("Caso 11: backfill no marca si projects=0 (tenant nuevo) ✓");
+console.log("Caso 12: backfill no marca si completedAt ya está ✓");
+console.log("Caso 13: welcome+cierra sin responder → Antesala vuelve al reload ✓");
+console.log("Caso 14: Antonio borra proyectos post-backfill → guardia bloquea ✓");

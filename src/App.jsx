@@ -71,7 +71,7 @@ import { voiceSupported, speak, stopSpeaking, listen, speakAgentResponse, stripM
 import { emptyCeoMemory, emptyNegMemory, formatCeoMemoryForPrompt, formatNegMemoryForPrompt, addUnique, CEO_MEMORY_KEYS, NEG_MEMORY_KEYS, createMemoryItem } from "./lib/memory.js";
 import { PROJECT_CODE_RE, isValidProjectCode, autoProjectCode } from "./lib/projectCode.js";
 import AntesalaFlow from "./components/Antesala/AntesalaFlow.jsx";
-import { applyAntesalaAnswers, extractAntesalaAnswers } from "./components/Antesala/applyAntesalaAnswers.js";
+import { applyAntesalaAnswers, extractAntesalaAnswers, backfillAntesalaSeenAt } from "./components/Antesala/applyAntesalaAnswers.js";
 import { materializeAntesalaFronts } from "./components/Antesala/materializeAntesalaFronts.js";
 
 // ── Migración localStorage Kluxor → Kluxor (commit 8 — branding) ──────────
@@ -1499,6 +1499,16 @@ function _migrate(d){
   if (cp.antesalaCompletedAt === undefined) cp.antesalaCompletedAt = null;
   if (cp.antesalaSkippedAt   !== undefined && cp.antesalaSkippedAt   !== null && typeof cp.antesalaSkippedAt   !== "string") cp.antesalaSkippedAt   = null;
   if (cp.antesalaSkippedAt   === undefined) cp.antesalaSkippedAt   = null;
+  if (cp.antesalaSeenAt      !== undefined && cp.antesalaSeenAt      !== null && typeof cp.antesalaSeenAt      !== "string") cp.antesalaSeenAt      = null;
+  if (cp.antesalaSeenAt      === undefined) cp.antesalaSeenAt      = null;
+
+  // Backfill antesalaSeenAt (fix guardia · 21/08/2026): tenants
+  // pre-deploy con proyectos existentes se sellan como "ya reconocidos".
+  // Sin esto, borrar todos los proyectos dispararía la Antesala. El
+  // backfill es idempotente: si projects=0 o seenAt/completedAt ya
+  // están → no toca. Ver applyAntesalaAnswers.js:backfillAntesalaSeenAt.
+  Object.assign(d, backfillAntesalaSeenAt(d));
+
   // Permisos granulares por feature: {[memberId]: {[feature]: {view, edit, admin}}}.
   // El admin global (accountRole==="admin") tiene acceso total automáticamente
   // y no necesita entradas aquí. Idempotente: si existe se respeta.
@@ -15744,8 +15754,15 @@ Estructura recomendada de una respuesta con documento:
   const _cp = data?.ceoProfile || {};
   const _antesalaCompleted = !!_cp.antesalaCompletedAt;
   const _antesalaSkipped   = !!_cp.antesalaSkippedAt;
+  const _antesalaSeen      = !!_cp.antesalaSeenAt;
   const _tenantIsFresh     = (data?.projects || []).length === 0;
-  const _antesalaShouldShow = syncReady && _antesalaIsOwner && _tenantIsFresh && !_antesalaCompleted && !_antesalaSkipped;
+  // Fix guardia (21/08/2026): !_antesalaSeen añadido. El backfill en
+  // _migrate marca seenAt en tenants pre-deploy con proyectos → nunca
+  // ven la Antesala aunque borren todo. En tenants nuevos seenAt se
+  // marca al primer onProgress (respondió paso 1) — antes de eso, el
+  // CEO que abre welcome y cierra sin responder vuelve a verla al
+  // reload (progress=0 && !seenAt).
+  const _antesalaShouldShow = syncReady && _antesalaIsOwner && _tenantIsFresh && !_antesalaCompleted && !_antesalaSkipped && !_antesalaSeen;
   const antesalaVisible = _antesalaShouldShow || antesalaReopen;
 
   if (antesalaVisible) {
@@ -15756,11 +15773,23 @@ Estructura recomendada de una respuesta con documento:
         initialStep={initialStep}
         initialAnswers={initialAnswers}
         onProgress={(answers, completedStep) => {
-          setData(prev => applyAntesalaAnswers(prev, answers, {
-            progress: completedStep,
-            status: completedStep >= 7 ? "full-answered" : "progressing",
-            ownerMemberId: activeMember,
-          }));
+          setData(prev => {
+            let next = applyAntesalaAnswers(prev, answers, {
+              progress: completedStep,
+              status: completedStep >= 7 ? "full-answered" : "progressing",
+              ownerMemberId: activeMember,
+            });
+            // Fix guardia (21/08/2026): marcar seenAt en el primer
+            // onProgress. El CEO respondió al menos el paso 1 → cuenta
+            // como "reconocido". Sin esto, si cerraba tras welcome sin
+            // responder, la guardia (con !seenAt añadido) le seguiría
+            // mostrando la Antesala — correcto. Pero al primer avance
+            // debe cerrarse el ciclo automático. Idempotente.
+            if (!next.ceoProfile?.antesalaSeenAt) {
+              next = { ...next, ceoProfile: { ...next.ceoProfile, antesalaSeenAt: new Date().toISOString() } };
+            }
+            return next;
+          });
         }}
         onSkip={(answers, step) => {
           setData(prev => applyAntesalaAnswers(prev, answers, {
