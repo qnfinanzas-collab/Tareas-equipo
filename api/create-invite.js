@@ -68,8 +68,14 @@ export default async function handler(req, res) {
     return json(res, 500, { error: `insert: ${insErr.message}` });
   }
 
-  // 5) URL de invitación. Usamos el host del request (soporta prod y previews).
-  const host = req.headers?.host || "tareas-equipo.vercel.app";
+  // 5) URL de invitación. Canonicalizamos a kluxor.com salvo que la
+  //    request venga de una preview de Vercel (dominios con "-git-" o
+  //    "-<sha>-"). Fix (21/08/2026): antes usábamos req.headers.host
+  //    directo, lo que emitía URLs "tareas-equipo.vercel.app" cuando el
+  //    CEO invitador entraba por el dominio Vercel por defecto.
+  const rawHost = req.headers?.host || "";
+  const isPreview = /-git-|-[a-f0-9]{9}-/i.test(rawHost);
+  const host = isPreview ? rawHost : "kluxor.com";
   const proto = req.headers?.["x-forwarded-proto"] || "https";
   const url = `${proto}://${host}/signup?token=${encodeURIComponent(token)}`;
 
